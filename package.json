@@ -1,0 +1,20 @@
+{
+  "name": "interview-assistant",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev:api": "pnpm --filter @interview/shared build && pnpm --filter @interview/api dev",
+    "dev:desktop": "pnpm --filter @interview/shared build && pnpm --filter @interview/desktop dev",
+    "build:shared": "pnpm --filter @interview/shared build",
+    "build": "pnpm --filter @interview/shared build && pnpm -r build",
+    "build:api": "pnpm --filter @interview/api build",
+    "build:desktop": "pnpm --filter @interview/desktop build",
+    "dist:desktop": "pnpm --filter @interview/desktop dist",
+    "db:generate": "pnpm --filter @interview/api db:generate",
+    "db:migrate": "pnpm --filter @interview/api db:migrate",
+    "db:push": "pnpm --filter @interview/api db:push"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

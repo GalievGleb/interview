@@ -1,0 +1,119 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background-color: theme('colors.surface.DEFAULT');
+    color: theme('colors.ink.DEFAULT');
+    font-family: theme('fontFamily.sans');
+    font-feature-settings: 'cv11', 'ss01';
+    font-variation-settings: 'opsz' 32;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background: theme('colors.accent.soft');
+    color: theme('colors.ink.DEFAULT');
+  }
+
+  /* Тонкий, ненавязчивый скроллбар в стиле dark SaaS */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: theme('colors.surface.border');
+    border: 2px solid transparent;
+    background-clip: padding-box;
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: theme('colors.surface.border-strong');
+    background-clip: padding-box;
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-2xl border border-surface-border bg-surface-light shadow-card;
+  }
+
+  .card-hover {
+    @apply transition-colors hover:border-surface-border-strong hover:bg-surface-hover;
+  }
+
+  /* Кнопки */
+  .btn {
+    @apply inline-flex select-none items-center justify-center gap-2 rounded-xl px-4 py-2.5
+      text-sm font-medium transition-all duration-150
+      disabled:pointer-events-none disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply btn bg-accent text-white shadow-soft hover:bg-accent-hover
+      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring;
+  }
+  .btn-secondary {
+    @apply btn border border-surface-border bg-surface-elevated text-ink
+      hover:border-surface-border-strong hover:bg-surface-hover;
+  }
+  .btn-ghost {
+    @apply btn text-ink-muted hover:bg-surface-light hover:text-ink;
+  }
+  .btn-danger {
+    @apply btn border border-red-900/50 bg-red-950/20 text-red-300 hover:bg-red-950/50;
+  }
+  .btn-sm {
+    @apply px-3 py-1.5 text-xs;
+  }
+
+  /* Формы */
+  .label {
+    @apply mb-1.5 block text-xs font-medium text-ink-muted;
+  }
+  .field {
+    @apply w-full rounded-xl border border-surface-border bg-surface px-3.5 py-2.5 text-sm
+      text-ink placeholder:text-ink-faint outline-none transition
+      focus:border-accent focus:ring-2 focus:ring-accent-ring;
+  }
+  select.field {
+    @apply cursor-pointer appearance-none bg-no-repeat pr-9;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%239aa1ad' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+    background-position: right 0.75rem center;
+  }
+
+  /* Бейджи / пилюли */
+  .pill {
+    @apply inline-flex items-center gap-1.5 rounded-full border border-surface-border
+      bg-surface-elevated px-2.5 py-1 text-xs text-ink-muted;
+  }
+
+  /* Заголовок секции/страницы */
+  .page-title {
+    @apply text-xl font-semibold tracking-tight text-ink;
+  }
+  .page-subtitle {
+    @apply text-sm text-ink-muted;
+  }
+}
+
+@layer utilities {
+  .overlay-drag {
+    -webkit-app-region: drag;
+  }
+  .overlay-no-drag {
+    -webkit-app-region: no-drag;
+  }
+}

@@ -1,0 +1,23 @@
+node_modules/
+dist/
+dist-electron/
+release/
+.env
+.env.local
+*.log
+.DS_Store
+Thumbs.db
+.turbo/
+coverage/
+*.tsbuildinfo
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local data
+apps/api-py/data/
+*.sqlite
+*.db

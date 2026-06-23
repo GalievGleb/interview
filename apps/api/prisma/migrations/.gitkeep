@@ -1,0 +1,2 @@
+# Prisma migrations applied via `pnpm db:push` for MVP.
+# For production use: pnpm db:migrate

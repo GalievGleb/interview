@@ -1,0 +1,410 @@
+import json
+import re
+
+from fastapi import APIRouter, Depends
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
+
+from app.db.models import Answer, ApiUsage
+from app.db.session import SessionLocal, get_db
+from app.prompts.interview import INTERVIEW_PROMPT
+from app.prompts.interview_fast import (
+    INTERVIEW_PROMPT_STREAM,
+    LIVE_SYSTEM_PROMPT,
+    RESUME_CONTEXT_LIMIT,
+    VACANCY_CONTEXT_LIMIT,
+)
+from app.prompts.meeting import MEETING_PROMPT
+from app.prompts.system import SYSTEM_PROMPT
+from app.services import model_router, provider_adapter, rag_service, transcript_correction
+from app.services.preferences import load_preferences
+
+router = APIRouter(tags=["chat"])
+
+FAST_CONTEXT_LIMIT = 350
+
+
+def _clip(text: str, limit: int = FAST_CONTEXT_LIMIT) -> str:
+    text = (text or "").strip()
+    if len(text) <= limit:
+        return text
+    return text[:limit] + "…"
+
+
+class ChatPayload(BaseModel):
+    message: str
+    mode: str = "general"  # general | coding | fast | deep
+    context: str | None = None
+    model_override: str | None = Field(default=None, alias="modelOverride")
+    provider: str | None = None
+    session_id: str | None = None
+
+    model_config = {"populate_by_name": True}
+
+
+class InterviewPayload(BaseModel):
+    question: str
+    raw_question: str | None = None
+    glossary_corrected: str | None = None
+    intent_corrected: str | None = None
+    ambiguity: str | None = None
+    corrections: list[dict] | None = None
+    intent_corrections: list[dict] | None = None
+    intent_confidence: str | None = None
+    intent_reason: str | None = None
+    needs_llm_correction: bool | None = None
+    mode: str = "fast"  # fast для live, general для ручного ввода
+    provider: str | None = None
+    model: str | None = None
+    model_override: str | None = Field(default=None, alias="modelOverride")
+    session_id: str | None = None
+
+    model_config = {"populate_by_name": True}
+
+
+class MeetingPayload(BaseModel):
+    transcript: str
+    mode: str = "deep"
+    provider: str | None = None
+    model: str | None = None
+    model_override: str | None = Field(default=None, alias="modelOverride")
+
+    model_config = {"populate_by_name": True}
+
+
+async def _finalize_question(payload: InterviewPayload) -> tuple[str, str, str, dict]:
+    raw = (payload.raw_question or payload.question or "").strip()
+    glossary = (payload.glossary_corrected or payload.question or raw).strip()
+    intent = (payload.intent_corrected or payload.question or glossary).strip()
+    meta: dict = {
+        "raw_question": raw,
+        "glossary_corrected": glossary,
+        "intent_corrected": intent,
+        "llm_corrected": intent,
+        "ambiguity": payload.ambiguity,
+        "corrections": payload.corrections or [],
+        "intent_corrections": payload.intent_corrections or [],
+        "intent_confidence": payload.intent_confidence,
+        "intent_reason": payload.intent_reason,
+        "llm_correction_applied": False,
+    }
+
+    final = intent
+    if transcript_correction.should_llm_correct(
+        raw_question=raw,
+        glossary_corrected=glossary,
+        corrections=payload.corrections,
+        needs_llm_correction=payload.needs_llm_correction,
+    ):
+        llm_result = await transcript_correction.llm_correct_transcript(raw, intent)
+        corrected = str(llm_result.get("corrected") or intent).strip()
+        if corrected:
+            final = corrected
+            meta["llm_corrected"] = corrected
+            meta["llm_correction_applied"] = True
+            meta["llm_confidence"] = llm_result.get("confidence")
+            meta["llm_reason"] = llm_result.get("reason")
+
+    return final, raw, glossary, meta
+
+
+def _resolve_chat(
+    mode: str,
+    *,
+    provider: str | None = None,
+    model: str | None = None,
+    model_override: str | None = None,
+) -> tuple[str, str, str]:
+    prefs = load_preferences()
+    available = {m.id for m in prefs.models_cache}
+    resolved_provider = provider or prefs.provider or "openrouter"
+    override = model_override or model
+    resolved_model, _source = model_router.resolve_model(
+        mode,
+        model_override=override,
+        prefs=prefs,
+        available=available,
+    )
+    return resolved_provider, resolved_model, _source
+
+
+@router.post("/chat")
+async def chat(payload: ChatPayload, db: Session = Depends(get_db)):
+    """Стриминговый ответ (SSE). Подмешивает RAG-контекст."""
+    provider, model, _ = _resolve_chat(
+        payload.mode,
+        provider=payload.provider,
+        model_override=payload.model_override,
+    )
+
+    context_chunks = await rag_service.search(db, payload.message, top_k=5)
+    context = payload.context or "\n\n".join(c["text"] for c in context_chunks)
+
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    if context:
+        messages.append({"role": "system", "content": f"User context (retrieved):\n{context}"})
+    messages.append({"role": "user", "content": payload.message})
+
+    async def event_stream():
+        try:
+            async for delta in provider_adapter.stream_chat(
+                messages, provider, model
+            ):
+                yield f"data: {json.dumps({'type': 'chunk', 'text': delta})}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'model': model})}\n\n"
+        except Exception as exc:
+            msg = getattr(exc, "message", str(exc))
+            yield f"data: {json.dumps({'type': 'error', 'message': msg})}\n\n"
+
+    db.add(ApiUsage(provider=provider, kind="chat"))
+    db.commit()
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@router.post("/chat/interview")
+async def interview(payload: InterviewPayload, db: Session = Depends(get_db)) -> dict:
+    """Возвращает структурированный ответ интервью (short/spoken/detailed/en/risk)."""
+    is_fast = payload.mode == "fast"
+    provider, model, source = _resolve_chat(
+        payload.mode,
+        provider=payload.provider,
+        model=payload.model,
+        model_override=payload.model_override,
+    )
+
+    resume = _clip(rag_service.get_context_text(db, "resume"), RESUME_CONTEXT_LIMIT)
+    vacancy = _clip(rag_service.get_context_text(db, "vacancy"), VACANCY_CONTEXT_LIMIT)
+    final_question, raw_question, glossary_corrected, correction_meta = await _finalize_question(
+        payload
+    )
+
+    if is_fast:
+        prompt = INTERVIEW_PROMPT_STREAM.format(
+            resume=resume or "(нет)",
+            vacancy=vacancy or "(нет)",
+            question=final_question,
+            raw_question=raw_question,
+            glossary_corrected=glossary_corrected,
+            ambiguity=correction_meta.get("ambiguity") or "(none)",
+        )
+        max_tokens = 450
+        temperature = 0.3
+        notes = ""
+    else:
+        notes_chunks = await rag_service.search(
+            db, payload.question, kinds=["notes", "qa", "company"], top_k=4
+        )
+        notes = "\n\n".join(c["text"] for c in notes_chunks)
+        prompt = INTERVIEW_PROMPT.format(
+            resume=resume or "(no resume provided)",
+            vacancy=vacancy or "(no vacancy provided)",
+            notes=notes or "(no extra notes)",
+            question=payload.question,
+        )
+        max_tokens = 900
+        temperature = 0.4
+
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": prompt},
+    ]
+    raw = await provider_adapter.complete(
+        messages, provider, model, max_tokens=max_tokens, temperature=temperature
+    )
+    parsed = _parse_fast_response(raw) if is_fast else _safe_json(raw)
+
+    answer = Answer(
+        session_id=payload.session_id,
+        question=final_question,
+        answer_short=parsed.get("short"),
+        answer_spoken=parsed.get("spoken"),
+        answer_detailed=parsed.get("detailed"),
+        answer_en=parsed.get("english"),
+        risk_note=parsed.get("risk"),
+        model=model,
+    )
+    db.add(answer)
+    db.add(ApiUsage(provider=provider, kind="chat"))
+    db.commit()
+
+    return {"id": answer.id, "model": model, "model_source": source, "correction": correction_meta, **parsed}
+
+
+@router.post("/chat/interview/stream")
+async def interview_stream(payload: InterviewPayload):
+    """SSE-стрим live-подсказки — первые токены сразу."""
+    db = SessionLocal()
+    try:
+        resume = _clip(rag_service.get_context_text(db, "resume"), RESUME_CONTEXT_LIMIT)
+        vacancy = _clip(rag_service.get_context_text(db, "vacancy"), VACANCY_CONTEXT_LIMIT)
+    finally:
+        db.close()
+
+    provider, model, source = _resolve_chat(
+        "fast",
+        provider=payload.provider,
+        model=payload.model,
+        model_override=payload.model_override,
+    )
+
+    final_question, raw_question, glossary_corrected, correction_meta = await _finalize_question(
+        payload
+    )
+
+    prompt = INTERVIEW_PROMPT_STREAM.format(
+        resume=resume or "(нет)",
+        vacancy=vacancy or "(нет)",
+        question=final_question,
+        raw_question=raw_question,
+        glossary_corrected=glossary_corrected,
+        ambiguity=correction_meta.get("ambiguity") or "(none)",
+    )
+    messages = [
+        {"role": "system", "content": LIVE_SYSTEM_PROMPT},
+        {"role": "user", "content": prompt},
+    ]
+
+    async def event_stream():
+        parts: list[str] = []
+        err_msg: str | None = None
+        try:
+            async for delta in provider_adapter.stream_chat(
+                messages, provider, model, temperature=0.3, live_fast=True
+            ):
+                parts.append(delta)
+                yield f"data: {json.dumps({'type': 'chunk', 'text': delta}, ensure_ascii=False)}\n\n"
+        except Exception as exc:  # noqa: BLE001
+            err_msg = getattr(exc, "message", str(exc))
+        finally:
+            spoken = "".join(parts).strip()
+            final_spoken = spoken
+            if spoken:
+                parsed = _parse_fast_response(spoken)
+                final_spoken = parsed.get("spoken") or spoken
+            if err_msg and not final_spoken:
+                yield f"data: {json.dumps({'type': 'error', 'message': err_msg}, ensure_ascii=False)}\n\n"
+            else:
+                done_payload = {
+                    "type": "done",
+                    "model": model,
+                    "model_source": source,
+                    "spoken": final_spoken,
+                    "correction": correction_meta,
+                }
+                yield f"data: {json.dumps(done_payload, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.post("/chat/meeting-summary")
+async def meeting_summary(payload: MeetingPayload, db: Session = Depends(get_db)) -> dict:
+    provider, model, source = _resolve_chat(
+        payload.mode,
+        provider=payload.provider,
+        model=payload.model,
+        model_override=payload.model_override,
+    )
+
+    prompt = MEETING_PROMPT.format(transcript=payload.transcript)
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": prompt},
+    ]
+    summary = await provider_adapter.complete(messages, provider, model, max_tokens=900)
+    db.add(ApiUsage(provider=provider, kind="chat"))
+    db.commit()
+    return {"summary": summary, "model": model, "model_source": source}
+
+
+def _parse_fast_response(raw: str) -> dict:
+    """Live-режим: plain text / markdown, без обрезки."""
+    empty = {"short": "", "spoken": "", "detailed": "", "english": "", "risk": ""}
+    text = raw.strip()
+
+    if text.startswith("```"):
+        text = text.strip("`")
+        if text.lower().startswith("json"):
+            text = text[4:].strip()
+
+    # Только если явный JSON-объект
+    if text.startswith("{") and '"short"' in text[:120]:
+        try:
+            data = json.loads(text)
+            if isinstance(data, dict):
+                spoken = str(data.get("spoken") or data.get("short") or "").strip()
+                if spoken:
+                    return {**empty, "short": _first_sentences(spoken, 2), "spoken": spoken}
+        except json.JSONDecodeError:
+            extracted = _extract_json_fields(text)
+            spoken = (extracted.get("spoken") or extracted.get("short") or "").strip()
+            if spoken:
+                return {**empty, "short": _first_sentences(spoken, 2), "spoken": spoken}
+
+    if not text:
+        return {**empty, "spoken": "Не удалось получить ответ. Повторите вопрос."}
+
+    return {**empty, "short": _first_sentences(text, 2), "spoken": text}
+
+
+def _first_sentences(text: str, count: int = 2) -> str:
+    parts = re.split(r"(?<=[.!?])\s+", text.strip())
+    return " ".join(parts[:count]).strip() or text[:200]
+
+
+def _safe_json(raw: str) -> dict:
+    empty = {
+        "short": "",
+        "spoken": "",
+        "detailed": "",
+        "english": "",
+        "risk": "",
+    }
+    cleaned = raw.strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.strip("`")
+        if cleaned.startswith("json"):
+            cleaned = cleaned[4:].strip()
+
+    try:
+        data = json.loads(cleaned)
+        if isinstance(data, dict):
+            return {**empty, **{k: str(v) for k, v in data.items() if k in empty and v}}
+    except json.JSONDecodeError:
+        pass
+
+    extracted = _extract_json_fields(cleaned)
+    if extracted.get("short") or extracted.get("spoken"):
+        return {**empty, **extracted}
+
+    fallback = extracted.get("spoken") or extracted.get("short") or _strip_json_noise(cleaned)
+    return {
+        **empty,
+        "short": _first_sentences(fallback, 2),
+        "spoken": fallback,
+        "risk": "Model did not return valid JSON.",
+    }
+
+
+def _strip_json_noise(text: str) -> str:
+    t = text.strip()
+    t = re.sub(r'^\s*\{\s*"short"\s*:\s*"', "", t)
+    t = re.sub(r'"\s*,?\s*"spoken"\s*:\s*"', " ", t)
+    return t.rstrip('"}').strip() or text[:500]
+
+
+def _extract_json_fields(raw: str) -> dict[str, str]:
+    fields: dict[str, str] = {}
+    for key in ("short", "spoken", "detailed", "english", "risk"):
+        match = re.search(rf'"{key}"\s*:\s*"((?:[^"\\]|\\.)*)"', raw, re.DOTALL)
+        if match:
+            fields[key] = match.group(1).replace("\\n", "\n").replace('\\"', '"')
+    return fields

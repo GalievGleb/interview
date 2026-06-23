@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Interview Assistant — AI-помощник для интервью</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #0f1117;
+      color: #fff;
+      line-height: 1.6;
+    }
+    .hero {
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 80px 24px;
+      text-align: center;
+    }
+    h1 { font-size: 2.5rem; margin-bottom: 16px; }
+    .subtitle { color: #9ca3af; font-size: 1.2rem; margin-bottom: 40px; }
+    .cta {
+      display: inline-block;
+      background: #6366f1;
+      color: #fff;
+      padding: 14px 32px;
+      border-radius: 10px;
+      text-decoration: none;
+      font-weight: 600;
+      margin: 8px;
+    }
+    .cta:hover { background: #818cf8; }
+    .features {
+      max-width: 900px;
+      margin: 60px auto;
+      padding: 0 24px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 24px;
+    }
+    .feature {
+      background: #1a1d27;
+      border: 1px solid #2a2d3a;
+      border-radius: 12px;
+      padding: 24px;
+    }
+    .feature h3 { margin-bottom: 8px; color: #818cf8; }
+    .feature p { color: #9ca3af; font-size: 0.95rem; }
+    .pricing {
+      max-width: 700px;
+      margin: 60px auto;
+      padding: 0 24px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+    }
+    .plan {
+      background: #1a1d27;
+      border: 1px solid #2a2d3a;
+      border-radius: 12px;
+      padding: 32px;
+      text-align: center;
+    }
+    .plan.pro { border-color: #6366f1; }
+    .price { font-size: 2rem; font-weight: 700; margin: 12px 0; }
+    footer { text-align: center; padding: 40px; color: #6b7280; font-size: 0.85rem; }
+  </style>
+</head>
+<body>
+  <div class="hero">
+    <h1>Interview Assistant</h1>
+    <p class="subtitle">
+      AI-помощник для интервью и встреч.<br>
+      Real-time подсказки — без настройки API-ключей.
+    </p>
+    <a href="https://github.com/GalievGleb/interview/releases" class="cta">Скачать для Windows</a>
+  </div>
+
+  <div class="features">
+    <div class="feature">
+      <h3>Real-time STT</h3>
+      <p>Мгновенная транскрипция речи с микрофона прямо во время интервью</p>
+    </div>
+    <div class="feature">
+      <h3>AI-подсказки</h3>
+      <p>Умные рекомендации что ответить, на основе контекста разговора</p>
+    </div>
+    <div class="feature">
+      <h3>Overlay</h3>
+      <p>Прозрачное окно поверх любых приложений — Zoom, Teams, браузер</p>
+    </div>
+    <div class="feature">
+      <h3>Подписка</h3>
+      <p>Оплата через Stripe или ЮKassa — всё работает из коробки</p>
+    </div>
+  </div>
+
+  <div class="pricing">
+    <div class="plan">
+      <h3>Basic</h3>
+      <div class="price">$9/мес</div>
+      <p>300 мин STT · 500K токенов · General Meeting</p>
+    </div>
+    <div class="plan pro">
+      <h3>Pro</h3>
+      <div class="price">$19/мес</div>
+      <p>1200 мин STT · 2M токенов · + Technical Interview</p>
+    </div>
+  </div>
+
+  <footer>&copy; 2025 Interview Assistant</footer>
+</body>
+</html>
