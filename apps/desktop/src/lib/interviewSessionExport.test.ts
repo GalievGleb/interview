@@ -1,9 +1,6 @@
+import { describe, it, expect } from 'vitest';
 import { buildCopilotSessionExport, buildExchangeLatency, formatInterviewSessionTxt } from '../lib/interviewSessionExport';
 import type { CopilotAnswerEntry } from '../lib/interviewSessionExport';
-
-function assert(condition: boolean, message: string): void {
-  if (!condition) throw new Error(message);
-}
 
 const sampleEntry: CopilotAnswerEntry = {
   id: '1',
@@ -21,20 +18,26 @@ const sampleEntry: CopilotAnswerEntry = {
   },
 };
 
-const exportData = buildCopilotSessionExport({
-  sessionId: 'session-123',
-  startedAt: Date.parse('2026-06-24T12:00:00Z'),
-  active: false,
-  transcriptLines: [{ speaker: 'other', text: 'Что такое smoke testing?', isFinal: true }],
-  exchanges: [sampleEntry],
+describe('interviewSessionExport', () => {
+  const exportData = buildCopilotSessionExport({
+    sessionId: 'session-123',
+    startedAt: Date.parse('2026-06-24T12:00:00Z'),
+    active: false,
+    transcriptLines: [{ speaker: 'other', text: 'Что такое smoke testing?', isFinal: true }],
+    exchanges: [sampleEntry],
+  });
+
+  it('captures exchanges and latency', () => {
+    expect(exportData.exchanges.length).toBe(1);
+    expect(exportData.exchanges[0]?.latency?.sttLatencyMs).toBe(4917);
+    expect(exportData.exchanges[0]?.latency?.llmLatencyMs).toBe(4412);
+    expect(exportData.exchanges[0]?.latency?.totalLatencyMs).toBe(9329);
+    expect(exportData.transcript.length).toBe(1);
+  });
+
+  it('formats latency into the txt export', () => {
+    const txt = formatInterviewSessionTxt(exportData);
+    expect(txt).toContain('STT: 4917 ms');
+    expect(txt).toContain('Total: 9329 ms');
+  });
 });
-
-assert(exportData.exchanges.length === 1, 'one exchange');
-assert(exportData.exchanges[0]?.latency?.sttLatencyMs === 4917, 'stt latency');
-assert(exportData.exchanges[0]?.latency?.llmLatencyMs === 4412, 'llm latency');
-assert(exportData.exchanges[0]?.latency?.totalLatencyMs === 9329, 'total latency');
-assert(exportData.transcript.length === 1, 'one transcript line');
-assert(formatInterviewSessionTxt(exportData).includes('STT: 4917 ms'), 'txt contains stt');
-assert(formatInterviewSessionTxt(exportData).includes('Total: 9329 ms'), 'txt contains total');
-
-console.log('interviewSessionExport.test.ts: ok');

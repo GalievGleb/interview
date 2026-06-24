@@ -1,9 +1,6 @@
+import { describe, it, expect } from 'vitest';
 import { computeVoiceTestMetrics, resolveVoiceTestStatus } from './voice-test-scoring';
 import type { VoiceTestCase } from './voice-test-types';
-
-function assert(condition: boolean, message: string): void {
-  if (!condition) throw new Error(message);
-}
 
 const baseCase: VoiceTestCase = {
   id: 'test',
@@ -26,41 +23,37 @@ const baseCase: VoiceTestCase = {
   maxTotalLatencyMs: 10000,
 };
 
-function testRequiredOnlyPass(): void {
-  const answer = 'Fixtures для setup и scope function/class. conftest.py для shared fixtures, yield для cleanup.';
-  const metrics = computeVoiceTestMetrics(baseCase, 'pytest fixtures', answer, 100, 200);
-  assert(metrics.requiredAnswerScore === 100, `required score ${metrics.requiredAnswerScore}`);
-  assert(metrics.answerScore >= 100, `combined score ${metrics.answerScore}`);
-  const status = resolveVoiceTestStatus(baseCase, metrics, answer);
-  assert(status.status === 'passed', status.failureReason ?? status.status);
-}
+describe('voice-test-scoring', () => {
+  it('passes when all required keywords present', () => {
+    const answer = 'Fixtures для setup и scope function/class. conftest.py для shared fixtures, yield для cleanup.';
+    const metrics = computeVoiceTestMetrics(baseCase, 'pytest fixtures', answer, 100, 200);
+    expect(metrics.requiredAnswerScore).toBe(100);
+    expect(metrics.answerScore).toBeGreaterThanOrEqual(100);
+    const status = resolveVoiceTestStatus(baseCase, metrics, answer);
+    expect(status.status).toBe('passed');
+  });
 
-function testOptionalBoost(): void {
-  const answer = 'fixture и scope function. conftest + setup. test data для API.';
-  const metrics = computeVoiceTestMetrics(baseCase, 'pytest', answer, 100, 200);
-  assert(metrics.requiredAnswerScore === 100, 'all required');
-  assert(metrics.optionalAnswerScore === 100, 'optional found');
-  assert(metrics.answerScore === 100, 'boost capped');
-}
+  it('boosts score with optional keywords but caps at 100', () => {
+    const answer = 'fixture и scope function. conftest + setup. test data для API.';
+    const metrics = computeVoiceTestMetrics(baseCase, 'pytest', answer, 100, 200);
+    expect(metrics.requiredAnswerScore).toBe(100);
+    expect(metrics.optionalAnswerScore).toBe(100);
+    expect(metrics.answerScore).toBe(100);
+  });
 
-function testConcisenessWarning(): void {
-  const words = Array.from({ length: 95 }, (_, i) => `word${i}`).join(' ');
-  const answer = `${words} fixture scope conftest setup yield function`;
-  const metrics = computeVoiceTestMetrics(baseCase, 'pytest', answer, 100, 200);
-  const status = resolveVoiceTestStatus(baseCase, metrics, answer);
-  assert(status.status === 'warning', `expected warning, got ${status.status}`);
-}
+  it('warns when answer slightly exceeds max length', () => {
+    const words = Array.from({ length: 95 }, (_, i) => `word${i}`).join(' ');
+    const answer = `${words} fixture scope conftest setup yield function`;
+    const metrics = computeVoiceTestMetrics(baseCase, 'pytest', answer, 100, 200);
+    const status = resolveVoiceTestStatus(baseCase, metrics, answer);
+    expect(status.status).toBe('warning');
+  });
 
-function testConcisenessFailed(): void {
-  const words = Array.from({ length: 114 }, (_, i) => `word${i}`).join(' ');
-  const answer = `${words} fixture scope conftest setup`;
-  const metrics = computeVoiceTestMetrics(baseCase, 'pytest', answer, 100, 200);
-  const status = resolveVoiceTestStatus(baseCase, metrics, answer);
-  assert(status.status === 'failed', `expected failed, got ${status.status}`);
-}
-
-testRequiredOnlyPass();
-testOptionalBoost();
-testConcisenessWarning();
-testConcisenessFailed();
-console.log('voice-test-scoring.test.ts: ok');
+  it('fails when answer far exceeds max length', () => {
+    const words = Array.from({ length: 114 }, (_, i) => `word${i}`).join(' ');
+    const answer = `${words} fixture scope conftest setup`;
+    const metrics = computeVoiceTestMetrics(baseCase, 'pytest', answer, 100, 200);
+    const status = resolveVoiceTestStatus(baseCase, metrics, answer);
+    expect(status.status).toBe('failed');
+  });
+});

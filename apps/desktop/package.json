@@ -7,7 +7,9 @@
     "dev": "concurrently -k -n vite,electron -c blue,green \"vite\" \"wait-on http://localhost:5173 && tsc -p tsconfig.electron.json && electron .\"",
     "build": "vite build && tsc -p tsconfig.electron.json",
     "dist": "pnpm build && electron-builder",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@interview/shared": "workspace:*",
@@ -32,6 +34,7 @@
     "typescript": "^5.7.3",
     "vite": "^6.0.7",
     "vite-plugin-electron": "^0.28.8",
+    "vitest": "^2.1.8",
     "wait-on": "^8.0.1"
   },
   "build": {

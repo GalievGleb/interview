@@ -333,13 +333,38 @@ async def interview(payload: InterviewPayload, db: Session = Depends(get_db)) ->
     )
 
     if is_fast:
+        strategy = resolve_answer_strategy(payload)
+        correction_meta.update(
+            {
+                "question_intent": strategy["question_intent"],
+                "answer_strategy": strategy["answer_strategy"],
+                "resume_context_used": strategy["resume_context_used"],
+                "resume_context_level": strategy["resume_context_level"],
+                "resume_context_reason": strategy["resume_context_reason"],
+                "suggest_unclear_prefix": strategy["suggest_unclear_prefix"],
+            }
+        )
+        resume_text = (
+            RESUME_PLACEHOLDER_NONE
+            if strategy["resume_context_level"] == "none"
+            else (resume or "(нет)")
+        )
+        resolved_q = correction_meta.get("resolved_follow_up_question") or final_question
         prompt = INTERVIEW_PROMPT_STREAM.format(
-            resume=resume or "(нет)",
+            resume=resume_text,
             vacancy=vacancy or "(нет)",
             question=final_question,
             raw_question=raw_question,
             glossary_corrected=glossary_corrected,
             ambiguity=correction_meta.get("ambiguity") or "(none)",
+            resolved_follow_up_question=resolved_q,
+            previous_topic=correction_meta.get("previous_topic") or "(none)",
+            question_intent=strategy["question_intent"],
+            answer_strategy=strategy["answer_strategy"],
+            resume_context_level=strategy["resume_context_level"],
+            resume_context_used=str(strategy["resume_context_used"]).lower(),
+            resume_context_reason=strategy["resume_context_reason"],
+            domain_hints=resolve_domain_answer_hints(resolved_q),
         )
         max_tokens = 450
         temperature = 0.3
