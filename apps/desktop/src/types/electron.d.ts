@@ -5,6 +5,7 @@ export interface ElectronAPI {
     toggle: () => Promise<void>;
     show: () => Promise<void>;
     hide: () => Promise<void>;
+    openSettings?: () => Promise<void>;
     setContentProtection: (enable: boolean) => Promise<void>;
   };
   window: {
