@@ -2,8 +2,6 @@
 
 Desktop AI-ассистент для интервью: live STT + подсказки по резюме.
 
-**Рабочая копия проекта:** не храните репозиторий в OneDrive — используйте обычную папку (`C:\dev\interview` на Windows или `~/dev/interview` на macOS) или клон с GitHub.
-
 ## Быстрый старт (Windows / macOS)
 
 ```bash
@@ -42,10 +40,6 @@ pnpm --filter @interview/desktop dev
 ```
 
 Откроется http://localhost:5173 (Electron/Vite).
-
-## OneDrive
-
-Папка на рабочем столе OneDrive — **устаревший дубликат**. Актуальный код — в git (`C:\dev\interview` или клон с GitHub). OneDrive-копию можно удалить после push, если всё есть на GitHub.
 
 ## Сборка installer (Windows)
 
