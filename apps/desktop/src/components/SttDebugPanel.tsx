@@ -23,6 +23,8 @@ export interface SttDebugInfo {
   isFollowUp?: boolean;
   usedPreviousContext?: boolean;
   followUpReason?: string;
+  answerTriggered?: boolean;
+  waitReason?: string;
   resetPreviousTopic?: boolean;
   resetPreviousTopicReason?: string;
   wasPreviousTopicUsed?: boolean;
@@ -47,9 +49,9 @@ export default function SttDebugPanel({ debug, show, onToggle }: SttDebugPanelPr
       <button
         type="button"
         onClick={onToggle}
-        className="flex w-full items-center justify-between px-4 py-2 text-left text-xs text-ink-muted hover:bg-surface-hover"
+        className="flex w-full items-center justify-between px-4 py-1.5 text-left text-[10px] text-ink-faint hover:bg-surface-hover"
       >
-        <span>Answer Debug {debug?.sttEngine ? `· ${debug.sttEngine}` : ''}</span>
+        <span>Debug {debug?.sttEngine ? `· ${debug.sttEngine}` : ''}</span>
         <span>{show ? '▾' : '▸'}</span>
       </button>
       {show && (
@@ -83,6 +85,11 @@ export default function SttDebugPanel({ debug, show, onToggle }: SttDebugPanelPr
                 value={debug.usedPreviousContext != null ? String(debug.usedPreviousContext) : '—'}
               />
               <Row label="Follow-up reason" value={debug.followUpReason ?? '—'} />
+              <Row
+                label="Answer triggered"
+                value={debug.answerTriggered != null ? String(debug.answerTriggered) : '—'}
+              />
+              <Row label="Wait reason" value={debug.waitReason ?? '—'} />
               {debug.llmCorrectedTranscript &&
                 debug.llmCorrectedTranscript !== debug.intentCorrected && (
                   <Row label="LLM corrected" value={debug.llmCorrectedTranscript} />

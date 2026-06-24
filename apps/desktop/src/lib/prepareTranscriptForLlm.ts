@@ -1,4 +1,5 @@
 import {
+  applyPythonPhraseCorrections,
   classifyInterviewQuestionIntent,
   correctQuestionIntent,
   IntentCorrectionResult,
@@ -37,13 +38,16 @@ export function prepareTranscriptForLlm(
     interviewMode: true,
     isShort: raw.length <= 120,
   });
+  const pythonPhrase = applyPythonPhraseCorrections(correction.corrected);
+  const glossaryCorrected = pythonPhrase.corrected;
   const intent = correctQuestionIntent({
     raw: normalized,
-    corrected: correction.corrected,
-    corrections: correction.corrections,
+    corrected: glossaryCorrected,
+    corrections: [...correction.corrections, ...pythonPhrase.corrections],
   });
   const allCorrections = [
     ...correction.corrections,
+    ...pythonPhrase.corrections,
     ...intent.intentCorrections.map((c) => ({
       from: c.from,
       to: c.to,
@@ -52,7 +56,7 @@ export function prepareTranscriptForLlm(
   ];
   const followUp = resolveFollowUpQuestion({
     raw,
-    corrected: correction.corrected,
+    corrected: glossaryCorrected,
     intentCorrected: intent.intentCorrected,
     sessionContext,
     corrections: allCorrections,
@@ -79,7 +83,7 @@ export function prepareTranscriptForLlm(
   return {
     rawTranscript: raw,
     normalized,
-    corrected: correction.corrected,
+    corrected: glossaryCorrected,
     intentCorrected: intent.intentCorrected,
     resolvedQuestion,
     correction,

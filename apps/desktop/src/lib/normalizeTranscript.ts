@@ -22,6 +22,9 @@ const RULES: { from: string; to: string }[] = [
   { from: 'постман', to: 'Postman' },
   { from: 'джира', to: 'Jira' },
   { from: 'докер', to: 'Docker' },
+  { from: 'пингтон', to: 'Python' },
+  { from: 'пайтон', to: 'Python' },
+  { from: 'питон', to: 'Python' },
   { from: 'кубернетес', to: 'Kubernetes' },
   { from: 'греп', to: 'grep' },
 ];
@@ -41,6 +44,8 @@ const FUZZY: { re: RegExp; to: string }[] = [
   { re: /(?<=принцип\w*\s+)ал+[оo]п\w*/giu, to: 'ООП' },
   { re: /т(?:ы|и|е|а)\s*ст[ёеe]рг\w*/giu, to: 'тестирования' },
   { re: /ст[ёеe]рг\w*/giu, to: 'тестирования' },
+  { re: /принцип\w*\s+автоматиз\w*/giu, to: 'принципы автоматизации' },
+  { re: /какие\s+бывают\s+принцип\w*/giu, to: 'какие бывают принципы автоматизации' },
 ];
 
 function escapeRegExp(value: string): string {
@@ -118,7 +123,7 @@ export function questionChanged(prev: string, next: string): boolean {
 export function looksLikeQuestion(text: string): boolean {
   const t = normalizeTranscript(text.trim());
   if (t.length < 8) return false;
-  return /[?]|^(как|что|какие|какой|какая|какую|расскаж|опиш|назов|перечисл|чем|можно|благодаря|с\s+помощью|зачем|почему|где|когда|паттерн)/iu.test(
+  return /[?]|^(как|что|какие|какой|какая|какую|расскаж|опиш|назов|перечисл|чем|можно|благодаря|с\s+помощью|зачем|почему|где|когда|паттерн|скаж|принцип)/iu.test(
     t,
-  );
+  ) || /что\s+значит|что\s+такое|что\s+это\s+за|автоматиз/i.test(t);
 }

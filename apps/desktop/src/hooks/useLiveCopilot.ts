@@ -5,9 +5,15 @@ import { prepareTranscriptForLlm, PreparedTranscript } from '../lib/prepareTrans
 import { SttSessionOptions } from '../lib/sttOptions';
 import {
   createEmptySessionContext,
+  isOrphanComparativeTail,
+  pushUtteranceBuffer,
   sanitizeLiveAnswer,
+  shouldWaitForMoreSpeech,
+  shouldForceProceedIncomplete,
   updateSessionContextAfterAnswer,
   type InterviewSessionContext,
+  type UtteranceBufferEntry,
+  type UtteranceSpeaker,
 } from '@interview/shared';
 import {
   looksLikeQuestion,
@@ -47,8 +53,9 @@ interface LiveEntry {
 }
 
 /** Fallback debounce, если speech_final / utterance_end не пришли. */
-const FINAL_FALLBACK_MS = 400;
-const SPEECH_FINAL_DELAY_MS = 120;
+const FINAL_FALLBACK_MS = 450;
+const SPEECH_FINAL_DELAY_MS = 280;
+const INCOMPLETE_RETRY_MS = 700;
 
 export function useLiveCopilot() {
   const [active, setActive] = useState(false);
@@ -74,6 +81,59 @@ export function useLiveCopilot() {
   const speechStartedAtRef = useRef<number | null>(null);
   const questionFinalAtRef = useRef<number | null>(null);
   const sessionContextRef = useRef<InterviewSessionContext>(createEmptySessionContext());
+  const utteranceBufferRef = useRef<UtteranceBufferEntry[]>([]);
+  const triggerSpeakerRef = useRef<Speaker>('other');
+  const liveSourcesRef = useRef<LiveSources>({ mic: true, system: false });
+  const incompleteRetryRef = useRef(0);
+  const lastFlushSpeakerRef = useRef<UtteranceSpeaker>('interviewer');
+
+  const patchSttDebug = useCallback((patch: Partial<SttDebugInfo>) => {
+    setSttDebug((prev) => ({
+      rawTranscript: '',
+      glossaryCorrected: '',
+      intentCorrected: '',
+      correctedTranscript: '',
+      corrections: [],
+      intentCorrections: [],
+      ...prev,
+      ...patch,
+    }));
+  }, []);
+
+  const syncDebugFromPrepared = useCallback(
+    (prepared: PreparedTranscript, extra: Partial<SttDebugInfo>) => {
+      patchSttDebug({
+        rawTranscript: prepared.rawTranscript,
+        glossaryCorrected: prepared.corrected,
+        intentCorrected: prepared.intentCorrected,
+        correctedTranscript: prepared.intentCorrected,
+        resolvedQuestion: prepared.resolvedQuestion,
+        previousTopic: sessionContextRef.current.lastCanonicalTopic,
+        currentCanonicalTopic: prepared.canonicalTopic ?? undefined,
+        isFollowUp: prepared.followUp.isFollowUp,
+        usedPreviousContext: prepared.followUp.usedPreviousContext,
+        followUpReason: prepared.followUp.reason,
+        hallucinationRisk: prepared.followUp.hallucinationRisk,
+        resumeFactSource: prepared.answerStrategy.resumeContextLevel,
+        corrections: prepared.correction.corrections,
+        intentCorrections: prepared.intent.intentCorrections,
+        intentConfidence:
+          prepared.intent.confidence !== 'none' ? prepared.intent.confidence : undefined,
+        intentReason: prepared.intent.reason,
+        ambiguity: prepared.intent.ambiguity,
+        questionIntent: prepared.answerStrategy.questionIntent,
+        answerStrategy: prepared.answerStrategy.answerStrategy,
+        resumeContextUsed: prepared.answerStrategy.resumeContextUsed,
+        resumeContextLevel: prepared.answerStrategy.resumeContextLevel,
+        resumeContextReason: prepared.answerStrategy.resumeContextReason,
+        sttEngine: sttMetaRef.current?.engine,
+        sttModel: sttMetaRef.current?.model,
+        sampleRate: sttMetaRef.current?.sampleRate,
+        ...extra,
+      });
+    },
+    [patchSttDebug],
+  );
 
   const endInterviewSession = useCallback(async () => {
     const sid = sessionRef.current;
@@ -130,6 +190,7 @@ export function useLiveCopilot() {
       resetPreviousTopicReason: prepared.followUp.resetPreviousTopicReason,
       hallucinationRisk: prepared.followUp.hallucinationRisk,
       resumeFactSource: prepared.answerStrategy.resumeContextLevel,
+      answerTriggered: true,
       corrections: prepared.correction.corrections,
       intentCorrections: prepared.intent.intentCorrections,
       intentConfidence: prepared.intent.confidence !== 'none' ? prepared.intent.confidence : undefined,
@@ -271,9 +332,27 @@ export function useLiveCopilot() {
   const requestSuggestion = useCallback(
     (rawMerged: string) => {
       const prepared = prepareTranscriptForLlm(rawMerged, sessionContextRef.current);
-      const q = prepared.resolvedQuestion;
-      if (q.length < 8) return;
-      if (!looksLikeQuestion(q) && q.length < 20) return;
+      const q = prepared.resolvedQuestion.trim();
+      const raw = rawMerged.trim();
+
+      if (q.length < 6 && raw.length < 6) {
+        syncDebugFromPrepared(prepared, { answerTriggered: false, waitReason: 'question too short' });
+        return;
+      }
+      if (!looksLikeQuestion(q) && !looksLikeQuestion(raw)) {
+        syncDebugFromPrepared(prepared, {
+          answerTriggered: false,
+          waitReason: 'not recognized as question — speak the full question',
+        });
+        return;
+      }
+      if (isOrphanComparativeTail(raw)) {
+        syncDebugFromPrepared(prepared, {
+          answerTriggered: false,
+          waitReason: 'orphan comparative tail',
+        });
+        return;
+      }
 
       if (q === lastCompletedRef.current) return;
       if (streamLockRef.current && q === lastQuestionRef.current) return;
@@ -285,9 +364,10 @@ export function useLiveCopilot() {
         streamLockRef.current = false;
       }
 
+      incompleteRetryRef.current = 0;
       runStream(prepared);
     },
-    [runStream],
+    [runStream, syncDebugFromPrepared],
   );
 
   const cancelPendingQuestion = useCallback(() => {
@@ -298,16 +378,59 @@ export function useLiveCopilot() {
     finalPartsRef.current = [];
   }, []);
 
+  const recordUtterance = useCallback((text: string, isFinal: boolean, speaker: Speaker) => {
+    const utteranceSpeaker: UtteranceSpeaker = speaker === 'other' ? 'interviewer' : 'me';
+    utteranceBufferRef.current = pushUtteranceBuffer(utteranceBufferRef.current, {
+      text,
+      timestamp: Date.now(),
+      speaker: utteranceSpeaker,
+      isFinal,
+    });
+  }, []);
+
   const flushQuestion = useCallback(() => {
     if (finalDebounceRef.current) {
       clearTimeout(finalDebounceRef.current);
       finalDebounceRef.current = null;
     }
-    const merged = mergeRawParts(finalPartsRef.current);
+    const mergedParts = mergeRawParts(finalPartsRef.current);
     finalPartsRef.current = [];
+    if (!mergedParts) return;
+
+    const utteranceSpeaker = lastFlushSpeakerRef.current;
+    const waitCheck = shouldWaitForMoreSpeech(
+      mergedParts,
+      utteranceBufferRef.current,
+      utteranceSpeaker,
+    );
+    const toEvaluate = waitCheck.merged ?? mergedParts;
+    const preparedPreview = prepareTranscriptForLlm(toEvaluate, sessionContextRef.current);
+
+    if (waitCheck.wait) {
+      const mergedForRetry = toEvaluate;
+      syncDebugFromPrepared(preparedPreview, {
+        answerTriggered: false,
+        waitReason: waitCheck.reason ?? waitCheck.action,
+      });
+      if (shouldForceProceedIncomplete(incompleteRetryRef.current, mergedForRetry)) {
+        incompleteRetryRef.current = 0;
+        utteranceBufferRef.current = [];
+        questionFinalAtRef.current = performance.now();
+        requestSuggestion(mergedForRetry);
+        return;
+      }
+      incompleteRetryRef.current += 1;
+      finalPartsRef.current = [mergedParts];
+      finalDebounceRef.current = setTimeout(flushQuestion, INCOMPLETE_RETRY_MS);
+      return;
+    }
+
+    incompleteRetryRef.current = 0;
+    utteranceBufferRef.current = [];
     questionFinalAtRef.current = performance.now();
-    if (merged) requestSuggestion(merged);
-  }, [requestSuggestion]);
+    syncDebugFromPrepared(preparedPreview, { answerTriggered: undefined, waitReason: undefined });
+    requestSuggestion(toEvaluate);
+  }, [requestSuggestion, syncDebugFromPrepared]);
 
   const pushFinalPart = useCallback((text: string) => {
     const trimmed = text.trim();
@@ -315,28 +438,32 @@ export function useLiveCopilot() {
     const last = finalPartsRef.current[finalPartsRef.current.length - 1];
     if (last === trimmed) return;
     finalPartsRef.current.push(trimmed);
-    if (finalPartsRef.current.length > 2) {
-      finalPartsRef.current = finalPartsRef.current.slice(-2);
+    if (finalPartsRef.current.length > 3) {
+      finalPartsRef.current = finalPartsRef.current.slice(-3);
     }
   }, []);
 
   const scheduleSpeechFinal = useCallback(
-    (text: string) => {
+    (text: string, speaker: Speaker) => {
       if (!speechStartedAtRef.current) speechStartedAtRef.current = performance.now();
+      lastFlushSpeakerRef.current = speaker === 'other' ? 'interviewer' : 'me';
+      recordUtterance(text, true, speaker);
       pushFinalPart(text);
       if (finalDebounceRef.current) clearTimeout(finalDebounceRef.current);
       finalDebounceRef.current = setTimeout(flushQuestion, SPEECH_FINAL_DELAY_MS);
     },
-    [flushQuestion, pushFinalPart],
+    [flushQuestion, pushFinalPart, recordUtterance],
   );
 
   const scheduleFinalFallback = useCallback(
-    (text: string) => {
+    (text: string, speaker: Speaker) => {
+      lastFlushSpeakerRef.current = speaker === 'other' ? 'interviewer' : 'me';
+      recordUtterance(text, true, speaker);
       pushFinalPart(text);
       if (finalDebounceRef.current) clearTimeout(finalDebounceRef.current);
       finalDebounceRef.current = setTimeout(flushQuestion, FINAL_FALLBACK_MS);
     },
-    [flushQuestion, pushFinalPart],
+    [flushQuestion, pushFinalPart, recordUtterance],
   );
 
   const appendLine = useCallback((text: string, isFinal: boolean, speaker: Speaker) => {
@@ -390,6 +517,8 @@ export function useLiveCopilot() {
       questionFinalAtRef.current = null;
       sttMetaRef.current = null;
       sessionContextRef.current = createEmptySessionContext();
+      utteranceBufferRef.current = [];
+      incompleteRetryRef.current = 0;
       streamLockRef.current = false;
       if (finalDebounceRef.current) clearTimeout(finalDebounceRef.current);
       liveRef.current.forEach((e) => e.session.stop());
@@ -402,7 +531,9 @@ export function useLiveCopilot() {
         sessionRef.current = null;
       }
 
-      const triggerSpeaker: Speaker = sources.system && !sources.mic ? 'other' : 'me';
+      const triggerSpeaker: Speaker = sources.system ? 'other' : 'me';
+      triggerSpeakerRef.current = triggerSpeaker;
+      liveSourcesRef.current = { ...sources };
 
       const startOne = async (source: 'mic' | 'system', speaker: Speaker) => {
         const label = source === 'mic' ? 'Микрофон' : 'Системный звук';
@@ -410,13 +541,12 @@ export function useLiveCopilot() {
           {
             onTranscript: (text, isFinal, speechFinal) => {
               appendLine(text, isFinal, speaker);
-              if (speaker !== triggerSpeaker) return;
               const trimmed = text.trim();
               if (!trimmed) return;
               if (speechFinal) {
-                scheduleSpeechFinal(trimmed);
-              } else if (isFinal && trimmed.length > 3) {
-                scheduleFinalFallback(trimmed);
+                scheduleSpeechFinal(trimmed, speaker);
+              } else if (isFinal && trimmed.length > 2) {
+                scheduleFinalFallback(trimmed, speaker);
               }
             },
             onReady: (info) => {
@@ -427,11 +557,11 @@ export function useLiveCopilot() {
               };
             },
             onUtteranceEnd: () => {
-              if (speaker !== triggerSpeaker) return;
+              lastFlushSpeakerRef.current = speaker === 'other' ? 'interviewer' : 'me';
               flushQuestion();
             },
             onTurnResumed: () => {
-              if (speaker !== triggerSpeaker) return;
+              lastFlushSpeakerRef.current = speaker === 'other' ? 'interviewer' : 'me';
               cancelPendingQuestion();
               cancelStreamRef.current?.();
               streamGenRef.current += 1;

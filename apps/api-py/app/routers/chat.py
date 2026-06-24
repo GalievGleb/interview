@@ -20,6 +20,7 @@ from app.prompts.meeting import MEETING_PROMPT
 from app.prompts.system import SYSTEM_PROMPT
 from app.services import model_router, provider_adapter, rag_service, transcript_correction
 from app.services.preferences import load_preferences
+from app.services.domain_answer_hints import resolve_domain_answer_hints
 from app.services.question_intent import resolve_answer_strategy
 from app.services.sanitize_live_answer import sanitize_live_answer
 
@@ -196,6 +197,10 @@ async def _interview_event_stream(
             if strategy["resume_context_level"] == "none"
             else (resume or "(нет)")
         )
+        resolved_q = (
+            correction_meta.get("resolved_follow_up_question") or final_question
+        )
+        domain_hints = resolve_domain_answer_hints(resolved_q)
         prompt = INTERVIEW_PROMPT_STREAM.format(
             resume=resume_text,
             vacancy=vacancy or "(нет)",
@@ -203,14 +208,14 @@ async def _interview_event_stream(
             raw_question=raw_question,
             glossary_corrected=glossary_corrected,
             ambiguity=correction_meta.get("ambiguity") or "(none)",
-            resolved_follow_up_question=correction_meta.get("resolved_follow_up_question")
-            or final_question,
+            resolved_follow_up_question=resolved_q,
             previous_topic=correction_meta.get("previous_topic") or "(none)",
             question_intent=strategy["question_intent"],
             answer_strategy=strategy["answer_strategy"],
             resume_context_level=strategy["resume_context_level"],
             resume_context_used=str(strategy["resume_context_used"]).lower(),
             resume_context_reason=strategy["resume_context_reason"],
+            domain_hints=domain_hints,
         )
         messages = [
             {"role": "system", "content": LIVE_SYSTEM_PROMPT},

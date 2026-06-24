@@ -126,6 +126,35 @@ const SCENARIOS: Scenario[] = [
       },
     ],
   },
+  {
+    name: 'standalone definitions — no false follow-up',
+    steps: [
+      { input: 'Что такое smoke testing?', expectedTopic: 'smoke testing' },
+      {
+        input: 'Что такое тест-кейс?',
+        expectedTopic: 'test case',
+        expectedResolved: 'Что такое test case?',
+        expectReset: true,
+        expectFollowUp: false,
+        expectNoContamination: 'smoke',
+      },
+      { input: 'Что такое smoke testing?', expectedTopic: 'smoke testing' },
+      {
+        input: 'А зачем он нужен?',
+        expectedResolved: 'Зачем нужен smoke testing?',
+        expectFollowUp: true,
+      },
+      { input: 'Что такое test case?', expectedTopic: 'test case' },
+      {
+        input: 'Что такое чек-лист?',
+        expectedTopic: 'checklist',
+        expectedResolved: 'Что такое checklist?',
+        expectReset: true,
+        expectFollowUp: false,
+        expectNoContamination: 'test case',
+      },
+    ],
+  },
 ];
 
 const DANGER_CASES: Array<{ input: string; risk: 'high' | 'medium' | 'low' }> = [

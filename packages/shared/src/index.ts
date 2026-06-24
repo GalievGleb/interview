@@ -165,6 +165,11 @@ export type {
   ResolveFollowUpInput,
 } from './resolveFollowUpQuestion';
 export { isFollowUpQuestion, resolveFollowUpQuestion } from './resolveFollowUpQuestion';
+export {
+  extractStandaloneDefinitionTerm,
+  isStandaloneDefinitionQuestion,
+  resolveStandaloneTopic,
+} from './standaloneQuestion';
 export { sanitizeLiveAnswer } from './sanitizeLiveAnswer';
 export {
   assessHallucinationRisk,
@@ -174,3 +179,13 @@ export {
 } from './topicReset';
 export type { HallucinationRisk, TopicResetResult } from './topicReset';
 export { getDangerQuestionStrategy } from './interviewAnswerSafety';
+export { applyPythonPhraseCorrections, isOrphanComparativeTail } from './correctPythonPhrases';
+export type { PythonPhraseCorrectionResult } from './correctPythonPhrases';
+export {
+  mergeTranscriptWithBuffer,
+  pushUtteranceBuffer,
+  pruneUtteranceBuffer,
+  shouldWaitForMoreSpeech,
+  shouldForceProceedIncomplete,
+} from './utteranceBuffer';
+export type { UtteranceBufferEntry, UtteranceSpeaker, UtteranceWaitResult } from './utteranceBuffer';

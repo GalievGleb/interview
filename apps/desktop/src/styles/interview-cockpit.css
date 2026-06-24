@@ -1,0 +1,159 @@
+/* Interview Copilot — scoped visual layer (shadcn dashboard + subtle Magic UI) */
+.cockpit-root {
+  @apply relative flex min-h-0 flex-1 flex-col;
+}
+
+.cockpit-bg {
+  @apply pointer-events-none absolute inset-0 overflow-hidden;
+}
+
+.cockpit-bg-grid {
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, black 20%, transparent 75%);
+}
+
+.cockpit-bg-glow {
+  background:
+    radial-gradient(ellipse 50% 40% at 15% -5%, rgba(99, 102, 241, 0.12), transparent 55%),
+    radial-gradient(ellipse 40% 35% at 85% 0%, rgba(16, 185, 129, 0.06), transparent 50%);
+}
+
+.cockpit-content {
+  @apply relative z-[1] flex min-h-0 flex-1 flex-col;
+}
+
+.cockpit-header {
+  @apply mb-4 flex shrink-0 items-start justify-between gap-4 border-b border-surface-border pb-4;
+}
+
+.cockpit-header-title {
+  @apply text-lg font-semibold tracking-tight text-ink;
+}
+
+.cockpit-header-sub {
+  @apply mt-0.5 text-sm leading-relaxed text-ink-muted;
+}
+
+.cockpit-kbd {
+  @apply ml-1.5 inline-flex items-center rounded-md border border-surface-border bg-surface-elevated
+    px-1.5 py-0.5 font-mono text-[10px] text-ink-faint;
+}
+
+.cockpit-toolbar {
+  @apply mb-4 rounded-xl border border-surface-border bg-surface-light/80 p-3 shadow-soft backdrop-blur-sm;
+}
+
+.cockpit-toolbar-row {
+  @apply flex flex-wrap items-center gap-x-3 gap-y-2;
+}
+
+.cockpit-toolbar-row + .cockpit-toolbar-row {
+  @apply mt-3 border-t border-surface-border/80 pt-3;
+}
+
+.cockpit-control-group {
+  @apply flex flex-col gap-1;
+}
+
+.cockpit-control-label {
+  @apply text-[10px] font-medium uppercase tracking-wider text-ink-faint;
+}
+
+.cockpit-panel {
+  @apply flex min-h-0 flex-col overflow-hidden rounded-xl border border-surface-border
+    bg-surface-light/90 shadow-soft backdrop-blur-sm;
+}
+
+.cockpit-panel-focus {
+  @apply border-surface-border-strong shadow-card;
+}
+
+.cockpit-panel-head {
+  @apply flex items-center justify-between border-b border-surface-border px-4 py-3;
+}
+
+.cockpit-panel-title {
+  @apply text-[15px] font-semibold tracking-tight text-ink;
+}
+
+.cockpit-tabs-list {
+  @apply inline-flex flex-wrap items-center gap-0.5 rounded-lg border border-surface-border bg-surface p-0.5;
+}
+
+.cockpit-tab {
+  @apply rounded-md px-3 py-1.5 text-sm font-medium text-ink-muted transition-all duration-150
+    hover:text-ink;
+}
+
+.cockpit-tab-active {
+  @apply bg-surface-elevated text-ink shadow-soft;
+}
+
+.cockpit-bento {
+  @apply rounded-xl border border-surface-border bg-surface-elevated/50 p-4 transition-colors
+    duration-200 hover:border-surface-border-strong;
+}
+
+.cockpit-bento-main {
+  @apply border-accent/20 bg-accent/[0.04];
+}
+
+.cockpit-alert {
+  @apply mb-3 flex items-start gap-2.5 rounded-xl border px-3.5 py-2.5 text-sm;
+}
+
+.cockpit-alert-warn {
+  @apply border-amber-500/20 bg-amber-950/15 text-amber-100/90;
+}
+
+.cockpit-alert-info {
+  @apply border-surface-border bg-surface-elevated/40 text-ink-muted;
+}
+
+.cockpit-alert-error {
+  @apply border-red-500/20 bg-red-950/15 text-red-200/90;
+}
+
+.cockpit-empty {
+  @apply flex flex-col items-center justify-center px-6 py-10 text-center;
+}
+
+.cockpit-empty-icon {
+  @apply mb-3 flex h-10 w-10 items-center justify-center rounded-xl border border-surface-border
+    bg-surface-elevated text-ink-faint shadow-soft;
+}
+
+.cockpit-command {
+  @apply overflow-hidden rounded-xl border border-surface-border bg-surface shadow-soft transition
+    focus-within:border-accent/50 focus-within:ring-2 focus-within:ring-accent-ring;
+}
+
+.cockpit-command-input {
+  @apply w-full resize-none border-0 bg-transparent px-4 py-3 text-[15px] leading-relaxed text-ink
+    placeholder:text-ink-faint outline-none ring-0;
+}
+
+.cockpit-command-bar {
+  @apply flex flex-wrap items-center justify-between gap-2 border-t border-surface-border
+    bg-surface-elevated/30 px-3 py-2;
+}
+
+.cockpit-status-pill {
+  @apply inline-flex items-center gap-2 rounded-full border border-surface-border bg-surface-elevated/80
+    px-3 py-1.5 text-xs font-medium text-ink;
+}
+
+.cockpit-transcript-item {
+  @apply animate-fade-in rounded-xl border px-3 py-2.5 transition-colors;
+}
+
+.cockpit-transcript-me {
+  @apply border-violet-500/15 bg-violet-500/[0.05];
+}
+
+.cockpit-transcript-other {
+  @apply border-emerald-500/15 bg-emerald-500/[0.05];
+}

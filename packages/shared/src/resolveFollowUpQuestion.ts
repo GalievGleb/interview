@@ -2,6 +2,7 @@ import type { QuestionIntent } from './classifyInterviewQuestionIntent';
 import type { AppliedCorrection } from './correctTranscriptWithGlossary';
 import type { InterviewSessionContext } from './interviewSessionContext';
 import { assessHallucinationRisk, extractExplicitCanonicalTopic, shouldResetPreviousTopic } from './topicReset';
+import { isStandaloneDefinitionQuestion, resolveStandaloneTopic } from './standaloneQuestion';
 
 export type FollowUpConfidence = 'high' | 'medium' | 'low';
 
@@ -31,24 +32,27 @@ export interface FollowUpResolutionResult {
 const WB = '(?<![\\p{L}\\p{N}])';
 const WE = '(?![\\p{L}\\p{N}])';
 
-const NEW_TOPIC_STARTER_RE =
-  /(?:^|\s)(?:что\s+такое|расскаж\w*\s+про|скаж\w*\s+про|в\s+ч(?:е|ё)м\s+разниц|чем\s+отлича|какие\s+бывают)/iu;
-
-const FOLLOW_UP_MARKER_RE = new RegExp(
+const EXPLICIT_FOLLOW_UP_RE = new RegExp(
   '(?:' +
-    `${WB}(?:его|её|ее|это|этот|эту|этого|такое|этим|этой|эти|он|она|оно)${WE}|` +
-    'с\\s+этим|так\\s+ты\\s+его|как\\s+это\\b|' +
-    'как\\s+применял|как\\s+использовал|как\\s+ты\\s+использовал|как\\s+работал\\s+с\\s+этим|как\\s+разбирал|' +
-    'как\\s+ты\\s+с\\s+этим\\s+разбирал|с\\s+этим\\s+разбирал|' +
-    'как\\s+ты\\s+это\\s+использовал|' +
-    '(?:^|\\s)в\\s+работе|(?:^|\\s)на\\s+проект\\w*|^\\s*а\\s+как\\b|^\\s*а\\s+где\\b|' +
-    '^\\s*а\\s+зачем\\b|^\\s*а\\s+пример\\b|^\\s*а\\s+какие\\b|' +
-    '(?:как\\s+(?:ты\\s+)?)?проверял|(?:ты\\s+)?сам\\s+(?:его|её|ее|это|настраивал)|' +
-    'зачем\\s+(?:он|она|оно|это)\\s+нужен|пример\\s+можешь\\s+привести|приведи\\s+пример|' +
-    'какие\\s+ошибки\\s+бывают|как\\s+ты\\s+использовал\\s+в\\s+pipeline' +
+    `${WB}(?:его|её|ее|это|этот|эту|этого|этим|этой|эти|он|она|оно|н[её]м|н[её]го|н[её]й)${WE}|` +
+    'с\\s+этим|про\\s+это|для\\s+него|для\\s+неё|для\\s+нее|в\\s+н[её]м|в\\s+н[её]й|' +
+    'чем\\s+(?:он|она|оно|это)\\s+отлича|' +
+    'приведи\\s+пример\\s+(?:этого|использования)?|пример\\s+(?:этого|можешь\\s+привести)|' +
+    'расскаж\\w*\\s+подробнее\\s+про\\s+это|подробнее\\s+про\\s+это|' +
+    '^\\s*а\\s+(?:он|она|оно|это|зачем|где|пример|какие|в\\s+этом\\s+случае)\\b|' +
+    'зачем\\s+(?:он|она|оно|это)\\s+нужен|' +
+    'как\\s+ты\\s+(?:его|её|ее|это)\\s+(?:применял|использовал)|как\\s+ты\\s+это\\s+использовал|' +
+    '(?:^|\\s)ты\\s+сам\\s+(?:его|её|ее|это)\\s+настраивал|' +
+    'как\\s+ты\\s+(?:его|её|ее|это\\s+)?проверял|как\\s+ты\\s+с\\s+этим\\s+разбирал|' +
+    'как\\s+работал\\s+с\\s+этим|как\\s+ты\\s+использовал\\s+(?:в\\s+)?pipeline|' +
+    'как\\s+использовал\\s+(?:в\\s+)?pipeline|' +
+    'какие\\s+(?:плюсы|минусы)(?:\\s+у\\s+(?:него|неё|нее|это))?|' +
+    'какие\\s+ошибки\\s+бывают' +
     ')',
   'iu',
 );
+
+const PIPELINE_FOLLOW_UP_RE = /как\s+(?:ты\s+)?использовал\s+(?:в\s+)?pipeline/iu;
 
 const SHORT_FOLLOW_UP_MAX = 100;
 
@@ -56,12 +60,15 @@ export function isFollowUpQuestion(question: string, corrections: AppliedCorrect
   const q = question.trim();
   if (!q) return false;
 
-  if (NEW_TOPIC_STARTER_RE.test(q) && extractExplicitCanonicalTopic(q, corrections)) {
+  if (isStandaloneDefinitionQuestion(q, corrections)) {
     return false;
   }
 
-  if (q.length > SHORT_FOLLOW_UP_MAX && !FOLLOW_UP_MARKER_RE.test(q)) return false;
-  return FOLLOW_UP_MARKER_RE.test(q);
+  if (q.length > SHORT_FOLLOW_UP_MAX && !EXPLICIT_FOLLOW_UP_RE.test(q)) {
+    return false;
+  }
+
+  return EXPLICIT_FOLLOW_UP_RE.test(q);
 }
 
 function capitalizeQuestion(text: string): string {
@@ -77,7 +84,7 @@ function termInQuestion(topic: string, question: string): boolean {
 function buildResolvedQuestion(question: string, topic: string): { text: string; reason: string } {
   const q = question.trim();
 
-  if (/как\s+ты\s+использовал\s+в\s+pipeline/i.test(q) && !termInQuestion(topic, q)) {
+  if (PIPELINE_FOLLOW_UP_RE.test(q) && !termInQuestion(topic, q)) {
     return {
       text: `Как ты использовал ${topic} в pipeline?`,
       reason: '«как использовал в pipeline» → previous topic',
@@ -145,10 +152,25 @@ function buildResolvedQuestion(question: string, topic: string): { text: string;
     };
   }
 
-  if (/^(?:как\s+)?(?:это\s+было\s+)?(?:на\s+проект|в\s+работ)/i.test(q)) {
+  if (/расскаж\w*\s+подробнее\s+про\s+это/i.test(q)) {
     return {
-      text: `Как ты применял ${topic} на проекте?`,
-      reason: '«на проекте/в работе» without topic → previous topic',
+      text: `Расскажи подробнее про ${topic}`,
+      reason: '«подробнее про это» → previous topic',
+    };
+  }
+
+  if (/чем\s+(?:он|она|оно|это)\s+отлича/i.test(q)) {
+    return {
+      text: `Чем ${topic} отличается от других подходов?`,
+      reason: '«чем он отличается» → previous topic',
+    };
+  }
+
+  if (/какие\s+(?:плюсы|минусы)/i.test(q)) {
+    const kind = /минусы/i.test(q) ? 'минусы' : 'плюсы';
+    return {
+      text: `Какие ${kind} у ${topic}?`,
+      reason: `«какие ${kind}» → previous topic`,
     };
   }
 
@@ -166,7 +188,7 @@ function buildResolvedQuestion(question: string, topic: string): { text: string;
     };
   }
 
-  if (FOLLOW_UP_MARKER_RE.test(q)) {
+  if (EXPLICIT_FOLLOW_UP_RE.test(q)) {
     let resolved = q
       .replace(
         new RegExp(`${WB}(?:его|её|ее|это|этот|эту|этого|такое|этим|этой|эти|он|она|оно)${WE}`, 'giu'),
@@ -186,12 +208,36 @@ export function resolveFollowUpQuestion(input: ResolveFollowUpInput): FollowUpRe
   const corrections = input.corrections ?? [];
   const previousTopic = input.sessionContext.lastCanonicalTopic?.trim() || null;
   const hallucinationRisk = assessHallucinationRisk(intentCorrected);
-
-  const resetInfo = shouldResetPreviousTopic(intentCorrected, corrections, previousTopic);
-  const currentTopic = resetInfo.currentTopic ?? extractExplicitCanonicalTopic(intentCorrected, corrections);
   const followUpCandidate = isFollowUpQuestion(intentCorrected, corrections);
 
-  if (resetInfo.reset || (currentTopic && previousTopic && currentTopic.toLowerCase() !== previousTopic.toLowerCase())) {
+  const resetInfo = shouldResetPreviousTopic(intentCorrected, corrections, previousTopic);
+  const currentTopic =
+    resetInfo.currentTopic ??
+    extractExplicitCanonicalTopic(intentCorrected, corrections) ??
+    (!followUpCandidate ? resolveStandaloneTopic(intentCorrected, corrections) : null);
+
+  if (isStandaloneDefinitionQuestion(intentCorrected, corrections)) {
+    return {
+      resolvedQuestion: intentCorrected,
+      usedPreviousContext: false,
+      isFollowUp: false,
+      resetPreviousTopic: Boolean(previousTopic && currentTopic),
+      resetPreviousTopicReason: previousTopic
+        ? 'Standalone technical term detected, previous context ignored'
+        : undefined,
+      currentTopic,
+      wasPreviousTopicUsed: false,
+      hallucinationRisk,
+      confidence: 'high',
+      reason: 'Standalone technical term detected, previous context ignored',
+    };
+  }
+
+  if (
+    !followUpCandidate &&
+    (resetInfo.reset ||
+      (currentTopic && previousTopic && currentTopic.toLowerCase() !== previousTopic.toLowerCase()))
+  ) {
     return {
       resolvedQuestion: intentCorrected,
       usedPreviousContext: false,
@@ -211,12 +257,12 @@ export function resolveFollowUpQuestion(input: ResolveFollowUpInput): FollowUpRe
     return {
       resolvedQuestion: intentCorrected,
       usedPreviousContext: false,
-      isFollowUp: followUpCandidate,
+      isFollowUp: false,
       resetPreviousTopic: false,
       currentTopic,
       wasPreviousTopicUsed: false,
       hallucinationRisk,
-      confidence: followUpCandidate ? 'medium' : 'low',
+      confidence: 'low',
     };
   }
 

@@ -3,6 +3,7 @@
  * Run: npx tsx packages/shared/src/correctTranscriptWithGlossary.test.ts
  */
 import { normalizeTranscript } from '../../../apps/desktop/src/lib/normalizeTranscript';
+import { applyPythonPhraseCorrections } from './correctPythonPhrases';
 import { correctTranscriptWithGlossary } from './correctTranscriptWithGlossary';
 
 interface Case {
@@ -28,11 +29,25 @@ const CASES: Case[] = [
     input: 'Какие бывают линици команды?',
     expected: 'Какие бывают Linux команды?',
   },
+  {
+    input: 'Чем лист отличает от typo?',
+    expected: 'Чем list отличается от tuple?',
+  },
+  {
+    input: 'лист от typo',
+    expected: 'list от tuple',
+  },
+  { input: 'Что такое Bakr Report?', expected: 'Что такое bug report?' },
+  { input: 'Что должно быть в bag report?', expected: 'Что должно быть в bug report?' },
+  { input: 'Что такое back report?', expected: 'Что такое bug report?' },
+  { input: 'Что такое тест-кейс?', expected: 'Что такое test case?' },
+  { input: 'Что такое чек-лист?', expected: 'Что такое checklist?' },
 ];
 
 function pipeline(raw: string): string {
   const normalized = normalizeTranscript(raw);
-  return correctTranscriptWithGlossary(normalized, { interviewMode: true, isShort: true }).corrected;
+  const glossary = correctTranscriptWithGlossary(normalized, { interviewMode: true, isShort: true });
+  return applyPythonPhraseCorrections(glossary.corrected).corrected;
 }
 
 let failed = 0;

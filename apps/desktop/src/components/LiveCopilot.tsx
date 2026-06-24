@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useLiveCopilot, LiveSources } from '../hooks/useLiveCopilot';
 import { useApp } from '../context/AppContext';
-import { getSuggestionText } from '../lib/suggestionText';
 import MarkdownText from './MarkdownText';
 
 interface Props {
@@ -13,9 +12,13 @@ const isElectron = typeof window !== 'undefined' && !!window.electronAPI;
 
 export default function LiveCopilot({ compact = false, canStart = true }: Props) {
   const { hasStt } = useApp();
-  const { active, lines, suggestion, streamText, streaming, suggestLoading, error, start, stop } =
+  const { active, lines, answerHistory, streamText, streaming, suggestLoading, error, start, stop } =
     useLiveCopilot();
-  const [sources, setSources] = useState<LiveSources>({ mic: true, system: false });
+  const lastAnswer = answerHistory[answerHistory.length - 1]?.spoken ?? '';
+  const [sources, setSources] = useState<LiveSources>(() => ({
+    mic: true,
+    system: isElectron,
+  }));
 
   const toggle = (key: keyof LiveSources) => setSources((s) => ({ ...s, [key]: !s[key] }));
   const noSource = !sources.mic && !sources.system;
@@ -90,8 +93,8 @@ export default function LiveCopilot({ compact = false, canStart = true }: Props)
           </p>
           {streamText ? (
             <MarkdownText text={streamText} />
-          ) : suggestion ? (
-            <MarkdownText text={getSuggestionText(suggestion)} />
+          ) : lastAnswer ? (
+            <MarkdownText text={lastAnswer} />
           ) : (
             <p className="text-sm text-ink-faint">Ответы появятся после реплики собеседника</p>
           )}

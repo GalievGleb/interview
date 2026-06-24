@@ -1,0 +1,123 @@
+import { createEmptySessionContext } from '@interview/shared';
+import { api } from '../lib/api';
+import { generateAnswerFromTranscript, transcribeAudioFile } from '../lib/interviewPipeline';
+import { keywordKeys } from './voice-test-keywords';
+import { buildVoiceRegressionReport } from './voice-test-report';
+import { computeVoiceTestMetrics, resolveVoiceTestStatus } from './voice-test-scoring';
+import type {
+  VoiceRegressionReport,
+  VoiceTestCase,
+  VoiceTestResult,
+  VoiceTestStatus,
+} from './voice-test-types';
+
+export async function loadVoiceTestCases(): Promise<VoiceTestCase[]> {
+  const data = await api.voiceTestCases();
+  return data.cases as VoiceTestCase[];
+}
+
+function pendingResult(testCase: VoiceTestCase): VoiceTestResult {
+  const now = new Date().toISOString();
+  return {
+    caseId: testCase.id,
+    title: testCase.title,
+    status: 'pending',
+    expectedQuestion: testCase.expectedQuestion,
+    actualTranscript: '',
+    generatedAnswer: '',
+    metrics: {
+      transcriptKeywordsFound: [],
+      missingTranscriptKeywords: keywordKeys(testCase.requiredTranscriptKeywords),
+      transcriptScore: 0,
+      answerKeywordsFound: [],
+      missingAnswerKeywords: keywordKeys(testCase.requiredAnswerKeywords),
+      requiredAnswerScore: 0,
+      optionalAnswerScore: 0,
+      optionalAnswerKeywordsFound: [],
+      answerScore: 0,
+      sttLatencyMs: 0,
+      llmLatencyMs: 0,
+      totalLatencyMs: 0,
+      answerWordCount: 0,
+      forbiddenPhrasesFound: [],
+    },
+    failureReason: null,
+    startedAt: now,
+    finishedAt: now,
+  };
+}
+
+export async function runSingleVoiceTest(
+  testCase: VoiceTestCase,
+  onStatus?: (status: VoiceTestStatus) => void,
+): Promise<VoiceTestResult> {
+  const startedAt = new Date().toISOString();
+  onStatus?.('running');
+
+  try {
+    const { transcript, sttLatencyMs } = await transcribeAudioFile(testCase.id);
+    const { answer, llmLatencyMs } = await generateAnswerFromTranscript(
+      transcript,
+      createEmptySessionContext(),
+    );
+
+    const metrics = computeVoiceTestMetrics(testCase, transcript, answer, sttLatencyMs, llmLatencyMs);
+    const { status, failureReason } = resolveVoiceTestStatus(testCase, metrics, answer);
+
+    return {
+      caseId: testCase.id,
+      title: testCase.title,
+      status,
+      expectedQuestion: testCase.expectedQuestion,
+      actualTranscript: transcript,
+      generatedAnswer: answer,
+      metrics,
+      failureReason,
+      startedAt,
+      finishedAt: new Date().toISOString(),
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      caseId: testCase.id,
+      title: testCase.title,
+      status: 'error',
+      expectedQuestion: testCase.expectedQuestion,
+      actualTranscript: '',
+      generatedAnswer: '',
+      metrics: pendingResult(testCase).metrics,
+      failureReason: message,
+      errorMessage: message,
+      startedAt,
+      finishedAt: new Date().toISOString(),
+    };
+  }
+}
+
+export async function runVoiceTests(
+  cases: VoiceTestCase[],
+  opts: {
+    onCaseStart?: (caseId: string) => void;
+    onCaseComplete?: (result: VoiceTestResult) => void;
+  } = {},
+): Promise<VoiceRegressionReport> {
+  const results: VoiceTestResult[] = [];
+
+  for (const testCase of cases) {
+    opts.onCaseStart?.(testCase.id);
+    const result = await runSingleVoiceTest(testCase);
+    results.push(result);
+    opts.onCaseComplete?.(result);
+  }
+
+  return buildVoiceRegressionReport(results);
+}
+
+export async function saveVoiceRegressionReport(report: VoiceRegressionReport): Promise<string> {
+  const saved = await api.voiceTestSaveReport(report);
+  return saved.path;
+}
+
+export function initResultsFromCases(cases: VoiceTestCase[]): VoiceTestResult[] {
+  return cases.map(pendingResult);
+}

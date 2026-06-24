@@ -1,5 +1,8 @@
 import type { AppliedCorrection } from './correctTranscriptWithGlossary';
 import { QA_GLOSSARY } from './qaGlossary';
+import {
+  resolveStandaloneTopic,
+} from './standaloneQuestion';
 
 /** Canonical terms that start a new topic — never combine with previous topic. */
 export const TOPIC_RESET_CANONICAL_TERMS = [
@@ -27,7 +30,18 @@ export const TOPIC_RESET_CANONICAL_TERMS = [
   'pipeline',
   'flaky tests',
   'smoke testing',
+  'sanity testing',
   'regression testing',
+  'test case',
+  'checklist',
+  'bug report',
+  'severity',
+  'priority',
+  'pytest',
+  'equivalence classes',
+  'boundary values',
+  'pairwise testing',
+  'retest',
 ] as const;
 
 const NEW_TOPIC_QUESTION_RE =
@@ -81,6 +95,16 @@ export function extractExplicitCanonicalTopic(
     if (termInText(entry.canonical, q)) {
       return entry.canonical;
     }
+    for (const alias of entry.aliases) {
+      if (termInText(alias, q)) {
+        return entry.canonical;
+      }
+    }
+  }
+
+  const standalone = resolveStandaloneTopic(q, corrections);
+  if (standalone && NEW_TOPIC_QUESTION_RE.test(q)) {
+    return standalone;
   }
 
   return null;
@@ -116,11 +140,14 @@ export function shouldResetPreviousTopic(
   }
 
   if (currentTopic.toLowerCase() !== prev.toLowerCase()) {
+    const reason = NEW_TOPIC_QUESTION_RE.test(question)
+      ? 'Standalone technical term detected, previous context ignored'
+      : `new explicit topic «${currentTopic}» differs from previous «${prev}»`;
     return {
       reset: true,
       currentTopic,
       wasPreviousTopicUsed: false,
-      reason: `new explicit topic «${currentTopic}» differs from previous «${prev}»`,
+      reason,
     };
   }
 

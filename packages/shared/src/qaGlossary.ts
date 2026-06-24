@@ -31,6 +31,37 @@ export const QA_GLOSSARY: QaGlossaryEntry[] = [
     aliases: ['гитлаб си ай', 'gitlab ci', 'делатлавсиан', 'delatlavsian'],
   },
   {
+    canonical: 'Python',
+    aliases: ['python', 'пайтон', 'питон', 'пингтон', 'piton'],
+  },
+  {
+    canonical: 'list',
+    aliases: ['list', 'python list', 'лист', 'листы', 'список', 'списки'],
+    contextOnlyAliases: ['лист', 'листы', 'список', 'списки'],
+  },
+  {
+    canonical: 'tuple',
+    aliases: ['tuple', 'type o', 'typo', 'типо', 'тайпо', 'тупл', 'тапл', 'кортеж', 'кортежи'],
+    contextOnlyAliases: ['typo', 'типо', 'тайпо', 'тупл', 'тапл', 'кортеж', 'кортежи'],
+  },
+  {
+    canonical: 'set',
+    aliases: ['set', 'python set'],
+    contextOnlyAliases: ['сет', 'множество'],
+  },
+  {
+    canonical: 'dict',
+    aliases: ['dict', 'dictionary', 'словарь', 'dict python'],
+  },
+  {
+    canonical: 'GIL',
+    aliases: ['gil', 'global interpreter lock', 'гил'],
+  },
+  {
+    canonical: 'async/await',
+    aliases: ['async await', 'async/await', 'асинк эвейт'],
+  },
+  {
     canonical: 'Docker',
     aliases: ['докер', 'доккер'],
   },
@@ -45,6 +76,8 @@ export const QA_GLOSSARY: QaGlossaryEntry[] = [
       'пайтест фикстуры',
       'pytest fixtures',
       'pytest-fit stura',
+      'pytest-fit-stura',
+      'pytest fit-stura',
       'pytest fit stura',
       'pi test pixtures',
       'python с текстуром',
@@ -165,7 +198,7 @@ export const QA_GLOSSARY: QaGlossaryEntry[] = [
   },
   {
     canonical: 'баг',
-    aliases: ['бак', 'bug'],
+    aliases: ['бак'],
     contextOnlyAliases: ['бак'],
   },
   {
@@ -192,6 +225,67 @@ export const QA_GLOSSARY: QaGlossaryEntry[] = [
   {
     canonical: 'flaky tests',
     aliases: ['flaky tests', 'flaky test', 'flaky тесты', 'флейки', 'флаки'],
+  },
+  {
+    canonical: 'bug report',
+    aliases: [
+      'bug report',
+      'bug-report',
+      'bug репорт',
+      'баг-репорт',
+      'баг репорт',
+      'багрепорт',
+      'bag report',
+      'back report',
+      'bakr report',
+      'Bakr Report',
+      'бак репорт',
+    ],
+  },
+  {
+    canonical: 'test case',
+    aliases: ['test case', 'test-case', 'testcase', 'тест-кейс', 'тест кейс', 'тесткейс'],
+  },
+  {
+    canonical: 'checklist',
+    aliases: ['checklist', 'check-list', 'чек-лист', 'чек лист', 'чеклист'],
+  },
+  {
+    canonical: 'severity',
+    aliases: ['severity', 'северити', 'severity level', 'уровень severity'],
+  },
+  {
+    canonical: 'priority',
+    aliases: ['priority', 'приоритет', 'приорity', 'bug priority'],
+  },
+  {
+    canonical: 'sanity testing',
+    aliases: ['sanity testing', 'sanity', 'sanity test', 'санити'],
+  },
+  {
+    canonical: 'pytest',
+    aliases: ['pytest', 'py test', 'пайтест', 'py.test'],
+  },
+  {
+    canonical: 'equivalence classes',
+    aliases: [
+      'equivalence classes',
+      'equivalence class',
+      'классы эквивалентности',
+      'класс эквивалентности',
+    ],
+  },
+  {
+    canonical: 'boundary values',
+    aliases: ['boundary values', 'boundary value', 'граничные значения', 'граничное значение'],
+  },
+  {
+    canonical: 'pairwise testing',
+    aliases: ['pairwise testing', 'pairwise', 'pair wise', 'попарное тестирование'],
+  },
+  {
+    canonical: 'retest',
+    aliases: ['retest', 're-test', 'ретест', 'повторное тестирование'],
   },
 ];
 

@@ -43,15 +43,19 @@ const COMPARISON_RE =
   /(?:чем\s+.+\s+отлича|разниц\w*|в\s+ч(?:е|ё)м\s+разниц|\bvs\.?\b|против\s+)/iu;
 
 const LIST_RE =
-  /(?:какие\s+(?:бывают\s+)?|перечисли|назови|какие\s+\w+\s+ты\s+знаешь|какие\s+тип\w+|какие\s+вид\w+|основные\s+\w+\s+(?:групп|тип|вид)|список\s+)/iu;
+  /(?:какие\s+(?:бывают\s+)?|перечисли|назови|какие\s+\w+\s+ты\s+знаешь|какие\s+тип\w+|какие\s+вид\w+|какие\s+ошибк\w+|основные\s+\w+\s+(?:групп|тип|вид)|список\s+)/iu;
 
 const DEFINITION_RE =
   /(?:что\s+такое|что\s+значит|что\s+это\s+за|объясни(?:те)?|расскаж\w*\s+что\s+такое|определени\w*)/iu;
 
+const ANSWER_FORMAT =
+  '3–6 short sentences (~50–90 words). First sentence = direct answer. ' +
+  'Use a list for 3+ items/steps/errors/comparisons. No wall of text, no filler openings.';
+
 const STRATEGY_BY_INTENT: Record<QuestionIntent, Omit<AnswerStrategyResult, 'questionIntent'>> = {
   experience: {
     answerStrategy:
-      'Use resume fully. 5–7 sentences. First person: role, project, stack, concrete impact — no corporate filler. Answer directly, no diagnostic intro.',
+      `Use resume fully. ${ANSWER_FORMAT} Bullets: role, stack, concrete impact. Answer directly, no diagnostic intro.`,
     resumeContextUsed: true,
     resumeContextLevel: 'full',
     resumeContextReason: 'Question asks about candidate experience.',
@@ -59,7 +63,7 @@ const STRATEGY_BY_INTENT: Record<QuestionIntent, Omit<AnswerStrategyResult, 'que
   },
   practical_usage: {
     answerStrategy:
-      '4–6 sentences. Resume only for asked tech: scope, how applied, honest limits. No full resume dump. Answer directly.',
+      `${ANSWER_FORMAT} Resume only for asked tech: scope, how applied, honest limits. No full resume dump. Answer directly.`,
     resumeContextUsed: true,
     resumeContextLevel: 'full',
     resumeContextReason: 'Question asks how the candidate applied or configured a tool at work.',
@@ -67,7 +71,7 @@ const STRATEGY_BY_INTENT: Record<QuestionIntent, Omit<AnswerStrategyResult, 'que
   },
   technical_definition: {
     answerStrategy:
-      '3–5 sentences. Definition → purpose → max one experience sentence. Start with the answer, not «Похоже, вопрос про…».',
+      `${ANSWER_FORMAT} Thesis = definition. Bullets = purpose, key details, max one experience line.`,
     resumeContextUsed: false,
     resumeContextLevel: 'limited',
     resumeContextReason: 'Theory question — resume only as optional one-sentence example.',
@@ -75,7 +79,7 @@ const STRATEGY_BY_INTENT: Record<QuestionIntent, Omit<AnswerStrategyResult, 'que
   },
   technical_list: {
     answerStrategy:
-      '4–6 sentences. Direct enumeration by groups. No resume. No diagnostic intro — start with the topic.',
+      `${ANSWER_FORMAT} Bullets MUST name specific items/anti-patterns by name. No resume. No diagnostic intro — start with the topic.`,
     resumeContextUsed: false,
     resumeContextLevel: 'none',
     resumeContextReason: 'List/theory question — no resume injection.',
@@ -83,7 +87,7 @@ const STRATEGY_BY_INTENT: Record<QuestionIntent, Omit<AnswerStrategyResult, 'que
   },
   technical_comparison: {
     answerStrategy:
-      'Compare concepts in 4–6 sentences. Start directly with the comparison. Optional one QA example at end.',
+      `${ANSWER_FORMAT} Thesis = main difference. Bullets = when to use each, optional QA example.`,
     resumeContextUsed: false,
     resumeContextLevel: 'limited',
     resumeContextReason: 'Comparison question — experience only if usage is implied.',
@@ -91,7 +95,7 @@ const STRATEGY_BY_INTENT: Record<QuestionIntent, Omit<AnswerStrategyResult, 'que
   },
   behavioral: {
     answerStrategy:
-      'Behavioral answer in first person. Focus on situation, actions, outcome. Answer directly.',
+      `${ANSWER_FORMAT} Bullets: situation, actions, outcome. Answer directly.`,
     resumeContextUsed: false,
     resumeContextLevel: 'none',
     resumeContextReason: 'Behavioral question — no technical resume dump.',
@@ -99,7 +103,7 @@ const STRATEGY_BY_INTENT: Record<QuestionIntent, Omit<AnswerStrategyResult, 'que
   },
   unclear: {
     answerStrategy:
-      'Answer the most likely corrected topic directly. No diagnostic intro. If truly unknown, cautious generic start.',
+      `${ANSWER_FORMAT} Answer the most likely corrected topic directly. If truly unknown, cautious generic thesis.`,
     resumeContextUsed: false,
     resumeContextLevel: 'none',
     resumeContextReason: 'Unclear transcript — answer probable topic without diagnostics.',

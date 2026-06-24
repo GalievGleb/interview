@@ -41,6 +41,38 @@ const PHRASE_RULES: PhraseRule[] = [
       const l = text.toLowerCase();
       return (
         l.includes('чем') &&
+        (l.includes('list') || l.includes('лист') || l.includes('список')) &&
+        l.includes('отлича') &&
+        (l.includes('tuple') || l.includes('typo') || l.includes('тупл') || l.includes('кортеж'))
+      );
+    },
+    intent: 'Чем list отличается от tuple?',
+    confidence: 'high',
+    reason: 'ASR: list/лист vs tuple/typo Python comparison',
+  },
+  {
+    test: (text) => {
+      const l = text.toLowerCase();
+      return l.includes('чем') && l.includes('list') && l.includes('отлича') && l.includes('set');
+    },
+    intent: 'Чем list отличается от set?',
+    confidence: 'high',
+    reason: 'list vs set Python comparison',
+  },
+  {
+    test: (text) => {
+      const l = text.toLowerCase();
+      return l.includes('чем') && l.includes('tuple') && l.includes('отлича') && l.includes('set');
+    },
+    intent: 'Чем tuple отличается от set?',
+    confidence: 'high',
+    reason: 'tuple vs set Python comparison',
+  },
+  {
+    test: (text) => {
+      const l = text.toLowerCase();
+      return (
+        l.includes('чем') &&
         l.includes('smoke testing') &&
         l.includes('отлича') &&
         (l.includes('integration') || !l.includes('regression'))
@@ -80,6 +112,19 @@ const PHRASE_RULES: PhraseRule[] = [
     confidence: 'medium',
     reason: 'messy ASR with Playwright alias and launch intent',
   },
+  {
+    test: (text) => {
+      const l = text.toLowerCase();
+      return (
+        /(?:bug|bag|back|bakr|баг|бак)\s*[-\s]?report/i.test(l) ||
+        /(?:bug|bag|back|bakr|баг|бак)\s*[-\s]?репорт/i.test(l) ||
+        /что\s+должн\w*\s+быть\s+в\s+(?:bug|bag|back|bakr|баг|бак)/i.test(l)
+      );
+    },
+    intent: 'Что должно быть в bug report?',
+    confidence: 'high',
+    reason: 'ASR garbled bug report as Bakr/bag/back report',
+  },
 ];
 
 function normalizeForMatch(text: string): string {
@@ -116,6 +161,12 @@ function extractKeyTerms(text: string): string[] {
     'page object model',
     'kafka',
     'linux',
+    'list',
+    'tuple',
+    'set',
+    'dict',
+    'gil',
+    'async',
     'oop',
     'allure report',
     'playwright',

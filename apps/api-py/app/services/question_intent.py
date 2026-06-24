@@ -51,7 +51,7 @@ _COMPARISON_RE = re.compile(
 )
 _LIST_RE = re.compile(
     r"(?:какие\s+(?:бывают\s+)?|перечисли|назови|какие\s+\w+\s+ты\s+знаешь|"
-    r"какие\s+тип\w+|какие\s+вид\w+|основные\s+\w+\s+(?:групп|тип|вид)|список\s+)",
+    r"какие\s+тип\w+|какие\s+вид\w+|какие\s+ошибк\w+|основные\s+\w+\s+(?:групп|тип|вид)|список\s+)",
     re.IGNORECASE | re.UNICODE,
 )
 _DEFINITION_RE = re.compile(
@@ -59,12 +59,16 @@ _DEFINITION_RE = re.compile(
     re.IGNORECASE | re.UNICODE,
 )
 
+_FORMAT = (
+    "3–6 short sentences (~50–90 words). First sentence = direct answer. "
+    "Use a list for 3+ items/steps/errors/comparisons. No wall of text, no filler openings."
+)
+
 _STRATEGIES: dict[QuestionIntent, AnswerStrategy] = {
     "experience": {
         "question_intent": "experience",
         "answer_strategy": (
-            "Use resume fully. 5–7 sentences. First person: role, project, stack, concrete impact — "
-            "no corporate filler."
+            f"Use resume fully. {_FORMAT} Bullets: role, stack, concrete impact. No corporate filler."
         ),
         "resume_context_used": True,
         "resume_context_level": "full",
@@ -74,8 +78,7 @@ _STRATEGIES: dict[QuestionIntent, AnswerStrategy] = {
     "practical_usage": {
         "question_intent": "practical_usage",
         "answer_strategy": (
-            "4–6 sentences. Resume only for asked tech: scope, how applied, honest limits. "
-            "No full resume dump."
+            f"{_FORMAT} Resume only for asked tech: scope, how applied, honest limits. No full resume dump."
         ),
         "resume_context_used": True,
         "resume_context_level": "full",
@@ -85,8 +88,7 @@ _STRATEGIES: dict[QuestionIntent, AnswerStrategy] = {
     "technical_definition": {
         "question_intent": "technical_definition",
         "answer_strategy": (
-            "3–5 sentences. Definition → purpose → max one experience sentence. "
-            "Start confidently, not with resume."
+            f"{_FORMAT} Thesis = definition. Bullets = purpose, key details, max one experience line."
         ),
         "resume_context_used": False,
         "resume_context_level": "limited",
@@ -96,8 +98,8 @@ _STRATEGIES: dict[QuestionIntent, AnswerStrategy] = {
     "technical_list": {
         "question_intent": "technical_list",
         "answer_strategy": (
-            "4–6 sentences. Direct enumeration by groups. No resume. "
-            "Do not start with «Я знаю несколько…»."
+            f"{_FORMAT} Bullets MUST name specific items/anti-patterns by name. "
+            "No resume. Do not start with «Я знаю несколько…»."
         ),
         "resume_context_used": False,
         "resume_context_level": "none",
@@ -107,7 +109,7 @@ _STRATEGIES: dict[QuestionIntent, AnswerStrategy] = {
     "technical_comparison": {
         "question_intent": "technical_comparison",
         "answer_strategy": (
-            "Compare concepts in 4–6 sentences. Start directly with the comparison."
+            f"{_FORMAT} Thesis = main difference. Bullets = when to use each, QA example if relevant."
         ),
         "resume_context_used": False,
         "resume_context_level": "limited",
@@ -117,8 +119,7 @@ _STRATEGIES: dict[QuestionIntent, AnswerStrategy] = {
     "behavioral": {
         "question_intent": "behavioral",
         "answer_strategy": (
-            "Behavioral answer in first person. Focus on situation, actions, outcome. "
-            "Minimal stack/resume dump."
+            f"{_FORMAT} Bullets: situation, actions, outcome. Minimal stack/resume dump."
         ),
         "resume_context_used": False,
         "resume_context_level": "none",
@@ -128,8 +129,8 @@ _STRATEGIES: dict[QuestionIntent, AnswerStrategy] = {
     "unclear": {
         "question_intent": "unclear",
         "answer_strategy": (
-            "Answer the most likely corrected topic directly. No diagnostic intro. "
-            "If truly unknown, cautious generic start without «Похоже»."
+            f"{_FORMAT} Answer the most likely corrected topic directly. "
+            "If truly unknown, cautious generic thesis without «Похоже»."
         ),
         "resume_context_used": False,
         "resume_context_level": "none",

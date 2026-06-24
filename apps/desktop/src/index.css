@@ -1,3 +1,5 @@
+@import './styles/interview-cockpit.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -105,7 +107,115 @@
     @apply text-xl font-semibold tracking-tight text-ink;
   }
   .page-subtitle {
-    @apply text-sm text-ink-muted;
+    @apply text-sm leading-relaxed text-ink-muted;
+  }
+
+  /* Interview panels */
+  .panel-card {
+    @apply rounded-2xl border border-surface-border bg-surface-light shadow-soft;
+  }
+  .panel-card-primary {
+    @apply border-surface-border-strong shadow-card;
+  }
+  .panel-header {
+    @apply flex items-center justify-between border-b border-surface-border px-4 py-3;
+  }
+  .panel-title {
+    @apply text-[15px] font-semibold tracking-tight text-ink;
+  }
+
+  /* Segmented / toggle controls */
+  .segmented {
+    @apply inline-flex flex-wrap items-center gap-0.5 rounded-xl border border-surface-border
+      bg-surface p-0.5;
+  }
+  .segmented-item {
+    @apply rounded-lg px-2.5 py-1.5 text-xs font-medium text-ink-muted transition-colors
+      hover:text-ink disabled:pointer-events-none;
+  }
+  .segmented-item-active {
+    @apply bg-accent-soft text-ink;
+  }
+
+  .select-compact {
+    @apply max-w-[160px] rounded-xl border border-surface-border bg-surface px-2.5 py-1.5
+      text-xs text-ink-muted outline-none transition focus:border-accent focus:ring-2
+      focus:ring-accent-ring;
+  }
+
+  /* Answer area */
+  .answer-tab {
+    @apply rounded-lg px-3 py-1.5 text-sm font-medium text-ink-muted transition-colors
+      hover:bg-surface-hover hover:text-ink;
+  }
+  .answer-tab-active {
+    @apply bg-accent-soft text-ink;
+  }
+  .answer-scroll {
+    @apply overflow-y-auto;
+  }
+  .answer-card {
+    @apply rounded-xl border border-surface-border bg-surface-elevated/30 p-4;
+  }
+  .answer-question {
+    @apply mb-3 text-sm font-medium text-accent;
+  }
+  .answer-prose {
+    @apply text-[15px] leading-[1.65] text-ink;
+  }
+
+  /* Transcript */
+  .transcript-scroll {
+    @apply overflow-y-auto;
+  }
+  .transcript-line {
+    @apply rounded-xl border border-transparent px-3 py-2.5;
+  }
+  .transcript-line-me {
+    @apply border-violet-500/10 bg-violet-500/[0.04];
+  }
+  .transcript-line-other {
+    @apply border-emerald-500/10 bg-emerald-500/[0.04];
+  }
+  .transcript-speaker {
+    @apply mb-1 block text-[11px] font-semibold uppercase tracking-wider;
+  }
+  .transcript-line-me .transcript-speaker {
+    @apply text-violet-400/90;
+  }
+  .transcript-line-other .transcript-speaker {
+    @apply text-emerald-400/90;
+  }
+  .transcript-text {
+    @apply text-sm leading-relaxed text-ink;
+  }
+  .transcript-interim {
+    @apply italic text-ink-faint;
+  }
+  .transcript-normalized {
+    @apply mt-1 text-xs text-ink-faint;
+  }
+
+  /* Empty states */
+  .empty-state {
+    @apply text-center;
+  }
+  .empty-state-title {
+    @apply text-sm font-medium text-ink-muted;
+  }
+  .empty-state-hint {
+    @apply mt-1 text-xs leading-relaxed text-ink-faint;
+  }
+
+  /* Sidebar nav pill */
+  .nav-pill {
+    @apply flex items-center gap-2.5 rounded-full px-3 py-2 text-sm font-medium transition-colors;
+  }
+  .nav-pill-active {
+    @apply bg-accent-soft text-ink;
+  }
+  .nav-pill-idle {
+    @apply text-ink-muted hover:bg-surface-hover hover:text-ink;
   }
 }
 

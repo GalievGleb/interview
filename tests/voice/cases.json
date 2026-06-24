@@ -1,0 +1,186 @@
+[
+  {
+    "id": "01_experience",
+    "title": "Work experience in QA automation",
+    "audioFile": "tests/voice/audio/01_experience.wav",
+    "expectedQuestion": "Расскажите про ваш опыт работы в автоматизации тестирования. С какими проектами работали, какие технологии использовали и за что отвечали?",
+    "requiredTranscriptKeywords": [
+      { "key": "опыт", "aliases": ["опыт", "опыта", "опытом"] },
+      { "key": "автоматизации", "aliases": ["автоматизация", "автоматизации", "автоматизирован"] },
+      { "key": "тестирования", "aliases": ["тестирование", "тестирования", "тестировании", "qa"] },
+      { "key": "проекты", "aliases": ["проект", "проекты", "проектах", "проектами"] },
+      { "key": "технологии", "aliases": ["технологии", "технологий", "стек", "инструменты"] }
+    ],
+    "requiredAnswerKeywords": [
+      { "key": "Python", "aliases": ["python", "питон"] },
+      { "key": "pytest", "aliases": ["pytest", "py.test"] },
+      { "key": "API", "aliases": ["api", "rest", "backend"] },
+      { "key": "UI", "aliases": ["ui", "интерфейс", "uitesting", "e2e"] },
+      { "key": "CI/CD", "aliases": ["ci/cd", "cicd", "pipeline", "пайплайн", "jenkins", "gitlab"] },
+      { "key": "Allure", "aliases": ["allure", "аллюр", "отчётность", "отчетность"] }
+    ],
+    "forbiddenAnswerPhrases": ["я не знаю", "у меня нет опыта", "не могу ответить"],
+    "maxAnswerLengthWords": 140,
+    "maxTotalLatencyMs": 10000
+  },
+  {
+    "id": "02_pytest_fixtures",
+    "title": "Pytest fixtures and scopes",
+    "audioFile": "tests/voice/audio/02_pytest_fixtures.wav",
+    "expectedQuestion": "Расскажите, пожалуйста, про pytest fixtures. Как вы их использовали на проекте? Какие бывают скоупы и зачем нужен conftest?",
+    "requiredTranscriptKeywords": [
+      {
+        "key": "pytest",
+        "aliases": ["pytest", "пайтест", "py test"]
+      },
+      {
+        "key": "fixtures",
+        "aliases": ["fixtures", "fixture", "фикстуры", "фикстура"]
+      },
+      {
+        "key": "проект",
+        "aliases": ["проект", "проекте"]
+      },
+      {
+        "key": "scope",
+        "aliases": ["scope", "scopes", "скоуп", "скоупы", "скопы", "сколпы", "области видимости"]
+      },
+      {
+        "key": "conftest",
+        "aliases": ["conftest", "conftest.py", "конфтест"]
+      }
+    ],
+    "requiredAnswerKeywords": [
+      {
+        "key": "fixture",
+        "aliases": ["fixture", "fixtures", "фикстура", "фикстуры"]
+      },
+      {
+        "key": "scope",
+        "aliases": ["scope", "scopes", "скоуп", "скоупы", "function", "class", "module", "session"]
+      },
+      {
+        "key": "setup_teardown",
+        "aliases": ["setup", "teardown", "yield", "подготовка", "очистка"]
+      },
+      {
+        "key": "conftest",
+        "aliases": ["conftest", "conftest.py", "конфтест"]
+      }
+    ],
+    "optionalAnswerKeywords": [
+      {
+        "key": "function_class_module_session",
+        "aliases": ["function", "class", "module", "session"]
+      },
+      {
+        "key": "test_data",
+        "aliases": ["test data", "тестовые данные", "данные"]
+      },
+      {
+        "key": "api_client",
+        "aliases": ["api client", "api-клиент", "клиент api"]
+      }
+    ],
+    "forbiddenAnswerPhrases": [
+      "я не знаю",
+      "не использовал",
+      "не могу ответить"
+    ],
+    "maxAnswerLengthWords": 90,
+    "maxTotalLatencyMs": 10000
+  },
+  {
+    "id": "03_api_testing",
+    "title": "API testing beyond status code",
+    "audioFile": "tests/voice/audio/03_api_testing.wav",
+    "expectedQuestion": "Как вы тестировали API? Что проверяли кроме статус-кода 200 и какие негативные проверки делали?",
+    "requiredTranscriptKeywords": [
+      { "key": "API", "aliases": ["api", "rest", "endpoint"] },
+      { "key": "статус", "aliases": ["статус", "status", "код"] },
+      { "key": "200", "aliases": ["200", "2xx", "ok"] },
+      { "key": "негативные", "aliases": ["негативные", "негативных", "negative", "ошибки"] },
+      { "key": "проверки", "aliases": ["проверки", "проверял", "проверок", "validation"] }
+    ],
+    "requiredAnswerKeywords": [
+      { "key": "status code", "aliases": ["status code", "статус код", "статус-код", "код ответа"] },
+      { "key": "schema", "aliases": ["schema", "схема", "схемам", "схемы", "схемы данных", "json schema"] },
+      { "key": "headers", "aliases": ["headers", "заголовки", "header"] },
+      { "key": "negative", "aliases": ["negative", "негативные", "негативных", "ошибки"] },
+      { "key": "JSON", "aliases": ["json", "джейсон", "тело ответа"] },
+      { "key": "validation", "aliases": ["validation", "валидация", "валидации", "валидировать"] }
+    ],
+    "optionalAnswerKeywords": [
+      { "key": "auth", "aliases": ["auth", "авторизация", "аутентификация", "токен", "bearer"] },
+      { "key": "response time", "aliases": ["response time", "время отклика", "latency", "performance"] }
+    ],
+    "forbiddenAnswerPhrases": [
+      "проверяю только статус код",
+      "проверяю только статус-код",
+      "достаточно проверить статус код",
+      "достаточно проверить статус-код",
+      "кроме 200 ничего не проверял",
+      "я не знаю",
+      "не тестировал"
+    ],
+    "maxAnswerLengthWords": 90,
+    "maxTotalLatencyMs": 10000
+  },
+  {
+    "id": "04_flaky_tests",
+    "title": "Flaky tests in CI/CD",
+    "audioFile": "tests/voice/audio/04_flaky_tests.wav",
+    "expectedQuestion": "Что вы делали с нестабильными автотестами в CI/CD пайплайне? Как находили причину flaky tests?",
+    "requiredTranscriptKeywords": [
+      { "key": "нестабильные", "aliases": ["нестабильные", "нестабильными", "нестабильно", "flaky"] },
+      { "key": "автотесты", "aliases": ["автотесты", "автотестами", "автотестов", "тесты"] },
+      { "key": "CI/CD", "aliases": ["ci/cd", "cicd", "pipeline", "пайплайн", "пайплайне"] },
+      { "key": "flaky", "aliases": ["flaky", "флейки", "флейковые", "нестабильные"] },
+      { "key": "tests", "aliases": ["tests", "тесты", "автотесты", "test"] }
+    ],
+    "requiredAnswerKeywords": [
+      { "key": "логи", "aliases": ["логи", "лог", "logs", "logging"] },
+      { "key": "скриншоты", "aliases": ["скриншот", "скриншоты", "screenshot", "screenshots"] },
+      { "key": "Allure", "aliases": ["allure", "аллюр", "отчёт", "отчет"] },
+      { "key": "ожидания", "aliases": ["ожидания", "ожидание", "wait", "waits", "explicit wait"] },
+      { "key": "retries", "aliases": ["retries", "retry", "перезапуск", "rerun"] },
+      { "key": "sleep", "aliases": ["sleep", "слип", "time.sleep", "пауза"] },
+      { "key": "локаторы", "aliases": ["локатор", "локаторы", "selector", "selectors", "селекторы"] },
+      { "key": "изоляция", "aliases": ["изоляция", "изолировать", "isolation", "независим"] }
+    ],
+    "forbiddenAnswerPhrases": ["просто перезапускал", "не разбирался", "я не знаю"],
+    "maxAnswerLengthWords": 150,
+    "maxTotalLatencyMs": 10000
+  },
+  {
+    "id": "05_page_object_mistakes",
+    "title": "Page Object Model mistakes",
+    "audioFile": "tests/voice/audio/05_page_object_mistakes.wav",
+    "expectedQuestion": "Какие ошибки бывают при использовании Page Object Model в UI-автотестах?",
+    "requiredTranscriptKeywords": [
+      { "key": "Page", "aliases": ["page", "page object"] },
+      { "key": "Object", "aliases": ["object", "page object", "pom"] },
+      { "key": "Model", "aliases": ["model", "page object model", "pom"] },
+      { "key": "UI", "aliases": ["ui", "uitesting", "интерфейс"] },
+      { "key": "автотестах", "aliases": ["автотест", "автотестах", "автотесты", "e2e"] }
+    ],
+    "requiredAnswerKeywords": [
+      {
+        "key": "god object",
+        "aliases": ["god object", "большой page object", "слишком много методов", "толстый page object"]
+      },
+      { "key": "логика", "aliases": ["логика", "логики", "бизнес логика", "business logic"] },
+      {
+        "key": "assertions",
+        "aliases": ["assertions", "assert", "проверки внутри page", "ассерты", "assertion"]
+      },
+      { "key": "локаторы", "aliases": ["локаторы", "локатор", "selectors", "селекторы", "selector"] },
+      { "key": "sleep", "aliases": ["sleep", "слипы", "time.sleep", "hardcoded sleep"] },
+      { "key": "waits", "aliases": ["waits", "ожидания", "explicit wait", "auto-wait", "wait"] },
+      { "key": "дубли", "aliases": ["дубли", "дублирование", "повторение", "duplicate"] }
+    ],
+    "forbiddenAnswerPhrases": ["ошибок не бывает", "не знаю", "не использовал"],
+    "maxAnswerLengthWords": 140,
+    "maxTotalLatencyMs": 10000
+  }
+]

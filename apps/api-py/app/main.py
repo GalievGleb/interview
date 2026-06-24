@@ -15,6 +15,7 @@ from app.routers import (
     settings as settings_router,
     stt,
     usage,
+    voice_tests,
 )
 
 settings = get_settings()
@@ -41,6 +42,7 @@ app.include_router(sessions.router)
 app.include_router(usage.router)
 app.include_router(settings_router.router)
 app.include_router(stt.router)
+app.include_router(voice_tests.router)
 
 
 @app.on_event("startup")

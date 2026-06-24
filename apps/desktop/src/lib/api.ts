@@ -114,7 +114,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     let message = `Ошибка ${resp.status}`;
     try {
       const data = await resp.json();
-      message = data?.error?.message ?? message;
+      message = data?.error?.message ?? (typeof data?.detail === 'string' ? data.detail : message);
     } catch {
       // ignore
     }
@@ -302,7 +302,7 @@ export const api = {
           let message = `Ошибка ${resp.status}`;
           try {
             const data = await resp.json();
-            message = data?.error?.message ?? message;
+            message = data?.error?.message ?? (typeof data?.detail === 'string' ? data.detail : message);
           } catch {
             // ignore
           }
@@ -432,4 +432,19 @@ export const api = {
     })();
     return () => controller.abort();
   },
+
+  voiceTestCases: () =>
+    request<{ cases: unknown[]; root: string; audioDir: string }>('/voice-tests/cases'),
+
+  voiceTestTranscribe: (caseId: string) =>
+    request<{ caseId: string; transcript: string; sttLatencyMs: number; audioPath: string }>(
+      `/voice-tests/transcribe/${encodeURIComponent(caseId)}`,
+      { method: 'POST' },
+    ),
+
+  voiceTestSaveReport: (report: unknown, filename?: string) =>
+    request<{ path: string; filename: string }>('/voice-tests/reports', {
+      method: 'POST',
+      body: JSON.stringify({ report, filename }),
+    }),
 };
