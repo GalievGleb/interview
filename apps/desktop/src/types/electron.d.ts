@@ -5,6 +5,10 @@ export interface ElectronAPI {
     toggle: () => Promise<void>;
     show: () => Promise<void>;
     hide: () => Promise<void>;
+    setContentProtection: (enable: boolean) => Promise<void>;
+  };
+  window: {
+    setSkipTaskbar: (skip: boolean) => Promise<void>;
   };
 }
 

@@ -1,6 +1,9 @@
+import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import StatusBadge from './ui/StatusBadge';
+
+const isElectron = typeof window !== 'undefined' && !!window.electronAPI;
 
 type IconName = 'interview' | 'meeting' | 'documents' | 'history' | 'settings' | 'testlab';
 
@@ -72,6 +75,8 @@ const NAV: { to: string; label: string; icon: IconName }[] = [
 
 export default function Sidebar() {
   const { backendOnline, hasAnyKey } = useApp();
+  const [undetected, setUndetected] = useState(false);
+  const [hiddenTaskbar, setHiddenTaskbar] = useState(false);
 
   return (
     <aside className="flex w-[220px] shrink-0 flex-col border-r border-surface-border bg-surface-panel">
@@ -115,6 +120,38 @@ export default function Sidebar() {
           label={hasAnyKey ? 'API key set' : 'No API key'}
           tone={hasAnyKey ? 'success' : 'warning'}
         />
+        {isElectron && (
+          <div className="space-y-1 pt-1">
+            <button
+              onClick={async () => {
+                const next = !undetected;
+                setUndetected(next);
+                await window.electronAPI!.overlay.setContentProtection(next);
+              }}
+              className={`w-full rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors ${
+                undetected
+                  ? 'border-green-500/40 bg-green-900/30 text-green-400'
+                  : 'border-surface-border text-ink-muted hover:bg-surface-light'
+              }`}
+            >
+              🛡 {undetected ? 'Undetected ON' : 'Undetected OFF'}
+            </button>
+            <button
+              onClick={async () => {
+                const next = !hiddenTaskbar;
+                setHiddenTaskbar(next);
+                await window.electronAPI!.window.setSkipTaskbar(next);
+              }}
+              className={`w-full rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors ${
+                hiddenTaskbar
+                  ? 'border-yellow-500/40 bg-yellow-900/30 text-yellow-400'
+                  : 'border-surface-border text-ink-muted hover:bg-surface-light'
+              }`}
+            >
+              👁 {hiddenTaskbar ? 'Скрыт из taskbar' : 'Виден в taskbar'}
+            </button>
+          </div>
+        )}
       </div>
     </aside>
   );

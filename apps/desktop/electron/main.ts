@@ -68,12 +68,12 @@ function hideOverlay(): void {
 
 function createOverlayWindow(): BrowserWindow {
   const win = new BrowserWindow({
-    width: 900,
-    height: 420,
+    width: 1400,
+    height: 780,
     frame: false,
     transparent: true,
     alwaysOnTop: true,
-    skipTaskbar: false,
+    skipTaskbar: true,
     resizable: true,
     show: false,
     focusable: true,
@@ -105,6 +105,15 @@ function registerIpc(): void {
 
   ipcMain.handle('overlay:show', () => overlayWindow?.show());
   ipcMain.handle('overlay:hide', () => hideOverlay());
+
+  ipcMain.handle('overlay:setContentProtection', (_e, enable: boolean) => {
+    overlayWindow?.setContentProtection(enable);
+    mainWindow?.setContentProtection(enable);
+  });
+
+  ipcMain.handle('window:setSkipTaskbar', (_e, skip: boolean) => {
+    mainWindow?.setSkipTaskbar(skip);
+  });
 }
 
 function registerShortcuts(): void {
