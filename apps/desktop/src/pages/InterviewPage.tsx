@@ -1,15 +1,16 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../lib/api';
 import { SttDebugInfo } from '../components/SttDebugPanel';
 import AnswerPanel from '../components/interview/AnswerPanel';
 import { AnswerTab } from '../components/interview/AnswerTabs';
 import InterviewCockpitShell from '../components/interview/InterviewCockpitShell';
+import InterviewExportButtons from '../components/interview/InterviewExportButtons';
 import InterviewInlineAlert from '../components/interview/InterviewInlineAlert';
 import InterviewTranscriptPanel from '../components/interview/InterviewTranscriptPanel';
 import LiveControls from '../components/interview/LiveControls';
 import ManualQuestionBox from '../components/interview/ManualQuestionBox';
 import PageHeader from '../components/interview/PageHeader';
-
+import { buildCopilotSessionExport, buildExchangeLatency, buildPipelineFromPrepared } from '../lib/interviewSessionExport';
 import { prepareTranscriptForLlm } from '../lib/prepareTranscriptForLlm';
 
 import {
@@ -91,11 +92,10 @@ export default function InterviewPage() {
     error,
 
     sttDebug,
-
+    sessionId,
+    sessionStartedAt,
     start,
-
     stop,
-
   } = useLiveCopilot();
 
 
@@ -136,9 +136,15 @@ export default function InterviewPage() {
 
   const [manualError, setManualError] = useState('');
 
-  const cancelManualRef = useRef<(() => void) | null>(null);
+  const [manualSessionStartedAt, setManualSessionStartedAt] = useState<number | null>(null);
 
+  const cancelManualRef = useRef<(() => void) | null>(null);
   const manualSessionContextRef = useRef<InterviewSessionContext>(createEmptySessionContext());
+  const manualDebugRef = useRef<SttDebugInfo | null>(null);
+
+  useEffect(() => {
+    manualDebugRef.current = manualDebug;
+  }, [manualDebug]);
 
 
 
@@ -155,6 +161,36 @@ export default function InterviewPage() {
   const hasAnswer = history.length > 0 || !!displayStream;
 
   const liveStatus = deriveLiveStatus(active, isGenerating, hasAnswer);
+
+  const exportData = useMemo(
+    () =>
+      buildCopilotSessionExport({
+        sessionId,
+        startedAt: sessionStartedAt ?? manualSessionStartedAt,
+        active,
+        transcriptLines: lines,
+        exchanges: [...answerHistory, ...manualHistory].sort((a, b) => a.ts - b.ts),
+        pending:
+          displayStream.trim() || activeQuestion.trim()
+            ? {
+                question: activeQuestion,
+                answer: displayStream,
+                source: active ? 'live' : 'manual',
+              }
+            : null,
+      }),
+    [
+      sessionId,
+      sessionStartedAt,
+      manualSessionStartedAt,
+      active,
+      lines,
+      answerHistory,
+      manualHistory,
+      displayStream,
+      activeQuestion,
+    ],
+  );
 
 
 
@@ -174,6 +210,10 @@ export default function InterviewPage() {
 
     if (!question.trim()) return;
 
+    if (!sessionStartedAt && !manualSessionStartedAt) {
+      setManualSessionStartedAt(Date.now());
+    }
+
     cancelManualRef.current?.();
 
     const prepared = prepareTranscriptForLlm(question, manualSessionContextRef.current);
@@ -191,6 +231,7 @@ export default function InterviewPage() {
 
 
     let text = '';
+    const answerStartedAt = performance.now();
 
     setManualDebug({
 
@@ -265,6 +306,12 @@ export default function InterviewPage() {
         onDone: (spoken) => {
 
           const cleaned = sanitizeLiveAnswer(spoken);
+          const llmLatencyMs = performance.now() - answerStartedAt;
+          const pipeline = buildPipelineFromPrepared(prepared, {
+            previousTopic: manualSessionContextRef.current.lastCanonicalTopic,
+            llmCorrectedTranscript: manualDebugRef.current?.llmCorrectedTranscript,
+          });
+          const latency = buildExchangeLatency(null, llmLatencyMs);
 
           manualSessionContextRef.current = updateSessionContextAfterAnswer(
 
@@ -297,15 +344,13 @@ export default function InterviewPage() {
             ...prev,
 
             {
-
               id: crypto.randomUUID(),
-
               question: prepared.resolvedQuestion,
-
               spoken: cleaned,
-
               ts: Date.now(),
-
+              source: 'manual',
+              pipeline,
+              latency,
             },
 
           ]);
@@ -449,16 +494,19 @@ export default function InterviewPage() {
         title="Interview Copilot"
         subtitle="Real-time answers based on your resume and vacancy"
         action={
-          isElectron ? (
-            <button
-              type="button"
-              onClick={() => void window.electronAPI?.overlay.toggle()}
-              className="btn-secondary btn-sm"
-            >
-              Overlay
-              <span className="cockpit-kbd">Ctrl+Shift+H</span>
-            </button>
-          ) : undefined
+          <div className="flex flex-wrap items-center gap-2">
+            <InterviewExportButtons exportData={exportData} />
+            {isElectron ? (
+              <button
+                type="button"
+                onClick={() => void window.electronAPI?.overlay.toggle()}
+                className="btn-secondary btn-sm"
+              >
+                Overlay
+                <span className="cockpit-kbd">Ctrl+Shift+H</span>
+              </button>
+            ) : null}
+          </div>
         }
       />
 

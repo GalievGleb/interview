@@ -1,5 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import InterviewExportButtons from '../components/interview/InterviewExportButtons';
 import { api, SessionItem, SessionDetail } from '../lib/api';
+import { buildStoredSessionExport } from '../lib/interviewSessionExport';
 
 export default function HistoryPage() {
   const [sessions, setSessions] = useState<SessionItem[]>([]);
@@ -26,11 +28,19 @@ export default function HistoryPage() {
     }
   };
 
+  const exportData = useMemo(
+    () => (selected ? buildStoredSessionExport(selected) : null),
+    [selected],
+  );
+
   return (
     <div>
-      <div className="mb-6">
-        <h2 className="page-title">История</h2>
-        <p className="page-subtitle">Прошлые сессии, ответы и транскрипты</p>
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h2 className="page-title">История</h2>
+          <p className="page-subtitle">Прошлые сессии, ответы и транскрипты</p>
+        </div>
+        {exportData && <InterviewExportButtons exportData={exportData} compact />}
       </div>
 
       <div className="flex gap-6">

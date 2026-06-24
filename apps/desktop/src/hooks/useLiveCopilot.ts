@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api';
 import { startLiveSession, LiveSession, SttMode } from '../lib/liveSession';
 import { prepareTranscriptForLlm, PreparedTranscript } from '../lib/prepareTranscriptForLlm';
@@ -23,24 +23,18 @@ import {
   stripExperienceFooter,
 } from '../lib/normalizeTranscript';
 import type { SttDebugInfo } from '../components/SttDebugPanel';
+import {
+  buildExchangeLatency,
+  buildPipelineFromPrepared,
+  type CopilotAnswerEntry,
+  type CopilotAnswerPipeline,
+  type ExchangeLatency,
+  type Speaker,
+  type TranscriptLine,
+} from '../lib/interviewSessionExport';
 
-export type Speaker = 'me' | 'other';
-
-export interface TranscriptLine {
-  text: string;
-  normalized?: string;
-  isFinal: boolean;
-  speaker: Speaker;
-}
-
+export type { Speaker, TranscriptLine, CopilotAnswerEntry, CopilotAnswerPipeline };
 export type { SttDebugInfo };
-
-export interface CopilotAnswerEntry {
-  id: string;
-  question: string;
-  spoken: string;
-  ts: number;
-}
 
 export interface LiveSources {
   mic: boolean;
@@ -67,6 +61,13 @@ export function useLiveCopilot() {
   const [suggestLoading, setSuggestLoading] = useState(false);
   const [error, setError] = useState('');
   const [sttDebug, setSttDebug] = useState<SttDebugInfo | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessionStartedAt, setSessionStartedAt] = useState<number | null>(null);
+  const sttDebugRef = useRef<SttDebugInfo | null>(null);
+
+  useEffect(() => {
+    sttDebugRef.current = sttDebug;
+  }, [sttDebug]);
 
   const sessionRef = useRef<string | null>(null);
   const liveRef = useRef<LiveEntry[]>([]);
@@ -214,7 +215,12 @@ export function useLiveCopilot() {
     setCurrentQuestion(q);
     setError('');
 
-    const pushHistory = (text: string, answerId?: string) => {
+    const pushHistory = (
+      text: string,
+      answerId?: string,
+      pipeline?: CopilotAnswerPipeline,
+      latency?: ExchangeLatency,
+    ) => {
       setAnswerHistory((prev) => [
         ...prev,
         {
@@ -222,6 +228,9 @@ export function useLiveCopilot() {
           question: q,
           spoken: text,
           ts: Date.now(),
+          source: 'live',
+          pipeline,
+          latency,
         },
       ]);
       setStreamText('');
@@ -251,6 +260,15 @@ export function useLiveCopilot() {
           setSuggestLoading(false);
           lastCompletedRef.current = q;
           const text = sanitizeLiveAnswer(stripExperienceFooter(spoken || accumulated));
+          const debugSnapshot = sttDebugRef.current;
+          const llmLatencyMs = performance.now() - answerStartedAt;
+          const pipeline = buildPipelineFromPrepared(prepared, {
+            previousTopic: sessionContextRef.current.lastCanonicalTopic,
+            llmCorrectedTranscript: debugSnapshot?.llmCorrectedTranscript,
+            timeToAnswerMs: debugSnapshot?.timeToAnswerMs,
+            timeToFinalMs: debugSnapshot?.timeToFinalMs,
+          });
+          const latency = buildExchangeLatency(debugSnapshot?.timeToFinalMs, llmLatencyMs);
           sessionContextRef.current = updateSessionContextAfterAnswer(sessionContextRef.current, {
             rawQuestion: prepared.rawTranscript,
             correctedQuestion: prepared.corrected,
@@ -261,7 +279,7 @@ export function useLiveCopilot() {
             answerSummary: text,
             resetPreviousTopic: prepared.followUp.resetPreviousTopic,
           });
-          pushHistory(text, answerId);
+          pushHistory(text, answerId, pipeline, latency);
         },
         onError: (msg) => {
           if (gen !== streamGenRef.current) return;
@@ -271,7 +289,15 @@ export function useLiveCopilot() {
           if (accumulated) {
             lastCompletedRef.current = q;
             const text = sanitizeLiveAnswer(stripExperienceFooter(accumulated));
-            pushHistory(text);
+            const debugSnapshot = sttDebugRef.current;
+            const llmLatencyMs = performance.now() - answerStartedAt;
+            const pipeline = buildPipelineFromPrepared(prepared, {
+              previousTopic: sessionContextRef.current.lastCanonicalTopic,
+              llmCorrectedTranscript: debugSnapshot?.llmCorrectedTranscript,
+              timeToFinalMs: debugSnapshot?.timeToFinalMs,
+            });
+            const latency = buildExchangeLatency(debugSnapshot?.timeToFinalMs, llmLatencyMs);
+            pushHistory(text, undefined, pipeline, latency);
           } else {
             setStreamText('');
             setCurrentQuestion('');
@@ -527,6 +553,8 @@ export function useLiveCopilot() {
       try {
         const s = await api.createSession('interview');
         sessionRef.current = s.id;
+        setSessionId(s.id);
+        setSessionStartedAt(Date.now());
       } catch {
         sessionRef.current = null;
       }
@@ -630,6 +658,8 @@ export function useLiveCopilot() {
     suggestLoading,
     error,
     sttDebug,
+    sessionId,
+    sessionStartedAt,
     start,
     stop,
   };

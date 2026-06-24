@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import type { CopilotAnswerEntry } from '../../hooks/useLiveCopilot';
+import type { CopilotAnswerEntry } from '../../lib/interviewSessionExport';
 import type { LiveSessionStatus } from '../ui/StatusBadge';
 import AnswerTabs, { AnswerTab } from './AnswerTabs';
 import CockpitEmptyState, { AnswerEmptyIcon } from './CockpitEmptyState';
