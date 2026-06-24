@@ -137,4 +137,40 @@ export type {
 export { correctQuestionIntent } from './correctQuestionIntent';
 export { QA_GLOSSARY, QA_GLOSSARY_CANONICAL_TERMS } from './qaGlossary';
 export type { QaGlossaryEntry } from './qaGlossary';
+export type {
+  AnswerStrategyResult,
+  ClassifyQuestionIntentInput,
+  QuestionIntent,
+  ResumeContextLevel,
+} from './classifyInterviewQuestionIntent';
+export {
+  classifyInterviewQuestionIntent,
+  getAnswerStrategyForIntent,
+  shouldSuggestUnclearPrefix,
+} from './classifyInterviewQuestionIntent';
 export { QA_QUESTION_BANK } from './qaQuestionBank';
+export type {
+  InterviewSessionContext,
+  SessionContextUpdate,
+} from './interviewSessionContext';
+export {
+  createEmptySessionContext,
+  MAX_RECENT_TOPICS,
+  updateSessionContextAfterAnswer,
+} from './interviewSessionContext';
+export { extractCanonicalTopic } from './extractCanonicalTopic';
+export type {
+  FollowUpConfidence,
+  FollowUpResolutionResult,
+  ResolveFollowUpInput,
+} from './resolveFollowUpQuestion';
+export { isFollowUpQuestion, resolveFollowUpQuestion } from './resolveFollowUpQuestion';
+export { sanitizeLiveAnswer } from './sanitizeLiveAnswer';
+export {
+  assessHallucinationRisk,
+  extractExplicitCanonicalTopic,
+  shouldResetPreviousTopic,
+  TOPIC_RESET_CANONICAL_TERMS,
+} from './topicReset';
+export type { HallucinationRisk, TopicResetResult } from './topicReset';
+export { getDangerQuestionStrategy } from './interviewAnswerSafety';

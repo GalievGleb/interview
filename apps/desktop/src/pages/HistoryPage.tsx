@@ -82,7 +82,7 @@ export default function HistoryPage() {
                   {selected.answers.map((a) => (
                     <div key={a.id} className="card p-4">
                       <p className="mb-1.5 text-sm font-medium text-accent">{a.question}</p>
-                      <p className="whitespace-pre-wrap text-sm text-ink-muted">{a.short}</p>
+                      <p className="whitespace-pre-wrap text-sm text-ink-muted">{a.spoken || a.short}</p>
                     </div>
                   ))}
                 </div>

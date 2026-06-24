@@ -18,6 +18,18 @@ export interface StreamInterviewCorrectionMeta {
   intent_corrections?: Array<{ from: string; to: string; reason: string; confidence: string }>;
   intent_confidence?: string;
   intent_reason?: string;
+  question_intent?: string;
+  answer_strategy?: string;
+  resume_context_used?: boolean;
+  resume_context_level?: string;
+  resume_context_reason?: string;
+  suggest_unclear_prefix?: boolean;
+  resolved_follow_up_question?: string;
+  previous_topic?: string;
+  used_previous_context?: boolean;
+  is_follow_up?: boolean;
+  follow_up_reason?: string;
+  current_canonical_topic?: string;
 }
 
 export interface StreamInterviewOpts {
@@ -25,12 +37,24 @@ export interface StreamInterviewOpts {
   rawQuestion?: string;
   glossaryCorrected?: string;
   intentCorrected?: string;
+  resolvedQuestion?: string;
+  previousTopic?: string;
+  isFollowUp?: boolean;
+  usedPreviousContext?: boolean;
+  followUpReason?: string;
+  currentCanonicalTopic?: string;
   ambiguity?: string;
   corrections?: AppliedCorrection[];
   intentCorrections?: StreamInterviewCorrectionMeta['intent_corrections'];
   intentConfidence?: string;
   intentReason?: string;
   needsLlmCorrection?: boolean;
+  questionIntent?: string;
+  answerStrategy?: string;
+  resumeContextUsed?: boolean;
+  resumeContextLevel?: string;
+  resumeContextReason?: string;
+  suggestUnclearPrefix?: boolean;
   onMeta?: (meta: StreamInterviewCorrectionMeta) => void;
   onFirstChunk?: () => void;
 }
@@ -226,7 +250,7 @@ export const api = {
     question: string,
     handlers: {
       onChunk: (text: string) => void;
-      onDone: (spoken: string) => void;
+      onDone: (spoken: string, answerId?: string) => void;
       onError: (msg: string) => void;
     },
     opts: StreamInterviewOpts = {},
@@ -235,10 +259,10 @@ export const api = {
     let spoken = '';
     let finished = false;
 
-    const finish = (text: string) => {
+    const finish = (text: string, answerId?: string) => {
       if (finished) return;
       finished = true;
-      handlers.onDone(text);
+      handlers.onDone(text, answerId);
     };
 
     void (async () => {
@@ -257,6 +281,18 @@ export const api = {
             intent_confidence: opts.intentConfidence ?? null,
             intent_reason: opts.intentReason ?? null,
             needs_llm_correction: opts.needsLlmCorrection ?? false,
+            question_intent: opts.questionIntent ?? null,
+            answer_strategy: opts.answerStrategy ?? null,
+            resume_context_used: opts.resumeContextUsed ?? null,
+            resume_context_level: opts.resumeContextLevel ?? null,
+            resume_context_reason: opts.resumeContextReason ?? null,
+            suggest_unclear_prefix: opts.suggestUnclearPrefix ?? null,
+            resolved_follow_up_question: opts.resolvedQuestion ?? null,
+            previous_topic: opts.previousTopic ?? null,
+            used_previous_context: opts.usedPreviousContext ?? null,
+            is_follow_up: opts.isFollowUp ?? null,
+            follow_up_reason: opts.followUpReason ?? null,
+            current_canonical_topic: opts.currentCanonicalTopic ?? null,
             session_id: opts.sessionId,
             mode: 'fast',
           }),
@@ -283,6 +319,7 @@ export const api = {
           try {
             const evt = JSON.parse(line.slice(6)) as {
               type: string;
+              id?: string;
               text?: string;
               spoken?: string;
               message?: string;
@@ -294,7 +331,7 @@ export const api = {
               handlers.onChunk(evt.text);
             } else if (evt.type === 'done') {
               if (evt.correction) opts.onMeta?.(evt.correction);
-              finish(evt.spoken ?? spoken);
+              finish(evt.spoken ?? spoken, evt.id);
               return true;
             } else if (evt.type === 'error') {
               if (spoken) finish(spoken);

@@ -13,14 +13,19 @@ from app.prompts.interview_fast import (
     INTERVIEW_PROMPT_STREAM,
     LIVE_SYSTEM_PROMPT,
     RESUME_CONTEXT_LIMIT,
+    RESUME_PLACEHOLDER_NONE,
     VACANCY_CONTEXT_LIMIT,
 )
 from app.prompts.meeting import MEETING_PROMPT
 from app.prompts.system import SYSTEM_PROMPT
 from app.services import model_router, provider_adapter, rag_service, transcript_correction
 from app.services.preferences import load_preferences
+from app.services.question_intent import resolve_answer_strategy
+from app.services.sanitize_live_answer import sanitize_live_answer
 
 router = APIRouter(tags=["chat"])
+
+logger = __import__("logging").getLogger("chat")
 
 FAST_CONTEXT_LIMIT = 350
 
@@ -54,6 +59,18 @@ class InterviewPayload(BaseModel):
     intent_confidence: str | None = None
     intent_reason: str | None = None
     needs_llm_correction: bool | None = None
+    question_intent: str | None = None
+    answer_strategy: str | None = None
+    resume_context_used: bool | None = None
+    resume_context_level: str | None = None
+    resume_context_reason: str | None = None
+    suggest_unclear_prefix: bool | None = None
+    resolved_follow_up_question: str | None = None
+    previous_topic: str | None = None
+    used_previous_context: bool | None = None
+    is_follow_up: bool | None = None
+    follow_up_reason: str | None = None
+    current_canonical_topic: str | None = None
     mode: str = "fast"  # fast для live, general для ручного ввода
     provider: str | None = None
     model: str | None = None
@@ -77,11 +94,18 @@ async def _finalize_question(payload: InterviewPayload) -> tuple[str, str, str, 
     raw = (payload.raw_question or payload.question or "").strip()
     glossary = (payload.glossary_corrected or payload.question or raw).strip()
     intent = (payload.intent_corrected or payload.question or glossary).strip()
+    resolved = (payload.resolved_follow_up_question or "").strip()
     meta: dict = {
         "raw_question": raw,
         "glossary_corrected": glossary,
         "intent_corrected": intent,
         "llm_corrected": intent,
+        "resolved_follow_up_question": resolved or None,
+        "previous_topic": payload.previous_topic,
+        "used_previous_context": payload.used_previous_context,
+        "is_follow_up": payload.is_follow_up,
+        "follow_up_reason": payload.follow_up_reason,
+        "current_canonical_topic": payload.current_canonical_topic,
         "ambiguity": payload.ambiguity,
         "corrections": payload.corrections or [],
         "intent_corrections": payload.intent_corrections or [],
@@ -90,7 +114,7 @@ async def _finalize_question(payload: InterviewPayload) -> tuple[str, str, str, 
         "llm_correction_applied": False,
     }
 
-    final = intent
+    final = resolved if payload.used_previous_context and resolved else intent
     if transcript_correction.should_llm_correct(
         raw_question=raw,
         glossary_corrected=glossary,
@@ -107,6 +131,130 @@ async def _finalize_question(payload: InterviewPayload) -> tuple[str, str, str, 
             meta["llm_reason"] = llm_result.get("reason")
 
     return final, raw, glossary, meta
+
+
+def _persist_stream_answer(
+    db: Session,
+    *,
+    session_id: str | None,
+    question: str,
+    spoken: str,
+    model: str,
+    provider: str,
+) -> str | None:
+    if not session_id or not spoken.strip():
+        return None
+    answer = Answer(
+        session_id=session_id,
+        question=question,
+        answer_short=_first_sentences(spoken, 2),
+        answer_spoken=spoken,
+        answer_detailed="",
+        answer_en="",
+        risk_note="",
+        model=model,
+    )
+    db.add(answer)
+    db.add(ApiUsage(provider=provider, kind="chat"))
+    db.commit()
+    db.refresh(answer)
+    return answer.id
+
+
+async def _interview_event_stream(
+    *,
+    provider: str,
+    model: str,
+    source: str,
+    payload: InterviewPayload,
+    resume: str,
+    vacancy: str,
+    db: Session | None = None,
+):
+    parts: list[str] = []
+    err_msg: str | None = None
+    correction_meta: dict = {}
+    final_question = (payload.question or "").strip()
+
+    try:
+        final_question, raw_question, glossary_corrected, correction_meta = await _finalize_question(
+            payload
+        )
+        strategy = resolve_answer_strategy(payload)
+        correction_meta.update(
+            {
+                "question_intent": strategy["question_intent"],
+                "answer_strategy": strategy["answer_strategy"],
+                "resume_context_used": strategy["resume_context_used"],
+                "resume_context_level": strategy["resume_context_level"],
+                "resume_context_reason": strategy["resume_context_reason"],
+                "suggest_unclear_prefix": strategy["suggest_unclear_prefix"],
+            }
+        )
+        resume_text = (
+            RESUME_PLACEHOLDER_NONE
+            if strategy["resume_context_level"] == "none"
+            else (resume or "(нет)")
+        )
+        prompt = INTERVIEW_PROMPT_STREAM.format(
+            resume=resume_text,
+            vacancy=vacancy or "(нет)",
+            question=final_question,
+            raw_question=raw_question,
+            glossary_corrected=glossary_corrected,
+            ambiguity=correction_meta.get("ambiguity") or "(none)",
+            resolved_follow_up_question=correction_meta.get("resolved_follow_up_question")
+            or final_question,
+            previous_topic=correction_meta.get("previous_topic") or "(none)",
+            question_intent=strategy["question_intent"],
+            answer_strategy=strategy["answer_strategy"],
+            resume_context_level=strategy["resume_context_level"],
+            resume_context_used=str(strategy["resume_context_used"]).lower(),
+            resume_context_reason=strategy["resume_context_reason"],
+        )
+        messages = [
+            {"role": "system", "content": LIVE_SYSTEM_PROMPT},
+            {"role": "user", "content": prompt},
+        ]
+        async for delta in provider_adapter.stream_chat(
+            messages, provider, model, temperature=0.3, live_fast=True
+        ):
+            parts.append(delta)
+            yield f"data: {json.dumps({'type': 'chunk', 'text': delta}, ensure_ascii=False)}\n\n"
+    except Exception as exc:  # noqa: BLE001
+        err_msg = getattr(exc, "message", str(exc))
+
+    spoken = "".join(parts).strip()
+    final_spoken = spoken
+    if spoken:
+        parsed = _parse_fast_response(spoken)
+        final_spoken = sanitize_live_answer(parsed.get("spoken") or spoken)
+
+    if err_msg and not final_spoken:
+        yield f"data: {json.dumps({'type': 'error', 'message': err_msg}, ensure_ascii=False)}\n\n"
+    else:
+        answer_id = None
+        if db and final_spoken:
+            try:
+                answer_id = _persist_stream_answer(
+                    db,
+                    session_id=payload.session_id,
+                    question=final_question,
+                    spoken=final_spoken,
+                    model=model,
+                    provider=provider,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Failed to persist stream answer: %s", exc)
+        done_payload = {
+            "type": "done",
+            "id": answer_id,
+            "model": model,
+            "model_source": source,
+            "spoken": final_spoken,
+            "correction": correction_meta,
+        }
+        yield f"data: {json.dumps(done_payload, ensure_ascii=False)}\n\n"
 
 
 def _resolve_chat(
@@ -238,8 +386,9 @@ async def interview_stream(payload: InterviewPayload):
     try:
         resume = _clip(rag_service.get_context_text(db, "resume"), RESUME_CONTEXT_LIMIT)
         vacancy = _clip(rag_service.get_context_text(db, "vacancy"), VACANCY_CONTEXT_LIMIT)
-    finally:
+    except Exception:
         db.close()
+        raise
 
     provider, model, source = _resolve_chat(
         "fast",
@@ -248,51 +397,20 @@ async def interview_stream(payload: InterviewPayload):
         model_override=payload.model_override,
     )
 
-    final_question, raw_question, glossary_corrected, correction_meta = await _finalize_question(
-        payload
-    )
-
-    prompt = INTERVIEW_PROMPT_STREAM.format(
-        resume=resume or "(нет)",
-        vacancy=vacancy or "(нет)",
-        question=final_question,
-        raw_question=raw_question,
-        glossary_corrected=glossary_corrected,
-        ambiguity=correction_meta.get("ambiguity") or "(none)",
-    )
-    messages = [
-        {"role": "system", "content": LIVE_SYSTEM_PROMPT},
-        {"role": "user", "content": prompt},
-    ]
-
     async def event_stream():
-        parts: list[str] = []
-        err_msg: str | None = None
         try:
-            async for delta in provider_adapter.stream_chat(
-                messages, provider, model, temperature=0.3, live_fast=True
+            async for line in _interview_event_stream(
+                provider=provider,
+                model=model,
+                source=source,
+                payload=payload,
+                resume=resume or "(нет)",
+                vacancy=vacancy or "(нет)",
+                db=db,
             ):
-                parts.append(delta)
-                yield f"data: {json.dumps({'type': 'chunk', 'text': delta}, ensure_ascii=False)}\n\n"
-        except Exception as exc:  # noqa: BLE001
-            err_msg = getattr(exc, "message", str(exc))
+                yield line
         finally:
-            spoken = "".join(parts).strip()
-            final_spoken = spoken
-            if spoken:
-                parsed = _parse_fast_response(spoken)
-                final_spoken = parsed.get("spoken") or spoken
-            if err_msg and not final_spoken:
-                yield f"data: {json.dumps({'type': 'error', 'message': err_msg}, ensure_ascii=False)}\n\n"
-            else:
-                done_payload = {
-                    "type": "done",
-                    "model": model,
-                    "model_source": source,
-                    "spoken": final_spoken,
-                    "correction": correction_meta,
-                }
-                yield f"data: {json.dumps(done_payload, ensure_ascii=False)}\n\n"
+            db.close()
 
     return StreamingResponse(
         event_stream(),

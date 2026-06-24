@@ -1,8 +1,14 @@
 import { useCallback, useRef, useState } from 'react';
-import { api, InterviewAnswer } from '../lib/api';
+import { api } from '../lib/api';
 import { startLiveSession, LiveSession, SttMode } from '../lib/liveSession';
 import { prepareTranscriptForLlm, PreparedTranscript } from '../lib/prepareTranscriptForLlm';
 import { SttSessionOptions } from '../lib/sttOptions';
+import {
+  createEmptySessionContext,
+  sanitizeLiveAnswer,
+  updateSessionContextAfterAnswer,
+  type InterviewSessionContext,
+} from '@interview/shared';
 import {
   looksLikeQuestion,
   mergeRawParts,
@@ -23,6 +29,13 @@ export interface TranscriptLine {
 
 export type { SttDebugInfo };
 
+export interface CopilotAnswerEntry {
+  id: string;
+  question: string;
+  spoken: string;
+  ts: number;
+}
+
 export interface LiveSources {
   mic: boolean;
   system: boolean;
@@ -40,7 +53,8 @@ const SPEECH_FINAL_DELAY_MS = 120;
 export function useLiveCopilot() {
   const [active, setActive] = useState(false);
   const [lines, setLines] = useState<TranscriptLine[]>([]);
-  const [suggestion, setSuggestion] = useState<InterviewAnswer | null>(null);
+  const [answerHistory, setAnswerHistory] = useState<CopilotAnswerEntry[]>([]);
+  const [currentQuestion, setCurrentQuestion] = useState('');
   const [streamText, setStreamText] = useState('');
   const [streaming, setStreaming] = useState(false);
   const [suggestLoading, setSuggestLoading] = useState(false);
@@ -59,6 +73,7 @@ export function useLiveCopilot() {
   const sttMetaRef = useRef<{ engine: string; model: string; sampleRate: number } | null>(null);
   const speechStartedAtRef = useRef<number | null>(null);
   const questionFinalAtRef = useRef<number | null>(null);
+  const sessionContextRef = useRef<InterviewSessionContext>(createEmptySessionContext());
 
   const endInterviewSession = useCallback(async () => {
     const sid = sessionRef.current;
@@ -91,9 +106,8 @@ export function useLiveCopilot() {
   );
 
   const runStream = useCallback((prepared: PreparedTranscript) => {
-    const q = prepared.intentCorrected.trim();
+    const q = prepared.resolvedQuestion.trim();
     if (q.length < 3) return;
-
     streamLockRef.current = true;
     lastQuestionRef.current = q;
     const gen = ++streamGenRef.current;
@@ -105,11 +119,27 @@ export function useLiveCopilot() {
       glossaryCorrected: prepared.corrected,
       intentCorrected: prepared.intentCorrected,
       correctedTranscript: prepared.intentCorrected,
+      resolvedQuestion: prepared.resolvedQuestion,
+      previousTopic: sessionContextRef.current.lastCanonicalTopic,
+      currentCanonicalTopic: prepared.canonicalTopic ?? undefined,
+      isFollowUp: prepared.followUp.isFollowUp,
+      usedPreviousContext: prepared.followUp.usedPreviousContext,
+      wasPreviousTopicUsed: prepared.followUp.wasPreviousTopicUsed,
+      followUpReason: prepared.followUp.reason,
+      resetPreviousTopic: prepared.followUp.resetPreviousTopic,
+      resetPreviousTopicReason: prepared.followUp.resetPreviousTopicReason,
+      hallucinationRisk: prepared.followUp.hallucinationRisk,
+      resumeFactSource: prepared.answerStrategy.resumeContextLevel,
       corrections: prepared.correction.corrections,
       intentCorrections: prepared.intent.intentCorrections,
       intentConfidence: prepared.intent.confidence !== 'none' ? prepared.intent.confidence : undefined,
       intentReason: prepared.intent.reason,
       ambiguity: prepared.intent.ambiguity,
+      questionIntent: prepared.answerStrategy.questionIntent,
+      answerStrategy: prepared.answerStrategy.answerStrategy,
+      resumeContextUsed: prepared.answerStrategy.resumeContextUsed,
+      resumeContextLevel: prepared.answerStrategy.resumeContextLevel,
+      resumeContextReason: prepared.answerStrategy.resumeContextReason,
       sttEngine: meta?.engine,
       sttModel: meta?.model,
       sampleRate: meta?.sampleRate,
@@ -120,35 +150,57 @@ export function useLiveCopilot() {
     setStreaming(true);
     setSuggestLoading(true);
     setStreamText('');
-    setSuggestion(null);
+    setCurrentQuestion(q);
     setError('');
 
+    const pushHistory = (text: string, answerId?: string) => {
+      setAnswerHistory((prev) => [
+        ...prev,
+        {
+          id: answerId || crypto.randomUUID(),
+          question: q,
+          spoken: text,
+          ts: Date.now(),
+        },
+      ]);
+      setStreamText('');
+      setCurrentQuestion('');
+    };
     let accumulated = '';
+    let firstChunk = true;
     cancelStreamRef.current = api.streamInterview(
       q,
       {
         onChunk: (chunk) => {
           if (gen !== streamGenRef.current) return;
+          if (firstChunk) {
+            firstChunk = false;
+            setSttDebug((prev) =>
+              prev ? { ...prev, timeToAnswerMs: performance.now() - answerStartedAt } : prev,
+            );
+          }
           accumulated += chunk;
-          setStreamText(accumulated);
+          setStreamText(sanitizeLiveAnswer(accumulated));
           setSuggestLoading(false);
         },
-        onDone: (spoken) => {
+        onDone: (spoken: string, answerId?: string) => {
           if (gen !== streamGenRef.current) return;
           streamLockRef.current = false;
           setStreaming(false);
           setSuggestLoading(false);
           lastCompletedRef.current = q;
-          const text = stripExperienceFooter(spoken || accumulated);
-          setStreamText(text);
-          setSuggestion({
-            id: '',
-            short: text.split(/(?<=[.!?])\s+/).slice(0, 2).join(' '),
-            spoken: text,
-            detailed: '',
-            english: '',
-            risk: '',
+          const text = sanitizeLiveAnswer(stripExperienceFooter(spoken || accumulated));
+          sessionContextRef.current = updateSessionContextAfterAnswer(sessionContextRef.current, {
+            rawQuestion: prepared.rawTranscript,
+            correctedQuestion: prepared.corrected,
+            intentCorrectedQuestion: prepared.intentCorrected,
+            resolvedQuestion: prepared.resolvedQuestion,
+            questionIntent: prepared.answerStrategy.questionIntent,
+            canonicalTopic: prepared.canonicalTopic,
+            answerSummary: text,
+            resetPreviousTopic: prepared.followUp.resetPreviousTopic,
           });
+          pushHistory(text, answerId);
         },
         onError: (msg) => {
           if (gen !== streamGenRef.current) return;
@@ -157,17 +209,11 @@ export function useLiveCopilot() {
           setSuggestLoading(false);
           if (accumulated) {
             lastCompletedRef.current = q;
-            const text = stripExperienceFooter(accumulated);
-            setStreamText(text);
-            setSuggestion({
-              id: '',
-              short: text.split(/(?<=[.!?])\s+/).slice(0, 2).join(' '),
-              spoken: text,
-              detailed: '',
-              english: '',
-              risk: '',
-            });
+            const text = sanitizeLiveAnswer(stripExperienceFooter(accumulated));
+            pushHistory(text);
           } else {
+            setStreamText('');
+            setCurrentQuestion('');
             setError(msg);
           }
         },
@@ -177,24 +223,46 @@ export function useLiveCopilot() {
         rawQuestion: prepared.rawTranscript,
         glossaryCorrected: prepared.corrected,
         intentCorrected: prepared.intentCorrected,
+        resolvedQuestion: prepared.resolvedQuestion,
+        previousTopic: sessionContextRef.current.lastCanonicalTopic,
+        isFollowUp: prepared.followUp.isFollowUp,
+        usedPreviousContext: prepared.followUp.usedPreviousContext,
+        followUpReason: prepared.followUp.reason,
+        currentCanonicalTopic: prepared.canonicalTopic ?? undefined,
         ambiguity: prepared.intent.ambiguity,
         corrections: prepared.correction.corrections,
         intentCorrections: prepared.intent.intentCorrections,
         intentConfidence: prepared.intent.confidence !== 'none' ? prepared.intent.confidence : undefined,
         intentReason: prepared.intent.reason,
         needsLlmCorrection: prepared.correction.needsLlmCorrection,
-        onFirstChunk: () => {
-          setSttDebug((prev) =>
-            prev ? { ...prev, timeToAnswerMs: performance.now() - answerStartedAt } : prev,
-          );
-        },
+        questionIntent: prepared.answerStrategy.questionIntent,
+        answerStrategy: prepared.answerStrategy.answerStrategy,
+        resumeContextUsed: prepared.answerStrategy.resumeContextUsed,
+        resumeContextLevel: prepared.answerStrategy.resumeContextLevel,
+        resumeContextReason: prepared.answerStrategy.resumeContextReason,
+        suggestUnclearPrefix: prepared.answerStrategy.suggestUnclearPrefix,
         onMeta: (correctionMeta) => {
-          const llmText = correctionMeta.llm_corrected?.trim();
-          if (llmText) {
-            setSttDebug((prev) =>
-              prev ? { ...prev, llmCorrectedTranscript: llmText, intentCorrected: llmText } : prev,
-            );
-          }
+          setSttDebug((prev) => {
+            if (!prev) return prev;
+            const next = { ...prev };
+            const llmText = correctionMeta.llm_corrected?.trim();
+            if (llmText) {
+              next.llmCorrectedTranscript = llmText;
+              next.intentCorrected = llmText;
+            }
+            if (correctionMeta.question_intent) next.questionIntent = correctionMeta.question_intent;
+            if (correctionMeta.answer_strategy) next.answerStrategy = correctionMeta.answer_strategy;
+            if (correctionMeta.resume_context_used != null) {
+              next.resumeContextUsed = correctionMeta.resume_context_used;
+            }
+            if (correctionMeta.resume_context_level) {
+              next.resumeContextLevel = correctionMeta.resume_context_level;
+            }
+            if (correctionMeta.resume_context_reason) {
+              next.resumeContextReason = correctionMeta.resume_context_reason;
+            }
+            return next;
+          });
         },
       },
     );
@@ -202,8 +270,8 @@ export function useLiveCopilot() {
 
   const requestSuggestion = useCallback(
     (rawMerged: string) => {
-      const prepared = prepareTranscriptForLlm(rawMerged);
-      const q = prepared.intentCorrected;
+      const prepared = prepareTranscriptForLlm(rawMerged, sessionContextRef.current);
+      const q = prepared.resolvedQuestion;
       if (q.length < 8) return;
       if (!looksLikeQuestion(q) && q.length < 20) return;
 
@@ -311,7 +379,8 @@ export function useLiveCopilot() {
       const language = stt.language ?? 'ru';
       setError('');
       setLines([]);
-      setSuggestion(null);
+      setAnswerHistory([]);
+      setCurrentQuestion('');
       setStreamText('');
       setSttDebug(null);
       lastQuestionRef.current = '';
@@ -320,6 +389,7 @@ export function useLiveCopilot() {
       speechStartedAtRef.current = null;
       questionFinalAtRef.current = null;
       sttMetaRef.current = null;
+      sessionContextRef.current = createEmptySessionContext();
       streamLockRef.current = false;
       if (finalDebounceRef.current) clearTimeout(finalDebounceRef.current);
       liveRef.current.forEach((e) => e.session.stop());
@@ -416,13 +486,15 @@ export function useLiveCopilot() {
     liveRef.current.forEach((e) => e.session.stop());
     liveRef.current = [];
     setActive(false);
+    sessionContextRef.current = createEmptySessionContext();
     if (hadStreams) await endInterviewSession();
   }, [endInterviewSession]);
 
   return {
     active,
     lines,
-    suggestion,
+    answerHistory,
+    currentQuestion,
     streamText,
     streaming,
     suggestLoading,

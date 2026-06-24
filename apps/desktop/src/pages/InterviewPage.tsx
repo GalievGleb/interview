@@ -1,11 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
-import { api, InterviewAnswer } from '../lib/api';
-import { getSuggestionText } from '../lib/suggestionText';
+import { api } from '../lib/api';
 import MarkdownText from '../components/MarkdownText';
-import SttDebugPanel from '../components/SttDebugPanel';
+import SttDebugPanel, { SttDebugInfo } from '../components/SttDebugPanel';
 import { prepareTranscriptForLlm } from '../lib/prepareTranscriptForLlm';
+import {
+  createEmptySessionContext,
+  sanitizeLiveAnswer,
+  updateSessionContextAfterAnswer,
+  type InterviewSessionContext,
+} from '@interview/shared';
 import { useApp } from '../context/AppContext';
-import { useLiveCopilot, LiveSources } from '../hooks/useLiveCopilot';
+import { useLiveCopilot, CopilotAnswerEntry, LiveSources } from '../hooks/useLiveCopilot';
 import { SttMode } from '../lib/liveSession';
 import {
   AUDIO_RATE_LABELS,
@@ -28,10 +33,24 @@ const isElectron = typeof window !== 'undefined' && !!window.electronAPI;
 
 export default function InterviewPage() {
   const { hasAnyKey, hasStt } = useApp();
-  const { active, lines, suggestion, streamText, streaming, suggestLoading, error, sttDebug, start, stop } =
-    useLiveCopilot();
+  const {
+    active,
+    lines,
+    answerHistory,
+    currentQuestion,
+    streamText,
+    streaming,
+    suggestLoading,
+    error,
+    sttDebug,
+    start,
+    stop,
+  } = useLiveCopilot();
 
   const [debugOpen, setDebugOpen] = useState(false);
+  const [manualDebug, setManualDebug] = useState<SttDebugInfo | null>(null);
+  const [manualHistory, setManualHistory] = useState<CopilotAnswerEntry[]>([]);
+  const [manualCurrentQuestion, setManualCurrentQuestion] = useState('');
 
   const [sources, setSources] = useState<LiveSources>({ mic: true, system: false });
   const [mode, setMode] = useState<SttMode>('stable');
@@ -39,54 +58,102 @@ export default function InterviewPage() {
   const [sttEngine, setSttEngine] = useState<SttEngine>('nova3-multi');
   const [audioRate, setAudioRate] = useState<AudioSampleRateMode>('16k');
   const [question, setQuestion] = useState('');
-  const [manualAnswer, setManualAnswer] = useState<InterviewAnswer | null>(null);
   const [manualStream, setManualStream] = useState('');
   const [tab, setTab] = useState<Tab>('spoken');
   const [loading, setLoading] = useState(false);
   const [manualError, setManualError] = useState('');
   const cancelManualRef = useRef<(() => void) | null>(null);
+  const manualSessionContextRef = useRef<InterviewSessionContext>(createEmptySessionContext());
+
+  const displayStream = active ? streamText : manualStream;
+  const history = active ? answerHistory : [...answerHistory, ...manualHistory];
+  const activeQuestion = active ? currentQuestion : manualCurrentQuestion;
+  const isGenerating = active ? streaming || suggestLoading : loading;
+  const noSource = !sources.mic && !sources.system;
 
   useEffect(() => {
-    if (suggestion) setTab('spoken');
-  }, [suggestion]);
+    if (history.length > 0) setTab('spoken');
+  }, [history.length]);
 
-  const displayStream = streamText || manualStream;
-  const current = suggestion ?? manualAnswer;
-  const noSource = !sources.mic && !sources.system;
   const toggle = (key: keyof LiveSources) => setSources((s) => ({ ...s, [key]: !s[key] }));
 
   const ask = () => {
     if (!question.trim()) return;
     cancelManualRef.current?.();
+    const prepared = prepareTranscriptForLlm(question, manualSessionContextRef.current);
     setLoading(true);
     setManualError('');
-    setManualAnswer(null);
     setManualStream('');
+    setManualCurrentQuestion(prepared.resolvedQuestion);
     setTab('spoken');
 
     let text = '';
-    const prepared = prepareTranscriptForLlm(question);
+    setManualDebug({
+      rawTranscript: prepared.rawTranscript,
+      glossaryCorrected: prepared.corrected,
+      intentCorrected: prepared.intentCorrected,
+      correctedTranscript: prepared.intentCorrected,
+      resolvedQuestion: prepared.resolvedQuestion,
+      previousTopic: manualSessionContextRef.current.lastCanonicalTopic,
+      currentCanonicalTopic: prepared.canonicalTopic ?? undefined,
+      isFollowUp: prepared.followUp.isFollowUp,
+      usedPreviousContext: prepared.followUp.usedPreviousContext,
+      wasPreviousTopicUsed: prepared.followUp.wasPreviousTopicUsed,
+      followUpReason: prepared.followUp.reason,
+      resetPreviousTopic: prepared.followUp.resetPreviousTopic,
+      resetPreviousTopicReason: prepared.followUp.resetPreviousTopicReason,
+      hallucinationRisk: prepared.followUp.hallucinationRisk,
+      resumeFactSource: prepared.answerStrategy.resumeContextLevel,
+      corrections: prepared.correction.corrections,
+      intentCorrections: prepared.intent.intentCorrections,
+      intentConfidence: prepared.intent.confidence !== 'none' ? prepared.intent.confidence : undefined,
+      intentReason: prepared.intent.reason,
+      ambiguity: prepared.intent.ambiguity,
+      questionIntent: prepared.answerStrategy.questionIntent,
+      answerStrategy: prepared.answerStrategy.answerStrategy,
+      resumeContextUsed: prepared.answerStrategy.resumeContextUsed,
+      resumeContextLevel: prepared.answerStrategy.resumeContextLevel,
+      resumeContextReason: prepared.answerStrategy.resumeContextReason,
+    });
     cancelManualRef.current = api.streamInterview(
-      prepared.intentCorrected,
+      prepared.resolvedQuestion,
       {
         onChunk: (chunk) => {
           text += chunk;
-          setManualStream(text);
+          setManualStream(sanitizeLiveAnswer(text));
           setLoading(false);
         },
         onDone: (spoken) => {
-          setManualStream(spoken);
-          setManualAnswer({
-            id: '',
-            short: spoken.split(/(?<=[.!?])\s+/).slice(0, 2).join(' '),
-            spoken,
-            detailed: '',
-            english: '',
-            risk: '',
-          });
+          const cleaned = sanitizeLiveAnswer(spoken);
+          manualSessionContextRef.current = updateSessionContextAfterAnswer(
+            manualSessionContextRef.current,
+            {
+              rawQuestion: prepared.rawTranscript,
+              correctedQuestion: prepared.corrected,
+              intentCorrectedQuestion: prepared.intentCorrected,
+              resolvedQuestion: prepared.resolvedQuestion,
+              questionIntent: prepared.answerStrategy.questionIntent,
+              canonicalTopic: prepared.canonicalTopic,
+              answerSummary: cleaned,
+              resetPreviousTopic: prepared.followUp.resetPreviousTopic,
+            },
+          );
+          setManualHistory((prev) => [
+            ...prev,
+            {
+              id: crypto.randomUUID(),
+              question: prepared.resolvedQuestion,
+              spoken: cleaned,
+              ts: Date.now(),
+            },
+          ]);
+          setManualStream('');
+          setManualCurrentQuestion('');
           setLoading(false);
         },
         onError: (msg) => {
+          setManualStream('');
+          setManualCurrentQuestion('');
           setManualError(msg);
           setLoading(false);
         },
@@ -95,6 +162,12 @@ export default function InterviewPage() {
         rawQuestion: prepared.rawTranscript,
         glossaryCorrected: prepared.corrected,
         intentCorrected: prepared.intentCorrected,
+        resolvedQuestion: prepared.resolvedQuestion,
+        previousTopic: manualSessionContextRef.current.lastCanonicalTopic,
+        isFollowUp: prepared.followUp.isFollowUp,
+        usedPreviousContext: prepared.followUp.usedPreviousContext,
+        followUpReason: prepared.followUp.reason,
+        currentCanonicalTopic: prepared.canonicalTopic ?? undefined,
         ambiguity: prepared.intent.ambiguity,
         corrections: prepared.correction.corrections,
         intentCorrections: prepared.intent.intentCorrections,
@@ -102,6 +175,29 @@ export default function InterviewPage() {
           prepared.intent.confidence !== 'none' ? prepared.intent.confidence : undefined,
         intentReason: prepared.intent.reason,
         needsLlmCorrection: prepared.correction.needsLlmCorrection,
+        questionIntent: prepared.answerStrategy.questionIntent,
+        answerStrategy: prepared.answerStrategy.answerStrategy,
+        resumeContextUsed: prepared.answerStrategy.resumeContextUsed,
+        resumeContextLevel: prepared.answerStrategy.resumeContextLevel,
+        resumeContextReason: prepared.answerStrategy.resumeContextReason,
+        suggestUnclearPrefix: prepared.answerStrategy.suggestUnclearPrefix,
+        onMeta: (meta) => {
+          setManualDebug((prev) => {
+            if (!prev) return prev;
+            const next = { ...prev };
+            const llmText = meta.llm_corrected?.trim();
+            if (llmText) {
+              next.llmCorrectedTranscript = llmText;
+              next.intentCorrected = llmText;
+            }
+            if (meta.question_intent) next.questionIntent = meta.question_intent;
+            if (meta.answer_strategy) next.answerStrategy = meta.answer_strategy;
+            if (meta.resume_context_used != null) next.resumeContextUsed = meta.resume_context_used;
+            if (meta.resume_context_level) next.resumeContextLevel = meta.resume_context_level;
+            if (meta.resume_context_reason) next.resumeContextReason = meta.resume_context_reason;
+            return next;
+          });
+        },
       },
     );
   };
@@ -268,7 +364,11 @@ export default function InterviewPage() {
               </div>
             ))}
           </div>
-          <SttDebugPanel debug={sttDebug} show={debugOpen} onToggle={() => setDebugOpen((v) => !v)} />
+          <SttDebugPanel
+            debug={active ? sttDebug : manualDebug ?? sttDebug}
+            show={debugOpen}
+            onToggle={() => setDebugOpen((v) => !v)}
+          />
         </div>
 
         {/* Copilot */}
@@ -285,28 +385,45 @@ export default function InterviewPage() {
                 {t.label}
               </button>
             ))}
-            {suggestLoading && !displayStream && (
+            {suggestLoading && !displayStream && active && (
               <span className="ml-auto pr-2 text-xs text-ink-faint">генерация...</span>
             )}
-            {streaming && displayStream && (
+            {streaming && displayStream && active && (
               <span className="ml-auto pr-2 text-xs text-ink-faint">печатает...</span>
+            )}
+            {loading && !displayStream && !active && (
+              <span className="ml-auto pr-2 text-xs text-ink-faint">генерация...</span>
             )}
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto p-4">
-            {displayStream && (tab === 'spoken' || tab === 'short') ? (
-              <MarkdownText text={displayStream} />
-            ) : current ? (
-              tab === 'spoken' || tab === 'short' ? (
-                <MarkdownText text={getSuggestionText(current, tab === 'short' ? 'short' : 'spoken')} />
-              ) : (
-                <p className="whitespace-pre-wrap text-sm leading-relaxed text-ink">{current[tab] || '—'}</p>
-              )
-            ) : (
-              <p className="text-sm text-ink-faint">
-                Подсказки появятся во время live или после ручного вопроса ниже.
-              </p>
-            )}
+            <div className="space-y-4">
+              {history.map((item) => (
+                <article key={item.id} className="border-b border-surface-border pb-4 last:border-0">
+                  <p className="mb-2 text-sm font-medium text-accent">В: {item.question}</p>
+                  <MarkdownText text={item.spoken} />
+                </article>
+              ))}
+
+              {(displayStream || (isGenerating && activeQuestion)) && (
+                <article className={history.length ? 'pt-1' : ''}>
+                  {activeQuestion && (
+                    <p className="mb-2 text-sm font-medium text-accent">В: {activeQuestion}</p>
+                  )}
+                  {displayStream ? (
+                    <MarkdownText text={displayStream} />
+                  ) : (
+                    <p className="text-sm text-ink-faint">генерация...</p>
+                  )}
+                </article>
+              )}
+
+              {history.length === 0 && !displayStream && !isGenerating && (
+                <p className="text-sm text-ink-faint">
+                  Подсказки появятся во время live или после ручного вопроса ниже.
+                </p>
+              )}
+            </div>
           </div>
 
           <div className="border-t border-surface-border p-3">

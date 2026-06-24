@@ -16,6 +16,10 @@ export const QA_GLOSSARY: QaGlossaryEntry[] = [
       'cicd',
       'ci cd',
       'cfd',
+      'aicd',
+      'ai cd',
+      'с aicd',
+      'aicd и',
     ],
   },
   {
@@ -45,6 +49,9 @@ export const QA_GLOSSARY: QaGlossaryEntry[] = [
       'pi test pixtures',
       'python с текстуром',
       'пайтон с текстуром',
+      'pytest pictures',
+      'пайтест пикчерс',
+      'пай тест пикчерс',
     ],
   },
   {
@@ -62,7 +69,30 @@ export const QA_GLOSSARY: QaGlossaryEntry[] = [
   },
   {
     canonical: 'Linux',
-    aliases: ['линукс', 'линзе', 'linux', 'полинулось', 'что-то полинулось'],
+    aliases: [
+      'линукс',
+      'линзе',
+      'linux',
+      'полинулось',
+      'что-то полинулось',
+      'линици',
+      'линицы',
+      'леникс',
+      'линикс',
+      'линекс',
+    ],
+  },
+  {
+    canonical: 'Linux команды',
+    aliases: [
+      'линици команды',
+      'линицы команды',
+      'леникс команды',
+      'линикс команды',
+      'линукс команды',
+      'linux commands',
+      'linux команды',
+    ],
   },
   {
     canonical: 'OOP',
@@ -70,10 +100,35 @@ export const QA_GLOSSARY: QaGlossaryEntry[] = [
     contextOnlyAliases: ['open', 'оп', 'о п'],
   },
   {
+    canonical: 'полиморфизм',
+    aliases: [
+      'полиморфизм',
+      'полиматизм',
+      'полимфорзим',
+      'полимфоризм',
+      'полиморфиз',
+      'polymorphism',
+      'polymorfism',
+    ],
+  },
+  {
+    canonical: 'инкапсуляция',
+    aliases: ['инкапсуляция', 'инкапсуляци', 'encapsulation'],
+  },
+  {
+    canonical: 'наследование',
+    aliases: ['наследование', 'наследовани', 'inheritance'],
+  },
+  {
+    canonical: 'абстракция',
+    aliases: ['абстракция', 'абстракци', 'abstraction'],
+  },
+  {
     canonical: 'Allure Report',
     aliases: [
       'allure report',
       'аллюр репорт',
+      'аллюр-репорт',
       'алур репорт',
       'алло report',
       'алло репорт',
@@ -81,6 +136,41 @@ export const QA_GLOSSARY: QaGlossaryEntry[] = [
       'алну report',
       'allnu report',
     ],
+  },
+  {
+    canonical: 'Selenium',
+    aliases: ['selenium', 'селениум', 'селenium'],
+  },
+  {
+    canonical: 'Kubernetes',
+    aliases: ['kubernetes', 'кубернетес', 'кубернетис', 'k8s'],
+  },
+  {
+    canonical: 'HTTP methods',
+    aliases: ['http methods', 'http методы', 'http-методы', 'методы http'],
+  },
+  {
+    canonical: 'PUT',
+    aliases: ['put метод', 'put request'],
+    contextOnlyAliases: ['put'],
+  },
+  {
+    canonical: 'PATCH',
+    aliases: ['patch метод', 'patch request'],
+    contextOnlyAliases: ['patch'],
+  },
+  {
+    canonical: 'автотесты',
+    aliases: ['ортотесты', 'auto tests', 'autotests'],
+  },
+  {
+    canonical: 'баг',
+    aliases: ['бак', 'bug'],
+    contextOnlyAliases: ['бак'],
+  },
+  {
+    canonical: 'критичный баг',
+    aliases: ['критичный бак', 'критичный bag'],
   },
   {
     canonical: 'Playwright',
@@ -98,6 +188,10 @@ export const QA_GLOSSARY: QaGlossaryEntry[] = [
   {
     canonical: 'regression testing',
     aliases: ['regression testing', 'regression', 'регрессион', 'pregration'],
+  },
+  {
+    canonical: 'flaky tests',
+    aliases: ['flaky tests', 'flaky test', 'flaky тесты', 'флейки', 'флаки'],
   },
 ];
 
