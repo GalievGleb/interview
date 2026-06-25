@@ -206,8 +206,15 @@ export const api = {
 
   getSession: (id: string) => request<SessionDetail>(`/sessions/${id}`),
 
-  deleteSession: (id: string) =>
-    request<{ deleted: string }>(`/sessions/${id}`, { method: 'DELETE' }),
+  deleteSession: async (id: string) => {
+    try {
+      return await request<{ deleted: string }>(`/sessions/${id}`, { method: 'DELETE' });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '';
+      if (!message.includes('405')) throw err;
+      return request<{ deleted: string }>(`/sessions/${id}/delete`, { method: 'POST' });
+    }
+  },
 
   endSession: (id: string, summary?: string) =>
     request<{ id: string; ended_at: string }>(`/sessions/${id}/end`, {

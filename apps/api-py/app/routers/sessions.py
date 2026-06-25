@@ -9,6 +9,10 @@ from app.db.session import get_db
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
 
+def _session_is_empty(session: InterviewSession) -> bool:
+    return len(session.answers) == 0 and len(session.transcripts) == 0
+
+
 class CreateSessionPayload(BaseModel):
     mode: str  # interview | meeting
     title: str | None = None
@@ -40,6 +44,7 @@ def list_sessions(db: Session = Depends(get_db)) -> dict:
                 "transcript_count": len(s.transcripts),
             }
             for s in rows
+            if not _session_is_empty(s)
         ]
     }
 
@@ -77,6 +82,15 @@ def get_session(session_id: str, db: Session = Depends(get_db)) -> dict:
 
 @router.delete("/{session_id}")
 def delete_session(session_id: str, db: Session = Depends(get_db)) -> dict:
+    return _delete_session(session_id, db)
+
+
+@router.post("/{session_id}/delete")
+def delete_session_post(session_id: str, db: Session = Depends(get_db)) -> dict:
+    return _delete_session(session_id, db)
+
+
+def _delete_session(session_id: str, db: Session) -> dict:
     s = db.query(InterviewSession).filter(InterviewSession.id == session_id).first()
     if not s:
         raise AppError("Session not found", 404, "not_found")
@@ -96,6 +110,10 @@ def end_session(session_id: str, payload: EndPayload, db: Session = Depends(get_
     s = db.query(InterviewSession).filter(InterviewSession.id == session_id).first()
     if not s:
         raise AppError("Session not found", 404, "not_found")
+    if _session_is_empty(s):
+        db.delete(s)
+        db.commit()
+        return {"deleted": session_id}
     s.ended_at = datetime.utcnow()
     if payload.summary:
         s.summary = payload.summary

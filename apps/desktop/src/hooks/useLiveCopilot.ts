@@ -87,6 +87,7 @@ export function useLiveCopilot() {
   const liveSourcesRef = useRef<LiveSources>({ mic: true, system: false });
   const incompleteRetryRef = useRef(0);
   const lastFlushSpeakerRef = useRef<UtteranceSpeaker>('interviewer');
+  const hasSessionContentRef = useRef(false);
 
   const patchSttDebug = useCallback((patch: Partial<SttDebugInfo>) => {
     setSttDebug((prev) => ({
@@ -139,12 +140,16 @@ export function useLiveCopilot() {
   const endInterviewSession = useCallback(async () => {
     const sid = sessionRef.current;
     sessionRef.current = null;
-    if (sid) {
-      try {
+    setSessionId(null);
+    if (!sid) return;
+    try {
+      if (hasSessionContentRef.current) {
         await api.endSession(sid);
-      } catch {
-        // ignore
+      } else {
+        await api.deleteSession(sid);
       }
+    } catch {
+      // ignore
     }
   }, []);
 
@@ -221,6 +226,7 @@ export function useLiveCopilot() {
       pipeline?: CopilotAnswerPipeline,
       latency?: ExchangeLatency,
     ) => {
+      hasSessionContentRef.current = true;
       setAnswerHistory((prev) => [
         ...prev,
         {
@@ -546,6 +552,7 @@ export function useLiveCopilot() {
       utteranceBufferRef.current = [];
       incompleteRetryRef.current = 0;
       streamLockRef.current = false;
+      hasSessionContentRef.current = false;
       if (finalDebounceRef.current) clearTimeout(finalDebounceRef.current);
       liveRef.current.forEach((e) => e.session.stop());
       liveRef.current = [];
@@ -623,15 +630,20 @@ export function useLiveCopilot() {
         if (sources.mic) tasks.push(startOne('mic', 'me'));
         if (sources.system) tasks.push(startOne('system', 'other'));
         await Promise.all(tasks);
-        if (liveRef.current.length > 0) setActive(true);
-        else setError('Не удалось запустить ни один источник звука');
+        if (liveRef.current.length > 0) {
+          setActive(true);
+        } else {
+          setError('Не удалось запустить ни один источник звука');
+          await endInterviewSession();
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Не удалось запустить сессию');
         liveRef.current.forEach((e) => e.session.stop());
         liveRef.current = [];
+        await endInterviewSession();
       }
     },
-    [appendLine, cancelPendingQuestion, flushQuestion, removeStream, scheduleFinalFallback, scheduleSpeechFinal],
+    [appendLine, cancelPendingQuestion, endInterviewSession, flushQuestion, removeStream, scheduleFinalFallback, scheduleSpeechFinal],
   );
 
   const stop = useCallback(async () => {
