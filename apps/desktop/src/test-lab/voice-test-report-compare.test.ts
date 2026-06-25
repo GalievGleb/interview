@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compareVoiceReports, formatSummaryDelta } from './voice-test-report-compare';
+import { compareVoiceReports, formatSummaryDelta, summarizeReportLatency } from './voice-test-report-compare';
 import type { VoiceRegressionReport } from './voice-test-types';
 
 function makeReport(
@@ -62,5 +62,7 @@ describe('compareVoiceReports', () => {
     expect(comparison.improvements).toHaveLength(1);
     expect(comparison.improvements[0]?.caseId).toBe('b');
     expect(formatSummaryDelta(comparison)).toContain('passed 0');
+    expect(comparison.latency.avgTotalDeltaMs).toBe(0);
+    expect(summarizeReportLatency(current).avgTotalLatencyMs).toBe(3000);
   });
 });

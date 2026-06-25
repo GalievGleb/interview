@@ -30,9 +30,25 @@ export interface ReportComparison {
     failed: number;
     error: number;
   };
+  latency: LatencyComparison;
   cases: ReportCaseDelta[];
   regressions: ReportCaseDelta[];
   improvements: ReportCaseDelta[];
+}
+
+export interface LatencySummary {
+  avgTotalLatencyMs: number;
+  avgSttLatencyMs: number;
+  avgLlmLatencyMs: number;
+  maxTotalLatencyMs: number;
+}
+
+export interface LatencyComparison {
+  previous: LatencySummary;
+  current: LatencySummary;
+  avgTotalDeltaMs: number;
+  avgSttDeltaMs: number;
+  avgLlmDeltaMs: number;
 }
 
 function findResult(results: VoiceTestResult[], caseId: string): VoiceTestResult | undefined {
@@ -45,6 +61,39 @@ function isRegression(prev: VoiceTestStatus, current: VoiceTestStatus): boolean 
 
 function isImprovement(prev: VoiceTestStatus, current: VoiceTestStatus): boolean {
   return STATUS_RANK[current] < STATUS_RANK[prev];
+}
+
+function average(values: number[]): number {
+  if (values.length === 0) return 0;
+  return Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
+}
+
+export function summarizeReportLatency(report: VoiceRegressionReport): LatencySummary {
+  const rows = report.results.filter(
+    (item) => item.status !== 'pending' && item.status !== 'running' && item.status !== 'error',
+  );
+  if (rows.length === 0) {
+    return { avgTotalLatencyMs: 0, avgSttLatencyMs: 0, avgLlmLatencyMs: 0, maxTotalLatencyMs: 0 };
+  }
+  const totals = rows.map((item) => item.metrics.totalLatencyMs);
+  return {
+    avgTotalLatencyMs: average(totals),
+    avgSttLatencyMs: average(rows.map((item) => item.metrics.sttLatencyMs)),
+    avgLlmLatencyMs: average(rows.map((item) => item.metrics.llmLatencyMs)),
+    maxTotalLatencyMs: Math.max(...totals),
+  };
+}
+
+function compareLatency(previous: VoiceRegressionReport, current: VoiceRegressionReport): LatencyComparison {
+  const prev = summarizeReportLatency(previous);
+  const curr = summarizeReportLatency(current);
+  return {
+    previous: prev,
+    current: curr,
+    avgTotalDeltaMs: curr.avgTotalLatencyMs - prev.avgTotalLatencyMs,
+    avgSttDeltaMs: curr.avgSttLatencyMs - prev.avgSttLatencyMs,
+    avgLlmDeltaMs: curr.avgLlmLatencyMs - prev.avgLlmLatencyMs,
+  };
 }
 
 export function compareVoiceReports(
@@ -85,6 +134,7 @@ export function compareVoiceReports(
       failed: current.summary.failed - previous.summary.failed,
       error: current.summary.error - previous.summary.error,
     },
+    latency: compareLatency(previous, current),
     cases,
     regressions: cases.filter((item) => isRegression(item.previousStatus, item.currentStatus)),
     improvements: cases.filter((item) => isImprovement(item.previousStatus, item.currentStatus)),
@@ -92,7 +142,11 @@ export function compareVoiceReports(
 }
 
 export function parseVoiceRegressionReport(raw: string): VoiceRegressionReport {
-  const parsed = JSON.parse(raw) as VoiceRegressionReport;
+  return assertVoiceRegressionReport(JSON.parse(raw) as unknown);
+}
+
+export function assertVoiceRegressionReport(data: unknown): VoiceRegressionReport {
+  const parsed = data as VoiceRegressionReport;
   if (!parsed?.generatedAt || !Array.isArray(parsed.results)) {
     throw new Error('Invalid voice regression report JSON');
   }

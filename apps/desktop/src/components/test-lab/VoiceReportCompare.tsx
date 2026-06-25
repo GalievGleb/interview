@@ -17,7 +17,7 @@ interface VoiceReportCompareProps {
 }
 
 export default function VoiceReportCompare({ comparison }: VoiceReportCompareProps) {
-  const { summaryDelta, regressions, improvements } = comparison;
+  const { summaryDelta, regressions, improvements, latency } = comparison;
 
   return (
     <div className="rounded-lg border border-surface-border bg-surface-panel p-4">
@@ -28,6 +28,12 @@ export default function VoiceReportCompare({ comparison }: VoiceReportComparePro
       <p className="mt-2 text-sm text-ink">
         Summary delta: passed {formatDelta(summaryDelta.passed)}, warning {formatDelta(summaryDelta.warning)},
         failed {formatDelta(summaryDelta.failed)}, error {formatDelta(summaryDelta.error)}
+      </p>
+
+      <p className="mt-2 text-sm text-ink">
+        Latency avg: total {latency.previous.avgTotalLatencyMs} → {latency.current.avgTotalLatencyMs} ms (
+        {formatDelta(latency.avgTotalDeltaMs, ' ms')}), STT {formatDelta(latency.avgSttDeltaMs, ' ms')}, LLM{' '}
+        {formatDelta(latency.avgLlmDeltaMs, ' ms')}
       </p>
 
       {regressions.length > 0 && (

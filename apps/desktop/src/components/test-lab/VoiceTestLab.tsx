@@ -16,6 +16,7 @@ import {
 } from '../../test-lab/voice-test-report-compare';
 import {
   initResultsFromCases,
+  loadPreviousVoiceReport,
   loadVoiceTestCases,
   runSingleVoiceTest,
   saveVoiceRegressionReport,
@@ -83,6 +84,10 @@ export default function VoiceTestLab() {
     try {
       const path = await saveVoiceRegressionReport(finalReport);
       setSavedReportPath(path);
+      const previous = await loadPreviousVoiceReport(path);
+      if (previous) {
+        setComparison(compareVoiceReports(previous, finalReport));
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Не удалось сохранить отчёт');
     }

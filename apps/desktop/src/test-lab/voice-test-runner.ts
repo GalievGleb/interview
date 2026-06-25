@@ -3,6 +3,7 @@ import { api } from '../lib/api';
 import { generateAnswerFromTranscript, transcribeAudioFile } from '../lib/interviewPipeline';
 import { keywordKeys } from './voice-test-keywords';
 import { buildVoiceRegressionReport } from './voice-test-report';
+import { assertVoiceRegressionReport } from './voice-test-report-compare';
 import { computeVoiceTestMetrics, resolveVoiceTestStatus } from './voice-test-scoring';
 import type {
   VoiceRegressionReport,
@@ -116,6 +117,27 @@ export async function runVoiceTests(
 export async function saveVoiceRegressionReport(report: VoiceRegressionReport): Promise<string> {
   const saved = await api.voiceTestSaveReport(report);
   return saved.path;
+}
+
+export async function listSavedVoiceReports() {
+  const response = await api.voiceTestListReports();
+  return response.reports;
+}
+
+export async function loadSavedVoiceReport(filename: string): Promise<VoiceRegressionReport> {
+  const raw = await api.voiceTestGetReport(filename);
+  return assertVoiceRegressionReport(raw);
+}
+
+export async function loadPreviousVoiceReport(currentPath?: string): Promise<VoiceRegressionReport | null> {
+  const reports = await listSavedVoiceReports();
+  if (reports.length < 2) return null;
+
+  const currentName = currentPath ? currentPath.split(/[/\\]/).pop() : undefined;
+  const previous = reports.find((item) => item.filename !== currentName) ?? reports[1];
+  if (!previous) return null;
+
+  return loadSavedVoiceReport(previous.filename);
 }
 
 export function initResultsFromCases(cases: VoiceTestCase[]): VoiceTestResult[] {

@@ -110,6 +110,46 @@ def save_report(payload: VoiceTestReportPayload) -> dict:
     return {"path": str(out_path), "filename": filename}
 
 
+def _safe_report_filename(filename: str) -> str:
+    name = Path(filename).name
+    if not name.startswith("voice-regression-") or not name.endswith(".json"):
+        raise HTTPException(status_code=400, detail="Invalid report filename")
+    return name
+
+
+@router.get("/reports")
+def list_reports() -> dict:
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    files = sorted(
+        RESULTS_DIR.glob("voice-regression-*.json"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    return {
+        "reports": [
+            {
+                "filename": path.name,
+                "path": str(path),
+                "modifiedAt": datetime.fromtimestamp(
+                    path.stat().st_mtime,
+                    tz=timezone.utc,
+                ).isoformat(),
+            }
+            for path in files
+        ]
+    }
+
+
+@router.get("/reports/{filename}")
+def get_report(filename: str) -> dict:
+    safe_name = _safe_report_filename(filename)
+    path = RESULTS_DIR / safe_name
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail=f"Report not found: {safe_name}")
+    with path.open(encoding="utf-8") as f:
+        return json.load(f)
+
+
 def _load_cases() -> list[dict]:
     if not CASES_PATH.exists():
         raise HTTPException(status_code=404, detail="cases.json not found")

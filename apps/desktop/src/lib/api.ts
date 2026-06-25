@@ -89,6 +89,8 @@ export interface SessionItem {
   title: string | null;
   started_at: string;
   ended_at: string | null;
+  answer_count?: number;
+  transcript_count?: number;
 }
 
 export interface SessionDetail extends SessionItem {
@@ -203,6 +205,9 @@ export const api = {
   listSessions: () => request<{ sessions: SessionItem[] }>('/sessions'),
 
   getSession: (id: string) => request<SessionDetail>(`/sessions/${id}`),
+
+  deleteSession: (id: string) =>
+    request<{ deleted: string }>(`/sessions/${id}`, { method: 'DELETE' }),
 
   endSession: (id: string, summary?: string) =>
     request<{ id: string; ended_at: string }>(`/sessions/${id}/end`, {
@@ -447,4 +452,12 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ report, filename }),
     }),
+
+  voiceTestListReports: () =>
+    request<{ reports: Array<{ filename: string; path: string; modifiedAt: string }> }>(
+      '/voice-tests/reports',
+    ),
+
+  voiceTestGetReport: (filename: string) =>
+    request<Record<string, unknown>>(`/voice-tests/reports/${encodeURIComponent(filename)}`),
 };

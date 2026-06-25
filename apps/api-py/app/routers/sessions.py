@@ -36,6 +36,8 @@ def list_sessions(db: Session = Depends(get_db)) -> dict:
                 "title": s.title,
                 "started_at": s.started_at.isoformat(),
                 "ended_at": s.ended_at.isoformat() if s.ended_at else None,
+                "answer_count": len(s.answers),
+                "transcript_count": len(s.transcripts),
             }
             for s in rows
         ]
@@ -71,6 +73,16 @@ def get_session(session_id: str, db: Session = Depends(get_db)) -> dict:
             for a in sorted(s.answers, key=lambda x: x.ts)
         ],
     }
+
+
+@router.delete("/{session_id}")
+def delete_session(session_id: str, db: Session = Depends(get_db)) -> dict:
+    s = db.query(InterviewSession).filter(InterviewSession.id == session_id).first()
+    if not s:
+        raise AppError("Session not found", 404, "not_found")
+    db.delete(s)
+    db.commit()
+    return {"deleted": session_id}
 
 
 class EndPayload(BaseModel):
