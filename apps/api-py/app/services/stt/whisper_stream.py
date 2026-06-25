@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -122,14 +123,25 @@ class Endpointer:
         return self._in_speech and self.speech_ms >= MIN_SPEECH_MS
 
 
+MIN_FINAL_WORDS = 3  # quality gate: skip LLM for fewer meaningful words
+
+
 @dataclass
 class _StreamState:
     partial_interval_ms: int
+    # Generation counter: bumped when an utterance finalizes so a partial that
+    # was already in flight is discarded instead of overwriting the final.
+    utterance_gen: int = 0
     last_partial_at: float = 0.0
     last_partial_text: str = ""
     partial_in_flight: bool = False
     final_in_flight: bool = False
     speech_started_sent: bool = False
+    last_final_text: str = ""
+    # Per-utterance timing (monotonic seconds).
+    speech_started_at: float = 0.0
+    first_partial_at: float = 0.0
+    partial_count: int = 0
     transcribe_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
@@ -143,6 +155,23 @@ def _should_emit_partial(new_text: str, last_text: str) -> bool:
     if last_text.startswith(new_text):
         return False
     return len(new_text) >= max(3, int(len(last_text) * 0.6))
+
+
+def _meaningful_word_count(text: str) -> int:
+    return len([w for w in re.findall(r"[^\W\d_]+", text or "", re.UNICODE) if len(w) >= 2])
+
+
+def quality_gate(text: str, last_final: str) -> tuple[bool, str]:
+    """Decide whether a final transcript is worth sending to the LLM.
+
+    Deterministic and fast — richer intent checks live in the desktop pipeline.
+    """
+    t = (text or "").strip()
+    if _meaningful_word_count(t) < MIN_FINAL_WORDS:
+        return False, "too_few_words"
+    if last_final and t.lower() == last_final.strip().lower():
+        return False, "duplicate"
+    return True, "ok"
 
 
 async def _warm_providers(*providers: WhisperLocalProvider) -> None:
@@ -222,9 +251,7 @@ async def run_whisper_stream(
 
     endpointer = Endpointer(sample_rate=sample_rate)
     state = _StreamState(
-        partial_interval_ms=(
-            PARTIAL_INTERVAL_SAME_MODEL_MS if same_model else PARTIAL_INTERVAL_MS
-        ),
+        partial_interval_ms=(PARTIAL_INTERVAL_SAME_MODEL_MS if same_model else PARTIAL_INTERVAL_MS),
     )
 
     async def on_speech_start() -> None:
@@ -233,6 +260,9 @@ async def run_whisper_stream(
         state.speech_started_sent = True
         state.last_partial_text = ""
         state.last_partial_at = 0.0
+        state.speech_started_at = time.monotonic()
+        state.first_partial_at = 0.0
+        state.partial_count = 0
         await client_ws.send_json({"type": "speech_started"})
 
     async def maybe_partial() -> None:
@@ -248,25 +278,32 @@ async def run_whisper_stream(
         if not pcm:
             return
 
+        gen = state.utterance_gen
         state.partial_in_flight = True
         state.last_partial_at = now
         try:
             async with state.transcribe_lock:
+                t0 = time.monotonic()
                 text = await _transcribe_pcm(
-                    partial_provider,
-                    pcm,
-                    language=language,
-                    sample_rate=sample_rate,
+                    partial_provider, pcm, language=language, sample_rate=sample_rate
                 )
+                infer_ms = int((time.monotonic() - t0) * 1000)
+            # Drop a partial whose utterance already finalized (preemption).
+            if gen != state.utterance_gen:
+                return
             if not _should_emit_partial(text, state.last_partial_text):
                 return
             state.last_partial_text = text
+            state.partial_count += 1
+            if not state.first_partial_at:
+                state.first_partial_at = time.monotonic()
             await client_ws.send_json(
                 {
                     "type": "transcript",
                     "text": text,
                     "is_final": False,
                     "speech_final": False,
+                    "partial_ms": infer_ms,
                 }
             )
         except Exception as exc:  # noqa: BLE001
@@ -275,6 +312,13 @@ async def run_whisper_stream(
             state.partial_in_flight = False
 
     async def finalize() -> None:
+        speech_ended_at = time.monotonic()
+        speech_started_at = state.speech_started_at or speech_ended_at
+        first_partial_at = state.first_partial_at
+        partial_count = state.partial_count
+        # Bump generation so any in-flight partial result is discarded and can
+        # never overwrite the final transcript.
+        state.utterance_gen += 1
         pcm = endpointer.take_utterance()
         state.speech_started_sent = False
         if not pcm:
@@ -283,12 +327,11 @@ async def run_whisper_stream(
         state.final_in_flight = True
         try:
             async with state.transcribe_lock:
+                infer_start = time.monotonic()
                 text = await _transcribe_pcm(
-                    final_provider,
-                    pcm,
-                    language=language,
-                    sample_rate=sample_rate,
+                    final_provider, pcm, language=language, sample_rate=sample_rate
                 )
+                final_inference_ms = int((time.monotonic() - infer_start) * 1000)
         except Exception as exc:  # noqa: BLE001
             logger.warning("Whisper transcription failed: %s", exc)
             return
@@ -296,12 +339,36 @@ async def run_whisper_stream(
             state.final_in_flight = False
             state.last_partial_text = ""
 
-        if not text:
+        final_done_at = time.monotonic()
+        timings = {
+            "speechMs": int((speech_ended_at - speech_started_at) * 1000),
+            "firstPartialMs": (
+                int((first_partial_at - speech_started_at) * 1000) if first_partial_at else None
+            ),
+            "speechEndToFinalMs": int((final_done_at - speech_ended_at) * 1000),
+            "finalInferenceMs": final_inference_ms,
+            "partialCount": partial_count,
+        }
+
+        ok, reason = quality_gate(text, state.last_final_text)
+        if not ok:
+            logger.info("STT quality gate skipped (%s): %r", reason, text)
+            await client_ws.send_json(
+                {"type": "low_quality", "text": text, "reason": reason, "timings": timings}
+            )
             return
+
+        state.last_final_text = text
         await client_ws.send_json(
-            {"type": "transcript", "text": text, "is_final": True, "speech_final": True}
+            {
+                "type": "transcript",
+                "text": text,
+                "is_final": True,
+                "speech_final": True,
+                "final_ms": final_inference_ms,
+            }
         )
-        await client_ws.send_json({"type": "utterance_end"})
+        await client_ws.send_json({"type": "utterance_end", "timings": timings})
         if on_final:
             on_final(text)
 
@@ -323,7 +390,7 @@ async def run_whisper_stream(
                     timeout=RECEIVE_POLL_S,
                 )
                 await process_chunk(data)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 if endpointer.in_speech:
                     await maybe_partial()
     except Exception:  # noqa: BLE001 - disconnect / receive error ends the stream

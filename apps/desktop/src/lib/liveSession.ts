@@ -7,11 +7,22 @@ import {
   SttSessionOptions,
 } from './sttOptions';
 
+/** Server-measured timing breakdown for one utterance (ms). */
+export interface SttTimings {
+  speechMs?: number;
+  firstPartialMs?: number | null;
+  speechEndToFinalMs?: number;
+  finalInferenceMs?: number;
+  partialCount?: number;
+}
+
 export interface LiveHandlers {
   onTranscript: (text: string, isFinal: boolean, speechFinal: boolean) => void;
-  onUtteranceEnd?: () => void;
+  onUtteranceEnd?: (timings?: SttTimings) => void;
   onTurnResumed?: () => void;
   onSpeechStarted?: () => void;
+  /** Final transcript rejected by the server quality gate (no LLM call). */
+  onLowQuality?: (text: string, reason: string) => void;
   onReady?: (info: {
     engine: string;
     model: string;
@@ -87,7 +98,9 @@ export async function startLiveSession(
       if (evt.type === 'transcript') {
         handlers.onTranscript(evt.text, Boolean(evt.is_final), Boolean(evt.speech_final));
       } else if (evt.type === 'utterance_end') {
-        handlers.onUtteranceEnd?.();
+        handlers.onUtteranceEnd?.(evt.timings as SttTimings | undefined);
+      } else if (evt.type === 'low_quality') {
+        handlers.onLowQuality?.(evt.text ?? '', evt.reason ?? 'low_quality');
       } else if (evt.type === 'speech_started') {
         handlers.onSpeechStarted?.();
       } else if (evt.type === 'turn_resumed') {

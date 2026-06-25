@@ -28,8 +28,10 @@ class SttSettings(BaseModel):
     def sanitized(self) -> SttSettings:
         s = get_settings()
         default_final = s.stt_local_model
-        final = self.final_model if self.final_model in VALID_MODELS else (
-            self.local_model if self.local_model in VALID_MODELS else default_final
+        final = (
+            self.final_model
+            if self.final_model in VALID_MODELS
+            else (self.local_model if self.local_model in VALID_MODELS else default_final)
         )
         partial = self.partial_model if self.partial_model in VALID_MODELS else "fast"
         return SttSettings(

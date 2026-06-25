@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api';
-import { startLiveSession, LiveSession, SttMode } from '../lib/liveSession';
+import { startLiveSession, LiveSession, SttMode, SttTimings } from '../lib/liveSession';
 import { prepareTranscriptForLlm, PreparedTranscript } from '../lib/prepareTranscriptForLlm';
 import { SttSessionOptions } from '../lib/sttOptions';
 import {
@@ -141,6 +141,8 @@ export function useLiveCopilot() {
   } | null>(null);
   const speechStartedAtRef = useRef<number | null>(null);
   const questionFinalAtRef = useRef<number | null>(null);
+  // Authoritative STT timing measured server-side (speech-end -> final, etc.).
+  const serverTimingsRef = useRef<SttTimings | null>(null);
   const sessionContextRef = useRef<InterviewSessionContext>(createEmptySessionContext());
   const utteranceBufferRef = useRef<UtteranceBufferEntry[]>([]);
   const triggerSpeakerRef = useRef<Speaker>('other');
@@ -299,8 +301,18 @@ export function useLiveCopilot() {
       partialSttModel: meta?.partialModel,
       sampleRate: meta?.sampleRate,
       ...buildTimingDebug(timingRef.current),
+      // Prefer the server-measured speech-end -> final latency (the desktop can
+      // only see when the final *arrived*, not when speech ended on the server).
       timeToFinalMs:
-        questionFinalAtRef.current != null ? answerStartedAt - questionFinalAtRef.current : undefined,
+        serverTimingsRef.current?.speechEndToFinalMs ??
+        (questionFinalAtRef.current != null
+          ? answerStartedAt - questionFinalAtRef.current
+          : undefined),
+      finalTranscriptionMs:
+        serverTimingsRef.current?.finalInferenceMs ?? buildTimingDebug(timingRef.current).finalTranscriptionMs,
+      timeToFirstPartialMs:
+        serverTimingsRef.current?.firstPartialMs ??
+        buildTimingDebug(timingRef.current).timeToFirstPartialMs,
     });
 
     setStreaming(true);
@@ -748,9 +760,20 @@ export function useLiveCopilot() {
                 sampleRate: info.sampleRate,
               };
             },
-            onUtteranceEnd: () => {
+            onUtteranceEnd: (timings) => {
               lastFlushSpeakerRef.current = speaker === 'other' ? 'interviewer' : 'me';
+              if (timings) serverTimingsRef.current = timings;
               flushQuestion();
+            },
+            onLowQuality: (text, _reason) => {
+              // Server quality gate rejected this utterance — keep listening,
+              // never call the LLM with garbage. (Server logs the reason.)
+              serverTimingsRef.current = null;
+              patchSttDebug({
+                interimTranscript: undefined,
+                finalTranscript: text,
+                waitReason: 'Waiting for complete question…',
+              });
             },
             onTurnResumed: () => {
               lastFlushSpeakerRef.current = speaker === 'other' ? 'interviewer' : 'me';

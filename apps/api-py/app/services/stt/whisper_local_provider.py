@@ -151,7 +151,9 @@ class WhisperLocalProvider(BaseTranscriptionProvider):
             return self._model
         from faster_whisper import WhisperModel  # lazy
 
-        device, compute_type = ("cpu", "int8") if force_cpu else _resolve_device(self.device_preference)
+        device, compute_type = (
+            ("cpu", "int8") if force_cpu else _resolve_device(self.device_preference)
+        )
         MODELS_DIR.mkdir(parents=True, exist_ok=True)
         logger.info(
             "Loading Whisper model=%s device=%s compute=%s",
@@ -174,11 +176,19 @@ class WhisperLocalProvider(BaseTranscriptionProvider):
 
     # --- transcription ----------------------------------------------------
     def _run_transcribe(self, model, audio, *, language: str | None) -> str:
+        # Speed-tuned for the live path: we run our OWN energy VAD + endpointing
+        # upstream, so Whisper's Silero `vad_filter` is pure overhead (~+400ms
+        # per call, ~3x on the fast partial model) and is disabled here.
+        # condition_on_previous_text=False keeps each utterance independent and
+        # faster; temperature=0 / no timestamps trim decode work.
         segments, _info = model.transcribe(
             audio,
             language=None if language in (None, "multi", "") else language,
             beam_size=1,
-            vad_filter=True,
+            vad_filter=False,
+            condition_on_previous_text=False,
+            temperature=0.0,
+            without_timestamps=True,
         )
         return "".join(seg.text for seg in segments).strip()
 

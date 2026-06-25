@@ -31,10 +31,11 @@ def test_defaults_when_no_file(tmp_settings):
 
 def test_save_and_reload(tmp_settings):
     settings_store.save_stt_settings(
-        settings_store.SttSettings(local_model="quality", device="cpu")
+        settings_store.SttSettings(final_model="quality", device="cpu")
     )
     s = settings_store.load_stt_settings()
-    assert s.local_model == "quality"
+    assert s.final_model == "quality"
+    assert s.local_model == "quality"  # local_model is kept in sync with final_model
     assert s.device == "cpu"
 
 

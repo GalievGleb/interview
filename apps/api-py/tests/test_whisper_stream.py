@@ -78,6 +78,29 @@ def test_should_emit_partial_prefers_longer_prefix():
     assert whisper_stream._should_emit_partial("hello", "hello") is False
 
 
+# --- quality gate --------------------------------------------------------
+def test_quality_gate_rejects_too_few_words():
+    ok, reason = whisper_stream.quality_gate("да нет", "")
+    assert ok is False and reason == "too_few_words"
+
+
+def test_quality_gate_rejects_duplicate():
+    prev = "Какие бывают виды тестирования?"
+    ok, reason = whisper_stream.quality_gate(prev, prev)
+    assert ok is False and reason == "duplicate"
+
+
+def test_quality_gate_accepts_real_question():
+    ok, reason = whisper_stream.quality_gate("Какие бывают виды тестирования?", "")
+    assert ok is True and reason == "ok"
+
+
+def test_meaningful_word_count_ignores_digits_and_punct():
+    # "CI", "CD", "ok" are letter-words >= 2 chars; "200" (digits) excluded.
+    assert whisper_stream._meaningful_word_count("CI/CD 200 ok!") == 3
+    assert whisper_stream._meaningful_word_count("да 5 а") == 1  # only "да"
+
+
 def test_endpointer_finalizes_after_speech_then_silence():
     ep = whisper_stream.Endpointer()
     fired = False
@@ -128,11 +151,24 @@ async def test_run_whisper_stream_emits_transcript():
 
     ws = _FakeWS(chunks)
     await whisper_stream.run_whisper_stream(
-        ws, language="ru", sample_rate=sample_rate, provider=provider
+        ws,
+        language="ru",
+        sample_rate=sample_rate,
+        partial_provider=provider,
+        final_provider=provider,
     )
 
     types = [m["type"] for m in ws.sent]
     assert "ready" in types
-    transcripts = [m for m in ws.sent if m["type"] == "transcript" and m["text"].strip()]
-    assert transcripts, f"expected a non-empty transcript, got events: {types}"
-    assert transcripts[0]["is_final"] is True
+    finals = [m for m in ws.sent if m["type"] == "transcript" and m.get("is_final")]
+    assert finals, f"expected a final transcript, got events: {types}"
+    assert finals[0]["text"].strip()
+
+    # Latency regression guard: the final must arrive fast after speech ends.
+    ends = [m for m in ws.sent if m["type"] == "utterance_end"]
+    assert ends, "expected an utterance_end with timings"
+    timings = ends[0]["timings"]
+    assert timings["finalInferenceMs"] is not None
+    assert timings["speechEndToFinalMs"] < 3500, (
+        f"speechEnd->final too slow: {timings['speechEndToFinalMs']}ms"
+    )
