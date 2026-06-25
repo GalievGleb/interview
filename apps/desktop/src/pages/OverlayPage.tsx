@@ -1,20 +1,37 @@
-import { useEffect, useRef, useState } from 'react';
-import { useLiveCopilot, LiveSources } from '../hooks/useLiveCopilot';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import AnswerActions from '../components/interview/AnswerActions';
+import { useLiveCopilot } from '../hooks/useLiveCopilot';
+import { useLiveCopilotPrefs } from '../hooks/useLiveCopilotPrefs';
+import { useAnswerRevision } from '../hooks/useAnswerRevision';
 import { useApp } from '../context/AppContext';
 import MarkdownText from '../components/MarkdownText';
+import { pipelineToStreamOpts, type AnswerRevisionMode } from '../lib/answerRevision';
+import { debugInfoToPipeline } from '../lib/interviewStreamHelpers';
 
 const isElectron = typeof window !== 'undefined' && !!window.electronAPI;
 
-type Tab = 'copilot' | 'chatbot' | 'cheatsheet';
-
 const SHORTCUTS: { label: string; keys: string[] }[] = [
   { label: 'Показать / скрыть транскрипт', keys: ['Ctrl', '/'] },
-  { label: 'Следующая вкладка', keys: ['Tab'] },
-  { label: 'Предыдущая вкладка', keys: ['Shift', 'Tab'] },
   { label: 'Показать / скрыть overlay', keys: ['Ctrl', 'Shift', 'H'] },
   { label: 'Быстрые действия', keys: ['Ctrl', 'K'] },
   { label: 'Закрыть overlay', keys: ['Esc'] },
 ];
+
+function IconButton({
+  title,
+  onClick,
+  children,
+}: {
+  title: string;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button type="button" onClick={onClick} className="overlay-icon-btn" title={title}>
+      {children}
+    </button>
+  );
+}
 
 export default function OverlayPage() {
   const { hasStt } = useApp();
@@ -26,28 +43,35 @@ export default function OverlayPage() {
     streaming,
     suggestLoading,
     error,
+    sttDebug,
+    updateAnswerEntry,
+    setLiveAnswerText,
     start,
     stop,
   } = useLiveCopilot();
 
-  const [tab, setTab] = useState<Tab>('copilot');
   const [showTranscript, setShowTranscript] = useState(false);
-  const [sources, setSources] = useState<LiveSources>({ mic: true, system: isElectron });
+  const { sources, sttOptions, setSources } = useLiveCopilotPrefs();
   const [shareMenuOpen, setShareMenuOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const shareMenuRef = useRef<HTMLDivElement>(null);
+  const { revise, revising } = useAnswerRevision();
+  const [revisionStream, setRevisionStream] = useState('');
 
-  const lastAnswer = answerHistory[answerHistory.length - 1]?.spoken ?? '';
+  const lastEntry = answerHistory[answerHistory.length - 1];
+  const lastAnswer = lastEntry?.spoken ?? '';
+  const displayAnswer = revisionStream || streamText || lastAnswer;
+  const displayQuestion = streamText ? '' : lastEntry?.question ?? '';
 
-  const startWith = (next: LiveSources) => {
+  const startWith = (next: typeof sources) => {
     setSources(next);
     setShareMenuOpen(false);
-    void start(next);
+    void start(next, sttOptions);
   };
 
   const toggleSession = () => {
     if (active) void stop();
-    else void start(sources);
+    else void start(sources, sttOptions);
   };
 
   const handleExit = () => {
@@ -55,7 +79,28 @@ export default function OverlayPage() {
     void window.electronAPI?.overlay.hide();
   };
 
-  // Close share menu on outside click
+  const handleRevise = (mode: AnswerRevisionMode) => {
+    const question = displayQuestion || lastEntry?.question;
+    if (!question || !displayAnswer.trim()) return;
+
+    setRevisionStream('');
+    revise(
+      question,
+      displayAnswer,
+      mode,
+      pipelineToStreamOpts(question, lastEntry?.pipeline ?? debugInfoToPipeline(sttDebug)),
+      {
+        onStream: setRevisionStream,
+        onDone: (text) => {
+          if (lastEntry) updateAnswerEntry(lastEntry.id, text);
+          else setLiveAnswerText(text);
+          setRevisionStream('');
+        },
+        onError: () => setRevisionStream(''),
+      },
+    );
+  };
+
   useEffect(() => {
     if (!shareMenuOpen) return;
     const onClick = (e: MouseEvent) => {
@@ -67,7 +112,6 @@ export default function OverlayPage() {
     return () => document.removeEventListener('mousedown', onClick);
   }, [shareMenuOpen]);
 
-  // Keyboard shortcuts
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey;
@@ -77,301 +121,179 @@ export default function OverlayPage() {
         return;
       }
       if (e.key === 'Escape') {
-        if (shortcutsOpen) {
-          setShortcutsOpen(false);
-        } else if (shareMenuOpen) {
-          setShareMenuOpen(false);
-        } else {
-          void window.electronAPI?.overlay.hide();
-        }
+        if (shortcutsOpen) setShortcutsOpen(false);
+        else if (shareMenuOpen) setShareMenuOpen(false);
+        else void window.electronAPI?.overlay.hide();
         return;
       }
       if (mod && e.key === '/') {
         e.preventDefault();
         setShowTranscript((v) => !v);
-        return;
-      }
-      if (e.key === 'Tab') {
-        e.preventDefault();
-        const order: Tab[] = ['copilot', 'chatbot', 'cheatsheet'];
-        const idx = order.indexOf(tab);
-        const nextIdx = e.shiftKey
-          ? (idx - 1 + order.length) % order.length
-          : (idx + 1) % order.length;
-        setTab(order[nextIdx]);
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [tab, shortcutsOpen, shareMenuOpen]);
+  }, [shortcutsOpen, shareMenuOpen]);
 
   return (
-    <div className="flex h-screen flex-col bg-[#0d0d0d] text-white select-none overflow-hidden">
-      {/* Top bar — draggable surface */}
-      <div className="overlay-drag flex items-center border-b border-white/10 px-3" style={{ minHeight: 44 }}>
-        {/* Left cluster */}
-        <button
-          onClick={() => setShowTranscript((v) => !v)}
-          className="overlay-no-drag mr-2 flex h-7 w-7 items-center justify-center rounded text-gray-400 hover:bg-white/10 hover:text-white transition-colors"
+    <div className="overlay-shell">
+      <div className="overlay-topbar">
+        <IconButton
           title={showTranscript ? 'Скрыть транскрипт (Ctrl+/)' : 'Показать транскрипт (Ctrl+/)'}
+          onClick={() => setShowTranscript((v) => !v)}
         >
-          {showTranscript ? '←' : '→'}
-        </button>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            {showTranscript ? (
+              <path d="M15 18l-6-6 6-6" />
+            ) : (
+              <path d="M9 18l6-6-6-6" />
+            )}
+          </svg>
+        </IconButton>
 
-        <div className="flex h-6 w-6 items-center justify-center rounded bg-white/10 text-xs font-bold mr-2 shrink-0">
-          V
-        </div>
-        <span className="text-sm font-medium text-gray-200 mr-4 shrink-0">Candidate @ Your Company</span>
+        <div className="overlay-brand">IC</div>
+        <span className="overlay-title">Interview Copilot</span>
 
-        {/* Tabs */}
-        <div className="flex items-center">
-          {(
-            [
-              { key: 'copilot', label: 'Interview Copilot', icon: '🎯' },
-              { key: 'chatbot', label: 'Chatbot', icon: '💬' },
-              { key: 'cheatsheet', label: 'Cheatsheet', icon: '☑️' },
-            ] as { key: Tab; label: string; icon: string }[]
-          ).map((t) => (
-            <button
-              key={t.key}
-              onClick={() => setTab(t.key)}
-              className={`overlay-no-drag flex items-center gap-1 px-3 py-3 text-xs font-medium border-b-2 transition-colors ${
-                tab === t.key
-                  ? 'border-white text-white'
-                  : 'border-transparent text-gray-500 hover:text-gray-300'
-              }`}
-            >
-              <span>{t.icon}</span>
-              {t.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Draggable spacer — grab here to move the overlay */}
         <div className="overlay-drag flex-1 self-stretch" />
 
-        {/* Right controls */}
         <div className="overlay-no-drag flex items-center gap-2 shrink-0">
           <div className="relative flex items-center" ref={shareMenuRef}>
             <button
+              type="button"
               onClick={toggleSession}
               disabled={!hasStt && !active}
               title={!hasStt ? 'Добавьте Deepgram API key в Настройках' : ''}
-              className={`flex items-center gap-1.5 rounded-l border-y border-l px-3 py-1.5 text-xs font-medium transition-colors ${
-                active
-                  ? 'border-red-500/60 bg-red-900/40 text-red-300 hover:bg-red-900/60'
-                  : 'border-white/20 bg-white/5 text-white hover:bg-white/10 disabled:opacity-40'
+              className={`btn-sm rounded-l-xl border-y border-l px-3 py-1.5 text-xs font-medium ${
+                active ? 'btn-danger rounded-r-none' : 'btn-secondary rounded-r-none'
               }`}
             >
-              <span className={active ? 'animate-pulse text-red-400' : 'text-red-400'}>◉</span>
+              <span className={`mr-1.5 inline-block h-2 w-2 rounded-full ${active ? 'animate-pulse bg-red-400' : 'bg-red-500'}`} />
               {active ? 'Stop' : 'Share Audio'}
             </button>
             <button
+              type="button"
               onClick={() => setShareMenuOpen((v) => !v)}
-              className={`rounded-r border px-1.5 py-1.5 text-xs transition-colors ${
-                active
-                  ? 'border-red-500/60 bg-red-900/40 text-red-300 hover:bg-red-900/60'
-                  : 'border-white/20 bg-white/5 text-gray-300 hover:bg-white/10'
+              className={`btn-sm rounded-r-xl border px-1.5 py-1.5 text-xs ${
+                active ? 'btn-danger border-l-0' : 'btn-secondary border-l-0'
               }`}
               title="Выбрать источник"
             >
               ▾
             </button>
 
-            {!active && (
-              <span className="pointer-events-none absolute -right-1 -top-1.5 rounded bg-red-600 px-1 py-0.5 text-[9px] font-bold leading-none">
-                Required
-              </span>
-            )}
-
             {shareMenuOpen && (
-              <div className="absolute right-0 top-full z-50 mt-1.5 w-56 rounded-lg border border-white/10 bg-[#1a1a1a] p-1.5 shadow-xl">
-                <p className="px-2 py-1.5 text-[11px] text-gray-500">
-                  Share your voice for improved response quality.
+              <div className="overlay-menu">
+                <p className="px-2 py-1.5 text-[11px] text-ink-faint">
+                  Источник для live-транскрипции и ответов.
                 </p>
-                <button
-                  onClick={() => startWith({ mic: true, system: true })}
-                  className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-xs text-white hover:bg-white/10"
-                >
-                  <span className="text-red-400">◉</span> Микрофон + система
+                <button type="button" onClick={() => startWith({ mic: true, system: true })} className="btn-ghost w-full justify-start rounded-lg px-2 py-2 text-xs">
+                  Микрофон + система
                 </button>
-                <button
-                  onClick={() => startWith({ mic: true, system: false })}
-                  className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-xs text-white hover:bg-white/10"
-                >
-                  🎙 Только микрофон
+                <button type="button" onClick={() => startWith({ mic: true, system: false })} className="btn-ghost w-full justify-start rounded-lg px-2 py-2 text-xs">
+                  Только микрофон
                 </button>
                 {isElectron && (
-                  <button
-                    onClick={() => startWith({ mic: false, system: true })}
-                    className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-xs text-white hover:bg-white/10"
-                  >
-                    🔊 Только звук системы
+                  <button type="button" onClick={() => startWith({ mic: false, system: true })} className="btn-ghost w-full justify-start rounded-lg px-2 py-2 text-xs">
+                    Только звук системы
                   </button>
                 )}
               </div>
             )}
           </div>
 
-          <button
-            onClick={handleExit}
-            className="rounded border border-white/20 bg-white/5 px-3 py-1.5 text-xs font-medium hover:bg-white/10"
-          >
+          <button type="button" onClick={handleExit} className="btn-secondary btn-sm">
             Exit
           </button>
 
-          <div className="mx-1 h-4 w-px bg-white/20" />
-
-          <button
-            onClick={toggleSession}
-            className="rounded p-1.5 text-gray-400 hover:bg-white/10 hover:text-white"
-            title={active ? 'Пауза' : 'Старт'}
-          >
-            {active ? '⏸' : '▶'}
-          </button>
-          <button
-            onClick={() => setShortcutsOpen(true)}
-            className="rounded p-1.5 text-gray-400 hover:bg-white/10 hover:text-white"
-            title="Быстрые действия (Ctrl+K)"
-          >
-            ⌨
-          </button>
-          <button
-            onClick={() => void window.electronAPI?.overlay.openSettings?.()}
-            className="rounded p-1.5 text-gray-400 hover:bg-white/10 hover:text-white"
-          >
-            ⚙
-          </button>
+          <IconButton title="Быстрые действия (Ctrl+K)" onClick={() => setShortcutsOpen(true)}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <rect x="2" y="6" width="20" height="12" rx="2" />
+              <path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8" />
+            </svg>
+          </IconButton>
+          <IconButton title="Настройки" onClick={() => void window.electronAPI?.overlay.openSettings?.()}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+            </svg>
+          </IconButton>
         </div>
       </div>
 
-      {/* Content */}
       <div className="overlay-no-drag flex min-h-0 flex-1">
-        {/* Transcript panel (collapsible) */}
         {showTranscript && (
-          <div className="flex w-[38%] shrink-0 flex-col border-r border-white/10">
-            <div className="border-b border-white/10 px-4 py-2.5">
-              <span className="text-xs font-semibold uppercase tracking-wider text-gray-400">
-                Transcription
-              </span>
-            </div>
+          <div className="overlay-panel w-[38%] shrink-0">
+            <div className="overlay-panel-head">Transcript</div>
             <div className="flex-1 overflow-y-auto p-4 space-y-1.5 text-sm">
               {lines.length === 0 && (
-                <p className="text-gray-500">Start using Interview Copilot by sharing audio</p>
+                <p className="text-ink-faint">Share audio to start transcription</p>
               )}
               {lines.map((line, i) => (
                 <div key={i}>
                   <p>
-                    <span className={line.speaker === 'me' ? 'text-blue-400' : 'text-emerald-400'}>
-                      {line.speaker === 'me' ? 'Вы: ' : 'Собеседник: '}
+                    <span className={line.speaker === 'me' ? 'text-accent' : 'text-emerald-400'}>
+                      {line.speaker === 'me' ? 'You: ' : 'Interviewer: '}
                     </span>
-                    <span className={line.isFinal ? 'text-white' : 'italic text-gray-400'}>
+                    <span className={line.isFinal ? 'text-ink' : 'italic text-ink-muted'}>
                       {line.text}
                     </span>
                   </p>
-                  {line.normalized && line.normalized !== line.text && (
-                    <p className="pl-1 text-xs text-gray-500">→ {line.normalized}</p>
-                  )}
                 </div>
               ))}
             </div>
           </div>
         )}
 
-        {/* Right panel */}
-        <div className="flex min-w-0 flex-1 flex-col">
-          {tab === 'copilot' && (
-            <div className="flex-1 overflow-y-auto p-5 text-sm leading-relaxed">
-              {error && <p className="mb-3 text-red-400">{error}</p>}
+        <div className="overlay-answer">
+          {error && <p className="mb-3 text-red-400">{error}</p>}
 
-              {!active && !streamText && !lastAnswer && (
-                <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-gray-500">
-                  <p>
-                    Click{' '}
-                    <button
-                      onClick={toggleSession}
-                      className="inline-flex items-center gap-1 rounded border border-white/20 bg-white/5 px-2 py-0.5 text-xs text-white hover:bg-white/10"
-                    >
-                      <span className="text-red-400">◉</span> Share Audio
-                    </button>{' '}
-                    to get started.
-                  </p>
-                  <p className="text-xs">
-                    Press{' '}
-                    <kbd className="rounded border border-white/20 bg-white/10 px-1.5 py-0.5 text-gray-300">
-                      Ctrl
-                    </kbd>{' '}
-                    +{' '}
-                    <kbd className="rounded border border-white/20 bg-white/10 px-1.5 py-0.5 text-gray-300">
-                      K
-                    </kbd>{' '}
-                    to open keyboard shortcuts.
-                  </p>
-                </div>
-              )}
-
-              {suggestLoading && !streamText && (
-                <p className="animate-pulse text-gray-400">Generating suggestion...</p>
-              )}
-
-              {streamText ? (
-                <MarkdownText text={streamText} />
-              ) : lastAnswer ? (
-                <MarkdownText text={lastAnswer} />
-              ) : null}
-
-              {streaming && streamText && (
-                <span className="ml-1 inline-block h-3 w-0.5 animate-pulse bg-white/60" />
-              )}
+          {!active && !displayAnswer && (
+            <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-ink-faint">
+              <p>Click Share Audio to start Interview Copilot.</p>
+              <p className="text-xs">Ctrl+K — keyboard shortcuts</p>
             </div>
           )}
-          {tab === 'chatbot' && (
-            <div className="flex flex-1 items-center justify-center text-gray-500 text-sm">
-              Chatbot coming soon
-            </div>
+
+          {(suggestLoading || revising) && !displayAnswer && (
+            <p className="animate-pulse text-ink-muted">Generating answer…</p>
           )}
-          {tab === 'cheatsheet' && (
-            <div className="flex flex-1 items-center justify-center text-gray-500 text-sm">
-              Cheatsheet coming soon
+
+          {displayAnswer ? (
+            <div className="cockpit-bento space-y-3">
+              {displayQuestion ? <p className="answer-question">Q: {displayQuestion}</p> : null}
+              <div className="flex justify-end">
+                <AnswerActions
+                  answer={displayAnswer}
+                  disabled={streaming || suggestLoading}
+                  revising={revising}
+                  onRevise={handleRevise}
+                />
+              </div>
+              <MarkdownText text={displayAnswer} />
             </div>
-          )}
+          ) : null}
         </div>
       </div>
 
-      {/* Quick actions / keyboard shortcuts (Ctrl+K) */}
       {shortcutsOpen && (
         <div
           className="overlay-no-drag absolute inset-0 z-50 flex items-start justify-center bg-black/50 pt-20"
           onClick={() => setShortcutsOpen(false)}
         >
-          <div
-            className="w-[440px] rounded-xl border border-white/10 bg-[#161616] p-4 shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
+          <div className="overlay-modal" onClick={(e) => e.stopPropagation()}>
             <div className="mb-3 flex items-center justify-between">
-              <h3 className="flex items-center gap-2 text-sm font-semibold">
-                ⌨ Быстрые действия
-              </h3>
-              <button
-                onClick={() => setShortcutsOpen(false)}
-                className="rounded p-1 text-gray-400 hover:bg-white/10 hover:text-white"
-              >
+              <h3 className="text-sm font-semibold text-ink">Keyboard shortcuts</h3>
+              <button type="button" onClick={() => setShortcutsOpen(false)} className="overlay-icon-btn">
                 ✕
               </button>
             </div>
             <div className="space-y-0.5">
               {SHORTCUTS.map((s) => (
-                <div
-                  key={s.label}
-                  className="flex items-center justify-between rounded-lg px-3 py-2 hover:bg-white/5"
-                >
-                  <span className="text-sm text-gray-200">{s.label}</span>
+                <div key={s.label} className="flex items-center justify-between rounded-lg px-3 py-2 hover:bg-surface-hover">
+                  <span className="text-sm text-ink-muted">{s.label}</span>
                   <span className="flex items-center gap-1">
                     {s.keys.map((k) => (
-                      <kbd
-                        key={k}
-                        className="rounded border border-white/15 bg-white/10 px-1.5 py-0.5 text-[11px] text-gray-300"
-                      >
+                      <kbd key={k} className="cockpit-kbd">
                         {k}
                       </kbd>
                     ))}

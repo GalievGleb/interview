@@ -1,0 +1,53 @@
+@import './interview-cockpit.css';
+
+.overlay-shell {
+  @apply flex h-screen flex-col overflow-hidden bg-surface text-ink select-none;
+}
+
+.overlay-topbar {
+  @apply overlay-drag flex items-center border-b border-surface-border bg-surface-light/95 px-3 backdrop-blur-sm;
+  min-height: 44px;
+}
+
+.overlay-brand {
+  @apply flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-accent/30
+    bg-accent/10 text-[11px] font-bold text-accent;
+}
+
+.overlay-title {
+  @apply mr-4 shrink-0 text-sm font-medium text-ink;
+}
+
+.overlay-tab {
+  @apply overlay-no-drag border-b-2 border-transparent px-3 py-3 text-xs font-medium text-ink-faint
+    transition-colors hover:text-ink-muted;
+}
+
+.overlay-tab-active {
+  @apply border-accent text-ink;
+}
+
+.overlay-panel {
+  @apply flex min-h-0 flex-col border-r border-surface-border bg-surface-light/60;
+}
+
+.overlay-panel-head {
+  @apply border-b border-surface-border px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-ink-faint;
+}
+
+.overlay-answer {
+  @apply flex-1 overflow-y-auto p-5 text-sm leading-relaxed text-ink;
+}
+
+.overlay-menu {
+  @apply absolute right-0 top-full z-50 mt-1.5 w-56 rounded-xl border border-surface-border
+    bg-surface-elevated p-1.5 shadow-card;
+}
+
+.overlay-modal {
+  @apply w-[440px] rounded-xl border border-surface-border bg-surface-elevated p-4 shadow-card;
+}
+
+.overlay-icon-btn {
+  @apply overlay-no-drag rounded-lg p-1.5 text-ink-faint transition-colors hover:bg-surface-hover hover:text-ink;
+}

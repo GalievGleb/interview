@@ -648,6 +648,16 @@ export function useLiveCopilot() {
     if (hadStreams) await endInterviewSession();
   }, [endInterviewSession]);
 
+  const updateAnswerEntry = useCallback((id: string, spoken: string) => {
+    setAnswerHistory((prev) =>
+      prev.map((entry) => (entry.id === id ? { ...entry, spoken, ts: Date.now() } : entry)),
+    );
+  }, []);
+
+  const setLiveAnswerText = useCallback((text: string) => {
+    setStreamText(text);
+  }, []);
+
   return {
     active,
     lines,
@@ -660,6 +670,8 @@ export function useLiveCopilot() {
     sttDebug,
     sessionId,
     sessionStartedAt,
+    updateAnswerEntry,
+    setLiveAnswerText,
     start,
     stop,
   };

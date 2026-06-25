@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react';
 import type { CopilotAnswerEntry } from '../../lib/interviewSessionExport';
+import type { AnswerRevisionMode } from '../../lib/answerRevision';
 import type { LiveSessionStatus } from '../ui/StatusBadge';
+import AnswerActions from './AnswerActions';
 import AnswerTabs, { AnswerTab } from './AnswerTabs';
 import CockpitEmptyState, { AnswerEmptyIcon } from './CockpitEmptyState';
 import StructuredAnswer from './StructuredAnswer';
@@ -15,6 +17,14 @@ interface AnswerPanelProps {
   status: LiveSessionStatus;
   active: boolean;
   liveHint?: string;
+  revising?: boolean;
+  onReviseEntry?: (
+    entryId: string,
+    question: string,
+    answer: string,
+    mode: AnswerRevisionMode,
+  ) => void;
+  onReviseActive?: (question: string, answer: string, mode: AnswerRevisionMode) => void;
   footer?: ReactNode;
 }
 
@@ -39,6 +49,9 @@ export default function AnswerPanel({
   status,
   active,
   liveHint,
+  revising = false,
+  onReviseEntry,
+  onReviseActive,
   footer,
 }: AnswerPanelProps) {
   const showEmpty = history.length === 0 && !displayStream && !isGenerating;
@@ -48,7 +61,9 @@ export default function AnswerPanel({
       ? 'Generating answer…'
       : status === 'listening' && active
         ? 'Listening…'
-        : null;
+        : revising
+          ? 'Revising answer…'
+          : null;
 
   return (
     <div className="cockpit-panel cockpit-panel-focus flex min-h-0 flex-col lg:min-w-0 lg:flex-[1.15]">
@@ -86,14 +101,42 @@ export default function AnswerPanel({
         <div className="space-y-4">
           {history.map((item) => (
             <article key={item.id} className="cockpit-bento">
-              <p className="answer-question mb-3">Q: {item.question}</p>
+              <div className="mb-3 flex items-start justify-between gap-3">
+                <p className="answer-question min-w-0 flex-1">Q: {item.question}</p>
+                <AnswerActions
+                  answer={item.spoken}
+                  disabled={isGenerating}
+                  revising={revising}
+                  onRevise={
+                    onReviseEntry
+                      ? (mode) => onReviseEntry(item.id, item.question, item.spoken, mode)
+                      : undefined
+                  }
+                />
+              </div>
               <StructuredAnswer text={item.spoken} />
             </article>
           ))}
 
           {(displayStream || (isGenerating && activeQuestion)) && (
             <article className={displayStream ? 'cockpit-bento cockpit-bento-main animate-scale-in' : ''}>
-              {activeQuestion && <p className="answer-question mb-3">Q: {activeQuestion}</p>}
+              {activeQuestion && (
+                <div className="mb-3 flex items-start justify-between gap-3">
+                  <p className="answer-question min-w-0 flex-1">Q: {activeQuestion}</p>
+                  {displayStream ? (
+                    <AnswerActions
+                      answer={displayStream}
+                      disabled={isGenerating && !displayStream}
+                      revising={revising}
+                      onRevise={
+                        onReviseActive
+                          ? (mode) => onReviseActive(activeQuestion, displayStream, mode)
+                          : undefined
+                      }
+                    />
+                  ) : null}
+                </div>
+              )}
               {displayStream ? (
                 <StructuredAnswer text={displayStream} />
               ) : (
