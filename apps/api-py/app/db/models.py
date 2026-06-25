@@ -52,9 +52,7 @@ class DocChunk(Base):
     __tablename__ = "doc_chunks"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
-    document_id: Mapped[str] = mapped_column(
-        ForeignKey("documents.id", ondelete="CASCADE")
-    )
+    document_id: Mapped[str] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"))
     chunk_index: Mapped[int] = mapped_column(Integer)
     text: Mapped[str] = mapped_column(Text)
     embedding: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON-массив
@@ -85,9 +83,7 @@ class Transcript(Base):
     __tablename__ = "transcripts"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
-    session_id: Mapped[str] = mapped_column(
-        ForeignKey("sessions.id", ondelete="CASCADE")
-    )
+    session_id: Mapped[str] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"))
     speaker: Mapped[str] = mapped_column(String, default="unknown")  # me | other
     text: Mapped[str] = mapped_column(Text)
     is_final: Mapped[bool] = mapped_column(Boolean, default=True)

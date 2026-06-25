@@ -24,6 +24,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     () => localStorage.getItem(ONBOARDING_KEY) === '1',
   );
 
+  const [sttReady, setSttReady] = useState(false);
+
   const refreshKeys = useCallback(async () => {
     try {
       await api.health();
@@ -33,6 +35,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } catch {
       setBackendOnline(false);
       setKeys(null);
+    }
+    // Local STT readiness: the configured Whisper model must be downloaded.
+    try {
+      const diag = await api.sttProviders();
+      const whisper = diag.providers.find((p) => p.id === 'whisper-local');
+      setSttReady(!!whisper && whisper.available && whisper.reason === 'ready');
+    } catch {
+      setSttReady(false);
     }
   }, []);
 
@@ -51,7 +61,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const hasAnyKey = !!keys && (keys.openai || keys.openrouter);
-  const hasStt = !!keys && keys.deepgram;
+  const hasStt = sttReady;
 
   return (
     <AppContext.Provider

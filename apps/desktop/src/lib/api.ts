@@ -1,9 +1,95 @@
-import type { AppliedCorrection } from '@interview/shared';
+import type { AppliedCorrection, SttProviderDiagnostics } from '@interview/shared';
 import {
   AiSettings,
   ChatMode,
   NormalizedModel,
 } from './aiModels';
+
+export type WhisperQualityId = 'fast' | 'balanced' | 'quality';
+export type SttDeviceId = 'auto' | 'cpu' | 'gpu';
+
+export interface SttModelStatus {
+  quality: WhisperQualityId;
+  modelId: string;
+  status: 'idle' | 'downloading' | 'ready' | 'error';
+  downloaded: boolean;
+  progress: number;
+  onDiskMb: number;
+  approxDownloadMb: number;
+  error: string | null;
+}
+
+export interface SttDeviceInfo {
+  totalRamGb: number | null;
+  cpuCount: number | null;
+  hasGpu: boolean;
+  recommendedQuality: WhisperQualityId;
+  recommendedDevice: 'cpu' | 'gpu';
+}
+
+export interface SttSettingsDto {
+  local_model: WhisperQualityId;
+  device: SttDeviceId;
+}
+
+export interface SttDiagnostics {
+  provider: string;
+  localModel: WhisperQualityId;
+  model: string | null;
+  device: string | null;
+  available: boolean;
+  reason: string;
+  lastError: string | null;
+  privacyDescription: string;
+  resourceUsage: string;
+  avgBenchmarkLatencyMs: number | null;
+  lastBenchmarkAt: string | null;
+}
+
+export interface SttBenchmarkKeyword {
+  key: string;
+  aliases: string[];
+}
+
+export interface SttBenchmarkCase {
+  id: string;
+  title: string;
+  audioFile: string;
+  transcriptKeywords: SttBenchmarkKeyword[];
+  expectedTerms: string[];
+}
+
+export interface SttBenchmarkCaseResult {
+  caseId: string;
+  title?: string;
+  raw?: { transcript: string; latencyMs: number; keywordMatch: number };
+  corrected?: {
+    transcript: string;
+    keywordMatch: number;
+    corrections: Array<{ from: string; to: string }>;
+  };
+  keywordGain?: number;
+  intentMatch?: number;
+  errorType: string;
+  engine?: string;
+  model?: string;
+  error?: string;
+}
+
+export interface SttBenchmarkReport {
+  generatedAt: string;
+  engine: string;
+  model: string;
+  caseCount: number;
+  avgLatencyMs: number;
+  avgKeywordMatchRaw: number;
+  avgKeywordMatchCorrected: number;
+  correctionGain: number;
+  avgIntentMatch: number;
+  errorTypes: Record<string, number>;
+  cases: SttBenchmarkCaseResult[];
+  savedAs?: string;
+}
 
 const API_URL = (import.meta.env.VITE_API_URL as string) ?? 'http://127.0.0.1:8000';
 
@@ -62,7 +148,6 @@ export interface StreamInterviewOpts {
 export interface KeysStatus {
   openai: boolean;
   openrouter: boolean;
-  deepgram: boolean;
   default_provider: string;
   default_model: string;
 }
@@ -135,7 +220,6 @@ export const api = {
   saveKeys: (keys: {
     openai_api_key?: string;
     openrouter_api_key?: string;
-    deepgram_api_key?: string;
   }) =>
     request<KeysStatus>('/settings/keys', {
       method: 'POST',
@@ -444,6 +528,53 @@ export const api = {
     })();
     return () => controller.abort();
   },
+
+  // --- Speech-to-text (Local Whisper provider, model manager) ---
+  sttProviders: () => request<SttProviderDiagnostics>('/stt/providers'),
+
+  sttDevice: () => request<SttDeviceInfo>('/stt/device'),
+
+  sttDiagnostics: () => request<SttDiagnostics>('/stt/diagnostics'),
+
+  sttModelStatus: (quality: WhisperQualityId) =>
+    request<SttModelStatus>(`/stt/models/${quality}/status`),
+
+  sttModelDownload: (quality: WhisperQualityId) =>
+    request<SttModelStatus>(`/stt/models/${quality}/download`, { method: 'POST' }),
+
+  sttModelDelete: (quality: WhisperQualityId) =>
+    request<{ quality: string; deleted: boolean }>(`/stt/models/${quality}`, {
+      method: 'DELETE',
+    }),
+
+  getSttSettings: () => request<SttSettingsDto>('/stt/settings'),
+
+  saveSttSettings: (settings: Partial<SttSettingsDto>) =>
+    request<SttSettingsDto>('/stt/settings', {
+      method: 'POST',
+      body: JSON.stringify(settings),
+    }),
+
+  // --- STT Benchmark (audio -> transcript only, no LLM) ---
+  sttBenchmarkCases: () =>
+    request<{ cases: SttBenchmarkCase[]; root: string }>('/stt/benchmark/cases'),
+
+  sttBenchmarkRunCase: (caseId: string) =>
+    request<SttBenchmarkCaseResult>(`/stt/benchmark/run/${encodeURIComponent(caseId)}`, {
+      method: 'POST',
+    }),
+
+  sttBenchmarkRunAll: (save = true) =>
+    request<SttBenchmarkReport>('/stt/benchmark/run', {
+      method: 'POST',
+      body: JSON.stringify({ save }),
+    }),
+
+  sttBenchmarkReports: () =>
+    request<{ reports: Array<{ filename: string; modifiedAt: string }> }>('/stt/benchmark/reports'),
+
+  sttBenchmarkReport: (filename: string) =>
+    request<SttBenchmarkReport>(`/stt/benchmark/reports/${encodeURIComponent(filename)}`),
 
   voiceTestCases: () =>
     request<{ cases: unknown[]; root: string; audioDir: string }>('/voice-tests/cases'),

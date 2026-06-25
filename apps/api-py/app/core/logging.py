@@ -23,9 +23,7 @@ class SecretRedactingFilter(logging.Filter):
 def setup_logging(level: str = "info") -> None:
     handler = logging.StreamHandler()
     handler.addFilter(SecretRedactingFilter())
-    handler.setFormatter(
-        logging.Formatter("%(asctime)s %(levelname)s %(name)s - %(message)s")
-    )
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s - %(message)s"))
     root = logging.getLogger()
     root.handlers.clear()
     root.addHandler(handler)

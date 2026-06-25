@@ -17,5 +17,9 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
+    // Electron's Chromium supports <link rel="modulepreload"> natively, so we
+    // drop Vite's inline polyfill script. This keeps the packaged-app CSP strict
+    // (`script-src 'self'`) without needing 'unsafe-inline'.
+    modulePreload: { polyfill: false },
   },
 });

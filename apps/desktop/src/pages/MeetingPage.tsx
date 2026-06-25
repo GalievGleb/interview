@@ -30,7 +30,7 @@ export default function MeetingPage() {
         <h2 className="page-title">Meeting Copilot</h2>
         <p className="page-subtitle">
           Вставьте транскрипт встречи — получите summary, решения и action items.
-          Live-транскрипция (Deepgram) появится в следующем этапе.
+          Live-транскрипция (локальный Whisper) появится в следующем этапе.
         </p>
       </div>
 

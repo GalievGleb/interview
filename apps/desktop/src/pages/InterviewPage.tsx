@@ -61,13 +61,11 @@ export default function InterviewPage() {
     sources,
     mode,
     language,
-    sttEngine,
     audioRate,
     sttOptions,
     toggleSource,
     setMode,
     setLanguage,
-    setSttEngine,
     setAudioRate,
   } = useLiveCopilotPrefs();
 
@@ -279,7 +277,6 @@ export default function InterviewPage() {
         sources={sources}
         mode={mode}
         language={language}
-        sttEngine={sttEngine}
         audioRate={audioRate}
         canStart={hasAnyKey}
         hasStt={hasStt}
@@ -287,7 +284,6 @@ export default function InterviewPage() {
         onToggleSource={toggleSource}
         onModeChange={setMode}
         onLanguageChange={setLanguage}
-        onSttEngineChange={setSttEngine}
         onAudioRateChange={setAudioRate}
         onStart={handleStart}
         onStop={() => void stop()}
@@ -295,7 +291,8 @@ export default function InterviewPage() {
 
       {!hasStt && (
         <InterviewInlineAlert tone="info">
-          Live transcription uses Deepgram — add a key in Settings. Manual input works without it.
+          Local transcription needs a speech model. Open Settings → Speech Recognition to download
+          one. Manual input works without it.
         </InterviewInlineAlert>
       )}
 

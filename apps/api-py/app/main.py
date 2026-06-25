@@ -12,10 +12,13 @@ from app.routers import (
     documents,
     providers,
     sessions,
-    settings as settings_router,
     stt,
+    stt_benchmark,
     usage,
     voice_tests,
+)
+from app.routers import (
+    settings as settings_router,
 )
 
 settings = get_settings()
@@ -27,7 +30,9 @@ app = FastAPI(title="Interview & Meeting Copilot API", version="0.1.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in settings.cors_origins.split(",")],
-    allow_credentials=True,
+    # No credentials are used; `allow_credentials=True` with a wildcard origin
+    # is invalid per the CORS spec, so we keep it False.
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -42,6 +47,7 @@ app.include_router(sessions.router)
 app.include_router(usage.router)
 app.include_router(settings_router.router)
 app.include_router(stt.router)
+app.include_router(stt_benchmark.router)
 app.include_router(voice_tests.router)
 
 

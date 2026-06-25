@@ -24,6 +24,62 @@ function getPreloadPath(): string {
   return path.join(__dirname, 'preload.js');
 }
 
+/** Only allow opening https links in the OS browser. */
+function safeOpenExternal(url: string): void {
+  try {
+    if (new URL(url).protocol === 'https:') {
+      void shell.openExternal(url);
+      return;
+    }
+  } catch {
+    /* invalid URL */
+  }
+  console.warn('[electron] blocked openExternal:', url);
+}
+
+/**
+ * Electron hardening: a compromised renderer must not be able to spawn windows
+ * or navigate away from the app. External links open in the OS browser instead.
+ */
+function hardenWindow(win: BrowserWindow): void {
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    safeOpenExternal(url);
+    return { action: 'deny' };
+  });
+  win.webContents.on('will-navigate', (event, url) => {
+    const allowed = isDev
+      ? url.startsWith('http://localhost:5173')
+      : url.startsWith('file://');
+    if (!allowed) {
+      event.preventDefault();
+      safeOpenExternal(url);
+    }
+  });
+}
+
+/** Strict CSP for the packaged app (dev uses Vite's own server + HMR). */
+function setupContentSecurityPolicy(): void {
+  if (isDev) return;
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [
+          [
+            "default-src 'self'",
+            "script-src 'self'",
+            "style-src 'self' 'unsafe-inline'",
+            "img-src 'self' data: blob:",
+            "font-src 'self' data:",
+            "media-src 'self' blob:",
+            "connect-src 'self' http://127.0.0.1:8000 ws://127.0.0.1:8000 http://localhost:8000 ws://localhost:8000",
+          ].join('; '),
+        ],
+      },
+    });
+  });
+}
+
 function createMainWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width: 1100,
@@ -37,7 +93,7 @@ function createMainWindow(): BrowserWindow {
       preload: getPreloadPath(),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
     },
   });
 
@@ -49,6 +105,8 @@ function createMainWindow(): BrowserWindow {
   win.webContents.on('did-fail-load', (_e, code, desc, url) => {
     console.error('[electron] did-fail-load', code, desc, url);
   });
+
+  hardenWindow(win);
 
   if (isDev) {
     void win.loadURL('http://localhost:5173/#/');
@@ -81,13 +139,14 @@ function createOverlayWindow(): BrowserWindow {
       preload: getPreloadPath(),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
     },
   });
 
   const overlayRoute = isDev
     ? 'http://localhost:5173/#/overlay'
     : `file://${path.join(__dirname, '../dist/index.html')}#/overlay`;
+  hardenWindow(win);
   void win.loadURL(overlayRoute);
   win.hide();
   return win;
@@ -95,7 +154,7 @@ function createOverlayWindow(): BrowserWindow {
 
 function registerIpc(): void {
   ipcMain.handle('app:getApiUrl', () => API_URL);
-  ipcMain.handle('app:openExternal', (_e, url: string) => shell.openExternal(url));
+  ipcMain.handle('app:openExternal', (_e, url: string) => safeOpenExternal(url));
 
   ipcMain.handle('overlay:toggle', () => {
     if (!overlayWindow) return;
@@ -161,6 +220,7 @@ function setupDisplayMedia(): void {
 }
 
 app.whenReady().then(() => {
+  setupContentSecurityPolicy();
   setupDisplayMedia();
   registerIpc();
   mainWindow = createMainWindow();

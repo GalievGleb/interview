@@ -148,6 +148,11 @@ export function correctTranscriptWithGlossary(
     if (!match) continue;
 
     const from = match[0];
+    // Skip if this position is already the canonical form — prevents a short
+    // alias (e.g. "smoke") from re-expanding text that a longer alias already
+    // corrected (e.g. "smoke testing" → "smoke testing testing").
+    const existing = corrected.slice(match.index!, match.index! + rule.canonical.length);
+    if (existing.toLowerCase() === rule.canonical.toLowerCase()) continue;
     corrected = corrected.slice(0, match.index!) + rule.canonical + corrected.slice(match.index! + from.length);
     corrections.push({ from, to: rule.canonical, confidence: rule.confidence });
   }

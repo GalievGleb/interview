@@ -40,7 +40,7 @@ export default function LiveCopilot({ compact = false, canStart = true }: Props)
           <button
             onClick={() => void start(sources)}
             disabled={!canStart || !hasStt || noSource}
-            title={!hasStt ? 'Добавьте Deepgram API key в Настройках' : ''}
+            title={!hasStt ? 'Скачайте локальную модель в Настройках → Распознавание речи' : ''}
             className="btn-primary btn-sm"
           >
             Старт live

@@ -137,6 +137,23 @@ export type {
 export { correctQuestionIntent } from './correctQuestionIntent';
 export { QA_GLOSSARY, QA_GLOSSARY_CANONICAL_TERMS } from './qaGlossary';
 export type { QaGlossaryEntry } from './qaGlossary';
+export {
+  STT_PROVIDERS,
+  WHISPER_MODEL_CARDS,
+  DEFAULT_WHISPER_QUALITY,
+  STT_PRIVACY_LOCAL,
+  STT_PRIVACY_CLOUD,
+  STT_RESOURCE_USAGE_LOCAL,
+  recommendWhisperQuality,
+} from './sttProviders';
+export type {
+  SttProviderId,
+  SttProviderMode,
+  WhisperQuality,
+  SttProviderDescriptor,
+  WhisperModelCard,
+  SttProviderDiagnostics,
+} from './sttProviders';
 export type {
   AnswerStrategyResult,
   ClassifyQuestionIntentInput,

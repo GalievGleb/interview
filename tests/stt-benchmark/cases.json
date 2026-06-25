@@ -1,0 +1,67 @@
+[
+  {
+    "id": "01_experience",
+    "title": "QA automation experience",
+    "audioFile": "tests/voice/audio/01_experience.wav",
+    "transcriptKeywords": [
+      { "key": "опыт", "aliases": ["опыт", "опыта", "опытом"] },
+      { "key": "автоматизации", "aliases": ["автоматизация", "автоматизации", "автоматизирован"] },
+      { "key": "тестирования", "aliases": ["тестирование", "тестирования", "тестировании", "qa"] },
+      { "key": "проекты", "aliases": ["проект", "проекты", "проектах", "проектами"] },
+      { "key": "технологии", "aliases": ["технологии", "технологий", "стек", "инструменты"] }
+    ],
+    "expectedTerms": []
+  },
+  {
+    "id": "02_pytest_fixtures",
+    "title": "pytest fixtures and scopes",
+    "audioFile": "tests/voice/audio/02_pytest_fixtures.wav",
+    "transcriptKeywords": [
+      { "key": "pytest", "aliases": ["pytest", "пайтест", "py test"] },
+      { "key": "fixtures", "aliases": ["fixtures", "fixture", "фикстуры", "фикстура"] },
+      { "key": "проект", "aliases": ["проект", "проекте"] },
+      { "key": "scope", "aliases": ["scope", "scopes", "скоуп", "скоупы", "скопы", "сколпы", "области видимости"] },
+      { "key": "conftest", "aliases": ["conftest", "conftest.py", "конфтест"] }
+    ],
+    "expectedTerms": ["pytest fixtures", "conftest"]
+  },
+  {
+    "id": "03_api_testing",
+    "title": "API testing beyond status code",
+    "audioFile": "tests/voice/audio/03_api_testing.wav",
+    "transcriptKeywords": [
+      { "key": "API", "aliases": ["api", "rest", "endpoint"] },
+      { "key": "статус", "aliases": ["статус", "status", "код"] },
+      { "key": "200", "aliases": ["200", "2xx", "ok"] },
+      { "key": "негативные", "aliases": ["негативные", "негативных", "negative", "ошибки"] },
+      { "key": "проверки", "aliases": ["проверки", "проверял", "проверок", "validation"] }
+    ],
+    "expectedTerms": ["REST API"]
+  },
+  {
+    "id": "04_flaky_tests",
+    "title": "Flaky tests in CI/CD",
+    "audioFile": "tests/voice/audio/04_flaky_tests.wav",
+    "transcriptKeywords": [
+      { "key": "нестабильные", "aliases": ["нестабильные", "нестабильными", "нестабильно", "flaky"] },
+      { "key": "автотесты", "aliases": ["автотесты", "автотестами", "автотестов", "тесты"] },
+      { "key": "CI/CD", "aliases": ["ci/cd", "cicd", "pipeline", "пайплайн", "пайплайне"] },
+      { "key": "flaky", "aliases": ["flaky", "флейки", "флейковые", "нестабильные"] },
+      { "key": "tests", "aliases": ["tests", "тесты", "автотесты", "test"] }
+    ],
+    "expectedTerms": ["flaky tests", "CI/CD"]
+  },
+  {
+    "id": "05_page_object_mistakes",
+    "title": "Page Object Model mistakes",
+    "audioFile": "tests/voice/audio/05_page_object_mistakes.wav",
+    "transcriptKeywords": [
+      { "key": "Page", "aliases": ["page", "page object"] },
+      { "key": "Object", "aliases": ["object", "page object", "pom"] },
+      { "key": "Model", "aliases": ["model", "page object model", "pom"] },
+      { "key": "UI", "aliases": ["ui", "uitesting", "интерфейс"] },
+      { "key": "автотестах", "aliases": ["автотест", "автотестах", "автотесты", "e2e"] }
+    ],
+    "expectedTerms": ["Page Object Model"]
+  }
+]

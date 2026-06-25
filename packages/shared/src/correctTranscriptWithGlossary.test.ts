@@ -42,6 +42,17 @@ const CASES: Case[] = [
   { input: 'Что такое back report?', expected: 'Что такое bug report?' },
   { input: 'Что такое тест-кейс?', expected: 'Что такое test case?' },
   { input: 'Что такое чек-лист?', expected: 'Что такое checklist?' },
+  // Newly added QA/Python interview terms.
+  { input: 'Что такое депараторы?', expected: 'Что такое декораторы?' },
+  { input: 'Что такое терапор?', expected: 'Что такое итератор?' },
+  { input: 'Что такое гит медч?', expected: 'Что такое git merge?' },
+  { input: 'Что такое гит рибейс?', expected: 'Что такое git rebase?' },
+  { input: 'Что такое алюр речет?', expected: 'Что такое Allure Report?' },
+  { input: 'Что такое кис драй ягни?', expected: 'Что такое KISS, DRY, YAGNI?' },
+  { input: 'Что такое смог тестирование?', expected: 'Что такое smoke testing?' },
+  { input: 'Что такое регрешен?', expected: 'Что такое regression testing?' },
+  { input: 'Что такое пестирование?', expected: 'Что такое тестирование?' },
+  { input: 'Что такое page object?', expected: 'Что такое Page Object Model?' },
 ];
 
 function pipeline(raw: string): string {

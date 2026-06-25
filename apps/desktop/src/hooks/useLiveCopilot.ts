@@ -607,7 +607,7 @@ export function useLiveCopilot() {
               if (liveRef.current.some((e) => e.source === source)) {
                 removeStream(
                   source,
-                  `${label}: соединение прервано. Проверьте Deepgram key и backend.`,
+                  `${label}: соединение прервано. Проверьте, что backend запущен и модель Whisper загружена.`,
                 );
               }
             },

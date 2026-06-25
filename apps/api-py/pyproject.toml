@@ -1,0 +1,28 @@
+[project]
+name = "interview-copilot-api"
+version = "0.1.0"
+description = "Local FastAPI backend: on-device Whisper STT + LLM answer generation"
+# The code uses 3.11+ features (e.g. datetime.UTC). Do not run on 3.10.
+requires-python = ">=3.11"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["data", ".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "W", "C4"]
+# E501: line length handled by the formatter.
+# B008: FastAPI's Depends() default-arg pattern is idiomatic.
+# UP042: `class X(str, Enum)` is a valid, widely-used idiom (StrEnum optional).
+# B905: not forcing zip(strict=) on pre-existing similarity code.
+ignore = ["E501", "B008", "UP042", "B905"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+check_untyped_defs = true
+warn_unused_ignores = false
+# Pragmatic adoption: not strict yet. Tighten module-by-module over time.
+disallow_untyped_defs = false
+exclude = ["data/", "tests/"]

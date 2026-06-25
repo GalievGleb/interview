@@ -2,14 +2,14 @@
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from app.config import BASE_DIR
-from app.services import stt_prerecorded
+from app.services.stt.registry import build_whisper_provider
 
 logger = logging.getLogger("voice_tests")
 
@@ -83,15 +83,26 @@ async def transcribe_case(case_id: str) -> dict:
         )
 
     audio_bytes = audio_path.read_bytes()
+    provider = build_whisper_provider()
+    if not provider.is_available():
+        raise HTTPException(
+            status_code=502,
+            detail="Whisper не установлен (pip install -r requirements-whisper.txt)",
+        )
+    if not provider.is_model_downloaded():
+        raise HTTPException(
+            status_code=409,
+            detail="Модель Whisper не загружена — откройте Настройки → Распознавание речи",
+        )
     try:
-        transcript, stt_latency_ms = await stt_prerecorded.transcribe_wav_bytes(audio_bytes)
-    except RuntimeError as exc:
+        result = await provider.transcribe_audio_file(audio_bytes, language="multi")
+    except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     return {
         "caseId": case_id,
-        "transcript": transcript,
-        "sttLatencyMs": stt_latency_ms,
+        "transcript": result.text,
+        "sttLatencyMs": result.latency_ms,
         "audioPath": str(audio_path),
     }
 
@@ -99,7 +110,7 @@ async def transcribe_case(case_id: str) -> dict:
 @router.post("/reports")
 def save_report(payload: VoiceTestReportPayload) -> dict:
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    ts = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     filename = payload.filename or f"voice-regression-{ts}.json"
     if not filename.endswith(".json"):
         filename += ".json"
@@ -132,7 +143,7 @@ def list_reports() -> dict:
                 "path": str(path),
                 "modifiedAt": datetime.fromtimestamp(
                     path.stat().st_mtime,
-                    tz=timezone.utc,
+                    tz=UTC,
                 ).isoformat(),
             }
             for path in files

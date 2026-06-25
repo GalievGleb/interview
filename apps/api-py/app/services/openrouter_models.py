@@ -46,7 +46,9 @@ def _safe_float(value: Any) -> float:
         return 0.0
 
 
-def _infer_tags(model_id: str, name: str, pricing: ModelPricingModel, caps: ModelCapabilitiesModel) -> list[str]:
+def _infer_tags(
+    model_id: str, name: str, pricing: ModelPricingModel, caps: ModelCapabilitiesModel
+) -> list[str]:
     low_id = model_id.lower()
     low_name = name.lower()
     tags: list[str] = []
@@ -106,8 +108,12 @@ def normalize_model(item: dict[str, Any]) -> NormalizedModelModel | None:
 
     caps = ModelCapabilitiesModel(
         vision=any("image" in str(m).lower() for m in modalities),
-        tools=bool(item.get("supported_parameters") and "tools" in item.get("supported_parameters", [])),
-        reasoning="reason" in model_id.lower() or "o1" in model_id.lower() or "o3" in model_id.lower(),
+        tools=bool(
+            item.get("supported_parameters") and "tools" in item.get("supported_parameters", [])
+        ),
+        reasoning="reason" in model_id.lower()
+        or "o1" in model_id.lower()
+        or "o3" in model_id.lower(),
     )
 
     tags = _infer_tags(model_id, name, pricing, caps)

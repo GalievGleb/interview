@@ -89,7 +89,9 @@ def _cosine(a: list[float], b: list[float]) -> float:
     return dot / (na * nb)
 
 
-async def search(db: Session, query: str, kinds: list[str] | None = None, top_k: int = 5) -> list[dict]:
+async def search(
+    db: Session, query: str, kinds: list[str] | None = None, top_k: int = 5
+) -> list[dict]:
     q = db.query(DocChunk).join(Document)
     if kinds:
         q = q.filter(Document.kind.in_(kinds))

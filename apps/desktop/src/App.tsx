@@ -8,6 +8,7 @@ import InterviewPage from './pages/InterviewPage';
 import MeetingPage from './pages/MeetingPage';
 import HistoryPage from './pages/HistoryPage';
 import TestLabPage from './pages/TestLabPage';
+import LicensesPage from './pages/LicensesPage';
 import OverlayPage from './pages/OverlayPage';
 
 function Gate({ children }: { children: React.ReactNode }) {
@@ -36,6 +37,7 @@ export default function App() {
         <Route path="/documents" element={<Gate><DocumentsPage /></Gate>} />
         <Route path="/history" element={<Gate><HistoryPage /></Gate>} />
         <Route path="/settings" element={<Gate><SettingsPage /></Gate>} />
+        <Route path="/licenses" element={<Gate><LicensesPage /></Gate>} />
         <Route path="/test-lab" element={<Gate><TestLabPage /></Gate>} />
         <Route path="/" element={<Navigate to="/interview" replace />} />
         <Route path="*" element={<Navigate to="/interview" replace />} />

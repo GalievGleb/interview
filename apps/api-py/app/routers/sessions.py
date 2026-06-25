@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.errors import AppError
-from app.db.models import Answer, InterviewSession, Transcript
+from app.db.models import InterviewSession, Transcript
 from app.db.session import get_db
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])

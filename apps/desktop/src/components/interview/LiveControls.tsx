@@ -1,12 +1,7 @@
 import type { ReactNode } from 'react';
 import { LiveSources } from '../../hooks/useLiveCopilot';
 import { SttMode } from '../../lib/liveSession';
-import {
-  AUDIO_RATE_LABELS,
-  AudioSampleRateMode,
-  STT_ENGINE_LABELS,
-  SttEngine,
-} from '../../lib/sttOptions';
+import { AUDIO_RATE_LABELS, AudioSampleRateMode } from '../../lib/sttOptions';
 import { LiveSessionStatus, LiveStatusBadge } from '../ui/StatusBadge';
 
 const isElectron = typeof window !== 'undefined' && !!window.electronAPI;
@@ -17,7 +12,6 @@ export interface LiveControlsProps {
   sources: LiveSources;
   mode: SttMode;
   language: string;
-  sttEngine: SttEngine;
   audioRate: AudioSampleRateMode;
   canStart: boolean;
   hasStt: boolean;
@@ -25,7 +19,6 @@ export interface LiveControlsProps {
   onToggleSource: (key: keyof LiveSources) => void;
   onModeChange: (mode: SttMode) => void;
   onLanguageChange: (language: string) => void;
-  onSttEngineChange: (engine: SttEngine) => void;
   onAudioRateChange: (rate: AudioSampleRateMode) => void;
   onStart: () => void;
   onStop: () => void;
@@ -76,7 +69,6 @@ export default function LiveControls({
   sources,
   mode,
   language,
-  sttEngine,
   audioRate,
   canStart,
   hasStt,
@@ -84,7 +76,6 @@ export default function LiveControls({
   onToggleSource,
   onModeChange,
   onLanguageChange,
-  onSttEngineChange,
   onAudioRateChange,
   onStart,
   onStop,
@@ -119,7 +110,7 @@ export default function LiveControls({
               type="button"
               onClick={onStart}
               disabled={!canStart || !hasStt || noSource}
-              title={!hasStt ? 'Add Deepgram API key in Settings' : undefined}
+              title={!hasStt ? 'Download a local speech model in Settings → Speech Recognition' : undefined}
               className="btn-primary min-w-[120px]"
             >
               Start Live
@@ -148,20 +139,6 @@ export default function LiveControls({
                 </button>
               ))}
             </div>
-          </ControlGroup>
-
-          <ControlGroup label="STT">
-            <select
-              value={sttEngine}
-              onChange={(e) => onSttEngineChange(e.target.value as SttEngine)}
-              className="select-compact min-w-[140px]"
-            >
-              {(Object.keys(STT_ENGINE_LABELS) as SttEngine[]).map((id) => (
-                <option key={id} value={id}>
-                  {STT_ENGINE_LABELS[id]}
-                </option>
-              ))}
-            </select>
           </ControlGroup>
 
           <ControlGroup label="Audio">

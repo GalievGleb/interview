@@ -162,7 +162,7 @@ export default function OverlayPage() {
               type="button"
               onClick={toggleSession}
               disabled={!hasStt && !active}
-              title={!hasStt ? 'Добавьте Deepgram API key в Настройках' : ''}
+              title={!hasStt ? 'Скачайте локальную модель в Настройках → Распознавание речи' : ''}
               className={`btn-sm rounded-l-xl border-y border-l px-3 py-1.5 text-xs font-medium ${
                 active ? 'btn-danger rounded-r-none' : 'btn-secondary rounded-r-none'
               }`}

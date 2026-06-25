@@ -33,7 +33,7 @@ async def upload(
     try:
         text = rag_service.parse_file(file.filename or "file.txt", content)
     except ValueError as exc:
-        raise AppError(str(exc), 400, "parse_error")
+        raise AppError(str(exc), 400, "parse_error") from exc
 
     if not text.strip():
         raise AppError("Could not extract text from file", 400, "empty_document")

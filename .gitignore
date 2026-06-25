@@ -24,3 +24,6 @@ apps/api-py/data/
 
 # Voice regression reports (generated locally)
 tests/voice/results/voice-regression-*.json
+
+# STT benchmark reports (generated locally)
+tests/stt-benchmark/results/stt-benchmark-*.json

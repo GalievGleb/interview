@@ -1,5 +1,7 @@
 import { useState } from 'react';
 
+import { useNavigate } from 'react-router-dom';
+
 import { api } from '../lib/api';
 
 import { useApp } from '../context/AppContext';
@@ -10,15 +12,19 @@ import MicrophoneSettings from '../components/MicrophoneSettings';
 
 import AiModelsSettings from '../components/AiModelsSettings';
 
+import SpeechRecognitionSettings from '../components/SpeechRecognitionSettings';
+
+import DiagnosticsPanel from '../components/DiagnosticsPanel';
+
 
 
 export default function SettingsPage() {
 
   const { keys, refreshKeys } = useApp();
 
-  const [openai, setOpenai] = useState('');
+  const navigate = useNavigate();
 
-  const [deepgram, setDeepgram] = useState('');
+  const [openai, setOpenai] = useState('');
 
   const [saving, setSaving] = useState(false);
 
@@ -33,8 +39,6 @@ export default function SettingsPage() {
     const changed: string[] = [];
 
     if (openai) changed.push('OpenAI');
-
-    if (deepgram) changed.push('Deepgram');
 
 
 
@@ -58,13 +62,9 @@ export default function SettingsPage() {
 
         openai_api_key: openai || undefined,
 
-        deepgram_api_key: deepgram || undefined,
-
       });
 
       setOpenai('');
-
-      setDeepgram('');
 
       await refreshKeys();
 
@@ -134,6 +134,10 @@ export default function SettingsPage() {
 
 
 
+      <SpeechRecognitionSettings />
+
+
+
       <div className="card mb-5 space-y-4 p-5">
 
         <h3 className="text-sm font-semibold text-ink">Дополнительные ключи</h3>
@@ -147,18 +151,6 @@ export default function SettingsPage() {
           value={openai}
 
           onChange={setOpenai}
-
-        />
-
-        <KeyField
-
-          label="Deepgram API Key (STT)"
-
-          placeholder={keys?.deepgram ? '•••••••• (задан)' : 'для транскрипции'}
-
-          value={deepgram}
-
-          onChange={setDeepgram}
 
         />
 
@@ -179,6 +171,34 @@ export default function SettingsPage() {
 
 
       <MicrophoneSettings />
+
+
+
+      <DiagnosticsPanel />
+
+
+
+      <div className="card mb-5 flex items-center justify-between p-5">
+
+        <div>
+
+          <h3 className="text-sm font-semibold text-ink">Открытое ПО и лицензии</h3>
+
+          <p className="mt-0.5 text-sm text-ink-muted">
+
+            Уведомления о лицензиях встроенных open-source компонентов.
+
+          </p>
+
+        </div>
+
+        <button type="button" onClick={() => navigate('/licenses')} className="btn-secondary btn-sm">
+
+          Открыть
+
+        </button>
+
+      </div>
 
 
 

@@ -82,9 +82,7 @@ _FLAKY_HINT = """TOPIC HINT — flaky tests / CI/CD stability (weave naturally i
 Mention when relevant: logs; Allure; screenshots/artifacts; explicit waits; stable locators;
 retries only as temporary workaround; remove sleep; isolate test data between runs."""
 
-_NONE_HINT = (
-    "(none — answer naturally; do not force unrelated QA terms or stack keywords)"
-)
+_NONE_HINT = "(none — answer naturally; do not force unrelated QA terms or stack keywords)"
 
 
 def resolve_domain_answer_hints(question: str) -> str:

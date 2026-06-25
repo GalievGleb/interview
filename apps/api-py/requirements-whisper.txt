@@ -1,0 +1,13 @@
+# Optional dependencies for Local Whisper (on-device, private transcription).
+#
+# Not installed by default because the model + runtime are large. The app
+# starts and runs fine without these; the Local Whisper provider simply reports
+# itself unavailable and the onboarding prompts the user to enable it.
+#
+# Install:  pip install -r requirements-whisper.txt
+#
+# faster-whisper bundles CTranslate2 (CPU int8 works everywhere; GPU needs a
+# matching CUDA runtime). numpy is used to feed buffered PCM windows from the
+# live path into the model.
+faster-whisper>=1.0.3
+numpy>=1.26

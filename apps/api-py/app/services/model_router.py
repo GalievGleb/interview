@@ -79,14 +79,23 @@ def _pattern_pick(
     patterns: list[str], available: set[str], *, skip_reasoning: bool = False
 ) -> str | None:
     reasoning_kw = ("reasoner", "/o1", "/o3", "thinking", "r1")
-    for mid in sorted(available):
-        low = mid.lower()
+
+    def allowed(model_id: str) -> bool:
+        low = model_id.lower()
         if skip_reasoning and any(k in low for k in reasoning_kw):
-            continue
+            return False
         if skip_reasoning and any(k in low for k in FAST_SKIP_MODELS):
-            continue
-        if _match_patterns(mid, patterns):
-            return mid
+            return False
+        return True
+
+    # Honour the priority ORDER of `patterns`: try each pattern in turn and
+    # return the first available model that matches it. (Previously this looped
+    # over models first, so a lower-priority pattern could win purely on
+    # alphabetical order — e.g. gemini-2.0-flash beating gpt-4o-mini for "fast".)
+    for pattern in patterns:
+        for model_id in sorted(available):
+            if allowed(model_id) and pattern in model_id.lower():
+                return model_id
     return None
 
 

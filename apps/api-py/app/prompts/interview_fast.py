@@ -311,4 +311,6 @@ Return ONLY the spoken answer text."""
 RESUME_CONTEXT_LIMIT = 2000
 VACANCY_CONTEXT_LIMIT = 400
 
-RESUME_PLACEHOLDER_NONE = "(resume not needed for this question — do not mention projects or companies)"
+RESUME_PLACEHOLDER_NONE = (
+    "(resume not needed for this question — do not mention projects or companies)"
+)

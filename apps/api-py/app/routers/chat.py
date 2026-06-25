@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 
 from fastapi import APIRouter, Depends
@@ -19,14 +20,14 @@ from app.prompts.interview_fast import (
 from app.prompts.meeting import MEETING_PROMPT
 from app.prompts.system import SYSTEM_PROMPT
 from app.services import model_router, provider_adapter, rag_service, transcript_correction
-from app.services.preferences import load_preferences
 from app.services.domain_answer_hints import resolve_domain_answer_hints
+from app.services.preferences import load_preferences
 from app.services.question_intent import resolve_answer_strategy
 from app.services.sanitize_live_answer import sanitize_live_answer
 
 router = APIRouter(tags=["chat"])
 
-logger = __import__("logging").getLogger("chat")
+logger = logging.getLogger("chat")
 
 FAST_CONTEXT_LIMIT = 350
 
@@ -178,9 +179,12 @@ async def _interview_event_stream(
     final_question = (payload.question or "").strip()
 
     try:
-        final_question, raw_question, glossary_corrected, correction_meta = await _finalize_question(
-            payload
-        )
+        (
+            final_question,
+            raw_question,
+            glossary_corrected,
+            correction_meta,
+        ) = await _finalize_question(payload)
         strategy = resolve_answer_strategy(payload)
         correction_meta.update(
             {
@@ -197,9 +201,7 @@ async def _interview_event_stream(
             if strategy["resume_context_level"] == "none"
             else (resume or "(нет)")
         )
-        resolved_q = (
-            correction_meta.get("resolved_follow_up_question") or final_question
-        )
+        resolved_q = correction_meta.get("resolved_follow_up_question") or final_question
         domain_hints = resolve_domain_answer_hints(resolved_q)
         prompt = INTERVIEW_PROMPT_STREAM.format(
             resume=resume_text,
@@ -301,9 +303,7 @@ async def chat(payload: ChatPayload, db: Session = Depends(get_db)):
 
     async def event_stream():
         try:
-            async for delta in provider_adapter.stream_chat(
-                messages, provider, model
-            ):
+            async for delta in provider_adapter.stream_chat(messages, provider, model):
                 yield f"data: {json.dumps({'type': 'chunk', 'text': delta})}\n\n"
             yield f"data: {json.dumps({'type': 'done', 'model': model})}\n\n"
         except Exception as exc:
@@ -406,7 +406,13 @@ async def interview(payload: InterviewPayload, db: Session = Depends(get_db)) ->
     db.add(ApiUsage(provider=provider, kind="chat"))
     db.commit()
 
-    return {"id": answer.id, "model": model, "model_source": source, "correction": correction_meta, **parsed}
+    return {
+        "id": answer.id,
+        "model": model,
+        "model_source": source,
+        "correction": correction_meta,
+        **parsed,
+    }
 
 
 @router.post("/chat/interview/stream")
