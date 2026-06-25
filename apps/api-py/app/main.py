@@ -1,3 +1,10 @@
+import os
+
+# hf-xet can stall Hugging Face downloads on some Windows routes; disable before
+# huggingface_hub is imported anywhere in this process.
+os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
+os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
+
 import logging
 
 from fastapi import FastAPI

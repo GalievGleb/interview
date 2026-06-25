@@ -29,6 +29,8 @@ export interface SttDeviceInfo {
 
 export interface SttSettingsDto {
   local_model: WhisperQualityId;
+  partial_model: WhisperQualityId;
+  final_model: WhisperQualityId;
   device: SttDeviceId;
 }
 
@@ -92,6 +94,33 @@ export interface SttBenchmarkReport {
 }
 
 const API_URL = (import.meta.env.VITE_API_URL as string) ?? 'http://127.0.0.1:8000';
+const REQUEST_TIMEOUT_MS = 10_000;
+const LONG_REQUEST_TIMEOUT_MS = 180_000;
+
+type RequestOptions = RequestInit & { timeoutMs?: number };
+
+async function fetchWithTimeout(path: string, options: RequestOptions = {}): Promise<Response> {
+  const { timeoutMs = REQUEST_TIMEOUT_MS, signal: userSignal, ...rest } = options;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  if (userSignal) {
+    userSignal.addEventListener('abort', () => controller.abort(), { once: true });
+  }
+  try {
+    return await fetch(`${API_URL}${path}`, { ...rest, signal: controller.signal });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw new Error(
+        timeoutMs <= REQUEST_TIMEOUT_MS
+          ? 'Бэкенд не отвечает — проверьте, что uvicorn запущен на порту 8000'
+          : 'Операция заняла слишком много времени — попробуйте ещё раз',
+      );
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 
 export interface StreamInterviewCorrectionMeta {
   raw_question?: string;
@@ -192,10 +221,12 @@ export interface SessionDetail extends SessionItem {
   }[];
 }
 
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const resp = await fetch(`${API_URL}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...(options.headers ?? {}) },
-    ...options,
+async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const { timeoutMs, ...fetchOptions } = options;
+  const resp = await fetchWithTimeout(path, {
+    headers: { 'Content-Type': 'application/json', ...(fetchOptions.headers ?? {}) },
+    timeoutMs,
+    ...fetchOptions,
   });
   if (!resp.ok) {
     let message = `Ошибка ${resp.status}`;
@@ -562,12 +593,14 @@ export const api = {
   sttBenchmarkRunCase: (caseId: string) =>
     request<SttBenchmarkCaseResult>(`/stt/benchmark/run/${encodeURIComponent(caseId)}`, {
       method: 'POST',
+      timeoutMs: LONG_REQUEST_TIMEOUT_MS,
     }),
 
   sttBenchmarkRunAll: (save = true) =>
     request<SttBenchmarkReport>('/stt/benchmark/run', {
       method: 'POST',
       body: JSON.stringify({ save }),
+      timeoutMs: LONG_REQUEST_TIMEOUT_MS,
     }),
 
   sttBenchmarkReports: () =>
@@ -582,7 +615,7 @@ export const api = {
   voiceTestTranscribe: (caseId: string) =>
     request<{ caseId: string; transcript: string; sttLatencyMs: number; audioPath: string }>(
       `/voice-tests/transcribe/${encodeURIComponent(caseId)}`,
-      { method: 'POST' },
+      { method: 'POST', timeoutMs: LONG_REQUEST_TIMEOUT_MS },
     ),
 
   voiceTestSaveReport: (report: unknown, filename?: string) =>

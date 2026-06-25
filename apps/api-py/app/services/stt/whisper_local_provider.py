@@ -23,8 +23,9 @@ from pathlib import Path
 
 from app.config import DATA_DIR
 
-# faster-whisper downloads via huggingface_hub, which is noisy about symlinks on
-# Windows. The degraded (copy) cache works fine; silence the warning.
+# faster-whisper downloads via huggingface_hub. hf-xet can hang on some routes;
+# disable it before the hub is imported. Symlink warnings on Windows are noisy.
+os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
 os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 
 from .base import BaseTranscriptionProvider, ProviderMode
@@ -45,24 +46,41 @@ def _faster_whisper_available() -> bool:
     return True
 
 
+def _cuda_runtime_ready() -> bool:
+    """True only when CUDA device count > 0 and runtime DLLs (e.g. cuBLAS) load."""
+    try:
+        import ctranslate2  # type: ignore
+
+        if ctranslate2.get_cuda_device_count() <= 0:
+            return False
+    except Exception:  # noqa: BLE001
+        return False
+
+    if os.name == "nt":
+        import ctypes
+
+        for dll in ("cublas64_12.dll", "cublas64_11.dll"):
+            try:
+                ctypes.WinDLL(dll)
+                return True
+            except OSError:
+                continue
+        return False
+
+    return True
+
+
 def _resolve_device(preference: str) -> tuple[str, str]:
     """Return ``(device, compute_type)`` for CTranslate2.
 
     ``preference`` is one of ``auto`` / ``cpu`` / ``gpu``. GPU is used only when
-    CUDA is actually importable; otherwise we fall back to CPU int8 (works
-    everywhere, lowest memory).
+    CUDA runtime libraries are actually loadable; otherwise we fall back to CPU.
     """
     want_gpu = preference in ("gpu", "cuda", "auto")
-    if want_gpu:
-        try:
-            import ctranslate2  # type: ignore
-
-            if ctranslate2.get_cuda_device_count() > 0:  # pragma: no cover - hw
-                return "cuda", "float16"
-        except Exception:  # noqa: BLE001
-            pass
-        if preference in ("gpu", "cuda"):
-            logger.info("Whisper GPU requested but CUDA unavailable; using CPU")
+    if want_gpu and _cuda_runtime_ready():
+        return "cuda", "float16"
+    if preference in ("gpu", "cuda"):
+        logger.info("Whisper GPU requested but CUDA runtime unavailable; using CPU")
     return "cpu", "int8"
 
 
@@ -128,12 +146,12 @@ class WhisperLocalProvider(BaseTranscriptionProvider):
         return device
 
     # --- model lifecycle --------------------------------------------------
-    def _load_model(self):
-        if self._model is not None:
+    def _load_model(self, *, force_cpu: bool = False):
+        if self._model is not None and not force_cpu:
             return self._model
         from faster_whisper import WhisperModel  # lazy
 
-        device, compute_type = _resolve_device(self.device_preference)
+        device, compute_type = ("cpu", "int8") if force_cpu else _resolve_device(self.device_preference)
         MODELS_DIR.mkdir(parents=True, exist_ok=True)
         logger.info(
             "Loading Whisper model=%s device=%s compute=%s",
@@ -155,8 +173,7 @@ class WhisperLocalProvider(BaseTranscriptionProvider):
         super().prepare()
 
     # --- transcription ----------------------------------------------------
-    def _transcribe_sync(self, audio, *, language: str | None) -> str:
-        model = self._load_model()
+    def _run_transcribe(self, model, audio, *, language: str | None) -> str:
         segments, _info = model.transcribe(
             audio,
             language=None if language in (None, "multi", "") else language,
@@ -164,6 +181,19 @@ class WhisperLocalProvider(BaseTranscriptionProvider):
             vad_filter=True,
         )
         return "".join(seg.text for seg in segments).strip()
+
+    def _transcribe_sync(self, audio, *, language: str | None) -> str:
+        model = self._load_model()
+        try:
+            return self._run_transcribe(model, audio, language=language)
+        except RuntimeError as exc:
+            msg = str(exc).lower()
+            if "cublas" in msg or "cuda" in msg:
+                logger.warning("CUDA inference failed (%s); retrying on CPU", exc)
+                self._model = None
+                cpu_model = self._load_model(force_cpu=True)
+                return self._run_transcribe(cpu_model, audio, language=language)
+            raise
 
     async def _transcribe_file(
         self, audio: bytes, *, language: str | None, sample_rate: int

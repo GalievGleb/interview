@@ -7,6 +7,7 @@ export type Speaker = 'me' | 'other';
 export interface TranscriptLine {
   text: string;
   normalized?: string;
+  corrected?: string;
   isFinal: boolean;
   speaker: Speaker;
 }

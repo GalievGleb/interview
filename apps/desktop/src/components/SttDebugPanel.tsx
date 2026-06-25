@@ -6,6 +6,9 @@ export interface SttDebugInfo {
   intentCorrected: string;
   /** @deprecated use intentCorrected */
   correctedTranscript: string;
+  interimTranscript?: string;
+  finalTranscript?: string;
+  correctedFinalTranscript?: string;
   llmCorrectedTranscript?: string;
   corrections: AppliedCorrection[];
   intentCorrections: IntentCorrection[];
@@ -32,9 +35,16 @@ export interface SttDebugInfo {
   resumeFactSource?: string;
   sttEngine?: string;
   sttModel?: string;
+  partialSttModel?: string;
   sampleRate?: number;
   timeToFinalMs?: number;
   timeToAnswerMs?: number;
+  timeToFirstPartialMs?: number;
+  finalTranscriptionMs?: number;
+  correctionMs?: number;
+  llmFirstTokenMs?: number;
+  llmTotalMs?: number;
+  totalEndToEndMs?: number;
 }
 
 interface SttDebugPanelProps {
@@ -60,8 +70,16 @@ export default function SttDebugPanel({ debug, show, onToggle }: SttDebugPanelPr
             <p className="text-ink-faint">Нет данных — задайте вопрос в live-режиме.</p>
           ) : (
             <>
+              {debug.interimTranscript && (
+                <Row label="Interim transcript" value={debug.interimTranscript} />
+              )}
               <Row label="Raw transcript" value={debug.rawTranscript} />
+              <Row label="Final transcript" value={debug.finalTranscript ?? debug.rawTranscript} />
               <Row label="Glossary corrected" value={debug.glossaryCorrected} />
+              <Row
+                label="Corrected final"
+                value={debug.correctedFinalTranscript ?? debug.glossaryCorrected}
+              />
               <Row label="Intent corrected" value={debug.intentCorrected} />
               {debug.resolvedQuestion && debug.resolvedQuestion !== debug.intentCorrected && (
                 <Row label="Resolved question" value={debug.resolvedQuestion} />
@@ -144,15 +162,52 @@ export default function SttDebugPanel({ debug, show, onToggle }: SttDebugPanelPr
               />
               <Row label="Resume context reason" value={debug.resumeContextReason ?? '—'} />
               <Row label="STT engine" value={debug.sttEngine ?? '—'} />
-              <Row label="STT model" value={debug.sttModel ?? '—'} />
+              <Row label="STT final model" value={debug.sttModel ?? '—'} />
+              <Row label="STT partial model" value={debug.partialSttModel ?? '—'} />
               <Row label="Sample rate" value={debug.sampleRate ? `${debug.sampleRate} Hz` : '—'} />
+              <Row
+                label="Time to first partial"
+                value={
+                  debug.timeToFirstPartialMs != null
+                    ? `${Math.round(debug.timeToFirstPartialMs)} ms`
+                    : '—'
+                }
+              />
+              <Row
+                label="Final transcription"
+                value={
+                  debug.finalTranscriptionMs != null
+                    ? `${Math.round(debug.finalTranscriptionMs)} ms`
+                    : '—'
+                }
+              />
+              <Row
+                label="Glossary correction"
+                value={debug.correctionMs != null ? `${Math.round(debug.correctionMs)} ms` : '—'}
+              />
               <Row
                 label="Time to final"
                 value={debug.timeToFinalMs != null ? `${Math.round(debug.timeToFinalMs)} ms` : '—'}
               />
               <Row
+                label="LLM first token"
+                value={
+                  debug.llmFirstTokenMs != null ? `${Math.round(debug.llmFirstTokenMs)} ms` : '—'
+                }
+              />
+              <Row
+                label="LLM total"
+                value={debug.llmTotalMs != null ? `${Math.round(debug.llmTotalMs)} ms` : '—'}
+              />
+              <Row
                 label="Time to answer"
                 value={debug.timeToAnswerMs != null ? `${Math.round(debug.timeToAnswerMs)} ms` : '—'}
+              />
+              <Row
+                label="End-to-end"
+                value={
+                  debug.totalEndToEndMs != null ? `${Math.round(debug.totalEndToEndMs)} ms` : '—'
+                }
               />
             </>
           )}

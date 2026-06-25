@@ -98,6 +98,8 @@ def model_delete(quality: str) -> dict:
 
 class SttSettingsPayload(BaseModel):
     local_model: str | None = None
+    partial_model: str | None = None
+    final_model: str | None = None
     device: str | None = None
 
 
@@ -110,6 +112,8 @@ def get_stt_settings() -> dict:
 def save_stt_settings_endpoint(payload: SttSettingsPayload) -> dict:
     updated = update_stt_settings(
         local_model=payload.local_model,
+        partial_model=payload.partial_model,
+        final_model=payload.final_model,
         device=payload.device,
     )
     return updated.model_dump()

@@ -14,26 +14,26 @@ from .whisper_local_provider import WhisperLocalProvider
 from .whisper_models import QualityLevel
 
 
-def build_whisper_provider() -> WhisperLocalProvider:
+def build_whisper_provider(*, role: str = "final") -> WhisperLocalProvider:
+    """Build a Whisper provider for live or batch STT.
+
+    ``role`` is ``partial`` (fast interim captions) or ``final`` (utterance pass).
+    """
     st = load_stt_settings()
-    return WhisperLocalProvider(
-        quality=st.local_model,
-        device=st.device,
-    )
+    quality = st.partial_model if role == "partial" else st.final_model
+    return WhisperLocalProvider(quality=quality, device=st.device)
 
 
 def get_provider(provider_id: str) -> TranscriptionProvider:
-    # Only local Whisper exists; everything resolves to it.
-    return build_whisper_provider()
+    return build_whisper_provider(role="final")
 
 
 def all_providers() -> list[TranscriptionProvider]:
-    return [build_whisper_provider()]
+    return [build_whisper_provider(role="final")]
 
 
 def resolve_default_provider() -> TranscriptionProvider:
-    """The default (and only) engine is local Whisper."""
-    return build_whisper_provider()
+    return build_whisper_provider(role="final")
 
 
 def diagnostics() -> dict:
@@ -42,7 +42,9 @@ def diagnostics() -> dict:
     default = resolve_default_provider()
     return {
         "default": default.id,
-        "localModel": st.local_model,
+        "localModel": st.final_model,
+        "partialModel": st.partial_model,
+        "finalModel": st.final_model,
         "device": st.device,
         "providers": [d.as_dict() for d in providers],
     }

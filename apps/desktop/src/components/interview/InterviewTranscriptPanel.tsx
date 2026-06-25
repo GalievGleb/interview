@@ -19,10 +19,12 @@ export default function InterviewTranscriptPanel({
   active,
 }: InterviewTranscriptPanelProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
+  const hasInterim = lines.some((line) => !line.isFinal);
+  const waitReason = debug?.waitReason;
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [lines]);
+  }, [lines, debug?.interimTranscript]);
 
   return (
     <div className="cockpit-panel flex min-h-0 flex-col lg:min-w-0 lg:flex-1">
@@ -31,6 +33,11 @@ export default function InterviewTranscriptPanel({
         {lines.length > 0 && (
           <span className="rounded-full border border-surface-border bg-surface-elevated px-2 py-0.5 text-[10px] text-ink-faint">
             {lines.length} lines
+          </span>
+        )}
+        {active && hasInterim && (
+          <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-300">
+            Interim
           </span>
         )}
       </div>
@@ -44,6 +51,12 @@ export default function InterviewTranscriptPanel({
           />
         )}
 
+        {active && waitReason && (
+          <p className="mb-3 rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+            {waitReason}
+          </p>
+        )}
+
         <div className="space-y-2">
           {lines.map((line, i) => (
             <div
@@ -54,12 +67,23 @@ export default function InterviewTranscriptPanel({
             >
               <span className="transcript-speaker">
                 {line.speaker === 'me' ? 'You' : 'Interviewer'}
+                {!line.isFinal && (
+                  <span className="ml-2 text-[10px] font-normal text-ink-faint">interim</span>
+                )}
               </span>
               <p className={`transcript-text ${line.isFinal ? '' : 'transcript-interim'}`}>
                 {line.text}
+                {!line.isFinal && line.text.endsWith('…') === false && line.text.length > 0 && (
+                  <span className="text-ink-faint">…</span>
+                )}
               </p>
-              {line.normalized && line.normalized !== line.text && (
-                <p className="transcript-normalized">→ {line.normalized}</p>
+              {line.isFinal && line.normalized && line.normalized !== line.text && (
+                <p className="transcript-normalized">Final: {line.normalized}</p>
+              )}
+              {line.isFinal && line.corrected && line.corrected !== line.text && (
+                <p className="transcript-normalized text-accent/90">
+                  Corrected: {line.corrected}
+                </p>
               )}
             </div>
           ))}

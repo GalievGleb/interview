@@ -60,13 +60,10 @@ def detect_total_ram_gb() -> float | None:
 
 
 def detect_gpu() -> bool:
-    """True only if CTranslate2 reports a usable CUDA device."""
-    try:
-        import ctranslate2  # type: ignore
+    """True only if CUDA device and runtime libraries are usable."""
+    from .whisper_local_provider import _cuda_runtime_ready
 
-        return ctranslate2.get_cuda_device_count() > 0
-    except Exception:  # noqa: BLE001
-        return False
+    return _cuda_runtime_ready()
 
 
 def detect_device_info() -> dict:

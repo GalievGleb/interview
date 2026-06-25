@@ -127,3 +127,20 @@ export function looksLikeQuestion(text: string): boolean {
     t,
   ) || /что\s+значит|что\s+такое|что\s+это\s+за|автоматиз/i.test(t);
 }
+
+export function countMeaningfulWords(text: string): number {
+  return text
+    .trim()
+    .split(/\s+/)
+    .filter((w) => w.replace(/[^\p{L}\p{N}]/gu, '').length > 1).length;
+}
+
+/** Too short or obviously broken STT — do not send to LLM yet. */
+export function isGarbageTranscript(text: string): boolean {
+  const t = text.trim();
+  if (!t) return true;
+  if (countMeaningfulWords(t) < 3) return true;
+  const tokens = t.toLowerCase().split(/\s+/).filter(Boolean);
+  if (tokens.length >= 3 && new Set(tokens).size === 1) return true;
+  return false;
+}

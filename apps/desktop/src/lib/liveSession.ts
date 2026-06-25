@@ -11,7 +11,14 @@ export interface LiveHandlers {
   onTranscript: (text: string, isFinal: boolean, speechFinal: boolean) => void;
   onUtteranceEnd?: () => void;
   onTurnResumed?: () => void;
-  onReady?: (info: { engine: string; model: string; sampleRate: number }) => void;
+  onSpeechStarted?: () => void;
+  onReady?: (info: {
+    engine: string;
+    model: string;
+    partialModel?: string;
+    finalModel?: string;
+    sampleRate: number;
+  }) => void;
   onError: (message: string) => void;
   onClose?: () => void;
 }
@@ -81,12 +88,16 @@ export async function startLiveSession(
         handlers.onTranscript(evt.text, Boolean(evt.is_final), Boolean(evt.speech_final));
       } else if (evt.type === 'utterance_end') {
         handlers.onUtteranceEnd?.();
+      } else if (evt.type === 'speech_started') {
+        handlers.onSpeechStarted?.();
       } else if (evt.type === 'turn_resumed') {
         handlers.onTurnResumed?.();
       } else if (evt.type === 'ready') {
         handlers.onReady?.({
           engine: evt.engine ?? engine,
-          model: evt.model ?? engine,
+          model: evt.model ?? evt.final_model ?? engine,
+          partialModel: evt.partial_model,
+          finalModel: evt.final_model ?? evt.model,
           sampleRate: evt.sample_rate ?? sampleRate,
         });
       } else if (evt.type === 'error') {

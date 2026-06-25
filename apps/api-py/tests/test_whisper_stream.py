@@ -62,6 +62,22 @@ def test_adaptive_threshold_rises_with_background_noise():
     assert ep._threshold() > whisper_stream.SPEECH_RMS_THRESHOLD
 
 
+def test_endpointer_peek_speech_returns_copy_without_reset():
+    ep = whisper_stream.Endpointer()
+    for _ in range(10):
+        ep.feed(_speech_chunk(30))
+    peeked = ep.peek_speech()
+    assert len(peeked) > 0
+    assert ep.in_speech is True
+    assert len(ep.peek_speech()) == len(peeked)
+
+
+def test_should_emit_partial_prefers_longer_prefix():
+    assert whisper_stream._should_emit_partial("hello world", "hello") is True
+    assert whisper_stream._should_emit_partial("hello", "hello world") is False
+    assert whisper_stream._should_emit_partial("hello", "hello") is False
+
+
 def test_endpointer_finalizes_after_speech_then_silence():
     ep = whisper_stream.Endpointer()
     fired = False

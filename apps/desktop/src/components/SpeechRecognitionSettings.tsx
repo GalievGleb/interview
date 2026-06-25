@@ -143,6 +143,47 @@ export default function SpeechRecognitionSettings() {
         </p>
       </div>
 
+      {/* Live streaming models */}
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div>
+          <span className="label">Partial model (live captions)</span>
+          <select
+            value={settings.partial_model ?? 'fast'}
+            onChange={(e) =>
+              void patchSettings({ partial_model: e.target.value as WhisperQualityId })
+            }
+            className="select-compact mt-1 w-full"
+          >
+            {QUALITIES.map((q) => (
+              <option key={q} value={q}>
+                {WHISPER_MODEL_CARDS.find((c) => c.quality === q)?.label ?? q}
+              </option>
+            ))}
+          </select>
+          <p className="mt-1 text-xs text-ink-faint">Fast updates while you speak (~500 ms).</p>
+        </div>
+        <div>
+          <span className="label">Final model (after pause)</span>
+          <select
+            value={settings.final_model ?? settings.local_model}
+            onChange={(e) =>
+              void patchSettings({
+                final_model: e.target.value as WhisperQualityId,
+                local_model: e.target.value as WhisperQualityId,
+              })
+            }
+            className="select-compact mt-1 w-full"
+          >
+            {QUALITIES.map((q) => (
+              <option key={q} value={q}>
+                {WHISPER_MODEL_CARDS.find((c) => c.quality === q)?.label ?? q}
+              </option>
+            ))}
+          </select>
+          <p className="mt-1 text-xs text-ink-faint">Higher accuracy when the utterance ends.</p>
+        </div>
+      </div>
+
       {/* Local model cards */}
       <div className="space-y-3">
         <span className="label">Локальная модель</span>
