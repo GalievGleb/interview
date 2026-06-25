@@ -1,6 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { api } from '../lib/api';
-import { SttDebugInfo } from '../components/SttDebugPanel';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import AnswerPanel from '../components/interview/AnswerPanel';
 import { AnswerTab } from '../components/interview/AnswerTabs';
 import InterviewCockpitShell from '../components/interview/InterviewCockpitShell';
@@ -10,156 +8,193 @@ import InterviewTranscriptPanel from '../components/interview/InterviewTranscrip
 import LiveControls from '../components/interview/LiveControls';
 import ManualQuestionBox from '../components/interview/ManualQuestionBox';
 import PageHeader from '../components/interview/PageHeader';
-import { buildCopilotSessionExport, buildExchangeLatency, buildPipelineFromPrepared } from '../lib/interviewSessionExport';
-import { prepareTranscriptForLlm } from '../lib/prepareTranscriptForLlm';
-
-import {
-
-  createEmptySessionContext,
-
-  sanitizeLiveAnswer,
-
-  updateSessionContextAfterAnswer,
-
-  type InterviewSessionContext,
-
-} from '@interview/shared';
-
+import { buildCopilotSessionExport } from '../lib/interviewSessionExport';
+import { pipelineToStreamOpts, type AnswerRevisionMode, type PipelineStreamInput } from '../lib/answerRevision';
+import { debugInfoToPipeline } from '../lib/interviewStreamHelpers';
+import { useAnswerRevision } from '../hooks/useAnswerRevision';
 import { useApp } from '../context/AppContext';
-
-import { useLiveCopilot, CopilotAnswerEntry, LiveSources } from '../hooks/useLiveCopilot';
-
-import { SttMode } from '../lib/liveSession';
-
-import {
-
-  AudioSampleRateMode,
-
-  SttEngine,
-
-} from '../lib/sttOptions';
-
+import { useLiveCopilot } from '../hooks/useLiveCopilot';
+import { useLiveCopilotPrefs } from '../hooks/useLiveCopilotPrefs';
+import { useManualInterviewAsk } from '../hooks/useManualInterviewAsk';
 import type { LiveSessionStatus } from '../components/ui/StatusBadge';
-
-
 
 const isElectron = typeof window !== 'undefined' && !!window.electronAPI;
 
-
-
 function deriveLiveStatus(
-
   active: boolean,
-
   isGenerating: boolean,
-
   hasAnswer: boolean,
-
 ): LiveSessionStatus {
-
   if (isGenerating) return 'processing';
-
   if (hasAnswer && !active) return 'answer_ready';
-
   if (active) return 'listening';
-
   return 'idle';
-
 }
 
-
-
 export default function InterviewPage() {
-
   const { hasAnyKey, hasStt } = useApp();
-
   const {
-
     active,
-
     lines,
-
     answerHistory,
-
     currentQuestion,
-
     streamText,
-
     streaming,
-
     suggestLoading,
-
     error,
-
     sttDebug,
     sessionId,
     sessionStartedAt,
+    updateAnswerEntry,
+    setLiveAnswerText,
     start,
     stop,
   } = useLiveCopilot();
 
-
-
+  const { revise, revising } = useAnswerRevision();
+  const [revisionStream, setRevisionStream] = useState('');
   const [debugOpen, setDebugOpen] = useState(false);
-
-  const [manualDebug, setManualDebug] = useState<SttDebugInfo | null>(null);
-
-  const [manualHistory, setManualHistory] = useState<CopilotAnswerEntry[]>([]);
-
-  const [manualCurrentQuestion, setManualCurrentQuestion] = useState('');
-
-
-
-  const [sources, setSources] = useState<LiveSources>(() => ({
-
-    mic: true,
-
-    system: isElectron,
-
-  }));
-
-  const [mode, setMode] = useState<SttMode>('stable');
-
-  const [language, setLanguage] = useState('ru');
-
-  const [sttEngine, setSttEngine] = useState<SttEngine>('nova3-multi');
-
-  const [audioRate, setAudioRate] = useState<AudioSampleRateMode>('16k');
-
-  const [question, setQuestion] = useState('');
-
-  const [manualStream, setManualStream] = useState('');
-
   const [tab, setTab] = useState<AnswerTab>('spoken');
-
-  const [loading, setLoading] = useState(false);
-
-  const [manualError, setManualError] = useState('');
-
   const [manualSessionStartedAt, setManualSessionStartedAt] = useState<number | null>(null);
 
-  const cancelManualRef = useRef<(() => void) | null>(null);
-  const manualSessionContextRef = useRef<InterviewSessionContext>(createEmptySessionContext());
-  const manualDebugRef = useRef<SttDebugInfo | null>(null);
+  const {
+    sources,
+    mode,
+    language,
+    sttEngine,
+    audioRate,
+    sttOptions,
+    toggleSource,
+    setMode,
+    setLanguage,
+    setSttEngine,
+    setAudioRate,
+  } = useLiveCopilotPrefs();
 
-  useEffect(() => {
-    manualDebugRef.current = manualDebug;
-  }, [manualDebug]);
+  const {
+    question,
+    setQuestion,
+    manualStream,
+    setManualStream,
+    manualCurrentQuestion,
+    manualHistory,
+    setManualHistory,
+    manualDebug,
+    loading,
+    manualError,
+    setManualError,
+    ask,
+  } = useManualInterviewAsk({
+    hasSession: !!(sessionStartedAt ?? manualSessionStartedAt),
+    onSessionStarted: () => setManualSessionStartedAt(Date.now()),
+  });
 
-
-
-  const displayStream = active ? streamText : manualStream;
-
+  const displayStream = active ? revisionStream || streamText : revisionStream || manualStream;
   const history = active ? answerHistory : [...answerHistory, ...manualHistory];
-
   const activeQuestion = active ? currentQuestion : manualCurrentQuestion;
+  const isGenerating = active ? streaming || suggestLoading || revising : loading || revising;
 
-  const isGenerating = active ? streaming || suggestLoading : loading;
+  const runRevision = useCallback(
+    (
+      questionText: string,
+      answer: string,
+      revisionMode: AnswerRevisionMode,
+      handlers: { onStream: (text: string) => void; onDone: (text: string) => void },
+      pipeline?: PipelineStreamInput,
+    ) => {
+      revise(questionText, answer, revisionMode, pipelineToStreamOpts(questionText, pipeline), {
+        onStream: handlers.onStream,
+        onDone: handlers.onDone,
+        onError: (msg) => {
+          setManualError(msg);
+          setRevisionStream('');
+        },
+      });
+    },
+    [revise, setManualError],
+  );
+
+  const handleReviseEntry = useCallback(
+    (entryId: string, questionText: string, answer: string, revisionMode: AnswerRevisionMode) => {
+      const entry =
+        answerHistory.find((item) => item.id === entryId) ??
+        manualHistory.find((item) => item.id === entryId);
+      if (answerHistory.some((item) => item.id === entryId)) {
+        setRevisionStream('');
+        runRevision(
+          questionText,
+          answer,
+          revisionMode,
+          {
+            onStream: setRevisionStream,
+            onDone: (text) => {
+              updateAnswerEntry(entryId, text);
+              setRevisionStream('');
+            },
+          },
+          entry?.pipeline,
+        );
+        return;
+      }
+      setManualStream('');
+      runRevision(
+        questionText,
+        answer,
+        revisionMode,
+        {
+          onStream: setManualStream,
+          onDone: (text) => {
+            setManualHistory((prev) =>
+              prev.map((item) => (item.id === entryId ? { ...item, spoken: text } : item)),
+            );
+            setManualStream('');
+          },
+        },
+        entry?.pipeline,
+      );
+    },
+    [answerHistory, manualHistory, runRevision, setManualHistory, setManualStream, updateAnswerEntry],
+  );
+
+  const handleReviseActive = useCallback(
+    (questionText: string, answer: string, revisionMode: AnswerRevisionMode) => {
+      const pipeline = debugInfoToPipeline(active ? sttDebug : manualDebug);
+      if (active) {
+        setRevisionStream('');
+        runRevision(
+          questionText,
+          answer,
+          revisionMode,
+          {
+            onStream: setRevisionStream,
+            onDone: (text) => {
+              setLiveAnswerText(text);
+              setRevisionStream('');
+            },
+          },
+          pipeline,
+        );
+        return;
+      }
+      setManualStream('');
+      runRevision(
+        questionText,
+        answer,
+        revisionMode,
+        {
+          onStream: setManualStream,
+          onDone: (text) => {
+            setManualStream(text);
+          },
+        },
+        pipeline,
+      );
+    },
+    [active, manualDebug, runRevision, setLiveAnswerText, setManualStream, sttDebug],
+  );
 
   const noSource = !sources.mic && !sources.system;
-
   const hasAnswer = history.length > 0 || !!displayStream;
-
   const liveStatus = deriveLiveStatus(active, isGenerating, hasAnswer);
 
   const exportData = useMemo(
@@ -192,296 +227,18 @@ export default function InterviewPage() {
     ],
   );
 
-
-
   useEffect(() => {
-
     if (history.length > 0) setTab('spoken');
-
   }, [history.length]);
 
-
-
-  const toggle = (key: keyof LiveSources) => setSources((s) => ({ ...s, [key]: !s[key] }));
-
-
-
-  const ask = () => {
-
-    if (!question.trim()) return;
-
-    if (!sessionStartedAt && !manualSessionStartedAt) {
-      setManualSessionStartedAt(Date.now());
-    }
-
-    cancelManualRef.current?.();
-
-    const prepared = prepareTranscriptForLlm(question, manualSessionContextRef.current);
-
-    setLoading(true);
-
-    setManualError('');
-
-    setManualStream('');
-
-    setManualCurrentQuestion(prepared.resolvedQuestion);
-
+  const handleAsk = () => {
     setTab('spoken');
-
-
-
-    let text = '';
-    const answerStartedAt = performance.now();
-
-    setManualDebug({
-
-      rawTranscript: prepared.rawTranscript,
-
-      glossaryCorrected: prepared.corrected,
-
-      intentCorrected: prepared.intentCorrected,
-
-      correctedTranscript: prepared.intentCorrected,
-
-      resolvedQuestion: prepared.resolvedQuestion,
-
-      previousTopic: manualSessionContextRef.current.lastCanonicalTopic,
-
-      currentCanonicalTopic: prepared.canonicalTopic ?? undefined,
-
-      isFollowUp: prepared.followUp.isFollowUp,
-
-      usedPreviousContext: prepared.followUp.usedPreviousContext,
-
-      wasPreviousTopicUsed: prepared.followUp.wasPreviousTopicUsed,
-
-      followUpReason: prepared.followUp.reason,
-
-      resetPreviousTopic: prepared.followUp.resetPreviousTopic,
-
-      resetPreviousTopicReason: prepared.followUp.resetPreviousTopicReason,
-
-      hallucinationRisk: prepared.followUp.hallucinationRisk,
-
-      resumeFactSource: prepared.answerStrategy.resumeContextLevel,
-
-      corrections: prepared.correction.corrections,
-
-      intentCorrections: prepared.intent.intentCorrections,
-
-      intentConfidence: prepared.intent.confidence !== 'none' ? prepared.intent.confidence : undefined,
-
-      intentReason: prepared.intent.reason,
-
-      ambiguity: prepared.intent.ambiguity,
-
-      questionIntent: prepared.answerStrategy.questionIntent,
-
-      answerStrategy: prepared.answerStrategy.answerStrategy,
-
-      resumeContextUsed: prepared.answerStrategy.resumeContextUsed,
-
-      resumeContextLevel: prepared.answerStrategy.resumeContextLevel,
-
-      resumeContextReason: prepared.answerStrategy.resumeContextReason,
-
-    });
-
-    cancelManualRef.current = api.streamInterview(
-
-      prepared.resolvedQuestion,
-
-      {
-
-        onChunk: (chunk) => {
-
-          text += chunk;
-
-          setManualStream(sanitizeLiveAnswer(text));
-
-          setLoading(false);
-
-        },
-
-        onDone: (spoken) => {
-
-          const cleaned = sanitizeLiveAnswer(spoken);
-          const llmLatencyMs = performance.now() - answerStartedAt;
-          const pipeline = buildPipelineFromPrepared(prepared, {
-            previousTopic: manualSessionContextRef.current.lastCanonicalTopic,
-            llmCorrectedTranscript: manualDebugRef.current?.llmCorrectedTranscript,
-          });
-          const latency = buildExchangeLatency(null, llmLatencyMs);
-
-          manualSessionContextRef.current = updateSessionContextAfterAnswer(
-
-            manualSessionContextRef.current,
-
-            {
-
-              rawQuestion: prepared.rawTranscript,
-
-              correctedQuestion: prepared.corrected,
-
-              intentCorrectedQuestion: prepared.intentCorrected,
-
-              resolvedQuestion: prepared.resolvedQuestion,
-
-              questionIntent: prepared.answerStrategy.questionIntent,
-
-              canonicalTopic: prepared.canonicalTopic,
-
-              answerSummary: cleaned,
-
-              resetPreviousTopic: prepared.followUp.resetPreviousTopic,
-
-            },
-
-          );
-
-          setManualHistory((prev) => [
-
-            ...prev,
-
-            {
-              id: crypto.randomUUID(),
-              question: prepared.resolvedQuestion,
-              spoken: cleaned,
-              ts: Date.now(),
-              source: 'manual',
-              pipeline,
-              latency,
-            },
-
-          ]);
-
-          setManualStream('');
-
-          setManualCurrentQuestion('');
-
-          setLoading(false);
-
-        },
-
-        onError: (msg) => {
-
-          setManualStream('');
-
-          setManualCurrentQuestion('');
-
-          setManualError(msg);
-
-          setLoading(false);
-
-        },
-
-      },
-
-      {
-
-        rawQuestion: prepared.rawTranscript,
-
-        glossaryCorrected: prepared.corrected,
-
-        intentCorrected: prepared.intentCorrected,
-
-        resolvedQuestion: prepared.resolvedQuestion,
-
-        previousTopic: manualSessionContextRef.current.lastCanonicalTopic,
-
-        isFollowUp: prepared.followUp.isFollowUp,
-
-        usedPreviousContext: prepared.followUp.usedPreviousContext,
-
-        followUpReason: prepared.followUp.reason,
-
-        currentCanonicalTopic: prepared.canonicalTopic ?? undefined,
-
-        ambiguity: prepared.intent.ambiguity,
-
-        corrections: prepared.correction.corrections,
-
-        intentCorrections: prepared.intent.intentCorrections,
-
-        intentConfidence:
-
-          prepared.intent.confidence !== 'none' ? prepared.intent.confidence : undefined,
-
-        intentReason: prepared.intent.reason,
-
-        needsLlmCorrection: prepared.correction.needsLlmCorrection,
-
-        questionIntent: prepared.answerStrategy.questionIntent,
-
-        answerStrategy: prepared.answerStrategy.answerStrategy,
-
-        resumeContextUsed: prepared.answerStrategy.resumeContextUsed,
-
-        resumeContextLevel: prepared.answerStrategy.resumeContextLevel,
-
-        resumeContextReason: prepared.answerStrategy.resumeContextReason,
-
-        suggestUnclearPrefix: prepared.answerStrategy.suggestUnclearPrefix,
-
-        onMeta: (meta) => {
-
-          setManualDebug((prev) => {
-
-            if (!prev) return prev;
-
-            const next = { ...prev };
-
-            const llmText = meta.llm_corrected?.trim();
-
-            if (llmText) {
-
-              next.llmCorrectedTranscript = llmText;
-
-              next.intentCorrected = llmText;
-
-            }
-
-            if (meta.question_intent) next.questionIntent = meta.question_intent;
-
-            if (meta.answer_strategy) next.answerStrategy = meta.answer_strategy;
-
-            if (meta.resume_context_used != null) next.resumeContextUsed = meta.resume_context_used;
-
-            if (meta.resume_context_level) next.resumeContextLevel = meta.resume_context_level;
-
-            if (meta.resume_context_reason) next.resumeContextReason = meta.resume_context_reason;
-
-            return next;
-
-          });
-
-        },
-
-      },
-
-    );
-
+    ask();
   };
-
-
 
   const handleStart = () => {
-
-    void start(sources, {
-
-      mode,
-
-      language,
-
-      engine: sttEngine,
-
-      audioSampleRate: audioRate,
-
-    });
-
+    void start(sources, sttOptions);
   };
-
-
 
   const liveHint =
     active && sttDebug?.waitReason && !isGenerating && !displayStream
@@ -527,7 +284,7 @@ export default function InterviewPage() {
         canStart={hasAnyKey}
         hasStt={hasStt}
         noSource={noSource}
-        onToggleSource={toggle}
+        onToggleSource={toggleSource}
         onModeChange={setMode}
         onLanguageChange={setLanguage}
         onSttEngineChange={setSttEngine}
@@ -570,11 +327,14 @@ export default function InterviewPage() {
             status={liveStatus}
             active={active}
             liveHint={liveHint}
+            revising={revising}
+            onReviseEntry={handleReviseEntry}
+            onReviseActive={handleReviseActive}
             footer={
               <ManualQuestionBox
                 value={question}
                 onChange={setQuestion}
-                onSubmit={ask}
+                onSubmit={handleAsk}
                 loading={loading}
                 disabled={!hasAnyKey}
                 error={manualError}
@@ -586,5 +346,3 @@ export default function InterviewPage() {
     </InterviewCockpitShell>
   );
 }
-
-

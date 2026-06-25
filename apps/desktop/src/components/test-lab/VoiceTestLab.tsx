@@ -1,6 +1,7 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import PageHeader from '../interview/PageHeader';
 import StatusBadge from '../ui/StatusBadge';
+import VoiceReportCompare from './VoiceReportCompare';
 import VoiceTestDetails from './VoiceTestDetails';
 import VoiceTestTable from './VoiceTestTable';
 import {
@@ -8,6 +9,11 @@ import {
   exportReportCsv,
   exportReportJson,
 } from '../../test-lab/voice-test-report';
+import {
+  compareVoiceReports,
+  parseVoiceRegressionReport,
+  type ReportComparison,
+} from '../../test-lab/voice-test-report-compare';
 import {
   initResultsFromCases,
   loadVoiceTestCases,
@@ -29,6 +35,8 @@ export default function VoiceTestLab() {
   const [loadingCases, setLoadingCases] = useState(false);
   const [error, setError] = useState('');
   const [savedReportPath, setSavedReportPath] = useState('');
+  const [comparison, setComparison] = useState<ReportComparison | null>(null);
+  const compareInputRef = useRef<HTMLInputElement>(null);
 
   const selectedResult = useMemo(
     () => results.find((r) => r.caseId === selectedId) ?? null,
@@ -48,6 +56,7 @@ export default function VoiceTestLab() {
       if (loaded.length > 0) setSelectedId(loaded[0].id);
       setReport(null);
       setSavedReportPath('');
+      setComparison(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Не удалось загрузить cases.json');
     } finally {
@@ -84,6 +93,7 @@ export default function VoiceTestLab() {
     setRunning(true);
     setError('');
     setSavedReportPath('');
+    setComparison(null);
     await runAndSave(cases, results.length ? results : initResultsFromCases(cases));
     setRunning(false);
   }, [cases, results, runAndSave]);
@@ -94,6 +104,7 @@ export default function VoiceTestLab() {
     setRunning(true);
     setError('');
     setSavedReportPath('');
+    setComparison(null);
     await runAndSave(toRun, results.length ? results : initResultsFromCases(cases));
     setRunning(false);
   }, [cases, selectedIds, results, runAndSave]);
@@ -106,6 +117,22 @@ export default function VoiceTestLab() {
       return next;
     });
   }, []);
+
+  const handleCompareReport = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file || !report) return;
+
+    try {
+      const raw = await file.text();
+      const previous = parseVoiceRegressionReport(raw);
+      setComparison(compareVoiceReports(previous, report));
+      setError('');
+    } catch (err) {
+      setComparison(null);
+      setError(err instanceof Error ? err.message : 'Не удалось сравнить отчёты');
+    }
+  }, [report]);
 
   return (
     <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-5 p-6">
@@ -154,7 +181,24 @@ export default function VoiceTestLab() {
         >
           Export report CSV
         </button>
+        <button
+          type="button"
+          className={actionBtn}
+          disabled={!report}
+          onClick={() => compareInputRef.current?.click()}
+        >
+          Compare with previous report
+        </button>
+        <input
+          ref={compareInputRef}
+          type="file"
+          accept="application/json,.json"
+          className="hidden"
+          onChange={handleCompareReport}
+        />
       </div>
+
+      {comparison && <VoiceReportCompare comparison={comparison} />}
 
       {summary && (
         <div className="flex flex-wrap gap-2">

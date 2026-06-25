@@ -21,3 +21,6 @@ venv/
 apps/api-py/data/
 *.sqlite
 *.db
+
+# Voice regression reports (generated locally)
+tests/voice/results/voice-regression-*.json
