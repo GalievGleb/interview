@@ -16,6 +16,8 @@ import SpeechRecognitionSettings from '../components/SpeechRecognitionSettings';
 
 import DiagnosticsPanel from '../components/DiagnosticsPanel';
 
+import ScreenHeader from '../components/ScreenHeader';
+
 
 
 export default function SettingsPage() {
@@ -120,13 +122,10 @@ export default function SettingsPage() {
 
     <div className="max-w-3xl">
 
-      <div className="mb-6">
-
-        <h2 className="page-title">Настройки</h2>
-
-        <p className="page-subtitle">API-ключи хранятся локально (OS secure storage)</p>
-
-      </div>
+      <ScreenHeader
+        title="Settings"
+        subtitle="API-ключи хранятся локально (OS secure storage)."
+      />
 
 
 

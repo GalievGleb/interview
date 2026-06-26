@@ -1,16 +1,28 @@
-import { useState } from 'react';
-import { NavLink } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { NavLink, useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import StatusBadge from './ui/StatusBadge';
 
 const isElectron = typeof window !== 'undefined' && !!window.electronAPI;
 
-type IconName = 'interview' | 'meeting' | 'documents' | 'history' | 'settings' | 'testlab';
+type IconName =
+  | 'interview'
+  | 'meeting'
+  | 'documents'
+  | 'history'
+  | 'settings'
+  | 'testlab'
+  | 'benchmark'
+  | 'diagnostics'
+  | 'search'
+  | 'mic'
+  | 'shield'
+  | 'eye';
 
-function Icon({ name }: { name: IconName }) {
+function Icon({ name, size = 17 }: { name: IconName; size?: number }) {
   const common = {
-    width: 17,
-    height: 17,
+    width: size,
+    height: size,
     viewBox: '0 0 24 24',
     fill: 'none',
     stroke: 'currentColor',
@@ -22,7 +34,8 @@ function Icon({ name }: { name: IconName }) {
     case 'interview':
       return (
         <svg {...common}>
-          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+          <path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" />
+          <path d="M19 10v1a7 7 0 0 1-14 0v-1M12 18v4M8 22h8" />
         </svg>
       );
     case 'meeting':
@@ -61,20 +74,97 @@ function Icon({ name }: { name: IconName }) {
           <path d="M10 3h4" />
         </svg>
       );
+    case 'benchmark':
+      return (
+        <svg {...common}>
+          <path d="M3 12h3l2-7 4 14 2-7h7" />
+        </svg>
+      );
+    case 'diagnostics':
+      return (
+        <svg {...common}>
+          <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+        </svg>
+      );
+    case 'search':
+      return (
+        <svg {...common}>
+          <circle cx="11" cy="11" r="8" />
+          <path d="m21 21-4.3-4.3" />
+        </svg>
+      );
+    case 'mic':
+      return (
+        <svg {...common}>
+          <path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" />
+          <path d="M19 10v1a7 7 0 0 1-14 0v-1M12 18v4M8 22h8" />
+        </svg>
+      );
+    case 'shield':
+      return (
+        <svg {...common}>
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+        </svg>
+      );
+    case 'eye':
+      return (
+        <svg {...common}>
+          <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" />
+          <circle cx="12" cy="12" r="3" />
+        </svg>
+      );
   }
 }
 
-const NAV: { to: string; label: string; icon: IconName }[] = [
-  { to: '/interview', label: 'Interview Copilot', icon: 'interview' },
-  { to: '/meeting', label: 'Meeting Copilot', icon: 'meeting' },
-  { to: '/documents', label: 'Documents', icon: 'documents' },
-  { to: '/history', label: 'History', icon: 'history' },
-  { to: '/test-lab', label: 'Test Lab', icon: 'testlab' },
-  { to: '/settings', label: 'Settings', icon: 'settings' },
+type NavItem = { to: string; label: string; icon: IconName; live?: boolean };
+type NavGroup = { title: string; items: NavItem[] };
+
+const GROUPS: NavGroup[] = [
+  {
+    title: 'Workspace',
+    items: [
+      { to: '/interview', label: 'Live Interview', icon: 'interview', live: true },
+      { to: '/test-lab', label: 'Test Lab', icon: 'testlab' },
+      { to: '/benchmark', label: 'STT Benchmark', icon: 'benchmark' },
+    ],
+  },
+  {
+    title: 'Library',
+    items: [
+      { to: '/documents', label: 'Documents', icon: 'documents' },
+      { to: '/history', label: 'History', icon: 'history' },
+      { to: '/meeting', label: 'Разбор разговора', icon: 'meeting' },
+    ],
+  },
+  {
+    title: 'System',
+    items: [
+      { to: '/diagnostics', label: 'Diagnostics', icon: 'diagnostics' },
+      { to: '/settings', label: 'Settings', icon: 'settings' },
+    ],
+  },
 ];
+
+/** Tracks whether a live interview session is running (interview page emits events). */
+function useSessionLive(): boolean {
+  const [live, setLive] = useState(false);
+  useEffect(() => {
+    const start = () => setLive(true);
+    const stop = () => setLive(false);
+    window.addEventListener('skillcue:live-start', start);
+    window.addEventListener('skillcue:live-stop', stop);
+    return () => {
+      window.removeEventListener('skillcue:live-start', start);
+      window.removeEventListener('skillcue:live-stop', stop);
+    };
+  }, []);
+  return live;
+}
 
 export default function Sidebar() {
   const { backendOnline, hasAnyKey } = useApp();
+  const navigate = useNavigate();
+  const sessionLive = useSessionLive();
   const [undetected, setUndetected] = useState(false);
   const [hiddenTaskbar, setHiddenTaskbar] = useState(false);
 
@@ -82,34 +172,87 @@ export default function Sidebar() {
     <aside className="flex w-[220px] shrink-0 flex-col border-r border-surface-border bg-surface-panel">
       <div className="flex items-center gap-2.5 px-4 py-4">
         <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-accent text-xs font-bold text-white">
-          IC
+          SC
         </div>
         <div className="min-w-0 leading-tight">
-          <p className="truncate text-sm font-semibold tracking-tight">Interview Copilot</p>
-          <p className="text-[11px] text-ink-faint">AI interview assistant</p>
+          <p className="truncate text-sm font-semibold tracking-tight">SkillCue</p>
+          <p className="text-[11px] text-ink-faint">AI interview copilot</p>
         </div>
       </div>
 
-      <nav className="flex-1 space-y-0.5 px-2.5 py-1">
-        {NAV.map((item) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            className={({ isActive }) =>
-              `nav-pill ${isActive ? 'nav-pill-active' : 'nav-pill-idle'}`
-            }
-          >
-            {({ isActive }) => (
-              <>
-                <span className={isActive ? 'text-accent' : 'text-ink-faint'}>
-                  <Icon name={item.icon} />
-                </span>
-                <span className="truncate">{item.label}</span>
-              </>
-            )}
-          </NavLink>
+      {/* Search row → opens the command palette */}
+      <div className="px-3 pb-2">
+        <button
+          type="button"
+          onClick={() => window.dispatchEvent(new Event('skillcue:open-palette'))}
+          className="flex w-full items-center gap-2 rounded-xl border border-surface-border bg-surface px-3 py-2 text-left text-sm text-ink-faint transition-colors hover:border-surface-border-strong hover:text-ink-muted"
+        >
+          <Icon name="search" size={15} />
+          <span className="flex-1">Search</span>
+          <span className="sc-mono rounded-md border border-surface-border bg-surface-elevated px-1.5 py-0.5 text-[10px] text-ink-faint">
+            ⌘K
+          </span>
+        </button>
+      </div>
+
+      <nav className="flex-1 overflow-y-auto px-2.5 py-1">
+        {GROUPS.map((group) => (
+          <div key={group.title} className="mb-3">
+            <p className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-ink-faint">
+              {group.title}
+            </p>
+            <div className="space-y-0.5">
+              {group.items.map((item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  className={({ isActive }) =>
+                    `nav-pill ${isActive ? 'nav-pill-active' : 'nav-pill-idle'}`
+                  }
+                >
+                  {({ isActive }) => (
+                    <>
+                      <span className={isActive ? 'text-accent' : 'text-ink-faint'}>
+                        <Icon name={item.icon} />
+                      </span>
+                      <span className="flex-1 truncate">{item.label}</span>
+                      {item.live && sessionLive && (
+                        <span className="sc-ping" aria-label="session live">
+                          <span className="sc-ping__halo bg-emerald-400" />
+                          <span className="sc-ping__core bg-emerald-400" />
+                        </span>
+                      )}
+                    </>
+                  )}
+                </NavLink>
+              ))}
+            </div>
+          </div>
         ))}
       </nav>
+
+      {/* Local-model status card */}
+      <div className="px-3 pb-2">
+        <button
+          type="button"
+          onClick={() => navigate('/settings')}
+          className="flex w-full items-center gap-2.5 rounded-xl border border-surface-border bg-surface-card px-3 py-2.5 text-left transition-colors hover:border-surface-border-strong"
+        >
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent-soft text-accent">
+            <Icon name="mic" size={16} />
+          </span>
+          <span className="min-w-0 flex-1 leading-tight">
+            <span className="flex items-center gap-1.5 text-[13px] font-medium text-ink">
+              Whisper
+              <span className="sc-dot sc-dot--success" />
+              <span className="text-[11px] font-normal text-emerald-400">Ready</span>
+            </span>
+            <span className="sc-mono block truncate text-[11px] text-ink-faint">
+              Balanced · ~480 MB
+            </span>
+          </span>
+        </button>
+      </div>
 
       <div className="space-y-2 border-t border-surface-border px-4 py-3">
         <StatusBadge
@@ -121,34 +264,40 @@ export default function Sidebar() {
           tone={hasAnyKey ? 'success' : 'warning'}
         />
         {isElectron && (
-          <div className="space-y-1 pt-1">
+          <div className="flex gap-1.5 pt-1">
             <button
+              type="button"
               onClick={async () => {
                 const next = !undetected;
                 setUndetected(next);
                 await window.electronAPI!.overlay.setContentProtection(next);
               }}
-              className={`w-full rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors ${
+              className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-2 py-1.5 text-[11px] font-medium transition-colors ${
                 undetected
-                  ? 'border-green-500/40 bg-green-900/30 text-green-400'
-                  : 'border-surface-border text-ink-muted hover:bg-surface-light'
+                  ? 'border-emerald-500/40 bg-emerald-900/25 text-emerald-400'
+                  : 'border-surface-border text-ink-muted hover:bg-surface-hover'
               }`}
+              title="Hide from screen share"
             >
-              🛡 {undetected ? 'Undetected ON' : 'Undetected OFF'}
+              <Icon name="shield" size={13} />
+              {undetected ? 'Hidden' : 'Visible'}
             </button>
             <button
+              type="button"
               onClick={async () => {
                 const next = !hiddenTaskbar;
                 setHiddenTaskbar(next);
                 await window.electronAPI!.window.setSkipTaskbar(next);
               }}
-              className={`w-full rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors ${
+              className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-2 py-1.5 text-[11px] font-medium transition-colors ${
                 hiddenTaskbar
-                  ? 'border-yellow-500/40 bg-yellow-900/30 text-yellow-400'
-                  : 'border-surface-border text-ink-muted hover:bg-surface-light'
+                  ? 'border-amber-500/40 bg-amber-900/25 text-amber-400'
+                  : 'border-surface-border text-ink-muted hover:bg-surface-hover'
               }`}
+              title="Hide from taskbar"
             >
-              👁 {hiddenTaskbar ? 'Скрыт из taskbar' : 'Виден в taskbar'}
+              <Icon name="eye" size={13} />
+              {hiddenTaskbar ? 'Off taskbar' : 'Taskbar'}
             </button>
           </div>
         )}

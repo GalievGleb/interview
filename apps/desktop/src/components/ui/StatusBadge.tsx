@@ -50,15 +50,34 @@ const LIVE_STATUS_TONE: Record<LiveSessionStatus, StatusTone> = {
   answer_ready: 'success',
 };
 
+const LIVE_PING: Record<LiveSessionStatus, string> = {
+  idle: '',
+  listening: 'bg-emerald-400',
+  processing: 'bg-amber-400',
+  answer_ready: 'bg-accent',
+};
+
+const LIVE_PILL_TINT: Record<LiveSessionStatus, string> = {
+  idle: '',
+  listening: 'border-emerald-500/30 bg-emerald-500/10',
+  processing: 'border-amber-500/30 bg-amber-500/10',
+  answer_ready: 'border-accent/30 bg-accent-soft',
+};
+
 export function LiveStatusBadge({ status }: { status: LiveSessionStatus }) {
   const pulse = status === 'listening' || status === 'processing';
   return (
-    <span className="cockpit-status-pill">
-      <span
-        className={`h-2 w-2 shrink-0 rounded-full ${TONE_DOT[LIVE_STATUS_TONE[status]]} ${
-          pulse ? 'animate-pulse' : ''
-        }`}
-      />
+    <span className={`cockpit-status-pill ${LIVE_PILL_TINT[status]}`}>
+      <span className="relative flex h-2 w-2 shrink-0 items-center justify-center">
+        {pulse && (
+          <span
+            className={`absolute inline-flex h-full w-full animate-ping rounded-full opacity-60 ${LIVE_PING[status]}`}
+          />
+        )}
+        <span
+          className={`relative inline-flex h-2 w-2 rounded-full ${TONE_DOT[LIVE_STATUS_TONE[status]]}`}
+        />
+      </span>
       <span className="text-xs font-medium text-ink">{LIVE_STATUS_LABEL[status]}</span>
     </span>
   );

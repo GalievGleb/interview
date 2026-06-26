@@ -1,13 +1,13 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import AnswerPanel from '../components/interview/AnswerPanel';
+import FastAnswerToggle from '../components/interview/FastAnswerToggle';
+import LiveStatusBar, { type LiveTone } from '../components/interview/LiveStatusBar';
 import { AnswerTab } from '../components/interview/AnswerTabs';
 import InterviewCockpitShell from '../components/interview/InterviewCockpitShell';
 import InterviewExportButtons from '../components/interview/InterviewExportButtons';
 import InterviewInlineAlert from '../components/interview/InterviewInlineAlert';
 import InterviewTranscriptPanel from '../components/interview/InterviewTranscriptPanel';
-import LiveControls from '../components/interview/LiveControls';
 import ManualQuestionBox from '../components/interview/ManualQuestionBox';
-import PageHeader from '../components/interview/PageHeader';
 import { buildCopilotSessionExport } from '../lib/interviewSessionExport';
 import { pipelineToStreamOpts, type AnswerRevisionMode, type PipelineStreamInput } from '../lib/answerRevision';
 import { debugInfoToPipeline } from '../lib/interviewStreamHelpers';
@@ -16,6 +16,7 @@ import { useApp } from '../context/AppContext';
 import { useLiveCopilot } from '../hooks/useLiveCopilot';
 import { useLiveCopilotPrefs } from '../hooks/useLiveCopilotPrefs';
 import { useManualInterviewAsk } from '../hooks/useManualInterviewAsk';
+import { playAnswerChime } from '../lib/notifySound';
 import type { LiveSessionStatus } from '../components/ui/StatusBadge';
 
 const isElectron = typeof window !== 'undefined' && !!window.electronAPI;
@@ -29,6 +30,39 @@ function deriveLiveStatus(
   if (hasAnswer && !active) return 'answer_ready';
   if (active) return 'listening';
   return 'idle';
+}
+
+/** Calm full-screen reading overlay for the live answer (Focus mode). */
+function FocusOverlay({
+  statusLabel,
+  question,
+  answer,
+  onExit,
+}: {
+  statusLabel: string;
+  question: string;
+  answer: string;
+  onExit: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[90] flex flex-col items-center justify-center bg-surface/95 px-8 backdrop-blur-md">
+      <div className="absolute right-5 top-5">
+        <button type="button" onClick={onExit} className="btn-secondary btn-sm">
+          Exit <span className="cockpit-kbd">Esc</span>
+        </button>
+      </div>
+      <div className="w-full max-w-3xl">
+        <div className="mb-5 flex items-center gap-2 text-xs">
+          <span className="sc-dot sc-dot--live" />
+          <span className="text-ink-muted">{statusLabel}</span>
+        </div>
+        {question && <p className="mb-5 text-lg font-medium text-emerald-400">{question}</p>}
+        <p className="whitespace-pre-wrap text-[26px] leading-[1.5] text-ink">
+          {answer || 'Слушаю вопрос…'}
+        </p>
+      </div>
+    </div>
+  );
 }
 
 export default function InterviewPage() {
@@ -55,6 +89,7 @@ export default function InterviewPage() {
   const [revisionStream, setRevisionStream] = useState('');
   const [debugOpen, setDebugOpen] = useState(false);
   const [tab, setTab] = useState<AnswerTab>('spoken');
+  const [focusMode, setFocusMode] = useState(false);
   const [manualSessionStartedAt, setManualSessionStartedAt] = useState<number | null>(null);
 
   const {
@@ -229,6 +264,34 @@ export default function InterviewPage() {
     if (history.length > 0) setTab('spoken');
   }, [history.length]);
 
+  // Focus mode: toggled from the title-bar button; Esc closes it.
+  useEffect(() => {
+    const toggle = () => setFocusMode((v) => !v);
+    window.addEventListener('skillcue:toggle-focus', toggle);
+    return () => window.removeEventListener('skillcue:toggle-focus', toggle);
+  }, []);
+  useEffect(() => {
+    if (!focusMode) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setFocusMode(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [focusMode]);
+
+  // Tell the sidebar a session is live (breathing dot on the nav row).
+  useEffect(() => {
+    window.dispatchEvent(new Event(active ? 'skillcue:live-start' : 'skillcue:live-stop'));
+  }, [active]);
+
+  // Opt-in chime the moment an answer starts streaming (first token).
+  const prevStreamRef = useRef(false);
+  useEffect(() => {
+    const has = displayStream.trim().length > 0;
+    if (has && !prevStreamRef.current) playAnswerChime();
+    prevStreamRef.current = has;
+  }, [displayStream]);
+
   const handleAsk = () => {
     setTab('spoken');
     ask();
@@ -243,37 +306,39 @@ export default function InterviewPage() {
       ? sttDebug.waitReason
       : undefined;
 
+  const dbg = active ? sttDebug : (manualDebug ?? sttDebug);
+  const sttMs = dbg?.timeToFinalMs;
+  const llmMs = dbg?.timeToAnswerMs;
+  const totalMs = sttMs != null && llmMs != null ? sttMs + llmMs : undefined;
+  const tone: LiveTone = isGenerating
+    ? 'processing'
+    : active
+      ? 'listening'
+      : hasAnswer
+        ? 'ready'
+        : 'idle';
+  const statusLabel = streaming
+    ? 'Answering'
+    : isGenerating
+      ? 'Transcribing'
+      : active
+        ? 'Listening'
+        : hasAnswer
+          ? 'Answer ready'
+          : 'Idle';
+  const flowStep = streaming ? 2 : isGenerating ? 1 : active ? 0 : -1;
+  const focusAnswer = displayStream || history[history.length - 1]?.spoken || '';
+
   return (
     <InterviewCockpitShell>
-      <PageHeader
-        title="Interview Copilot"
-        subtitle="Real-time answers based on your resume and vacancy"
-        action={
-          <div className="flex flex-wrap items-center gap-2">
-            <InterviewExportButtons exportData={exportData} />
-            {isElectron ? (
-              <button
-                type="button"
-                onClick={() => void window.electronAPI?.overlay.toggle()}
-                className="btn-secondary btn-sm"
-              >
-                Overlay
-                <span className="cockpit-kbd">Ctrl+Shift+H</span>
-              </button>
-            ) : null}
-          </div>
-        }
-      />
-
-      {!hasAnyKey && (
-        <InterviewInlineAlert tone="warn">
-          Add an API key in Settings to enable live answers.
-        </InterviewInlineAlert>
-      )}
-
-      <LiveControls
+      <LiveStatusBar
         active={active}
-        status={liveStatus}
+        statusLabel={statusLabel}
+        tone={tone}
+        flowStep={flowStep}
+        sttMs={sttMs}
+        llmMs={llmMs}
+        totalMs={totalMs}
         sources={sources}
         mode={mode}
         language={language}
@@ -287,7 +352,29 @@ export default function InterviewPage() {
         onAudioRateChange={setAudioRate}
         onStart={handleStart}
         onStop={() => void stop()}
+        utilities={
+          <>
+            <FastAnswerToggle />
+            <InterviewExportButtons exportData={exportData} />
+            {isElectron ? (
+              <button
+                type="button"
+                onClick={() => void window.electronAPI?.overlay.toggle()}
+                className="btn-secondary btn-sm"
+              >
+                Overlay
+                <span className="cockpit-kbd">Ctrl+Shift+H</span>
+              </button>
+            ) : null}
+          </>
+        }
       />
+
+      {!hasAnyKey && (
+        <InterviewInlineAlert tone="warn">
+          Add an API key in Settings to enable live answers.
+        </InterviewInlineAlert>
+      )}
 
       {!hasStt && (
         <InterviewInlineAlert tone="info">
@@ -304,10 +391,10 @@ export default function InterviewPage() {
 
       {error && <InterviewInlineAlert tone="error">{error}</InterviewInlineAlert>}
 
-      <div className="flex min-h-0 flex-1 flex-col gap-4 lg:flex-row">
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[minmax(330px,400px)_1fr]">
         <InterviewTranscriptPanel
           lines={lines}
-          debug={active ? sttDebug : manualDebug ?? sttDebug}
+          debug={dbg}
           debugOpen={debugOpen}
           onDebugToggle={() => setDebugOpen((v) => !v)}
           active={active}
@@ -340,6 +427,15 @@ export default function InterviewPage() {
           />
         </div>
       </div>
+
+      {focusMode && (
+        <FocusOverlay
+          statusLabel={statusLabel}
+          question={activeQuestion}
+          answer={focusAnswer}
+          onExit={() => setFocusMode(false)}
+        />
+      )}
     </InterviewCockpitShell>
   );
 }

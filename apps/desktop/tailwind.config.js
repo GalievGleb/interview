@@ -37,6 +37,7 @@ export default {
           'Roboto',
           'sans-serif',
         ],
+        mono: ['JetBrains Mono', 'ui-monospace', 'SF Mono', 'Menlo', 'monospace'],
       },
       borderRadius: {
         xl: '12px',
@@ -48,6 +49,8 @@ export default {
         card: '0 1px 2px rgba(0,0,0,0.4), 0 12px 32px -16px rgba(0,0,0,0.7)',
         pop: '0 28px 70px -24px rgba(0,0,0,0.8)',
         glow: '0 0 0 1px rgba(99,102,241,0.35), 0 10px 32px -10px rgba(99,102,241,0.45)',
+        'panel-focus':
+          '0 1px 2px rgba(0,0,0,0.4), 0 22px 60px -28px rgba(0,0,0,0.75), inset 0 1px 0 rgba(255,255,255,0.03)',
       },
       keyframes: {
         'fade-in': {

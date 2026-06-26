@@ -10,7 +10,8 @@
       { "key": "проекты", "aliases": ["проект", "проекты", "проектах", "проектами"] },
       { "key": "технологии", "aliases": ["технологии", "технологий", "стек", "инструменты"] }
     ],
-    "expectedTerms": []
+    "expectedTerms": [],
+    "expectedMeaning": ["опыт работы", "автоматизация тестирования", "проекты", "технологии"]
   },
   {
     "id": "02_pytest_fixtures",
@@ -23,7 +24,8 @@
       { "key": "scope", "aliases": ["scope", "scopes", "скоуп", "скоупы", "скопы", "сколпы", "области видимости"] },
       { "key": "conftest", "aliases": ["conftest", "conftest.py", "конфтест"] }
     ],
-    "expectedTerms": ["pytest fixtures", "conftest"]
+    "expectedTerms": ["pytest fixtures", "conftest"],
+    "expectedMeaning": ["pytest fixtures", "использовали на проекте", "scope", "conftest"]
   },
   {
     "id": "03_api_testing",
@@ -36,7 +38,8 @@
       { "key": "негативные", "aliases": ["негативные", "негативных", "negative", "ошибки"] },
       { "key": "проверки", "aliases": ["проверки", "проверял", "проверок", "validation"] }
     ],
-    "expectedTerms": ["REST API"]
+    "expectedTerms": ["REST API"],
+    "expectedMeaning": ["тестирование API", "статус код", "негативные проверки", "валидация"]
   },
   {
     "id": "04_flaky_tests",
@@ -49,7 +52,8 @@
       { "key": "flaky", "aliases": ["flaky", "флейки", "флейковые", "нестабильные"] },
       { "key": "tests", "aliases": ["tests", "тесты", "автотесты", "test"] }
     ],
-    "expectedTerms": ["flaky tests", "CI/CD"]
+    "expectedTerms": ["flaky tests", "CI/CD"],
+    "expectedMeaning": ["нестабильные автотесты", "CI/CD pipeline", "flaky tests", "причину"]
   },
   {
     "id": "05_page_object_mistakes",
@@ -62,6 +66,7 @@
       { "key": "UI", "aliases": ["ui", "uitesting", "интерфейс"] },
       { "key": "автотестах", "aliases": ["автотест", "автотестах", "автотесты", "e2e"] }
     ],
-    "expectedTerms": ["Page Object Model"]
+    "expectedTerms": ["Page Object Model"],
+    "expectedMeaning": ["Page Object Model", "ошибки", "UI автотесты"]
   }
 ]

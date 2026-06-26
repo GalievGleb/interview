@@ -17,7 +17,7 @@ from app.prompts.interview_fast import (
     RESUME_PLACEHOLDER_NONE,
     VACANCY_CONTEXT_LIMIT,
 )
-from app.prompts.meeting import MEETING_PROMPT
+from app.prompts.meeting import INTERVIEW_REVIEW_PROMPT, MEETING_PROMPT
 from app.prompts.system import SYSTEM_PROMPT
 from app.services import model_router, provider_adapter, rag_service, transcript_correction
 from app.services.domain_answer_hints import resolve_domain_answer_hints
@@ -74,6 +74,9 @@ class InterviewPayload(BaseModel):
     follow_up_reason: str | None = None
     current_canonical_topic: str | None = None
     mode: str = "fast"  # fast для live, general для ручного ввода
+    # Fast answer: skip the serial LLM transcript-correction pass and ask the
+    # provider to route for throughput. On by default for lowest latency.
+    fast_answer: bool = True
     provider: str | None = None
     model: str | None = None
     model_override: str | None = Field(default=None, alias="modelOverride")
@@ -117,7 +120,9 @@ async def _finalize_question(payload: InterviewPayload) -> tuple[str, str, str, 
     }
 
     final = resolved if payload.used_previous_context and resolved else intent
-    if transcript_correction.should_llm_correct(
+    # Fast mode (default): skip the serial LLM correction round-trip and rely on
+    # the deterministic glossary. Turn it off for the slower, more robust pass.
+    if not payload.fast_answer and transcript_correction.should_llm_correct(
         raw_question=raw,
         glossary_corrected=glossary,
         corrections=payload.corrections,
@@ -224,7 +229,12 @@ async def _interview_event_stream(
             {"role": "user", "content": prompt},
         ]
         async for delta in provider_adapter.stream_chat(
-            messages, provider, model, temperature=0.3, live_fast=True
+            messages,
+            provider,
+            model,
+            temperature=0.3,
+            live_fast=True,
+            route_fast=payload.fast_answer,
         ):
             parts.append(delta)
             yield f"data: {json.dumps({'type': 'chunk', 'text': delta}, ensure_ascii=False)}\n\n"
@@ -477,6 +487,64 @@ async def meeting_summary(payload: MeetingPayload, db: Session = Depends(get_db)
     db.add(ApiUsage(provider=provider, kind="chat"))
     db.commit()
     return {"summary": summary, "model": model, "model_source": source}
+
+
+@router.post("/chat/interview-review")
+async def interview_review(payload: MeetingPayload, db: Session = Depends(get_db)) -> dict:
+    """Разбор записи интервью: находит слабые/проблемные ответы кандидата."""
+    provider, model, source = _resolve_chat(
+        payload.mode,
+        provider=payload.provider,
+        model=payload.model,
+        model_override=payload.model_override,
+    )
+
+    prompt = INTERVIEW_REVIEW_PROMPT.format(transcript=payload.transcript)
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": prompt},
+    ]
+    review = await provider_adapter.complete(messages, provider, model, max_tokens=1400)
+    db.add(ApiUsage(provider=provider, kind="chat"))
+    db.commit()
+    return {"review": review, "model": model, "model_source": source}
+
+
+@router.post("/chat/interview-review/stream")
+async def interview_review_stream(payload: MeetingPayload):
+    """Streaming (SSE) interview review — renders progressively in the UI."""
+    provider, model, _ = _resolve_chat(
+        payload.mode,
+        provider=payload.provider,
+        model=payload.model,
+        model_override=payload.model_override,
+    )
+    prompt = INTERVIEW_REVIEW_PROMPT.format(transcript=payload.transcript)
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": prompt},
+    ]
+
+    async def event_stream():
+        try:
+            async for delta in provider_adapter.stream_chat(
+                messages, provider, model, max_tokens=1400, temperature=0.3
+            ):
+                yield f"data: {json.dumps({'type': 'chunk', 'text': delta}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'model': model})}\n\n"
+        except Exception as exc:  # noqa: BLE001
+            msg = getattr(exc, "message", str(exc))
+            yield f"data: {json.dumps({'type': 'error', 'message': msg}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 def _parse_fast_response(raw: str) -> dict:

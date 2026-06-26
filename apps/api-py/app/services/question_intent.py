@@ -179,7 +179,7 @@ def classify_interview_question_intent(
     q_text = (question or "").strip()
     q = q_text.lower()
     if not q:
-        return dict(_STRATEGIES["unclear"])
+        return _STRATEGIES["unclear"].copy()
 
     intent: QuestionIntent = "unclear"
     if _BEHAVIORAL_RE.search(q_text):
@@ -197,7 +197,7 @@ def classify_interview_question_intent(
     elif intent_confidence == "low":
         intent = "unclear"
 
-    base = dict(_STRATEGIES[intent])
+    base = _STRATEGIES[intent].copy()
     base["suggest_unclear_prefix"] = False
     return base
 

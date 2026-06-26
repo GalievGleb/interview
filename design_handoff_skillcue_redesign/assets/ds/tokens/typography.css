@@ -1,0 +1,45 @@
+/* SkillCue — Typography tokens
+ * UI: Inter (real brand font, opsz + cv11/ss01 features).
+ * Mono: JetBrains Mono — metrics, latency, model IDs, code, transcripts timing.
+ *   (Elevation over the codebase's generic mono stack — flagged in readme.)
+ */
+:root {
+  --font-sans: 'Inter', 'Inter Variable', -apple-system, BlinkMacSystemFont,
+    'Segoe UI Variable', 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', 'SFMono-Regular', Menlo,
+    Consolas, monospace;
+
+  /* OpenType: tabular-friendly, contextual alternates, single-storey a/g */
+  --font-features-ui: 'cv11', 'ss01';
+  --font-features-num: 'tnum', 'cv11';
+
+  /* ---- Size ramp (px — compact desktop density) ---- */
+  --text-micro: 10px; /* control labels, kbd glyphs */
+  --text-2xs: 11px; /* badges, captions, speaker labels */
+  --text-xs: 12px; /* secondary meta, table cells */
+  --text-sm: 14px; /* body small, buttons, controls */
+  --text-md: 15px; /* answer prose, primary reading */
+  --text-base: 16px;
+  --text-lg: 18px; /* panel section heads / page header */
+  --text-xl: 20px; /* page titles */
+  --text-2xl: 24px; /* onboarding / dialog titles */
+  --text-3xl: 30px; /* hero numerals, rare */
+
+  /* ---- Weights ---- */
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  /* ---- Line heights ---- */
+  --leading-tight: 1.2;
+  --leading-snug: 1.35;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.65; /* long answers — easy to read under pressure */
+
+  /* ---- Tracking ---- */
+  --tracking-tight: -0.014em; /* titles, headings */
+  --tracking-normal: 0;
+  --tracking-wide: 0.05em; /* uppercase micro-labels */
+  --tracking-wider: 0.08em;
+}

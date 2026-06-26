@@ -64,6 +64,50 @@ def test_classify_error_buckets():
     assert benchmark.classify_error("text", 0.1) == "low"
 
 
+# --- fairer (fuzzy + semantic) matching ----------------------------------
+def test_match_keywords_fuzzy_inflection():
+    # "пайплайне" should credit the "пайплайн" alias (inflection, not exact).
+    kws = [{"key": "pipeline", "aliases": ["пайплайн"]}]
+    score, hit, miss = benchmark.match_keywords("работа в пайплайне", kws)
+    assert score == 1.0 and hit == ["pipeline"] and miss == []
+
+
+def test_match_keywords_returns_hits_and_misses():
+    kws = [{"key": "a", "aliases": ["alpha"]}, {"key": "b", "aliases": ["beta"]}]
+    score, hit, miss = benchmark.match_keywords("alpha only", kws)
+    assert score == 0.5 and hit == ["a"] and miss == ["b"]
+
+
+def test_match_terms_semantic_phrase():
+    score, hit, _ = benchmark.match_terms("какие бывают виды тестирования", ["виды тестирования"])
+    assert score == 1.0 and hit == ["виды тестирования"]
+
+
+def test_score_case_flags_false_negative():
+    # Meaning is clearly present (semantic high) but exact keywords miss (low).
+    case = {
+        "id": "x",
+        "transcriptKeywords": [
+            {"key": "unit", "aliases": ["unit", "юнит"]},
+            {"key": "e2e", "aliases": ["e2e", "сквозное"]},
+        ],
+        "expectedTerms": [],
+        "expectedMeaning": ["виды тестирования"],
+    }
+    res = benchmark.score_case(case, "какие бывают виды тестирования", 0)
+    assert res["corrected"]["keywordMatch"] < 0.5
+    assert res["corrected"]["semanticMatch"] >= 0.6
+    assert res["falseNegative"] is True
+
+
+def test_score_case_correction_active_flag():
+    case = {"id": "x", "transcriptKeywords": [], "expectedTerms": []}
+    active = benchmark.score_case(case, "что такое cicd", 0)
+    assert active["corrected"]["correctionActive"] is True
+    inactive = benchmark.score_case(case, "обычный текст без терминов", 0)
+    assert inactive["corrected"]["correctionActive"] is False
+
+
 def test_score_case_shows_correction_gain():
     case = {
         "id": "x",

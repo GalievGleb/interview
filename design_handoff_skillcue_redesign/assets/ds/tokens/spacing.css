@@ -1,0 +1,29 @@
+/* SkillCue — Spacing scale (4px base grid, compact desktop density) */
+:root {
+  --space-0: 0;
+  --space-0-5: 2px;
+  --space-1: 4px;
+  --space-1-5: 6px;
+  --space-2: 8px;
+  --space-2-5: 10px;
+  --space-3: 12px;
+  --space-3-5: 14px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 28px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* Semantic rhythm */
+  --gap-panel: var(--space-4); /* between transcript / answer panels */
+  --pad-card: var(--space-4); /* default card padding (16) */
+  --pad-card-lg: var(--space-5); /* settings / dialog cards (20) */
+  --pad-control-x: var(--space-4);
+  --pad-control-y: 10px;
+  --sidebar-width: 220px;
+  --content-max: 1600px; /* wide cockpit routes */
+  --reading-max: 1024px; /* settings / docs routes */
+}

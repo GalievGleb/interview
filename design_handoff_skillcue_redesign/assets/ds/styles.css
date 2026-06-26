@@ -1,0 +1,14 @@
+/* SkillCue Design System — global entry.
+ * Consumers link THIS file only. Order matters: fonts → tokens → base → classes.
+ */
+@import './tokens/fonts.css';
+@import './tokens/colors.css';
+@import './tokens/typography.css';
+@import './tokens/spacing.css';
+@import './tokens/radius.css';
+@import './tokens/elevation.css';
+@import './tokens/motion.css';
+@import './tokens/base.css';
+@import './tokens/primitives.css';
+@import './tokens/interview.css';
+@import './tokens/workspace.css';

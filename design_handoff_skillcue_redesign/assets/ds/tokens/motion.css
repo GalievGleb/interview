@@ -1,0 +1,128 @@
+/* SkillCue — Motion tokens
+ * Calm, quick, never bouncy. Fades + a soft scale-in for newly-arriving answers.
+ */
+:root {
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1); /* @kind other */
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1); /* @kind other */
+  --dur-instant: 0.1s; /* @kind other */
+  --dur-fast: 0.15s; /* @kind other */
+  --dur-base: 0.18s; /* @kind other */
+  --dur-slow: 0.3s; /* @kind other */
+}
+
+@keyframes sc-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes sc-scale-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Listening pulse — the breathing dot that proves the app is hearing you */
+@keyframes sc-ping {
+  75%,
+  100% {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+
+@keyframes sc-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+/* Streaming caret / typing indicator */
+@keyframes sc-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.2;
+  }
+}
+
+/* ---- Premium workspace motion (Split Intelligence direction) ---- */
+
+/* Live audio-activity waveform bars */
+@keyframes sc-wave {
+  0%,
+  100% {
+    transform: scaleY(0.32);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+/* Soft breathing glow for the active answer card */
+@keyframes sc-glow-pulse {
+  0%,
+  100% {
+    box-shadow: var(--shadow-card), 0 14px 40px -22px rgba(99, 102, 241, 0.35);
+  }
+  50% {
+    box-shadow: var(--shadow-card), 0 20px 54px -20px rgba(99, 102, 241, 0.6);
+  }
+}
+
+/* Subtle one-shot highlight when a glossary correction lands */
+@keyframes sc-flash {
+  0% {
+    background-color: var(--accent-soft-hover);
+    border-color: var(--accent);
+  }
+  100% {
+    background-color: var(--accent-soft);
+    border-color: var(--tint-accent-border);
+  }
+}
+
+/* Word/line stream-in for answer text (transform-only — content always visible) */
+@keyframes sc-stream-in {
+  from {
+    transform: translateY(4px);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+/* Timeline node arrival (transform-only — content always visible) */
+@keyframes sc-node-in {
+  from {
+    transform: translateX(-6px);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+/* Soft breathing glow for the active answer panel */
+@keyframes sc-glow-breathe {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}

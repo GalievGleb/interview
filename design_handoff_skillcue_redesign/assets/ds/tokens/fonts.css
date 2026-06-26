@@ -1,0 +1,9 @@
+/* SkillCue — Webfonts
+ * Inter is the real brand UI font. JetBrains Mono is an intentional elevation
+ * for the technical/metric role (latency, model IDs, code, tabular numbers) —
+ * the source app used a generic mono stack. Flagged in readme.md.
+ *
+ * Loaded from Google Fonts CDN. For a fully offline/self-hosted build, drop
+ * woff2 files into assets/fonts/ and replace this @import with @font-face rules.
+ */
+@import url('https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700&family=JetBrains+Mono:wght@400;500;600&display=swap');

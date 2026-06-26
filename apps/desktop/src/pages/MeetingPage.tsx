@@ -1,36 +1,78 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState, type DragEvent } from 'react';
 import { api } from '../lib/api';
 import { useApp } from '../context/AppContext';
+import MarkdownText from '../components/MarkdownText';
+
+type Mode = 'review' | 'summary';
 
 export default function MeetingPage() {
   const { hasAnyKey } = useApp();
   const [transcript, setTranscript] = useState('');
-  const [summary, setSummary] = useState('');
+  const [result, setResult] = useState('');
+  const [mode, setMode] = useState<Mode>('review');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [fileName, setFileName] = useState('');
+  const [dragOver, setDragOver] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const cancelRef = useRef<(() => void) | null>(null);
 
-  const summarize = async () => {
-    if (!transcript.trim()) return;
+  useEffect(() => () => cancelRef.current?.(), []);
+
+  const readFile = async (file: File) => {
+    try {
+      const text = await file.text();
+      setTranscript(text);
+      setFileName(file.name);
+      setError('');
+    } catch {
+      setError('Не удалось прочитать файл');
+    }
+  };
+
+  const onDrop = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) void readFile(file);
+  };
+
+  const run = () => {
+    if (!transcript.trim() || loading) return;
     setLoading(true);
     setError('');
-    setSummary('');
-    try {
-      const res = await api.meetingSummary(transcript);
-      setSummary(res.summary);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Ошибка');
-    } finally {
-      setLoading(false);
+    setResult('');
+    if (mode === 'review') {
+      // Stream the review token-by-token for instant feedback.
+      cancelRef.current = api.streamInterviewReview(transcript, {
+        onChunk: (t) => setResult((prev) => prev + t),
+        onDone: () => setLoading(false),
+        onError: (m) => {
+          setError(m);
+          setLoading(false);
+        },
+      });
+    } else {
+      void (async () => {
+        try {
+          const res = await api.meetingSummary(transcript);
+          setResult(res.summary);
+        } catch (err) {
+          setError(err instanceof Error ? err.message : 'Ошибка');
+        } finally {
+          setLoading(false);
+        }
+      })();
     }
   };
 
   return (
     <div className="max-w-3xl">
       <div className="mb-5">
-        <h2 className="page-title">Meeting Copilot</h2>
+        <h2 className="page-title">Разбор разговора</h2>
         <p className="page-subtitle">
-          Вставьте транскрипт встречи — получите summary, решения и action items.
-          Live-транскрипция (локальный Whisper) появится в следующем этапе.
+          Загрузите запись интервью (или вставьте текст) — получите разбор слабых ответов
+          кандидата либо summary встречи. Аудио не загружается; анализируется только текст.
         </p>
       </div>
 
@@ -40,23 +82,73 @@ export default function MeetingPage() {
         </div>
       )}
 
+      <div className="segmented mb-3" role="group" aria-label="Режим анализа">
+        <button
+          type="button"
+          onClick={() => setMode('review')}
+          className={`segmented-item ${mode === 'review' ? 'segmented-item-active' : ''}`}
+        >
+          Разбор интервью
+        </button>
+        <button
+          type="button"
+          onClick={() => setMode('summary')}
+          className={`segmented-item ${mode === 'summary' ? 'segmented-item-active' : ''}`}
+        >
+          Summary встречи
+        </button>
+      </div>
+
+      <div
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragOver(true);
+        }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={onDrop}
+        onClick={() => fileRef.current?.click()}
+        className={`mb-3 cursor-pointer rounded-xl border border-dashed p-4 text-center text-sm transition-colors ${
+          dragOver
+            ? 'border-accent bg-accent-soft text-accent'
+            : 'border-surface-border text-ink-muted hover:border-surface-border-strong'
+        }`}
+      >
+        {fileName
+          ? `Загружен: ${fileName} — кликните, чтобы заменить`
+          : 'Перетащите файл с разговором (.txt, .md, .vtt, .srt) или кликните для выбора'}
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".txt,.md,.vtt,.srt,.json,text/plain"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) void readFile(f);
+          }}
+        />
+      </div>
+
       <textarea
         value={transcript}
         onChange={(e) => setTranscript(e.target.value)}
-        placeholder="Вставьте текст встречи..."
+        placeholder="…или вставьте текст разговора сюда"
         rows={10}
         className="field resize-y leading-relaxed"
       />
       <div className="mt-3 flex items-center gap-3">
-        <button onClick={summarize} disabled={loading} className="btn-primary">
-          {loading ? 'Анализ...' : 'Сделать summary'}
+        <button
+          onClick={() => void run()}
+          disabled={loading || !transcript.trim()}
+          className="btn-primary"
+        >
+          {loading ? 'Анализ…' : mode === 'review' ? 'Разобрать интервью' : 'Сделать summary'}
         </button>
         {error && <p className="text-sm text-red-400">{error}</p>}
       </div>
 
-      {summary && (
-        <div className="card mt-6 whitespace-pre-wrap p-5 text-sm leading-relaxed text-ink">
-          {summary}
+      {result && (
+        <div className="card mt-6 p-5 text-sm leading-relaxed text-ink">
+          <MarkdownText text={result} />
         </div>
       )}
     </div>

@@ -1,0 +1,12 @@
+/* SkillCue — Radius tokens
+ * Rounded but restrained. Cards 16, controls 12, chips/inputs 10-8, pills full.
+ */
+:root {
+  --radius-xs: 6px; /* checkboxes, tiny chips */
+  --radius-sm: 8px; /* nested chips, kbd, tabs */
+  --radius-md: 10px; /* selects, small inputs, alerts */
+  --radius-lg: 12px; /* buttons, inputs, panels, bento */
+  --radius-xl: 16px; /* cards, dialogs */
+  --radius-2xl: 20px;
+  --radius-full: 9999px; /* pills, status dots, avatars */
+}

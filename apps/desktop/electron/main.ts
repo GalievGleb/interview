@@ -16,6 +16,12 @@ import { autoUpdater } from 'electron-updater';
 const API_URL = process.env.API_URL ?? 'http://127.0.0.1:8000';
 const isDev = !app.isPackaged;
 
+// SkillCue mark (indigo rounded square) — used for the tray + window icon so
+// neither is blank. A full multi-res .ico for the installer is a separate asset.
+const BRAND_ICON = nativeImage.createFromDataURL(
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAWElEQVR42u3XsQkAIAwF0ewquL8TaGejBJSYBLyA9b3SL6Jcqa1bPDk5q+gV5nVcRXjFtwjv+IL4GxAVnwgAAAAAAAAAAIBwAH/CFIDwYZJimqUYpxHzfABg0BWrfAI5+AAAAABJRU5ErkJggg==',
+);
+
 let mainWindow: BrowserWindow | null = null;
 let overlayWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -68,11 +74,11 @@ function setupContentSecurityPolicy(): void {
           [
             "default-src 'self'",
             "script-src 'self'",
-            "style-src 'self' 'unsafe-inline'",
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
             "img-src 'self' data: blob:",
-            "font-src 'self' data:",
+            "font-src 'self' data: https://fonts.gstatic.com",
             "media-src 'self' blob:",
-            "connect-src 'self' http://127.0.0.1:8000 ws://127.0.0.1:8000 http://localhost:8000 ws://localhost:8000",
+            "connect-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com http://127.0.0.1:8000 ws://127.0.0.1:8000 http://localhost:8000 ws://localhost:8000",
           ].join('; '),
         ],
       },
@@ -88,7 +94,8 @@ function createMainWindow(): BrowserWindow {
     minHeight: 600,
     show: false,
     backgroundColor: '#0f1117',
-    title: 'Interview & Meeting Copilot',
+    title: 'SkillCue',
+    icon: BRAND_ICON,
     webPreferences: {
       preload: getPreloadPath(),
       contextIsolation: true,
@@ -165,6 +172,14 @@ function registerIpc(): void {
   ipcMain.handle('overlay:show', () => overlayWindow?.show());
   ipcMain.handle('overlay:hide', () => hideOverlay());
 
+  ipcMain.handle('overlay:openSettings', () => {
+    if (!mainWindow) return;
+    overlayWindow?.hide();
+    mainWindow.show();
+    mainWindow.focus();
+    mainWindow.webContents.send('app:navigate', '/settings');
+  });
+
   ipcMain.handle('overlay:setContentProtection', (_e, enable: boolean) => {
     overlayWindow?.setContentProtection(enable);
     mainWindow?.setContentProtection(enable);
@@ -186,8 +201,8 @@ function registerShortcuts(): void {
 }
 
 function createTray(): void {
-  tray = new Tray(nativeImage.createEmpty());
-  tray.setToolTip('Interview & Meeting Copilot');
+  tray = new Tray(BRAND_ICON);
+  tray.setToolTip('SkillCue');
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: 'Открыть', click: () => mainWindow?.show() },

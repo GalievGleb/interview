@@ -11,6 +11,7 @@ export interface ElectronAPI {
   window: {
     setSkipTaskbar: (skip: boolean) => Promise<void>;
   };
+  onNavigate?: (cb: (path: string) => void) => () => void;
 }
 
 declare global {

@@ -1,4 +1,5 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { useEffect } from 'react';
+import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { AppProvider, useApp } from './context/AppContext';
 import Layout from './components/Layout';
 import OnboardingPage from './pages/OnboardingPage';
@@ -8,6 +9,8 @@ import InterviewPage from './pages/InterviewPage';
 import MeetingPage from './pages/MeetingPage';
 import HistoryPage from './pages/HistoryPage';
 import TestLabPage from './pages/TestLabPage';
+import BenchmarkPage from './pages/BenchmarkPage';
+import DiagnosticsPage from './pages/DiagnosticsPage';
 import LicensesPage from './pages/LicensesPage';
 import OverlayPage from './pages/OverlayPage';
 
@@ -26,9 +29,17 @@ function Gate({ children }: { children: React.ReactNode }) {
   return <Layout>{children}</Layout>;
 }
 
+/** Lets the main window respond to navigation requested from the overlay. */
+function NavigationBridge() {
+  const navigate = useNavigate();
+  useEffect(() => window.electronAPI?.onNavigate?.((path) => navigate(path)), [navigate]);
+  return null;
+}
+
 export default function App() {
   return (
     <AppProvider>
+      <NavigationBridge />
       <Routes>
         <Route path="/onboarding" element={<OnboardingPage />} />
         <Route path="/overlay" element={<OverlayPage />} />
@@ -39,6 +50,8 @@ export default function App() {
         <Route path="/settings" element={<Gate><SettingsPage /></Gate>} />
         <Route path="/licenses" element={<Gate><LicensesPage /></Gate>} />
         <Route path="/test-lab" element={<Gate><TestLabPage /></Gate>} />
+        <Route path="/benchmark" element={<Gate><BenchmarkPage /></Gate>} />
+        <Route path="/diagnostics" element={<Gate><DiagnosticsPage /></Gate>} />
         <Route path="/" element={<Navigate to="/interview" replace />} />
         <Route path="*" element={<Navigate to="/interview" replace />} />
       </Routes>

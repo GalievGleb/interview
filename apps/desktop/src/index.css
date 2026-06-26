@@ -1,5 +1,6 @@
 @import './styles/interview-cockpit.css';
 @import './styles/overlay-cockpit.css';
+@import './styles/workspace.css';
 
 @tailwind base;
 @tailwind components;
@@ -64,9 +65,22 @@
       text-sm font-medium transition-all duration-150
       disabled:pointer-events-none disabled:opacity-50;
   }
+  .btn:active:not(:disabled) {
+    transform: translateY(0.5px) scale(0.985);
+  }
+  /* Premium primary CTA: subtle indigo gradient + glow on hover. */
   .btn-primary {
-    @apply btn bg-accent text-white shadow-soft hover:bg-accent-hover
-      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring;
+    @apply btn text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring;
+    background-image: linear-gradient(180deg, #6e71f5 0%, #5a5df0 100%);
+    box-shadow:
+      0 1px 2px rgba(0, 0, 0, 0.4),
+      inset 0 1px 0 rgba(255, 255, 255, 0.09);
+  }
+  .btn-primary:hover:not(:disabled) {
+    background-image: linear-gradient(180deg, #797cf7 0%, #6669f3 100%);
+    box-shadow:
+      0 0 0 1px rgba(99, 102, 241, 0.4),
+      0 10px 28px -10px rgba(99, 102, 241, 0.6);
   }
   .btn-secondary {
     @apply btn border border-surface-border bg-surface-elevated text-ink
@@ -101,6 +115,27 @@
   .pill {
     @apply inline-flex items-center gap-1.5 rounded-full border border-surface-border
       bg-surface-elevated px-2.5 py-1 text-xs text-ink-muted;
+  }
+
+  /* Instant, styled tooltip via data-tip (no native `title` lag). */
+  .tip {
+    @apply relative;
+  }
+  .tip::after {
+    content: attr(data-tip);
+    @apply pointer-events-none absolute left-1/2 top-full z-[70] mt-2 whitespace-nowrap
+      rounded-lg border border-surface-border bg-surface-elevated px-2.5 py-1.5 text-[11px]
+      font-medium text-ink shadow-pop;
+    opacity: 0;
+    transform: translate(-50%, -3px);
+    transition:
+      opacity 0.14s ease,
+      transform 0.14s ease;
+  }
+  .tip:hover::after,
+  .tip:focus-visible::after {
+    opacity: 1;
+    transform: translate(-50%, 0);
   }
 
   /* Заголовок секции/страницы */

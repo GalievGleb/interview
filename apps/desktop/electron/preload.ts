@@ -7,11 +7,18 @@ const api = {
     toggle: () => ipcRenderer.invoke('overlay:toggle'),
     show: () => ipcRenderer.invoke('overlay:show'),
     hide: () => ipcRenderer.invoke('overlay:hide'),
+    openSettings: () => ipcRenderer.invoke('overlay:openSettings'),
     setContentProtection: (enable: boolean) =>
       ipcRenderer.invoke('overlay:setContentProtection', enable),
   },
   window: {
     setSkipTaskbar: (skip: boolean) => ipcRenderer.invoke('window:setSkipTaskbar', skip),
+  },
+  // Main-window navigation requested from the overlay (e.g. open Settings).
+  onNavigate: (cb: (path: string) => void) => {
+    const handler = (_e: unknown, path: string) => cb(path);
+    ipcRenderer.on('app:navigate', handler);
+    return () => ipcRenderer.removeListener('app:navigate', handler);
   },
 };
 

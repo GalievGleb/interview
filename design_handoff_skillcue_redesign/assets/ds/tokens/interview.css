@@ -1,0 +1,356 @@
+/* SkillCue — Interview-domain component classes.
+ * Live-session vocabulary: status pills, breathing dots, latency metrics,
+ * transcript channels, answer bento blocks, model cards, manual command box.
+ */
+
+/* ============================ STATUS DOT ============================ */
+.sc-dot {
+  display: inline-block;
+  height: 6px;
+  width: 6px;
+  flex-shrink: 0;
+  border-radius: var(--radius-full);
+  background-color: var(--status-idle);
+}
+.sc-dot--live {
+  background-color: var(--status-live);
+  box-shadow: 0 0 8px rgba(52, 211, 153, 0.5);
+}
+.sc-dot--processing {
+  background-color: var(--status-processing);
+  box-shadow: 0 0 8px rgba(251, 191, 36, 0.45);
+}
+.sc-dot--success {
+  background-color: var(--status-success);
+}
+.sc-dot--warning {
+  background-color: var(--status-warning);
+}
+.sc-dot--error {
+  background-color: var(--status-error);
+}
+
+/* Breathing "ping" wrapper — proves the app is hearing you */
+.sc-ping {
+  position: relative;
+  display: inline-flex;
+  height: 8px;
+  width: 8px;
+  align-items: center;
+  justify-content: center;
+}
+.sc-ping__halo {
+  position: absolute;
+  inline-size: 100%;
+  block-size: 100%;
+  border-radius: var(--radius-full);
+  opacity: 0.6;
+  animation: sc-ping 1.4s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+.sc-ping__core {
+  position: relative;
+  height: 8px;
+  width: 8px;
+  border-radius: var(--radius-full);
+}
+
+/* Status pill (top status bar) */
+.sc-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  border-radius: var(--radius-full);
+  border: 1px solid var(--surface-border);
+  background-color: color-mix(in srgb, var(--surface-elevated) 80%, transparent);
+  padding: 6px 12px;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  color: var(--text-strong);
+  white-space: nowrap;
+}
+.sc-status-pill--live {
+  border-color: var(--tint-success-border);
+  background-color: var(--tint-success-bg);
+}
+.sc-status-pill--processing {
+  border-color: var(--tint-warn-border);
+  background-color: var(--tint-warn-bg);
+}
+.sc-status-pill--ready {
+  border-color: var(--tint-accent-border);
+  background-color: var(--accent-soft);
+}
+
+/* Compact status-bar field: label + value, used across the top bar */
+.sc-statbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.sc-statchip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  border-radius: var(--radius-md);
+  padding: 5px 9px;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+.sc-statchip__label {
+  color: var(--text-faint);
+}
+.sc-statchip__value {
+  color: var(--text-body);
+  font-weight: var(--weight-medium);
+}
+
+/* ============================ METRIC / LATENCY BADGE ============================ */
+.sc-metric {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  border-radius: var(--radius-full);
+  border: 1px solid var(--surface-border);
+  background-color: color-mix(in srgb, var(--surface-elevated) 70%, transparent);
+  padding: 4px 10px;
+  font-size: var(--text-2xs);
+}
+.sc-metric--warn {
+  border-color: var(--tint-warn-border);
+  background-color: var(--tint-warn-bg);
+}
+.sc-metric__label {
+  color: var(--text-faint);
+}
+.sc-metric__value {
+  color: var(--text-body);
+  font-family: var(--font-mono);
+  font-weight: var(--weight-medium);
+  font-variant-numeric: tabular-nums;
+}
+.sc-metric--warn .sc-metric__value {
+  color: var(--tint-warn-text);
+}
+
+/* ============================ TRANSCRIPT ============================ */
+.sc-transcript-item {
+  border: 1px solid transparent;
+  border-radius: var(--radius-lg);
+  padding: 10px 12px;
+  animation: sc-fade-in var(--dur-fast) ease-out;
+  transition: border-color var(--dur-fast), background-color var(--dur-fast);
+}
+.sc-transcript-item--you {
+  border-color: var(--speaker-you-border);
+  background-color: var(--speaker-you-bg);
+}
+.sc-transcript-item--them {
+  border-color: var(--speaker-them-border);
+  background-color: var(--speaker-them-bg);
+}
+.sc-transcript__speaker {
+  display: block;
+  margin-bottom: 4px;
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+}
+.sc-transcript-item--you .sc-transcript__speaker {
+  color: var(--speaker-you);
+}
+.sc-transcript-item--them .sc-transcript__speaker {
+  color: var(--speaker-them);
+}
+.sc-transcript__text {
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+  color: var(--text-body);
+}
+.sc-transcript__text--interim {
+  font-style: italic;
+  color: var(--text-faint);
+}
+.sc-transcript__meta {
+  margin-top: 4px;
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+.sc-transcript__corrected {
+  color: var(--accent-text);
+}
+
+/* Live caption shimmer for interim words */
+.sc-caret {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background-color: var(--accent);
+  animation: sc-blink 1s step-end infinite;
+}
+
+/* ============================ ANSWER (BENTO) ============================ */
+.sc-bento {
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-lg);
+  background-color: color-mix(in srgb, var(--surface-elevated) 50%, transparent);
+  padding: var(--space-4);
+  transition: border-color var(--dur-base);
+}
+.sc-bento--main {
+  border-color: var(--tint-accent-border);
+  background-color: var(--tint-accent-bg);
+  box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.12),
+    0 12px 34px -18px rgba(99, 102, 241, 0.4);
+}
+.sc-bento--warn {
+  border-color: var(--tint-warn-border);
+  background-color: rgba(120, 53, 15, 0.1);
+}
+.sc-bento--enter {
+  animation: sc-scale-in var(--dur-base) var(--ease-out);
+}
+.sc-bento__label {
+  margin-bottom: 10px;
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  color: var(--text-faint);
+}
+.sc-answer-question {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--accent-text);
+}
+.sc-answer-prose {
+  font-size: var(--text-md);
+  line-height: var(--leading-relaxed);
+  color: var(--text-body);
+}
+.sc-answer-prose strong {
+  color: var(--text-strong);
+  font-weight: var(--weight-semibold);
+}
+
+/* ============================ MODEL CARD ============================ */
+.sc-model-card {
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-lg);
+  background-color: var(--surface-app);
+  padding: var(--space-4);
+  cursor: pointer;
+  transition: border-color var(--dur-fast), background-color var(--dur-fast);
+}
+.sc-model-card:hover {
+  border-color: var(--surface-border-strong);
+}
+.sc-model-card--selected {
+  border-color: var(--accent);
+  background-color: var(--accent-soft);
+}
+.sc-model-card__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.sc-model-card__name {
+  font-weight: var(--weight-medium);
+  color: var(--text-strong);
+}
+.sc-model-card__desc {
+  margin-top: 2px;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  line-height: var(--leading-snug);
+}
+.sc-model-card__specs {
+  margin-top: 8px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+
+/* Progress bar (model download) */
+.sc-progress {
+  height: 6px;
+  width: 100%;
+  overflow: hidden;
+  border-radius: var(--radius-full);
+  background-color: var(--surface-border);
+}
+.sc-progress__fill {
+  height: 100%;
+  border-radius: var(--radius-full);
+  background-color: var(--accent);
+  transition: width var(--dur-slow) var(--ease-standard);
+}
+
+/* ============================ MANUAL COMMAND BOX ============================ */
+.sc-command {
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--surface-border);
+  background-color: var(--surface-app);
+  box-shadow: var(--shadow-soft);
+  transition: border-color var(--dur-fast), box-shadow var(--dur-fast);
+}
+.sc-command:focus-within {
+  border-color: var(--accent-border);
+  box-shadow: 0 0 0 2px var(--accent-ring);
+}
+.sc-command__input {
+  width: 100%;
+  resize: none;
+  border: 0;
+  background: transparent;
+  padding: 12px 16px;
+  font-family: inherit;
+  font-size: var(--text-md);
+  line-height: var(--leading-relaxed);
+  color: var(--text-body);
+  outline: none;
+}
+.sc-command__input::placeholder {
+  color: var(--text-faint);
+}
+.sc-command__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  border-top: 1px solid var(--surface-border);
+  background-color: color-mix(in srgb, var(--surface-elevated) 30%, transparent);
+  padding: 8px 12px;
+}
+
+/* ============================ DIAGNOSTIC ROW ============================ */
+.sc-diag-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  border-bottom: 1px solid color-mix(in srgb, var(--surface-border) 50%, transparent);
+  padding: 7px 0;
+}
+.sc-diag-row__label {
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+.sc-diag-row__value {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--text-body);
+}
+.sc-diag-row__value--ok {
+  color: var(--status-success);
+}
+.sc-diag-row__value--warn {
+  color: var(--status-warning);
+}

@@ -80,6 +80,25 @@ def get_session(session_id: str, db: Session = Depends(get_db)) -> dict:
     }
 
 
+@router.delete("")
+def delete_all_sessions(db: Session = Depends(get_db)) -> dict:
+    return _delete_all_sessions(db)
+
+
+@router.post("/delete-all")
+def delete_all_sessions_post(db: Session = Depends(get_db)) -> dict:
+    return _delete_all_sessions(db)
+
+
+def _delete_all_sessions(db: Session) -> dict:
+    rows = db.query(InterviewSession).all()
+    count = len(rows)
+    for s in rows:
+        db.delete(s)  # ORM cascade removes answers + transcripts
+    db.commit()
+    return {"deleted": count}
+
+
 @router.delete("/{session_id}")
 def delete_session(session_id: str, db: Session = Depends(get_db)) -> dict:
     return _delete_session(session_id, db)

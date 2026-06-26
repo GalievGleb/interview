@@ -100,12 +100,22 @@ export default function SttBenchmarkPanel() {
         <>
           <div className="card grid grid-cols-2 gap-4 p-5 sm:grid-cols-4">
             <Metric label="Движок" value={`${report.engine} · ${report.model}`} />
-            <Metric label="Средняя латентность" value={`${report.avgLatencyMs} ms`} />
+            <Metric label="Латентность" value={`${report.avgLatencyMs} ms`} />
             <Metric
-              label="Keyword raw → corrected"
+              label="Keyword raw → corr"
               value={`${pct(report.avgKeywordMatchRaw)} → ${pct(report.avgKeywordMatchCorrected)}`}
             />
-            <Metric label="Прирост от коррекции" value={pct(report.correctionGain)} />
+            <Metric
+              label="Semantic raw → corr"
+              value={`${pct(report.avgSemanticMatchRaw)} → ${pct(report.avgSemanticMatchCorrected)}`}
+            />
+            <Metric label="Keyword gain" value={pct(report.correctionGain)} />
+            <Metric label="Semantic gain" value={pct(report.semanticCorrectionGain)} />
+            <Metric
+              label="Коррекций сработало"
+              value={`${report.casesWithCorrections ?? 0}/${report.caseCount}`}
+            />
+            <Metric label="False negatives" value={String(report.falseNegatives ?? 0)} />
           </div>
 
           <div className="card overflow-hidden p-0">
@@ -113,10 +123,10 @@ export default function SttBenchmarkPanel() {
               <thead className="border-b border-surface-border text-left text-xs text-ink-faint">
                 <tr>
                   <th className="px-4 py-2">Case</th>
-                  <th className="px-4 py-2">Raw</th>
-                  <th className="px-4 py-2">Corrected</th>
-                  <th className="px-4 py-2">Intent</th>
+                  <th className="px-4 py-2">Keyword</th>
+                  <th className="px-4 py-2">Semantic</th>
                   <th className="px-4 py-2">Fixes</th>
+                  <th className="px-4 py-2">FN</th>
                   <th className="px-4 py-2">Status</th>
                 </tr>
               </thead>
@@ -161,10 +171,14 @@ function CaseRow({
     <>
       <tr className="cursor-pointer border-b border-surface-border/60 hover:bg-surface-hover" onClick={onToggle}>
         <td className="px-4 py-2 text-ink">{result.caseId}</td>
-        <td className="px-4 py-2 text-ink-muted">{pct(result.raw?.keywordMatch)}</td>
-        <td className="px-4 py-2 text-ink">{pct(result.corrected?.keywordMatch)}</td>
-        <td className="px-4 py-2 text-ink-muted">{pct(result.intentMatch)}</td>
+        <td className="px-4 py-2 text-ink-muted">
+          {pct(result.raw?.keywordMatch)} → <span className="text-ink">{pct(result.corrected?.keywordMatch)}</span>
+        </td>
+        <td className="px-4 py-2 text-ink-muted">
+          {pct(result.raw?.semanticMatch)} → <span className="text-ink">{pct(result.corrected?.semanticMatch)}</span>
+        </td>
         <td className="px-4 py-2 text-ink-muted">{result.corrected?.corrections.length ?? 0}</td>
+        <td className="px-4 py-2">{result.falseNegative ? <span className="text-amber-300">⚠</span> : '—'}</td>
         <td className={`px-4 py-2 font-medium ${tone}`}>{result.errorType}</td>
       </tr>
       {open && (
@@ -193,12 +207,36 @@ function CaseRow({
                       </span>
                     ))}
                   </div>
-                ) : null}
+                ) : (
+                  <div className="text-[11px] text-ink-faint">коррекция не сработала</div>
+                )}
+                <HitMiss
+                  label="Keywords"
+                  hit={result.corrected?.keywordsHit}
+                  miss={result.corrected?.keywordsMissed}
+                />
+                <HitMiss
+                  label="Meaning"
+                  hit={result.corrected?.meaningHit}
+                  miss={result.corrected?.meaningMissed}
+                />
               </div>
             )}
           </td>
         </tr>
       )}
     </>
+  );
+}
+
+function HitMiss({ label, hit, miss }: { label: string; hit?: string[]; miss?: string[] }) {
+  if (!hit?.length && !miss?.length) return null;
+  return (
+    <div className="text-xs">
+      <span className="text-ink-faint">{label}: </span>
+      {hit?.length ? <span className="text-emerald-400">✓ {hit.join(', ')}</span> : null}
+      {hit?.length && miss?.length ? <span className="text-ink-faint"> · </span> : null}
+      {miss?.length ? <span className="text-red-400">✗ {miss.join(', ')}</span> : null}
+    </div>
   );
 }

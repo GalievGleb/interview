@@ -40,7 +40,7 @@
   },
   "build": {
     "appId": "com.interview.assistant",
-    "productName": "Interview Assistant",
+    "productName": "SkillCue",
     "directories": {
       "output": "release"
     },
@@ -62,7 +62,7 @@
     },
     "protocols": [
       {
-        "name": "Interview Assistant",
+        "name": "SkillCue",
         "schemes": ["interview"]
       }
     ]

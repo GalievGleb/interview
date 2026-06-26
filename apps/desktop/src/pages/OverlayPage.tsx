@@ -27,7 +27,13 @@ function IconButton({
   children: ReactNode;
 }) {
   return (
-    <button type="button" onClick={onClick} className="overlay-icon-btn" title={title}>
+    <button
+      type="button"
+      onClick={onClick}
+      className="overlay-icon-btn tip"
+      data-tip={title}
+      aria-label={title}
+    >
       {children}
     </button>
   );
@@ -151,8 +157,8 @@ export default function OverlayPage() {
           </svg>
         </IconButton>
 
-        <div className="overlay-brand">IC</div>
-        <span className="overlay-title">Interview Copilot</span>
+        <div className="overlay-brand">SC</div>
+        <span className="overlay-title">SkillCue</span>
 
         <div className="overlay-drag flex-1 self-stretch" />
 
@@ -162,8 +168,14 @@ export default function OverlayPage() {
               type="button"
               onClick={toggleSession}
               disabled={!hasStt && !active}
-              title={!hasStt ? 'Скачайте локальную модель в Настройках → Распознавание речи' : ''}
-              className={`btn-sm rounded-l-xl border-y border-l px-3 py-1.5 text-xs font-medium ${
+              data-tip={
+                !hasStt
+                  ? 'Скачайте локальную модель в Настройках → Распознавание речи'
+                  : active
+                    ? 'Остановить live-сессию'
+                    : 'Начать live-сессию (захват аудио)'
+              }
+              className={`tip btn-sm rounded-l-xl border-y border-l px-3 py-1.5 text-xs font-medium ${
                 active ? 'btn-danger rounded-r-none' : 'btn-secondary rounded-r-none'
               }`}
             >
@@ -173,10 +185,10 @@ export default function OverlayPage() {
             <button
               type="button"
               onClick={() => setShareMenuOpen((v) => !v)}
-              className={`btn-sm rounded-r-xl border px-1.5 py-1.5 text-xs ${
+              className={`tip btn-sm rounded-r-xl border px-1.5 py-1.5 text-xs ${
                 active ? 'btn-danger border-l-0' : 'btn-secondary border-l-0'
               }`}
-              title="Выбрать источник"
+              data-tip="Выбрать источник звука"
             >
               ▾
             </button>
@@ -201,7 +213,12 @@ export default function OverlayPage() {
             )}
           </div>
 
-          <button type="button" onClick={handleExit} className="btn-secondary btn-sm">
+          <button
+            type="button"
+            onClick={handleExit}
+            data-tip="Закрыть overlay (Esc)"
+            className="tip btn-secondary btn-sm"
+          >
             Exit
           </button>
 
@@ -249,7 +266,7 @@ export default function OverlayPage() {
 
           {!active && !displayAnswer && (
             <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-ink-faint">
-              <p>Click Share Audio to start Interview Copilot.</p>
+              <p>Click Share Audio to start SkillCue.</p>
               <p className="text-xs">Ctrl+K — keyboard shortcuts</p>
             </div>
           )}

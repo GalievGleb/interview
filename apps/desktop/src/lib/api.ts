@@ -64,14 +64,22 @@ export interface SttBenchmarkCase {
 export interface SttBenchmarkCaseResult {
   caseId: string;
   title?: string;
-  raw?: { transcript: string; latencyMs: number; keywordMatch: number };
+  raw?: { transcript: string; latencyMs: number; keywordMatch: number; semanticMatch?: number };
   corrected?: {
     transcript: string;
     keywordMatch: number;
+    semanticMatch?: number;
     corrections: Array<{ from: string; to: string }>;
+    correctionActive?: boolean;
+    keywordsHit?: string[];
+    keywordsMissed?: string[];
+    meaningHit?: string[];
+    meaningMissed?: string[];
   };
   keywordGain?: number;
+  semanticGain?: number;
   intentMatch?: number;
+  falseNegative?: boolean;
   errorType: string;
   engine?: string;
   model?: string;
@@ -87,13 +95,28 @@ export interface SttBenchmarkReport {
   avgKeywordMatchRaw: number;
   avgKeywordMatchCorrected: number;
   correctionGain: number;
+  avgSemanticMatchRaw?: number;
+  avgSemanticMatchCorrected?: number;
+  semanticCorrectionGain?: number;
   avgIntentMatch: number;
+  casesWithCorrections?: number;
+  correctionInactive?: number;
+  falseNegatives?: number;
   errorTypes: Record<string, number>;
   cases: SttBenchmarkCaseResult[];
   savedAs?: string;
 }
 
 const API_URL = (import.meta.env.VITE_API_URL as string) ?? 'http://127.0.0.1:8000';
+
+const FAST_ANSWER_KEY = 'fast-answer';
+/** Fast answer mode (default on): skip the serial LLM correction + throughput routing. */
+export function getFastAnswer(): boolean {
+  return localStorage.getItem(FAST_ANSWER_KEY) !== '0';
+}
+export function setFastAnswer(on: boolean): void {
+  localStorage.setItem(FAST_ANSWER_KEY, on ? '1' : '0');
+}
 const REQUEST_TIMEOUT_MS = 10_000;
 const LONG_REQUEST_TIMEOUT_MS = 180_000;
 
@@ -172,6 +195,7 @@ export interface StreamInterviewOpts {
   suggestUnclearPrefix?: boolean;
   onMeta?: (meta: StreamInterviewCorrectionMeta) => void;
   onFirstChunk?: () => void;
+  fastAnswer?: boolean;
 }
 
 export interface KeysStatus {
@@ -331,6 +355,16 @@ export const api = {
     }
   },
 
+  deleteAllSessions: async () => {
+    try {
+      return await request<{ deleted: number }>('/sessions', { method: 'DELETE' });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '';
+      if (!message.includes('405')) throw err;
+      return request<{ deleted: number }>('/sessions/delete-all', { method: 'POST' });
+    }
+  },
+
   endSession: (id: string, summary?: string) =>
     request<{ id: string; ended_at: string }>(`/sessions/${id}/end`, {
       method: 'POST',
@@ -360,6 +394,23 @@ export const api = {
   ) =>
     request<{ summary: string; model?: string }>('/chat/meeting-summary', {
       method: 'POST',
+      timeoutMs: LONG_REQUEST_TIMEOUT_MS, // a full completion can exceed the 10s default
+      body: JSON.stringify({
+        transcript,
+        mode: opts.mode ?? 'deep',
+        provider: opts.provider,
+        model: opts.model,
+      }),
+    }),
+
+  /** Analyze an uploaded interview transcript — surfaces the candidate's weak answers. */
+  interviewReview: (
+    transcript: string,
+    opts: { mode?: ChatMode; provider?: string; model?: string } = {},
+  ) =>
+    request<{ review: string; model?: string }>('/chat/interview-review', {
+      method: 'POST',
+      timeoutMs: LONG_REQUEST_TIMEOUT_MS,
       body: JSON.stringify({
         transcript,
         mode: opts.mode ?? 'deep',
@@ -422,6 +473,9 @@ export const api = {
             current_canonical_topic: opts.currentCanonicalTopic ?? null,
             session_id: opts.sessionId,
             mode: 'fast',
+            // Fast answer: skip the serial LLM correction pass + throughput
+            // routing. Default on; toggled via localStorage('fast-answer').
+            fast_answer: opts.fastAnswer ?? getFastAnswer(),
           }),
           signal: controller.signal,
         });
@@ -523,6 +577,59 @@ export const api = {
             provider: opts.provider,
             modelOverride: opts.model,
           }),
+          signal: controller.signal,
+        });
+        if (!resp.ok || !resp.body) {
+          handlers.onError(`Ошибка ${resp.status}`);
+          return;
+        }
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() ?? '';
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            try {
+              const evt = JSON.parse(line.slice(6));
+              if (evt.type === 'chunk') handlers.onChunk(evt.text);
+              else if (evt.type === 'done') handlers.onDone();
+              else if (evt.type === 'error') handlers.onError(evt.message);
+            } catch {
+              // ignore
+            }
+          }
+        }
+        handlers.onDone();
+      } catch (err) {
+        if ((err as Error).name !== 'AbortError') {
+          handlers.onError(err instanceof Error ? err.message : 'Ошибка запроса');
+        }
+      }
+    })();
+    return () => controller.abort();
+  },
+
+  /** Streaming interview review (SSE). Returns a cancel function. */
+  streamInterviewReview(
+    transcript: string,
+    handlers: {
+      onChunk: (text: string) => void;
+      onDone: () => void;
+      onError: (msg: string) => void;
+    },
+  ): () => void {
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const resp = await fetch(`${API_URL}/chat/interview-review/stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ transcript, mode: 'deep' }),
           signal: controller.signal,
         });
         if (!resp.ok || !resp.body) {

@@ -1,0 +1,113 @@
+/* SkillCue — Base layer: reset, document defaults, scrollbar, cockpit motifs.
+ * Everything here assumes the dark graphite theme is always on.
+ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* Normalize native button chrome — every styled button sets its own bg */
+button {
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: transparent;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: var(--surface-app);
+  color: var(--text-body);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-feature-settings: var(--font-features-ui);
+  font-variation-settings: 'opsz' 32;
+  line-height: var(--leading-normal);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: var(--accent-soft);
+  color: var(--text-strong);
+}
+
+/* Numerals in mono/metric contexts line up in columns */
+.sc-tnum {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: var(--font-features-num);
+}
+
+/* Thin, unobtrusive dark-SaaS scrollbar */
+.sc-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--surface-border) transparent;
+}
+.sc-scroll::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.sc-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.sc-scroll::-webkit-scrollbar-thumb {
+  background: var(--surface-border);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  border-radius: var(--radius-full);
+}
+.sc-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--surface-border-strong);
+  background-clip: padding-box;
+}
+
+/* ---- Cockpit background: graph-paper grid + ambient glow ---- */
+.sc-cockpit {
+  position: relative;
+}
+.sc-cockpit-bg {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+.sc-cockpit-glow {
+  position: absolute;
+  inset: 0;
+  background: var(--cockpit-glow);
+}
+.sc-cockpit-grid {
+  position: absolute;
+  inset: 0;
+  opacity: 0.6;
+  background-image: var(--cockpit-grid);
+  background-size: var(--cockpit-grid-size);
+  -webkit-mask-image: var(--cockpit-grid-mask);
+  mask-image: var(--cockpit-grid-mask);
+}
+
+/* ---- Accessibility: a single, consistent focus ring ---- */
+.sc-focusable:focus-visible,
+:focus-visible {
+  outline: none;
+}
+.sc-focus-ring:focus-visible {
+  box-shadow: var(--focus-ring);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

@@ -32,7 +32,7 @@ settings = get_settings()
 setup_logging(settings.log_level)
 logger = logging.getLogger("main")
 
-app = FastAPI(title="Interview & Meeting Copilot API", version="0.1.0")
+app = FastAPI(title="SkillCue API", version="0.1.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -44,7 +44,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.add_exception_handler(AppError, app_error_handler)
+# Starlette types handlers as taking the base Exception; our typed AppError
+# handler is a known false-positive, hence the targeted ignore.
+app.add_exception_handler(AppError, app_error_handler)  # type: ignore[arg-type]
 app.add_exception_handler(Exception, unhandled_error_handler)
 
 app.include_router(providers.router)
@@ -62,6 +64,13 @@ app.include_router(voice_tests.router)
 def on_startup() -> None:
     init_db()
     logger.info("Database initialized")
+
+
+@app.on_event("shutdown")
+async def on_shutdown() -> None:
+    from app.services import provider_adapter
+
+    await provider_adapter.aclose_client()
 
 
 @app.get("/health")

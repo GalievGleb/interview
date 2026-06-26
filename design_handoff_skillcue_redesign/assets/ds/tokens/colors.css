@@ -1,0 +1,101 @@
+/* SkillCue — Color tokens
+ * Dark graphite cockpit. Indigo accent. Calm green/amber/red status.
+ * Base ramp first, then semantic aliases. Source: desktop app
+ * tailwind.config.js + interview-cockpit.css.
+ */
+:root {
+  /* ---- Graphite surfaces (app → elevated) ---- */
+  --graphite-900: #0a0b0f; /* app background — near black */
+  --graphite-850: #0f1117; /* sidebar / structural panels */
+  --graphite-800: #15171e; /* cards */
+  --graphite-750: #1b1e26; /* hover */
+  --graphite-700: #1d212b; /* elevated chips / inputs-on-card */
+  --graphite-650: #23262f; /* hairline border */
+  --graphite-600: #2f333f; /* stronger border / focused panel */
+  --graphite-500: #3a3f4c; /* dividers on elevated */
+
+  /* ---- Indigo accent ramp ---- */
+  --indigo-300: #a5b4fc;
+  --indigo-400: #818cf8;
+  --indigo-450: #7c83f6; /* accent hover */
+  --indigo-500: #6366f1; /* accent */
+  --indigo-600: #5a5df0; /* primary gradient bottom */
+  --indigo-700: #4f46e5;
+
+  /* ---- Status hues (calm, desaturated) ---- */
+  --emerald-400: #34d399; /* live / success */
+  --emerald-500: #10b981;
+  --amber-400: #fbbf24; /* processing / warning */
+  --amber-300: #fcd34d;
+  --red-400: #f87171; /* error */
+  --red-500: #ef4444;
+  --violet-400: #a78bfa; /* speaker: you */
+  --sky-400: #38bdf8; /* informational / english */
+
+  /* ---- Ink (text on graphite) ---- */
+  --ink-100: #e7e9ef; /* primary text */
+  --ink-300: #9aa1ad; /* secondary / muted */
+  --ink-500: #6b7280; /* faint / captions / idle */
+  --ink-700: #4b515c; /* disabled */
+
+  /* ================= SEMANTIC ALIASES ================= */
+  /* Surfaces */
+  --surface-app: var(--graphite-900);
+  --surface-panel: var(--graphite-850);
+  --surface-card: var(--graphite-800);
+  --surface-hover: var(--graphite-750);
+  --surface-elevated: var(--graphite-700);
+  --surface-border: var(--graphite-650);
+  --surface-border-strong: var(--graphite-600);
+
+  /* Accent */
+  --accent: var(--indigo-500);
+  --accent-hover: var(--indigo-450);
+  --accent-text: var(--indigo-400);
+  --accent-soft: rgba(99, 102, 241, 0.14);
+  --accent-soft-hover: rgba(99, 102, 241, 0.2);
+  --accent-ring: rgba(99, 102, 241, 0.35);
+  --accent-border: rgba(99, 102, 241, 0.4);
+  --accent-grad: linear-gradient(180deg, #6e71f5 0%, #5a5df0 100%); /* @kind color */
+  --accent-grad-hover: linear-gradient(180deg, #797cf7 0%, #6669f3 100%); /* @kind color */
+
+  /* Text */
+  --text-strong: var(--ink-100);
+  --text-body: var(--ink-100);
+  --text-muted: var(--ink-300);
+  --text-faint: var(--ink-500);
+  --text-disabled: var(--ink-700);
+  --text-on-accent: #ffffff;
+
+  /* Status — foreground dots/text */
+  --status-idle: var(--ink-500);
+  --status-live: var(--emerald-400);
+  --status-success: var(--emerald-400);
+  --status-processing: var(--amber-400);
+  --status-warning: var(--amber-400);
+  --status-error: var(--red-400);
+
+  /* Status — tint backgrounds + borders (translucent, sit on any surface) */
+  --tint-success-bg: rgba(16, 185, 129, 0.1);
+  --tint-success-border: rgba(16, 185, 129, 0.22);
+  --tint-success-text: #6ee7b7;
+  --tint-warn-bg: rgba(251, 191, 36, 0.1);
+  --tint-warn-border: rgba(245, 158, 11, 0.22);
+  --tint-warn-text: #fcd34d;
+  --tint-error-bg: rgba(239, 68, 68, 0.1);
+  --tint-error-border: rgba(239, 68, 68, 0.22);
+  --tint-error-text: #fca5a5;
+  --tint-accent-bg: rgba(99, 102, 241, 0.08);
+  --tint-accent-border: rgba(99, 102, 241, 0.25);
+
+  /* Speaker channels (transcript) */
+  --speaker-you: var(--violet-400);
+  --speaker-you-bg: rgba(139, 92, 246, 0.05);
+  --speaker-you-border: rgba(139, 92, 246, 0.16);
+  --speaker-them: var(--emerald-400);
+  --speaker-them-bg: rgba(16, 185, 129, 0.05);
+  --speaker-them-border: rgba(16, 185, 129, 0.16);
+
+  /* Focus ring */
+  --focus-ring: 0 0 0 2px var(--surface-app), 0 0 0 4px var(--accent-ring);
+}

@@ -3,6 +3,16 @@ import { useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import OnboardingSttStep from '../components/OnboardingSttStep';
 
+function Stroke({ d, size = 16 }: { d: string; size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      {d.split('|').map((path, i) => (
+        <path key={i} d={path} />
+      ))}
+    </svg>
+  );
+}
+
 export default function OnboardingPage() {
   const { completeOnboarding } = useApp();
   const navigate = useNavigate();
@@ -14,65 +24,103 @@ export default function OnboardingPage() {
   };
 
   return (
-    <div className="flex min-h-screen items-start justify-center overflow-y-auto bg-surface p-6 py-10 text-ink">
-      <div className="w-full max-w-xl animate-scale-in">
-        <div className="mb-7 flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-accent text-base font-bold text-white shadow-glow">
-            IC
-          </div>
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Interview & Meeting Copilot</h1>
-            <p className="text-sm text-ink-muted">
-              Локальный AI-помощник для собеседований и созвонов
-            </p>
-          </div>
-        </div>
+    <div className="relative flex min-h-screen flex-col overflow-y-auto bg-surface text-ink">
+      <div aria-hidden className="pointer-events-none fixed inset-0 overflow-hidden">
+        <div className="absolute -top-32 left-1/2 h-[480px] w-[480px] -translate-x-1/2 rounded-full bg-accent/20 blur-[120px]" />
+        <div className="absolute -bottom-40 -right-20 h-[360px] w-[360px] rounded-full bg-indigo-500/10 blur-[120px]" />
+      </div>
 
-        <div className="mb-4 flex items-center gap-2 text-xs text-ink-faint">
-          <span className={step === 1 ? 'text-accent' : ''}>1. Обзор</span>
-          <span>→</span>
-          <span className={step === 2 ? 'text-accent' : ''}>2. Распознавание речи</span>
+      {/* top bar */}
+      <header className="relative z-[1] flex items-center justify-between px-8 py-6">
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent text-sm font-bold text-white shadow-glow">
+            SC
+          </div>
+          <span className="text-base font-semibold tracking-tight">SkillCue</span>
+          <span className="ml-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
+            First-run setup
+          </span>
         </div>
+        <button type="button" onClick={finish} className="btn-ghost btn-sm">
+          Skip
+        </button>
+      </header>
 
+      <div className="relative z-[1] mx-auto w-full max-w-[1040px] flex-1 px-8 pb-12">
         {step === 1 ? (
-          <div className="card p-6">
-            <div className="mb-6 space-y-3">
-              <Feature title="Ответы на основе ваших данных">
-                Загрузите резюме и вакансию — ассистент строит ответы строго на вашем опыте и
-                честно говорит, если данных не хватает.
-              </Feature>
-              <Feature title="Режимы Interview и Meeting">
-                Короткие ответы, версия «сказать вслух», на английском, заметки и summary встреч.
-              </Feature>
-              <Feature title="Локальная транскрипция">
-                Речь распознаётся локально через Whisper — аудио не уходит в облако. Свои ключи
-                OpenAI / OpenRouter хранятся локально в secure storage.
-              </Feature>
+          <>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-accent">
+              Speech recognition
+            </p>
+            <h1 className="text-[32px] font-semibold leading-tight tracking-tight">
+              Set up local speech recognition
+            </h1>
+            <p className="mt-2 max-w-xl text-sm leading-relaxed text-ink-muted">
+              SkillCue listens to interview questions and transcribes them in real time. Choose how
+              it runs — by default everything stays on your device.
+            </p>
+
+            <div className="mt-7 grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="sc-card p-5">
+                <div className="mb-2.5 flex items-center gap-2.5">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent-soft text-accent">
+                    <Stroke d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" size={18} />
+                  </span>
+                  <div>
+                    <p className="text-[15px] font-semibold text-ink">Local Whisper</p>
+                    <p className="text-xs font-medium text-accent">Recommended</p>
+                  </div>
+                </div>
+                <p className="text-sm leading-relaxed text-ink-muted">
+                  Audio is transcribed locally on your device and is{' '}
+                  <strong className="font-semibold text-ink">not sent to the cloud</strong> in local
+                  mode. Transcription runs on your CPU/GPU.
+                </p>
+              </div>
+
+              <div className="sc-card p-5">
+                <p className="mb-3 text-[10px] font-semibold uppercase tracking-wide text-ink-faint">
+                  What to expect
+                </p>
+                <ul className="space-y-2.5 text-sm text-ink-muted">
+                  <li className="flex items-start gap-2.5">
+                    <span className="mt-0.5 text-emerald-400">
+                      <Stroke d="M20 6 9 17l-5-5" />
+                    </span>
+                    Works offline once the model is downloaded
+                  </li>
+                  <li className="flex items-start gap-2.5">
+                    <span className="mt-0.5 text-amber-400">
+                      <Stroke d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z|M12 9v4|M12 17h.01" />
+                    </span>
+                    Uses CPU/GPU — may affect battery, fan noise and performance
+                  </li>
+                  <li className="flex items-start gap-2.5">
+                    <span className="mt-0.5 text-accent">
+                      <Stroke d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4|M7 10l5 5 5-5|M12 15V3" />
+                    </span>
+                    A local speech model must be downloaded first
+                  </li>
+                </ul>
+              </div>
             </div>
 
-            <div className="mb-6 rounded-2xl border border-amber-700/30 bg-amber-950/20 p-4 text-sm text-amber-200">
+            <div className="mt-5 rounded-2xl border border-amber-700/30 bg-amber-950/20 p-4 text-sm text-amber-200">
               <strong className="font-semibold">Этичное использование.</strong> Приложение помогает
               готовиться и работать на разрешённых созвонах. Не используйте его для обмана
               интервьюеров и предупреждайте участников о записи, если этого требуют правила.
             </div>
 
-            <button onClick={() => setStep(2)} className="btn-primary w-full py-3">
-              Далее — распознавание речи
+            <button onClick={() => setStep(2)} className="btn-primary mt-6 w-full py-3 sm:w-auto sm:px-8">
+              Choose a speech model
             </button>
-          </div>
+          </>
         ) : (
-          <OnboardingSttStep onBack={() => setStep(1)} onContinue={finish} />
+          <div className="max-w-xl">
+            <OnboardingSttStep onBack={() => setStep(1)} onContinue={finish} />
+          </div>
         )}
       </div>
-    </div>
-  );
-}
-
-function Feature({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="rounded-xl border border-surface-border bg-surface p-4">
-      <p className="font-medium text-ink">{title}</p>
-      <p className="mt-0.5 text-sm text-ink-muted">{children}</p>
     </div>
   );
 }

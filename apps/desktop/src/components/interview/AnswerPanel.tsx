@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import type { CopilotAnswerEntry } from '../../lib/interviewSessionExport';
 import type { AnswerRevisionMode } from '../../lib/answerRevision';
 import type { LiveSessionStatus } from '../ui/StatusBadge';
@@ -54,6 +54,16 @@ export default function AnswerPanel({
   onReviseActive,
   footer,
 }: AnswerPanelProps) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  // Follow the streaming answer — but only if the user is already near the
+  // bottom, so we never yank the view while they scroll back through history.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    if (nearBottom) el.scrollTop = el.scrollHeight;
+  }, [displayStream, history.length, isGenerating]);
+
   const showEmpty = history.length === 0 && !displayStream && !isGenerating;
 
   const statusHint =
@@ -79,7 +89,7 @@ export default function AnswerPanel({
         }
       />
 
-      <div className="answer-scroll min-h-0 flex-1 px-4 py-4">
+      <div ref={scrollRef} className="answer-scroll min-h-0 flex-1 px-4 py-4">
         {showEmpty && (
           <CockpitEmptyState
             icon={<AnswerEmptyIcon />}
