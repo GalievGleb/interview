@@ -34,7 +34,7 @@ const BEHAVIORAL_RE =
   /(?:почему\s+(?:уш\w*|уход|хот\w*\s+(?:работать|сменить|уйти))|конфликт|сильн\w+\s+сторон|слаб\w+\s+сторон|мотивац|куда\s+видишь\s+себя|tell\s+me\s+about\s+yourself)/iu;
 
 const EXPERIENCE_RE =
-  /(?:расскаж\w*\s+(?:про|о)\s+(?:сво\w+\s+)?опыт|(?:ваш|твой|свой)\s+опыт|опыт\s+(?:автоматизац|работ|тестир)|на\s+каких\s+проектах|чем\s+занимал\w*\s+на\s+(?:проект|работ)|расскаж\w*\s+о\s+(?:сво\w+\s+)?(?:работ|карьер|проект))/iu;
+  /(?:расскаж\w*\s+(?:про|о)\s+(?:сво\w+\s+)?опыт|(?:ваш|твой|свой)\s+опыт|опыт\s+(?:автоматизац|работ|тестир)|на\s+каких\s+проектах|чем\s+занимал\w*\s+на\s+(?:проект|работ)|расскаж\w*\s+о\s+(?:сво\w+\s+)?(?:работ|карьер|проект)|расскаж\w*\s+(?:о\s+себе|про\s+себя)|подработк)/iu;
 
 const PRACTICAL_RE =
   /(?:как\s+ты\s+(?:применял\w*|использовал\w*|настраивал\w*|проверял\w*|запускал\w*|работал\w*|делал\w*|писал\w*)|ты\s+сам\w*\s+(?:настраивал\w*|делал\w*|писал\w*|использовал\w*|настраивал\w*)|сам\s+настраивал\w*|как\s+вы\s+(?:применял\w*|использовал\w*|настраивал\w*)|в\s+работ\w*|на\s+проект\w*)/iu;
@@ -49,12 +49,12 @@ const DEFINITION_RE =
   /(?:что\s+такое|что\s+значит|что\s+это\s+за|объясни(?:те)?|расскаж\w*\s+что\s+такое|определени\w*)/iu;
 
 const ANSWER_FORMAT =
-  '4–7 sentences (~90–150 words), natural first-person spoken style — like a strong candidate, not a textbook. ' +
-  'First sentence = direct answer. For a long list, group it by dimensions when natural ' +
-  '(e.g. «по уровню», «по цели», «по способу выполнения») and use bullets for 3+ items/steps. ' +
-  'No filler openings. Where it fits naturally, add a short personal bridge from the resume ' +
-  '(1–2 sentences, real facts only) — e.g. «У меня основной фокус был на…, в Сбере и ГЕОМИКС я…». ' +
-  'You MAY finish with at most one optional offer to expand («Если хотите, могу подробнее разложить, как…»).';
+  '50–80 words by default (≤90 only if the question is genuinely complex), 3–5 short sentences, ' +
+  'natural first-person spoken style — like a real candidate, not ChatGPT. ' +
+  'First sentence = the direct answer, no intro. Use bullets for 3+ items/steps. ' +
+  'No internal labels (Main answer/Key points), no markdown headers, no closing offers ' +
+  '(«Если хотите, могу подробнее рассказать/разложить»), no «Важно отметить»/«В заключение». ' +
+  'Connect to real resume experience only where it genuinely fits — concrete tools and actions, never a resume re-tell.';
 
 const STRATEGY_BY_INTENT: Record<QuestionIntent, Omit<AnswerStrategyResult, 'questionIntent'>> = {
   experience: {
@@ -84,10 +84,10 @@ const STRATEGY_BY_INTENT: Record<QuestionIntent, Omit<AnswerStrategyResult, 'que
   technical_list: {
     answerStrategy:
       `${ANSWER_FORMAT} Bullets MUST name specific items/anti-patterns by name. ` +
-      'Where natural, bridge to a brief personal experience line (which of these the candidate actually used and where) — never a full resume dump. No diagnostic intro — start with the topic.',
-    resumeContextUsed: true,
+      'At most one short concrete personal line if it genuinely adds (which of these the candidate used) — otherwise none. No diagnostic intro — start with the topic.',
+    resumeContextUsed: false,
     resumeContextLevel: 'limited',
-    resumeContextReason: 'List/theory question — name the items, then a short personal experience bridge where it fits.',
+    resumeContextReason: 'List/theory question — name the items; optional one concrete personal line.',
     suggestUnclearPrefix: false,
   },
   technical_comparison: {

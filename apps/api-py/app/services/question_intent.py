@@ -35,7 +35,9 @@ _BEHAVIORAL_RE = re.compile(
 _EXPERIENCE_RE = re.compile(
     r"(?:расскаж\w*\s+(?:про|о)\s+(?:сво\w+\s+)?опыт|(?:ваш|твой|свой)\s+опыт|"
     r"опыт\s+(?:автоматизац|работ|тестир)|на\s+каких\s+проектах|"
-    r"чем\s+занимал\w*\s+на\s+(?:проект|работ)|расскаж\w*\s+о\s+(?:сво\w+\s+)?(?:работ|карьер|проект))",
+    r"чем\s+занимал\w*\s+на\s+(?:проект|работ)|расскаж\w*\s+о\s+(?:сво\w+\s+)?(?:работ|карьер|проект)|"
+    # HR / biographical — bio questions get resume context so the answer can pivot.
+    r"расскаж\w*\s+(?:о\s+себе|про\s+себя)|подработк|про\s+подработк)",
     re.IGNORECASE | re.UNICODE,
 )
 _PRACTICAL_RE = re.compile(
@@ -60,12 +62,12 @@ _DEFINITION_RE = re.compile(
 )
 
 _FORMAT = (
-    "4–7 sentences (~90–150 words), natural first-person spoken style — like a strong "
-    "candidate, not a textbook. First sentence = direct answer. For a long list, group it "
-    "by dimensions when natural (e.g. «по уровню», «по цели», «по способу выполнения») and "
-    "use bullets for 3+ items/steps. No filler openings. Where it fits naturally, add a short "
-    "personal bridge from the resume (1–2 sentences, real facts only). You MAY finish with at "
-    "most one optional offer to expand («Если хотите, могу подробнее разложить, как…»)."
+    "50–80 words by default (≤90 only if the question is genuinely complex), 3–5 short "
+    "sentences, natural first-person spoken style — like a real candidate, not ChatGPT. "
+    "First sentence = the direct answer, no intro. Use bullets for 3+ items/steps. No internal "
+    "labels (Main answer/Key points), no markdown headers, no closing offers («Если хотите, могу "
+    "подробнее рассказать/разложить»), no «Важно отметить»/«В заключение». Connect to real resume "
+    "experience only where it genuinely fits — concrete tools and actions, never a resume re-tell."
 )
 
 _STRATEGIES: dict[QuestionIntent, AnswerStrategy] = {
@@ -103,14 +105,13 @@ _STRATEGIES: dict[QuestionIntent, AnswerStrategy] = {
         "question_intent": "technical_list",
         "answer_strategy": (
             f"{_FORMAT} Bullets MUST name specific items/anti-patterns by name. "
-            "Where natural, bridge to a brief personal experience line (which of these the "
-            "candidate actually used and where) — never a full resume dump. "
+            "At most one short concrete personal line if it genuinely adds — otherwise none. "
             "Do not start with «Я знаю несколько…»."
         ),
-        "resume_context_used": True,
+        "resume_context_used": False,
         "resume_context_level": "limited",
         "resume_context_reason": (
-            "List/theory question — name the items, then a short personal experience bridge where it fits."
+            "List/theory question — name the items; optional one concrete personal line."
         ),
         "suggest_unclear_prefix": False,
     },
