@@ -135,12 +135,37 @@ export function countMeaningfulWords(text: string): number {
     .filter((w) => w.replace(/[^\p{L}\p{N}]/gu, '').length > 1).length;
 }
 
+/**
+ * Detects Whisper repetition-loop hallucinations like
+ * "я не буду но я не буду но я буду..." — a tiny set of words cycling for
+ * dozens of tokens. These are produced on music/noise/silence and must never
+ * reach the LLM. We look at how few distinct words make up a long utterance.
+ */
+function isRepetitionLoop(tokens: string[]): boolean {
+  if (tokens.length < 8) return false;
+  const uniqueRatio = new Set(tokens).size / tokens.length;
+  // A genuine question rarely repeats words this aggressively; a loop collapses
+  // to a handful of distinct words no matter how long it gets.
+  if (uniqueRatio <= 0.25) return true;
+  // Catch a single dominant word ("буду буду буду ...") even with some filler.
+  const counts = new Map<string, number>();
+  for (const tok of tokens) counts.set(tok, (counts.get(tok) ?? 0) + 1);
+  const topCount = Math.max(...counts.values());
+  if (topCount / tokens.length >= 0.45) return true;
+  return false;
+}
+
 /** Too short or obviously broken STT — do not send to LLM yet. */
 export function isGarbageTranscript(text: string): boolean {
   const t = text.trim();
   if (!t) return true;
   if (countMeaningfulWords(t) < 3) return true;
-  const tokens = t.toLowerCase().split(/\s+/).filter(Boolean);
+  const tokens = t
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .split(/\s+/)
+    .filter(Boolean);
   if (tokens.length >= 3 && new Set(tokens).size === 1) return true;
+  if (isRepetitionLoop(tokens)) return true;
   return false;
 }
