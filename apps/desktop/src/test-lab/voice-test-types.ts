@@ -40,7 +40,21 @@ export interface VoiceTestMetrics {
   totalLatencyMs: number;
   answerWordCount: number;
   forbiddenPhrasesFound: string[];
+  /** STT stage breakdown (optional — only present for newer runs). */
+  modelLoadMs?: number;
+  whisperInferenceMs?: number;
 }
+
+/**
+ * What actually broke, so the report can separate STT-quality failures from
+ * answer-quality failures from latency failures instead of lumping them together.
+ */
+export type VoiceTestFailureCategory =
+  | 'stt-quality'
+  | 'answer-quality'
+  | 'latency'
+  | 'forbidden'
+  | 'empty-answer';
 
 export interface VoiceTestResult {
   caseId: string;
@@ -51,6 +65,7 @@ export interface VoiceTestResult {
   generatedAnswer: string;
   metrics: VoiceTestMetrics;
   failureReason: string | null;
+  failureCategory?: VoiceTestFailureCategory | null;
   errorMessage?: string;
   startedAt: string;
   finishedAt: string;

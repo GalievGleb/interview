@@ -1,5 +1,15 @@
 import { findForbiddenPhrases, keywordKeys, matchKeywords } from './voice-test-keywords';
-import type { VoiceTestCase, VoiceTestMetrics, VoiceTestStatus } from './voice-test-types';
+import type {
+  VoiceTestCase,
+  VoiceTestFailureCategory,
+  VoiceTestMetrics,
+  VoiceTestStatus,
+} from './voice-test-types';
+
+export interface SttStageTimings {
+  modelLoadMs?: number;
+  whisperInferenceMs?: number;
+}
 
 const OPTIONAL_SCORE_WEIGHT = 0.25;
 
@@ -33,6 +43,7 @@ export function computeVoiceTestMetrics(
   answer: string,
   sttLatencyMs: number,
   llmLatencyMs: number,
+  stageTimings: SttStageTimings = {},
 ): VoiceTestMetrics {
   const transcriptMatch = matchKeywords(transcript, testCase.requiredTranscriptKeywords);
   const requiredAnswerMatch = matchKeywords(answer, testCase.requiredAnswerKeywords);
@@ -70,6 +81,8 @@ export function computeVoiceTestMetrics(
     totalLatencyMs,
     answerWordCount: countWords(answer),
     forbiddenPhrasesFound,
+    modelLoadMs: stageTimings.modelLoadMs,
+    whisperInferenceMs: stageTimings.whisperInferenceMs,
   };
 }
 
@@ -77,17 +90,22 @@ export function resolveVoiceTestStatus(
   testCase: VoiceTestCase,
   metrics: VoiceTestMetrics,
   answer: string,
-): { status: VoiceTestStatus; failureReason: string | null } {
+): {
+  status: VoiceTestStatus;
+  failureReason: string | null;
+  failureCategory: VoiceTestFailureCategory | null;
+} {
   const reasons: string[] = [];
 
   if (!answer.trim()) {
-    return { status: 'failed', failureReason: 'Ответ пустой' };
+    return { status: 'failed', failureReason: 'Ответ пустой', failureCategory: 'empty-answer' };
   }
 
   if (metrics.forbiddenPhrasesFound.length > 0) {
     return {
       status: 'failed',
       failureReason: `Запрещённые фразы: ${metrics.forbiddenPhrasesFound.join(', ')}`,
+      failureCategory: 'forbidden',
     };
   }
 
@@ -96,6 +114,7 @@ export function resolveVoiceTestStatus(
     return {
       status: 'failed',
       failureReason: `Latency ${metrics.totalLatencyMs}ms > ${Math.round(latencyHard)}ms`,
+      failureCategory: 'latency',
     };
   }
 
@@ -106,6 +125,7 @@ export function resolveVoiceTestStatus(
       failureReason:
         `Answer length ${metrics.answerWordCount} words > ${Math.round(testCase.maxAnswerLengthWords * 1.25)} ` +
         `(max ${testCase.maxAnswerLengthWords} + 25%)`,
+      failureCategory: 'answer-quality',
     };
   }
 
@@ -113,6 +133,7 @@ export function resolveVoiceTestStatus(
     return {
       status: 'failed',
       failureReason: `Transcript score ${metrics.transcriptScore}% < 50%`,
+      failureCategory: 'stt-quality',
     };
   }
 
@@ -120,6 +141,7 @@ export function resolveVoiceTestStatus(
     return {
       status: 'failed',
       failureReason: `Required answer score ${metrics.requiredAnswerScore}% < 50%`,
+      failureCategory: 'answer-quality',
     };
   }
 
@@ -142,8 +164,8 @@ export function resolveVoiceTestStatus(
   }
 
   if (reasons.length > 0) {
-    return { status: 'warning', failureReason: reasons.join('; ') };
+    return { status: 'warning', failureReason: reasons.join('; '), failureCategory: null };
   }
 
-  return { status: 'passed', failureReason: null };
+  return { status: 'passed', failureReason: null, failureCategory: null };
 }

@@ -55,5 +55,32 @@ describe('voice-test-scoring', () => {
     const metrics = computeVoiceTestMetrics(baseCase, 'pytest', answer, 100, 200);
     const status = resolveVoiceTestStatus(baseCase, metrics, answer);
     expect(status.status).toBe('failed');
+    expect(status.failureCategory).toBe('answer-quality');
+  });
+
+  it('categorizes a latency-only failure as "latency"', () => {
+    const answer = 'Fixtures для setup и scope function/class. conftest.py для shared fixtures, yield для cleanup.';
+    const metrics = computeVoiceTestMetrics(baseCase, 'pytest fixtures', answer, 16000, 4000);
+    const status = resolveVoiceTestStatus(baseCase, metrics, answer);
+    expect(status.status).toBe('failed');
+    expect(status.failureCategory).toBe('latency');
+  });
+
+  it('categorizes a transcript miss as "stt-quality"', () => {
+    const answer = 'Fixtures для setup и scope function/class. conftest.py для shared fixtures, yield для cleanup.';
+    const metrics = computeVoiceTestMetrics(baseCase, 'нет ключевых слов вообще', answer, 100, 200);
+    const status = resolveVoiceTestStatus(baseCase, metrics, answer);
+    expect(status.status).toBe('failed');
+    expect(status.failureCategory).toBe('stt-quality');
+  });
+
+  it('records STT stage timings when provided', () => {
+    const metrics = computeVoiceTestMetrics(baseCase, 'pytest', 'fixture scope conftest setup', 800, 200, {
+      modelLoadMs: 15000,
+      whisperInferenceMs: 800,
+    });
+    expect(metrics.modelLoadMs).toBe(15000);
+    expect(metrics.whisperInferenceMs).toBe(800);
+    expect(metrics.sttLatencyMs).toBe(800);
   });
 });

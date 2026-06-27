@@ -8,9 +8,13 @@ import { api } from '../lib/api';
 import { prepareTranscriptForLlm, type PreparedTranscript } from '../lib/prepareTranscriptForLlm';
 import { stripExperienceFooter } from '../lib/normalizeTranscript';
 
-export async function transcribeAudioFile(caseId: string): Promise<{ transcript: string; sttLatencyMs: number }> {
+export async function transcribeAudioFile(caseId: string): Promise<{
+  transcript: string;
+  sttLatencyMs: number;
+  timings?: { modelLoadMs: number; whisperInferenceMs: number; audioBytes: number; modelReused: boolean };
+}> {
   const data = await api.voiceTestTranscribe(caseId);
-  return { transcript: data.transcript, sttLatencyMs: data.sttLatencyMs };
+  return { transcript: data.transcript, sttLatencyMs: data.sttLatencyMs, timings: data.timings };
 }
 
 export function generateAnswerFromTranscript(

@@ -754,7 +754,18 @@ export const api = {
     request<{ cases: unknown[]; root: string; audioDir: string }>('/voice-tests/cases'),
 
   voiceTestTranscribe: (caseId: string) =>
-    request<{ caseId: string; transcript: string; sttLatencyMs: number; audioPath: string }>(
+    request<{
+      caseId: string;
+      transcript: string;
+      sttLatencyMs: number;
+      timings?: {
+        modelLoadMs: number;
+        whisperInferenceMs: number;
+        audioBytes: number;
+        modelReused: boolean;
+      };
+      audioPath: string;
+    }>(
       `/voice-tests/transcribe/${encodeURIComponent(caseId)}`,
       { method: 'POST', timeoutMs: LONG_REQUEST_TIMEOUT_MS },
     ),

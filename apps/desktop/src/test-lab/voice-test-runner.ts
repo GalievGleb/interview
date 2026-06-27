@@ -56,14 +56,17 @@ export async function runSingleVoiceTest(
   onStatus?.('running');
 
   try {
-    const { transcript, sttLatencyMs } = await transcribeAudioFile(testCase.id);
+    const { transcript, sttLatencyMs, timings } = await transcribeAudioFile(testCase.id);
     const { answer, llmLatencyMs } = await generateAnswerFromTranscript(
       transcript,
       createEmptySessionContext(),
     );
 
-    const metrics = computeVoiceTestMetrics(testCase, transcript, answer, sttLatencyMs, llmLatencyMs);
-    const { status, failureReason } = resolveVoiceTestStatus(testCase, metrics, answer);
+    const metrics = computeVoiceTestMetrics(testCase, transcript, answer, sttLatencyMs, llmLatencyMs, {
+      modelLoadMs: timings?.modelLoadMs,
+      whisperInferenceMs: timings?.whisperInferenceMs,
+    });
+    const { status, failureReason, failureCategory } = resolveVoiceTestStatus(testCase, metrics, answer);
 
     return {
       caseId: testCase.id,
@@ -74,6 +77,7 @@ export async function runSingleVoiceTest(
       generatedAnswer: answer,
       metrics,
       failureReason,
+      failureCategory,
       startedAt,
       finishedAt: new Date().toISOString(),
     };
