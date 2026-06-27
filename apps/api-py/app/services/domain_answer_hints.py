@@ -36,6 +36,27 @@ _BUG_REPORT_RE = re.compile(
     r"что\s+должн\w*\s+быть\s+в\s+(?:bug|баг)",
     re.IGNORECASE | re.UNICODE,
 )
+_AUTOMATION_TYPES_RE = re.compile(
+    r"(?:вид\w*|тип\w*)\s+автоматизац",
+    re.IGNORECASE | re.UNICODE,
+)
+_TESTING_TYPES_RE = re.compile(
+    r"(?:вид\w*|тип\w*)\s+тестировани",
+    re.IGNORECASE | re.UNICODE,
+)
+_CICD_RE = re.compile(
+    r"ci\s*/?\s*cd|cicd|пайплайн|pipeline|настраивал\w*\s+(?:ci|пайплайн)",
+    re.IGNORECASE | re.UNICODE,
+)
+_DOCKER_RE = re.compile(r"\bdocker\b|докер", re.IGNORECASE | re.UNICODE)
+_SMOKE_REGRESSION_RE = re.compile(
+    r"smoke.{0,30}regression|regression.{0,30}smoke|смоук.{0,30}регресс|регресс.{0,30}смоук",
+    re.IGNORECASE | re.UNICODE,
+)
+_STATIC_DYNAMIC_RE = re.compile(
+    r"статическ\w*.{0,30}динамическ\w*|динамическ\w*.{0,30}статическ\w*|static.{0,20}dynamic",
+    re.IGNORECASE | re.UNICODE,
+)
 
 _POM_HINT = """TOPIC HINT — Page Object / POM (weave naturally into bullets, do NOT dump as a keyword list):
 Name typical mistakes when relevant: god object; business logic inside page object; assertions inside page object;
@@ -82,6 +103,35 @@ _FLAKY_HINT = """TOPIC HINT — flaky tests / CI/CD stability (weave naturally i
 Mention when relevant: logs; Allure; screenshots/artifacts; explicit waits; stable locators;
 retries only as temporary workaround; remove sleep; isolate test data between runs."""
 
+_AUTOMATION_TYPES_HINT = """TOPIC HINT — виды/типы автоматизации (concise say-aloud, ~50–90 words):
+Talk about WHAT gets automated, not «ручная автоматизация» (that is wrong/contradictory).
+Cover by meaning: UI-автотесты (пользовательские сценарии через интерфейс), API (backend-контракты),
+интеграционные (взаимодействие компонентов), regression/smoke (запуск в CI/CD).
+Optional one personal line: «В моём опыте фокус был на UI и API — Playwright, HTTPX/pytest, Allure».
+Never say automation is done «вручную»."""
+
+_TESTING_TYPES_HINT = """TOPIC HINT — виды/типы тестирования (concise say-aloud, list OK):
+Group by axes: по уровню (модульное, интеграционное, системное, приёмочное);
+по цели (функциональное / нефункциональное — производительность, безопасность, удобство, совместимость);
+по способу (ручное и автоматизированное). Optional one personal line on what you actually did."""
+
+_CICD_HINT = """TOPIC HINT — CI/CD (concise say-aloud, ~50–90 words, weave naturally):
+Cover by meaning, not as a keyword dump: stages/jobs; Docker / одинаковое окружение; запуск тестов (pytest);
+artifacts/reports; Allure; logs; variables/secrets (carefully); GitLab CI or Jenkins by context.
+Personal framing if experience question: smoke и regression раздельными pipeline-запусками, артефакты для разбора падений."""
+
+_DOCKER_HINT = """TOPIC HINT — Docker (concise say-aloud, ~50–80 words):
+Docker = контейнеризация: одинаковое окружение локально и в CI/CD, изоляция зависимостей, воспроизводимые прогоны тестов.
+Mention when relevant: образ/Dockerfile, контейнер, запуск автотестов внутри, в связке с CI/CD. Optional one personal line."""
+
+_SMOKE_REGRESSION_HINT = """TOPIC HINT — smoke vs regression (thesis + «Отличие:» + 2 points):
+smoke = быстрый прогон ключевых/критичных сценариев после сборки, рано даёт сигнал «жив ли билд».
+regression = более полная проверка, что изменения не сломали существующий функционал. Often: smoke в CI на каждый build, regression реже/отдельно."""
+
+_STATIC_DYNAMIC_HINT = """TOPIC HINT — static vs dynamic testing (thesis + «Отличие:» + 2 points):
+static = проверка без запуска кода (review, линтеры, анализ требований/документации).
+dynamic = проверка с запуском приложения (функциональные, API, UI-тесты). Both complement each other."""
+
 _NONE_HINT = "(none — answer naturally; do not force unrelated QA terms or stack keywords)"
 
 
@@ -106,6 +156,18 @@ def resolve_domain_answer_hints(question: str) -> str:
         blocks.append(_PYTEST_HINT)
     if _FLAKY_RE.search(q):
         blocks.append(_FLAKY_HINT)
+    if _AUTOMATION_TYPES_RE.search(q):
+        blocks.append(_AUTOMATION_TYPES_HINT)
+    if _TESTING_TYPES_RE.search(q):
+        blocks.append(_TESTING_TYPES_HINT)
+    if _SMOKE_REGRESSION_RE.search(q):
+        blocks.append(_SMOKE_REGRESSION_HINT)
+    elif _STATIC_DYNAMIC_RE.search(q):
+        blocks.append(_STATIC_DYNAMIC_HINT)
+    elif _DOCKER_RE.search(q):
+        blocks.append(_DOCKER_HINT)
+    elif _CICD_RE.search(q):
+        blocks.append(_CICD_HINT)
 
     if not blocks:
         return _NONE_HINT
