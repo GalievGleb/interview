@@ -268,11 +268,22 @@ export default function InterviewPage() {
   }, [history.length]);
 
   // Warm the STT model as soon as the live screen opens, so the first question
-  // isn't lost to cold-start (model load + CUDA kernel compile). Fire-and-forget:
-  // it overlaps with the user setting up, and is a no-op once the model is hot.
+  // isn't lost to cold-start (model load + CUDA kernel compile). We surface a
+  // readiness state (not a countdown — warmup time isn't predictable) so the
+  // user knows when the first question will be answered instantly.
+  const [sttWarm, setSttWarm] = useState<'warming' | 'ready'>('warming');
   useEffect(() => {
-    void api.sttWarmup().catch(() => {});
-  }, []);
+    if (!hasStt) return;
+    setSttWarm('warming');
+    let cancelled = false;
+    api
+      .sttWarmup()
+      .then(() => !cancelled && setSttWarm('ready'))
+      .catch(() => !cancelled && setSttWarm('ready')); // don't block the user on a warmup error
+    return () => {
+      cancelled = true;
+    };
+  }, [hasStt]);
 
   // Focus mode: toggled from the title-bar button; Esc closes it.
   useEffect(() => {
@@ -402,6 +413,13 @@ export default function InterviewPage() {
         <InterviewInlineAlert tone="info">
           Local transcription needs a speech model. Open Settings → Speech Recognition to download
           one. Manual input works without it.
+        </InterviewInlineAlert>
+      )}
+
+      {hasStt && sttWarm === 'warming' && !active && (
+        <InterviewInlineAlert tone="info">
+          Готовлю модель распознавания… первый вопрос лучше задать через пару секунд — потом всё
+          мгновенно.
         </InterviewInlineAlert>
       )}
 
