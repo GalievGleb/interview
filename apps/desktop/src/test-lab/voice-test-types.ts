@@ -62,6 +62,8 @@ export interface VoiceTestResult {
   status: VoiceTestStatus;
   expectedQuestion: string;
   actualTranscript: string;
+  /** Glossary-corrected transcript actually scored/sent to the LLM, when it differs from raw STT. */
+  correctedTranscript?: string;
   generatedAnswer: string;
   metrics: VoiceTestMetrics;
   failureReason: string | null;

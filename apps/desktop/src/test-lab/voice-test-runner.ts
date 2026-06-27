@@ -1,6 +1,7 @@
 import { createEmptySessionContext } from '@interview/shared';
 import { api } from '../lib/api';
 import { generateAnswerFromTranscript, transcribeAudioFile } from '../lib/interviewPipeline';
+import { prepareTranscriptForLlm } from '../lib/prepareTranscriptForLlm';
 import { keywordKeys } from './voice-test-keywords';
 import { buildVoiceRegressionReport } from './voice-test-report';
 import { assertVoiceRegressionReport } from './voice-test-report-compare';
@@ -57,12 +58,17 @@ export async function runSingleVoiceTest(
 
   try {
     const { transcript, sttLatencyMs, timings } = await transcribeAudioFile(testCase.id);
+    // Score transcript keywords against the glossary-corrected text — that is the
+    // transcript the live product actually shows and sends to the LLM. Raw STT
+    // mangles jargon ("поэтес"->pytest, "АППи"->API), and the deterministic
+    // glossary is exactly what fixes it; scoring the raw text would hide that.
+    const corrected = prepareTranscriptForLlm(transcript, createEmptySessionContext()).corrected;
     const { answer, llmLatencyMs } = await generateAnswerFromTranscript(
       transcript,
       createEmptySessionContext(),
     );
 
-    const metrics = computeVoiceTestMetrics(testCase, transcript, answer, sttLatencyMs, llmLatencyMs, {
+    const metrics = computeVoiceTestMetrics(testCase, corrected, answer, sttLatencyMs, llmLatencyMs, {
       modelLoadMs: timings?.modelLoadMs,
       whisperInferenceMs: timings?.whisperInferenceMs,
     });
@@ -74,6 +80,7 @@ export async function runSingleVoiceTest(
       status,
       expectedQuestion: testCase.expectedQuestion,
       actualTranscript: transcript,
+      correctedTranscript: corrected !== transcript ? corrected : undefined,
       generatedAnswer: answer,
       metrics,
       failureReason,

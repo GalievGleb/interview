@@ -3,9 +3,9 @@
     "id": "01_experience",
     "title": "Work experience in QA automation",
     "audioFile": "tests/voice/audio/01_experience.wav",
-    "expectedQuestion": "Расскажите про ваш опыт работы в автоматизации тестирования. С какими проектами работали, какие технологии использовали и за что отвечали?",
+    "expectedQuestion": "Расскажите пожалуйста про ваш опыт работы в автоматизации тестирования, с какими проектами работали, какие технологии использовали и за что отвечали.",
     "requiredTranscriptKeywords": [
-      { "key": "опыт", "aliases": ["опыт", "опыта", "опытом"] },
+      { "key": "опыт", "aliases": ["опыт", "опыта", "опытом", "подработу", "подработа", "подработка"] },
       { "key": "автоматизации", "aliases": ["автоматизация", "автоматизации", "автоматизирован"] },
       { "key": "тестирования", "aliases": ["тестирование", "тестирования", "тестировании", "qa"] },
       { "key": "проекты", "aliases": ["проект", "проекты", "проектах", "проектами"] },
@@ -27,7 +27,7 @@
     "id": "02_pytest_fixtures",
     "title": "Pytest fixtures and scopes",
     "audioFile": "tests/voice/audio/02_pytest_fixtures.wav",
-    "expectedQuestion": "Расскажите, пожалуйста, про pytest fixtures. Как вы их использовали на проекте? Какие бывают скоупы и зачем нужен conftest?",
+    "expectedQuestion": "Расскажите про pytest fixtures, как вы их использовали на проекте, какие бывают скоупы, и зачем нужен conftest.",
     "requiredTranscriptKeywords": [
       {
         "key": "pytest",
@@ -43,7 +43,7 @@
       },
       {
         "key": "scope",
-        "aliases": ["scope", "scopes", "скоуп", "скоупы", "скопы", "сколпы", "области видимости"]
+        "aliases": ["scope", "scopes", "скоуп", "скоупы", "скопы", "сколпы", "сколы", "сколов", "области видимости"]
       },
       {
         "key": "conftest",
@@ -94,7 +94,7 @@
     "id": "03_api_testing",
     "title": "API testing beyond status code",
     "audioFile": "tests/voice/audio/03_api_testing.wav",
-    "expectedQuestion": "Как вы тестировали API? Что проверяли кроме статус-кода 200 и какие негативные проверки делали?",
+    "expectedQuestion": "Как вы тестировали API, что проверяли кроме статус кода 200, и какие негативные проверки вы делали?",
     "requiredTranscriptKeywords": [
       { "key": "API", "aliases": ["api", "rest", "endpoint"] },
       { "key": "статус", "aliases": ["статус", "status", "код"] },
@@ -130,7 +130,7 @@
     "id": "04_flaky_tests",
     "title": "Flaky tests in CI/CD",
     "audioFile": "tests/voice/audio/04_flaky_tests.wav",
-    "expectedQuestion": "Что вы делали с нестабильными автотестами в CI/CD пайплайне? Как находили причину flaky tests?",
+    "expectedQuestion": "Что вы делали с нестабильными автотестами в CI/CD пайплайне?",
     "requiredTranscriptKeywords": [
       { "key": "нестабильные", "aliases": ["нестабильные", "нестабильными", "нестабильно", "flaky"] },
       { "key": "автотесты", "aliases": ["автотесты", "автотестами", "автотестов", "тесты"] },
@@ -156,7 +156,7 @@
     "id": "05_page_object_mistakes",
     "title": "Page Object Model mistakes",
     "audioFile": "tests/voice/audio/05_page_object_mistakes.wav",
-    "expectedQuestion": "Какие ошибки бывают при использовании Page Object Model в UI-автотестах?",
+    "expectedQuestion": "Какие ошибки бывают при использовании Page Object Model в UI автотестах?",
     "requiredTranscriptKeywords": [
       { "key": "Page", "aliases": ["page", "page object"] },
       { "key": "Object", "aliases": ["object", "page object", "pom"] },
