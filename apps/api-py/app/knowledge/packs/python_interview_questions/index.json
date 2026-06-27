@@ -1,0 +1,3765 @@
+[
+  {
+    "id": "q",
+    "question": "Что такое последовательность",
+    "section": "Python",
+    "topic": "Последовательности",
+    "tags": [],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "последовательности",
+      "последовательность"
+    ]
+  },
+  {
+    "id": "q-2",
+    "question": "Какие операции поддерживают большинство последовательностей",
+    "section": "Python",
+    "topic": "Последовательности",
+    "tags": [],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "большинство",
+      "какие",
+      "операции",
+      "поддерживают",
+      "последовательностей",
+      "последовательности"
+    ]
+  },
+  {
+    "id": "q-3",
+    "question": "Какие виды строк бывают в питоне",
+    "section": "Python",
+    "topic": "Последовательности",
+    "tags": [],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "бывают",
+      "виды",
+      "какие",
+      "питоне",
+      "последовательности",
+      "строк"
+    ]
+  },
+  {
+    "id": "q-4",
+    "question": "Можно ли изменить отдельный символ внутри строки",
+    "section": "Python",
+    "topic": "Последовательности",
+    "tags": [],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "внутри",
+      "изменить",
+      "можно",
+      "отдельный",
+      "последовательности",
+      "символ",
+      "строки"
+    ]
+  },
+  {
+    "id": "q-5",
+    "question": "Как соединить список строк в одну. Как разбить строку на список строк",
+    "section": "Python",
+    "topic": "Последовательности",
+    "tags": [
+      "list"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "одну",
+      "последовательности",
+      "разбить",
+      "соединить",
+      "список",
+      "строк",
+      "строку"
+    ]
+  },
+  {
+    "id": "q-6",
+    "question": "Как кодировать и декодировать строки",
+    "section": "Python",
+    "topic": "Последовательности",
+    "tags": [],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "декодировать",
+      "кодировать",
+      "последовательности",
+      "строки"
+    ]
+  },
+  {
+    "id": "q-7",
+    "question": "Чем список отличается от кортежа",
+    "section": "Python",
+    "topic": "Последовательности",
+    "tags": [
+      "list",
+      "tuple"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "кортежа",
+      "отличается",
+      "последовательности",
+      "список"
+    ]
+  },
+  {
+    "id": "q-8",
+    "question": "Что такое диапазон",
+    "section": "Python",
+    "topic": "Последовательности",
+    "tags": [],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "диапазон",
+      "последовательности"
+    ]
+  },
+  {
+    "id": "q-9",
+    "question": "Как сделать список уникальным (без повторяющихся элементов)",
+    "section": "Python",
+    "topic": "Последовательности",
+    "tags": [
+      "list"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "без",
+      "повторяющихся",
+      "последовательности",
+      "сделать",
+      "список",
+      "уникальным",
+      "элементов"
+    ]
+  },
+  {
+    "id": "a-b-c",
+    "question": "Есть кортеж из трех элементов. Назначить переменным a, b, c его значения",
+    "section": "Python",
+    "topic": "Последовательности",
+    "tags": [
+      "tuple"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "его",
+      "есть",
+      "значения",
+      "кортеж",
+      "назначить",
+      "переменным",
+      "последовательности",
+      "трех",
+      "элементов"
+    ]
+  },
+  {
+    "id": "q-10",
+    "question": "Как сравниваются последовательности",
+    "section": "Python",
+    "topic": "Последовательности",
+    "tags": [],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "последовательности",
+      "сравниваются"
+    ]
+  },
+  {
+    "id": "q-11",
+    "question": "Как понять хешируемый ли объект",
+    "section": "Python",
+    "topic": "Множества и отображения",
+    "tags": [
+      "hashing",
+      "oop",
+      "set"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "множества",
+      "объект",
+      "отображения",
+      "понять",
+      "хешируемый"
+    ]
+  },
+  {
+    "id": "q-12",
+    "question": "Что такое множество",
+    "section": "Python",
+    "topic": "Множества и отображения",
+    "tags": [
+      "set"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "множества",
+      "множество",
+      "отображения"
+    ]
+  },
+  {
+    "id": "q-13",
+    "question": "Для чего применяются множества",
+    "section": "Python",
+    "topic": "Множества и отображения",
+    "tags": [
+      "set"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "множества",
+      "отображения",
+      "применяются",
+      "чего"
+    ]
+  },
+  {
+    "id": "q-14",
+    "question": "Какие операции можно производить над множествами",
+    "section": "Python",
+    "topic": "Множества и отображения",
+    "tags": [
+      "set"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "какие",
+      "множества",
+      "множествами",
+      "можно",
+      "над",
+      "операции",
+      "отображения",
+      "производить"
+    ]
+  },
+  {
+    "id": "q-15",
+    "question": "Как происходит проверка множеств на равенство",
+    "section": "Python",
+    "topic": "Множества и отображения",
+    "tags": [
+      "set"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "множеств",
+      "множества",
+      "отображения",
+      "проверка",
+      "происходит",
+      "равенство"
+    ]
+  },
+  {
+    "id": "q-16",
+    "question": "Что такое отображение",
+    "section": "Python",
+    "topic": "Множества и отображения",
+    "tags": [
+      "set"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "множества",
+      "отображение",
+      "отображения"
+    ]
+  },
+  {
+    "id": "q-17",
+    "question": "Какие нюансы есть в использовании чисел как ключей",
+    "section": "Python",
+    "topic": "Множества и отображения",
+    "tags": [
+      "set"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "есть",
+      "использовании",
+      "какие",
+      "ключей",
+      "множества",
+      "нюансы",
+      "отображения",
+      "чисел"
+    ]
+  },
+  {
+    "id": "q-18",
+    "question": "Какие операции можно производить над отображениями",
+    "section": "Python",
+    "topic": "Множества и отображения",
+    "tags": [
+      "set"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "какие",
+      "множества",
+      "можно",
+      "над",
+      "операции",
+      "отображения",
+      "отображениями",
+      "производить"
+    ]
+  },
+  {
+    "id": "items",
+    "question": "Что возвращает метод items",
+    "section": "Python",
+    "topic": "Множества и отображения",
+    "tags": [
+      "set"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "items",
+      "возвращает",
+      "метод",
+      "множества",
+      "отображения"
+    ]
+  },
+  {
+    "id": "q-19",
+    "question": "Как отсортировать список словарей по определенному полю",
+    "section": "Python",
+    "topic": "Множества и отображения",
+    "tags": [
+      "dict",
+      "list",
+      "set"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "множества",
+      "определенному",
+      "отображения",
+      "отсортировать",
+      "полю",
+      "словарей",
+      "список"
+    ]
+  },
+  {
+    "id": "q-20",
+    "question": "Что может являться ключом словаря. Что не может. Почему",
+    "section": "Python",
+    "topic": "Множества и отображения",
+    "tags": [
+      "dict",
+      "set"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "ключом",
+      "множества",
+      "может",
+      "отображения",
+      "почему",
+      "словаря",
+      "являться"
+    ]
+  },
+  {
+    "id": "q-21",
+    "question": "Есть два списка – ключи и значения. Как составить из них словарь",
+    "section": "Python",
+    "topic": "Множества и отображения",
+    "tags": [
+      "dict",
+      "set"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "два",
+      "есть",
+      "значения",
+      "ключи",
+      "множества",
+      "них",
+      "отображения",
+      "словарь",
+      "составить",
+      "списка"
+    ]
+  },
+  {
+    "id": "q-22",
+    "question": "Как работает хэш-таблица",
+    "section": "Python",
+    "topic": "Множества и отображения",
+    "tags": [
+      "set"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "множества",
+      "отображения",
+      "работает",
+      "таблица",
+      "хэш"
+    ]
+  },
+  {
+    "id": "q-23",
+    "question": "Что такое коллизия",
+    "section": "Python",
+    "topic": "Множества и отображения",
+    "tags": [
+      "set"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "коллизия",
+      "множества",
+      "отображения"
+    ]
+  },
+  {
+    "id": "dict-list-set-tuple",
+    "question": "Где будет быстрее поиск, а где перебор и почему: dict, list, set, tuple",
+    "section": "Python",
+    "topic": "Множества и отображения",
+    "tags": [
+      "dict",
+      "list",
+      "set",
+      "tuple"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "dict",
+      "list",
+      "set",
+      "tuple",
+      "будет",
+      "быстрее",
+      "где",
+      "множества",
+      "отображения",
+      "перебор",
+      "поиск",
+      "почему"
+    ]
+  },
+  {
+    "id": "args-kwargs",
+    "question": "Что такое args, kwargs. В каких случаях они требуются",
+    "section": "Python",
+    "topic": "Функции",
+    "tags": [
+      "args_kwargs"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "args",
+      "kwargs",
+      "каких",
+      "они",
+      "случаях",
+      "требуются",
+      "функции"
+    ]
+  },
+  {
+    "id": "q-24",
+    "question": "Почему использовать изменяемые объекты как параметры по-умолчанию плохо. Приведите пример плохого случая. Как исправить",
+    "section": "Python",
+    "topic": "Функции",
+    "tags": [
+      "mutable",
+      "oop"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "изменяемые",
+      "использовать",
+      "исправить",
+      "объекты",
+      "параметры",
+      "плохо",
+      "плохого",
+      "почему",
+      "приведите",
+      "пример",
+      "случая",
+      "умолчанию",
+      "функции"
+    ]
+  },
+  {
+    "id": "q-25",
+    "question": "Можно ли передавать функцию в качестве аргумента другой функции",
+    "section": "Python",
+    "topic": "Функции",
+    "tags": [],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "аргумента",
+      "другой",
+      "качестве",
+      "можно",
+      "передавать",
+      "функции",
+      "функцию"
+    ]
+  },
+  {
+    "id": "q-26",
+    "question": "Можно ли объявлять функцию внутри другой функции. Где она будет видна",
+    "section": "Python",
+    "topic": "Функции",
+    "tags": [],
+    "priority": "medium",
+    "keywords": [
+      "будет",
+      "видна",
+      "внутри",
+      "где",
+      "другой",
+      "можно",
+      "объявлять",
+      "она",
+      "функции",
+      "функцию"
+    ]
+  },
+  {
+    "id": "q-27",
+    "question": "Что такое лямбды. Каковы их особенности",
+    "section": "Python",
+    "topic": "Функции",
+    "tags": [],
+    "priority": "medium",
+    "keywords": [
+      "каковы",
+      "лямбды",
+      "особенности",
+      "функции"
+    ]
+  },
+  {
+    "id": "q-28",
+    "question": "Допустимы ли следующие выражения",
+    "section": "Python",
+    "topic": "Функции",
+    "tags": [],
+    "priority": "medium",
+    "keywords": [
+      "выражения",
+      "допустимы",
+      "следующие",
+      "функции"
+    ]
+  },
+  {
+    "id": "q-29",
+    "question": "Как передаются значения аргументов в функцию или метод",
+    "section": "Python",
+    "topic": "Функции",
+    "tags": [],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "аргументов",
+      "значения",
+      "метод",
+      "передаются",
+      "функции",
+      "функцию"
+    ]
+  },
+  {
+    "id": "q-30",
+    "question": "Что такое замыкание",
+    "section": "Python",
+    "topic": "Функции",
+    "tags": [],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "замыкание",
+      "функции"
+    ]
+  },
+  {
+    "id": "q-31",
+    "question": "Итераторы и генераторы",
+    "section": "Python",
+    "topic": "Итераторы и генераторы",
+    "tags": [
+      "generator",
+      "iterator"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "генераторы",
+      "итераторы"
+    ]
+  },
+  {
+    "id": "q-32",
+    "question": "Что такое контейнер",
+    "section": "Python",
+    "topic": "Итераторы и генераторы",
+    "tags": [
+      "generator",
+      "iterator"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "генераторы",
+      "итераторы",
+      "контейнер"
+    ]
+  },
+  {
+    "id": "q-33",
+    "question": "Что такое итерабельный объект",
+    "section": "Python",
+    "topic": "Итераторы и генераторы",
+    "tags": [
+      "generator",
+      "iterator",
+      "oop"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "генераторы",
+      "итерабельный",
+      "итераторы",
+      "объект"
+    ]
+  },
+  {
+    "id": "q-34",
+    "question": "Что такое итератор",
+    "section": "Python",
+    "topic": "Итераторы и генераторы",
+    "tags": [
+      "generator",
+      "iterator"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "генераторы",
+      "итератор",
+      "итераторы"
+    ]
+  },
+  {
+    "id": "q-35",
+    "question": "Что такое генератор",
+    "section": "Python",
+    "topic": "Итераторы и генераторы",
+    "tags": [
+      "generator",
+      "iterator"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "генератор",
+      "генераторы",
+      "итераторы"
+    ]
+  },
+  {
+    "id": "q-36",
+    "question": "Что такое генераторная функция",
+    "section": "Python",
+    "topic": "Итераторы и генераторы",
+    "tags": [
+      "generator",
+      "iterator"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "генераторная",
+      "генераторы",
+      "итераторы",
+      "функция"
+    ]
+  },
+  {
+    "id": "yield",
+    "question": "Что делает yield",
+    "section": "Python",
+    "topic": "Итераторы и генераторы",
+    "tags": [
+      "generator",
+      "iterator"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "yield",
+      "генераторы",
+      "делает",
+      "итераторы"
+    ]
+  },
+  {
+    "id": "x-for-x-in-y-x-for-x-in-y",
+    "question": "В чем отличие \\[x for x in y\\] от (x for x in y)",
+    "section": "Python",
+    "topic": "Итераторы и генераторы",
+    "tags": [
+      "generator",
+      "iterator"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "for",
+      "генераторы",
+      "итераторы",
+      "отличие"
+    ]
+  },
+  {
+    "id": "q-37",
+    "question": "Что особенного в генераторе",
+    "section": "Python",
+    "topic": "Итераторы и генераторы",
+    "tags": [
+      "generator",
+      "iterator"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "генераторе",
+      "генераторы",
+      "итераторы",
+      "особенного"
+    ]
+  },
+  {
+    "id": "q-38",
+    "question": "Как объявить генератор",
+    "section": "Python",
+    "topic": "Итераторы и генераторы",
+    "tags": [
+      "generator",
+      "iterator"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "генератор",
+      "генераторы",
+      "итераторы",
+      "объявить"
+    ]
+  },
+  {
+    "id": "q-39",
+    "question": "Как получить из генератора список",
+    "section": "Python",
+    "topic": "Итераторы и генераторы",
+    "tags": [
+      "generator",
+      "iterator",
+      "list"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "генератора",
+      "генераторы",
+      "итераторы",
+      "получить",
+      "список"
+    ]
+  },
+  {
+    "id": "q-40",
+    "question": "Что такое подгенератор",
+    "section": "Python",
+    "topic": "Итераторы и генераторы",
+    "tags": [
+      "generator",
+      "iterator"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "генераторы",
+      "итераторы",
+      "подгенератор"
+    ]
+  },
+  {
+    "id": "q-41",
+    "question": "Какие методы есть у генераторов",
+    "section": "Python",
+    "topic": "Итераторы и генераторы",
+    "tags": [
+      "generator",
+      "iterator"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "генераторов",
+      "генераторы",
+      "есть",
+      "итераторы",
+      "какие",
+      "методы"
+    ]
+  },
+  {
+    "id": "q-42",
+    "question": "Можно ли извлечь элемент генератора по индексу",
+    "section": "Python",
+    "topic": "Итераторы и генераторы",
+    "tags": [
+      "generator",
+      "iterator"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "генератора",
+      "генераторы",
+      "извлечь",
+      "индексу",
+      "итераторы",
+      "можно",
+      "элемент"
+    ]
+  },
+  {
+    "id": "q-43",
+    "question": "Что возвращает итерация по словарю",
+    "section": "Python",
+    "topic": "Итераторы и генераторы",
+    "tags": [
+      "dict",
+      "generator",
+      "iterator"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "возвращает",
+      "генераторы",
+      "итераторы",
+      "итерация",
+      "словарю"
+    ]
+  },
+  {
+    "id": "q-44",
+    "question": "Как итерировать словарь по парам ключ-значение",
+    "section": "Python",
+    "topic": "Итераторы и генераторы",
+    "tags": [
+      "dict",
+      "generator",
+      "iterator"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "генераторы",
+      "значение",
+      "итераторы",
+      "итерировать",
+      "ключ",
+      "парам",
+      "словарь"
+    ]
+  },
+  {
+    "id": "q-45",
+    "question": "Что такое сопрограмма",
+    "section": "Python",
+    "topic": "Итераторы и генераторы",
+    "tags": [
+      "generator",
+      "iterator"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "генераторы",
+      "итераторы",
+      "сопрограмма"
+    ]
+  },
+  {
+    "id": "q-46",
+    "question": "Как получить список атрибутов объекта",
+    "section": "Python",
+    "topic": "Классы, объекты",
+    "tags": [
+      "list",
+      "oop"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "атрибутов",
+      "классы",
+      "объекта",
+      "объекты",
+      "получить",
+      "список"
+    ]
+  },
+  {
+    "id": "q-47",
+    "question": "Что такое магические методы, для чего нужны",
+    "section": "Python",
+    "topic": "Классы, объекты",
+    "tags": [
+      "oop"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "классы",
+      "магические",
+      "методы",
+      "нужны",
+      "объекты",
+      "чего"
+    ]
+  },
+  {
+    "id": "q-48",
+    "question": "Как в классе сослаться на родительский класс",
+    "section": "Python",
+    "topic": "Классы, объекты",
+    "tags": [
+      "oop"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "класс",
+      "классе",
+      "классы",
+      "объекты",
+      "родительский",
+      "сослаться"
+    ]
+  },
+  {
+    "id": "q-49",
+    "question": "Возможно ли множественное наследование",
+    "section": "Python",
+    "topic": "Классы, объекты",
+    "tags": [
+      "oop",
+      "set"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "возможно",
+      "классы",
+      "множественное",
+      "наследование",
+      "объекты"
+    ]
+  },
+  {
+    "id": "mro",
+    "question": "Что такое MRO",
+    "section": "Python",
+    "topic": "Классы, объекты",
+    "tags": [
+      "mro",
+      "oop"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "mro",
+      "классы",
+      "объекты"
+    ]
+  },
+  {
+    "id": "diamond-problem",
+    "question": "Что такое Diamond problem",
+    "section": "Python",
+    "topic": "Классы, объекты",
+    "tags": [
+      "oop"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "diamond",
+      "problem",
+      "классы",
+      "объекты"
+    ]
+  },
+  {
+    "id": "q-50",
+    "question": "Что такое миксины",
+    "section": "Python",
+    "topic": "Классы, объекты",
+    "tags": [
+      "oop"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "классы",
+      "миксины",
+      "объекты"
+    ]
+  },
+  {
+    "id": "q-51",
+    "question": "Что такое контекстный менеджер. Как написать свой",
+    "section": "Python",
+    "topic": "Классы, объекты",
+    "tags": [
+      "context_manager",
+      "oop"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "классы",
+      "контекстный",
+      "менеджер",
+      "написать",
+      "объекты",
+      "свой"
+    ]
+  },
+  {
+    "id": "q-52",
+    "question": "Прокомментировать выражение",
+    "section": "Python",
+    "topic": "Классы, объекты",
+    "tags": [
+      "oop"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "выражение",
+      "классы",
+      "объекты",
+      "прокомментировать"
+    ]
+  },
+  {
+    "id": "slots",
+    "question": "Что такое \\_\\_slots\\_\\_. Плюсы, минусы",
+    "section": "Python",
+    "topic": "Классы, объекты",
+    "tags": [
+      "oop"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "_slots",
+      "классы",
+      "минусы",
+      "объекты",
+      "плюсы"
+    ]
+  },
+  {
+    "id": "value-value",
+    "question": "В чем смысл параметров _value, __value",
+    "section": "Python",
+    "topic": "Классы, объекты",
+    "tags": [
+      "dunder",
+      "oop"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "__value",
+      "_value",
+      "классы",
+      "объекты",
+      "параметров",
+      "смысл"
+    ]
+  },
+  {
+    "id": "new-init",
+    "question": "Что такое \\_\\_new\\_\\_. И чем он отличается от \\_\\_init\\_\\_. В какой последовательности они выполняются",
+    "section": "Python",
+    "topic": "Классы, объекты",
+    "tags": [
+      "oop"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "_init",
+      "_new",
+      "выполняются",
+      "какой",
+      "классы",
+      "объекты",
+      "они",
+      "отличается",
+      "последовательности"
+    ]
+  },
+  {
+    "id": "old-style-new-style-classes",
+    "question": "Что такое и чем отличается old-style от new-style classes",
+    "section": "Python",
+    "topic": "Классы, объекты",
+    "tags": [
+      "oop"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "classes",
+      "new",
+      "old",
+      "style",
+      "классы",
+      "объекты",
+      "отличается"
+    ]
+  },
+  {
+    "id": "q-53",
+    "question": "Что такое утиная типизация",
+    "section": "Python",
+    "topic": "Классы, объекты",
+    "tags": [
+      "oop"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "классы",
+      "объекты",
+      "типизация",
+      "утиная"
+    ]
+  },
+  {
+    "id": "q-54",
+    "question": "Что такое модуль",
+    "section": "Python",
+    "topic": "Модули, пакеты",
+    "tags": [
+      "modules"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "модули",
+      "модуль",
+      "пакеты"
+    ]
+  },
+  {
+    "id": "q-55",
+    "question": "Как можно получить имя модуля",
+    "section": "Python",
+    "topic": "Модули, пакеты",
+    "tags": [
+      "modules"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "имя",
+      "модули",
+      "модуля",
+      "можно",
+      "пакеты",
+      "получить"
+    ]
+  },
+  {
+    "id": "q-56",
+    "question": "Что такое модульное программирование",
+    "section": "Python",
+    "topic": "Модули, пакеты",
+    "tags": [
+      "modules"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "модули",
+      "модульное",
+      "пакеты",
+      "программирование"
+    ]
+  },
+  {
+    "id": "python",
+    "question": "Как Python ищет модули при импорте",
+    "section": "Python",
+    "topic": "Модули, пакеты",
+    "tags": [
+      "modules"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "python",
+      "импорте",
+      "ищет",
+      "модули",
+      "пакеты"
+    ]
+  },
+  {
+    "id": "q-57",
+    "question": "Что такое пакет",
+    "section": "Python",
+    "topic": "Модули, пакеты",
+    "tags": [
+      "modules"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "модули",
+      "пакет",
+      "пакеты"
+    ]
+  },
+  {
+    "id": "import-package-item",
+    "question": "Что вы можете сказать о конструкции import package.item",
+    "section": "Python",
+    "topic": "Модули, пакеты",
+    "tags": [
+      "modules"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "import",
+      "item",
+      "package",
+      "конструкции",
+      "модули",
+      "можете",
+      "пакеты",
+      "сказать"
+    ]
+  },
+  {
+    "id": "q-58",
+    "question": "Что такое обработка исключений",
+    "section": "Python",
+    "topic": "Исключения",
+    "tags": [
+      "exceptions"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "исключений",
+      "исключения",
+      "обработка"
+    ]
+  },
+  {
+    "id": "try-finally-except",
+    "question": "Для чего могут применять конструкцию try finally без except",
+    "section": "Python",
+    "topic": "Исключения",
+    "tags": [
+      "exceptions"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "except",
+      "finally",
+      "try",
+      "без",
+      "исключения",
+      "конструкцию",
+      "могут",
+      "применять",
+      "чего"
+    ]
+  },
+  {
+    "id": "q-59",
+    "question": "Как правильно по-разному обрабатывать исключения",
+    "section": "Python",
+    "topic": "Исключения",
+    "tags": [
+      "exceptions"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "исключения",
+      "обрабатывать",
+      "правильно",
+      "разному"
+    ]
+  },
+  {
+    "id": "except",
+    "question": "Что будет если ошибку не обработает блок except",
+    "section": "Python",
+    "topic": "Исключения",
+    "tags": [
+      "exceptions"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "except",
+      "блок",
+      "будет",
+      "если",
+      "исключения",
+      "обработает",
+      "ошибку"
+    ]
+  },
+  {
+    "id": "q-60",
+    "question": "Что делать если нужно перехватить исключение, выполнить действия и опять возбудить это же исключение",
+    "section": "Python",
+    "topic": "Исключения",
+    "tags": [
+      "exceptions"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "возбудить",
+      "выполнить",
+      "действия",
+      "делать",
+      "если",
+      "исключение",
+      "исключения",
+      "нужно",
+      "опять",
+      "перехватить"
+    ]
+  },
+  {
+    "id": "q-61",
+    "question": "Что такое сцепление исключений",
+    "section": "Python",
+    "topic": "Исключения",
+    "tags": [
+      "exceptions"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "исключений",
+      "исключения",
+      "сцепление"
+    ]
+  },
+  {
+    "id": "else",
+    "question": "Зачем нужен блок else",
+    "section": "Python",
+    "topic": "Исключения",
+    "tags": [
+      "exceptions"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "else",
+      "блок",
+      "зачем",
+      "исключения",
+      "нужен"
+    ]
+  },
+  {
+    "id": "q-62",
+    "question": "Что можно передать в конструктор исключения",
+    "section": "Python",
+    "topic": "Исключения",
+    "tags": [
+      "exceptions"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "исключения",
+      "конструктор",
+      "можно",
+      "передать"
+    ]
+  },
+  {
+    "id": "q-63",
+    "question": "Какие есть классы исключений",
+    "section": "Python",
+    "topic": "Исключения",
+    "tags": [
+      "exceptions",
+      "oop"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "есть",
+      "исключений",
+      "исключения",
+      "какие",
+      "классы"
+    ]
+  },
+  {
+    "id": "syntaxerror",
+    "question": "В каких случаях можно обработать SyntaxError",
+    "section": "Python",
+    "topic": "Исключения",
+    "tags": [
+      "exceptions"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "syntaxerror",
+      "исключения",
+      "каких",
+      "можно",
+      "обработать",
+      "случаях"
+    ]
+  },
+  {
+    "id": "q-64",
+    "question": "Можно ли создавать собственные исключения",
+    "section": "Python",
+    "topic": "Исключения",
+    "tags": [
+      "exceptions"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "исключения",
+      "можно",
+      "собственные",
+      "создавать"
+    ]
+  },
+  {
+    "id": "warnings",
+    "question": "Для чего нужны предупреждения (warnings) и как создать собственное",
+    "section": "Python",
+    "topic": "Исключения",
+    "tags": [
+      "exceptions"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "warnings",
+      "исключения",
+      "нужны",
+      "предупреждения",
+      "собственное",
+      "создать",
+      "чего"
+    ]
+  },
+  {
+    "id": "warnings-2",
+    "question": "Для чего нужен модуль warnings",
+    "section": "Python",
+    "topic": "Исключения",
+    "tags": [
+      "exceptions",
+      "modules"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "warnings",
+      "исключения",
+      "модуль",
+      "нужен",
+      "чего"
+    ]
+  },
+  {
+    "id": "q-65",
+    "question": "Декораторы",
+    "section": "Python",
+    "topic": "Декораторы",
+    "tags": [
+      "decorator"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "декораторы"
+    ]
+  },
+  {
+    "id": "q-66",
+    "question": "Что такое декораторы. Зачем нужны",
+    "section": "Python",
+    "topic": "Декораторы",
+    "tags": [
+      "decorator"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "декораторы",
+      "зачем",
+      "нужны"
+    ]
+  },
+  {
+    "id": "q-67",
+    "question": "Что может быть декоратором. К чему может быть применен декоратор",
+    "section": "Python",
+    "topic": "Декораторы",
+    "tags": [
+      "decorator"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "быть",
+      "декоратор",
+      "декоратором",
+      "декораторы",
+      "может",
+      "применен",
+      "чему"
+    ]
+  },
+  {
+    "id": "q-68",
+    "question": "Что будет, если декоратор не возвращает ничего",
+    "section": "Python",
+    "topic": "Декораторы",
+    "tags": [
+      "decorator"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "будет",
+      "возвращает",
+      "декоратор",
+      "декораторы",
+      "если",
+      "ничего"
+    ]
+  },
+  {
+    "id": "foobar-foobar",
+    "question": "В чем отличие \\@foobar от \\@foobar()",
+    "section": "Python",
+    "topic": "Декораторы",
+    "tags": [
+      "decorator"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "foobar",
+      "декораторы",
+      "отличие"
+    ]
+  },
+  {
+    "id": "q-69",
+    "question": "Что такое фабрика декораторов",
+    "section": "Python",
+    "topic": "Декораторы",
+    "tags": [
+      "decorator"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "декораторов",
+      "декораторы",
+      "фабрика"
+    ]
+  },
+  {
+    "id": "wraps",
+    "question": "Зачем нужен wraps",
+    "section": "Python",
+    "topic": "Декораторы",
+    "tags": [
+      "decorator"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "wraps",
+      "декораторы",
+      "зачем",
+      "нужен"
+    ]
+  },
+  {
+    "id": "q-70",
+    "question": "Метаклассы",
+    "section": "Python",
+    "topic": "Метаклассы",
+    "tags": [
+      "oop"
+    ],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "метаклассы"
+    ]
+  },
+  {
+    "id": "q-71",
+    "question": "Что такое метаклассы",
+    "section": "Python",
+    "topic": "Метаклассы",
+    "tags": [
+      "oop"
+    ],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "метаклассы"
+    ]
+  },
+  {
+    "id": "type",
+    "question": "Что такое type. Как работает поиск метакласса при создании объекта",
+    "section": "Python",
+    "topic": "Метаклассы",
+    "tags": [
+      "oop"
+    ],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "type",
+      "метакласса",
+      "метаклассы",
+      "объекта",
+      "поиск",
+      "работает",
+      "создании"
+    ]
+  },
+  {
+    "id": "q-72",
+    "question": "Как работают метаклассы",
+    "section": "Python",
+    "topic": "Метаклассы",
+    "tags": [
+      "oop"
+    ],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "метаклассы",
+      "работают"
+    ]
+  },
+  {
+    "id": "q-73",
+    "question": "Зачем вообще использовать метаклассы",
+    "section": "Python",
+    "topic": "Метаклассы",
+    "tags": [
+      "oop"
+    ],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "вообще",
+      "зачем",
+      "использовать",
+      "метаклассы"
+    ]
+  },
+  {
+    "id": "q-74",
+    "question": "Что такое файловый объект",
+    "section": "Python",
+    "topic": "Ввод-Вывод",
+    "tags": [
+      "oop"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "ввод",
+      "вывод",
+      "объект",
+      "файловый"
+    ]
+  },
+  {
+    "id": "q-75",
+    "question": "Какие есть виды файловых объектов",
+    "section": "Python",
+    "topic": "Ввод-Вывод",
+    "tags": [
+      "oop"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "ввод",
+      "виды",
+      "вывод",
+      "есть",
+      "какие",
+      "объектов",
+      "файловых"
+    ]
+  },
+  {
+    "id": "q-76",
+    "question": "В чем отличие текстовых и бинарных файлов",
+    "section": "Python",
+    "topic": "Ввод-Вывод",
+    "tags": [],
+    "priority": "medium",
+    "keywords": [
+      "бинарных",
+      "ввод",
+      "вывод",
+      "отличие",
+      "текстовых",
+      "файлов"
+    ]
+  },
+  {
+    "id": "open",
+    "question": "Как пользоваться функцией open",
+    "section": "Python",
+    "topic": "Ввод-Вывод",
+    "tags": [],
+    "priority": "medium",
+    "keywords": [
+      "open",
+      "ввод",
+      "вывод",
+      "пользоваться",
+      "функцией"
+    ]
+  },
+  {
+    "id": "q-77",
+    "question": "Для чего необходимо закрывать файлы",
+    "section": "Python",
+    "topic": "Ввод-Вывод",
+    "tags": [],
+    "priority": "medium",
+    "keywords": [
+      "ввод",
+      "вывод",
+      "закрывать",
+      "необходимо",
+      "файлы",
+      "чего"
+    ]
+  },
+  {
+    "id": "tell-seek",
+    "question": "Что делают методы tell и seek",
+    "section": "Python",
+    "topic": "Ввод-Вывод",
+    "tags": [],
+    "priority": "medium",
+    "keywords": [
+      "seek",
+      "tell",
+      "ввод",
+      "вывод",
+      "делают",
+      "методы"
+    ]
+  },
+  {
+    "id": "stringio-bytesio",
+    "question": "Что делают StringIO и BytesIO",
+    "section": "Python",
+    "topic": "Ввод-Вывод",
+    "tags": [],
+    "priority": "medium",
+    "keywords": [
+      "bytesio",
+      "stringio",
+      "ввод",
+      "вывод",
+      "делают"
+    ]
+  },
+  {
+    "id": "q-78",
+    "question": "Что такое сериализация",
+    "section": "Python",
+    "topic": "Ввод-Вывод",
+    "tags": [],
+    "priority": "medium",
+    "keywords": [
+      "ввод",
+      "вывод",
+      "сериализация"
+    ]
+  },
+  {
+    "id": "json-dumps-json-dump-json-loads-json-load",
+    "question": "json.dumps / json.dump , json.loads / json.load",
+    "section": "Python",
+    "topic": "Ввод-Вывод",
+    "tags": [],
+    "priority": "medium",
+    "keywords": [
+      "dump",
+      "dumps",
+      "json",
+      "load",
+      "loads",
+      "ввод",
+      "вывод"
+    ]
+  },
+  {
+    "id": "json",
+    "question": "Что делать если нужно сериализовать данные, которые не поддерживаются стандартным модулем json",
+    "section": "Python",
+    "topic": "Ввод-Вывод",
+    "tags": [
+      "modules"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "json",
+      "ввод",
+      "вывод",
+      "данные",
+      "делать",
+      "если",
+      "которые",
+      "модулем",
+      "нужно",
+      "поддерживаются",
+      "сериализовать",
+      "стандартным"
+    ]
+  },
+  {
+    "id": "pickle-dumps-pickle-dump-pickle-loads-pickle-load",
+    "question": "pickle.dumps / pickle.dump, pickle.loads / pickle.load",
+    "section": "Python",
+    "topic": "Ввод-Вывод",
+    "tags": [],
+    "priority": "medium",
+    "keywords": [
+      "dump",
+      "dumps",
+      "load",
+      "loads",
+      "pickle",
+      "ввод",
+      "вывод"
+    ]
+  },
+  {
+    "id": "q-79",
+    "question": "Пирамида тестирования",
+    "section": "Python",
+    "topic": "Тестирование",
+    "tags": [],
+    "priority": "medium",
+    "keywords": [
+      "пирамида",
+      "тестирование",
+      "тестирования"
+    ]
+  },
+  {
+    "id": "mocking",
+    "question": "Что такое mocking",
+    "section": "Python",
+    "topic": "Тестирование",
+    "tags": [],
+    "priority": "medium",
+    "keywords": [
+      "mocking",
+      "тестирование"
+    ]
+  },
+  {
+    "id": "404",
+    "question": "Что делать, если тестируемая функция использует удалённое подключение к внешним сервисам, которое иногда видает ошибку таймаута, 404 и им подобные",
+    "section": "Python",
+    "topic": "Тестирование",
+    "tags": [],
+    "priority": "medium",
+    "keywords": [
+      "видает",
+      "внешним",
+      "делать",
+      "если",
+      "иногда",
+      "использует",
+      "которое",
+      "ошибку",
+      "подключение",
+      "подобные",
+      "сервисам",
+      "таймаута",
+      "тестирование",
+      "тестируемая",
+      "удалённое",
+      "функция"
+    ]
+  },
+  {
+    "id": "q-80",
+    "question": "Что делать, если тестируемая функция занимает много времени на выполнение повторяющихся операций внутри неё",
+    "section": "Python",
+    "topic": "Тестирование",
+    "tags": [],
+    "priority": "medium",
+    "keywords": [
+      "внутри",
+      "времени",
+      "выполнение",
+      "делать",
+      "если",
+      "занимает",
+      "много",
+      "неё",
+      "операций",
+      "повторяющихся",
+      "тестирование",
+      "тестируемая",
+      "функция"
+    ]
+  },
+  {
+    "id": "q-81",
+    "question": "Какие вы знаете виды тестов",
+    "section": "Python",
+    "topic": "Тестирование",
+    "tags": [],
+    "priority": "medium",
+    "keywords": [
+      "виды",
+      "знаете",
+      "какие",
+      "тестирование",
+      "тестов"
+    ]
+  },
+  {
+    "id": "q-82",
+    "question": "Чем интеграционное тестирование отличается от функционального",
+    "section": "Python",
+    "topic": "Тестирование",
+    "tags": [],
+    "priority": "medium",
+    "keywords": [
+      "интеграционное",
+      "отличается",
+      "тестирование",
+      "функционального"
+    ]
+  },
+  {
+    "id": "q-83",
+    "question": "Что такое функциональное программирование",
+    "section": "Python",
+    "topic": "Функциональное программирование",
+    "tags": [],
+    "priority": "medium",
+    "keywords": [
+      "программирование",
+      "функциональное"
+    ]
+  },
+  {
+    "id": "python-2",
+    "question": "Как у Python с поддержкой функционального программирования",
+    "section": "Python",
+    "topic": "Функциональное программирование",
+    "tags": [],
+    "priority": "medium",
+    "keywords": [
+      "python",
+      "поддержкой",
+      "программирование",
+      "программирования",
+      "функционального",
+      "функциональное"
+    ]
+  },
+  {
+    "id": "q-84",
+    "question": "Что такое объект первого класса",
+    "section": "Python",
+    "topic": "Функциональное программирование",
+    "tags": [
+      "oop"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "класса",
+      "объект",
+      "первого",
+      "программирование",
+      "функциональное"
+    ]
+  },
+  {
+    "id": "q-85",
+    "question": "Что такое функция высшего порядка",
+    "section": "Python",
+    "topic": "Функциональное программирование",
+    "tags": [],
+    "priority": "medium",
+    "keywords": [
+      "высшего",
+      "порядка",
+      "программирование",
+      "функциональное",
+      "функция"
+    ]
+  },
+  {
+    "id": "q-86",
+    "question": "Что такое каррирование",
+    "section": "Python",
+    "topic": "Функциональное программирование",
+    "tags": [],
+    "priority": "medium",
+    "keywords": [
+      "каррирование",
+      "программирование",
+      "функциональное"
+    ]
+  },
+  {
+    "id": "map-reduce-filter-functools",
+    "question": "Опишите функции map, reduce, filter модуля functools",
+    "section": "Python",
+    "topic": "Функциональное программирование",
+    "tags": [
+      "modules"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "filter",
+      "functools",
+      "map",
+      "reduce",
+      "модуля",
+      "опишите",
+      "программирование",
+      "функции",
+      "функциональное"
+    ]
+  },
+  {
+    "id": "functools",
+    "question": "Какие еще вы знаете функции из модуля functools",
+    "section": "Python",
+    "topic": "Функциональное программирование",
+    "tags": [
+      "modules"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "functools",
+      "еще",
+      "знаете",
+      "какие",
+      "модуля",
+      "программирование",
+      "функции",
+      "функциональное"
+    ]
+  },
+  {
+    "id": "itertools",
+    "question": "Какие вы функции знаете из модуля itertools",
+    "section": "Python",
+    "topic": "Функциональное программирование",
+    "tags": [
+      "modules"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "itertools",
+      "знаете",
+      "какие",
+      "модуля",
+      "программирование",
+      "функции",
+      "функциональное"
+    ]
+  },
+  {
+    "id": "operator",
+    "question": "Для чего нужен модуль operator",
+    "section": "Python",
+    "topic": "Функциональное программирование",
+    "tags": [
+      "modules"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "operator",
+      "модуль",
+      "нужен",
+      "программирование",
+      "функциональное",
+      "чего"
+    ]
+  },
+  {
+    "id": "gil",
+    "question": "Что такое GIL. Какие у него есть проблемы",
+    "section": "Python",
+    "topic": "GIL, потоки, процессы",
+    "tags": [
+      "concurrency",
+      "gil"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "gil",
+      "есть",
+      "какие",
+      "него",
+      "потоки",
+      "проблемы",
+      "процессы"
+    ]
+  },
+  {
+    "id": "asyncio",
+    "question": "Работали ли Вы с asyncio. В чём его особенность",
+    "section": "Python",
+    "topic": "GIL, потоки, процессы",
+    "tags": [
+      "concurrency",
+      "gil"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "asyncio",
+      "gil",
+      "его",
+      "особенность",
+      "потоки",
+      "процессы",
+      "работали",
+      "чём"
+    ]
+  },
+  {
+    "id": "async-await",
+    "question": "Что такое async/await, для чего они нужны и как их использовать",
+    "section": "Python",
+    "topic": "GIL, потоки, процессы",
+    "tags": [
+      "concurrency",
+      "gil"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "async",
+      "await",
+      "gil",
+      "использовать",
+      "нужны",
+      "они",
+      "потоки",
+      "процессы",
+      "чего"
+    ]
+  },
+  {
+    "id": "q-87",
+    "question": "Как в питоне реализуется многопоточность. Какими модулями",
+    "section": "Python",
+    "topic": "GIL, потоки, процессы",
+    "tags": [
+      "concurrency",
+      "gil",
+      "modules"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "gil",
+      "какими",
+      "многопоточность",
+      "модулями",
+      "питоне",
+      "потоки",
+      "процессы",
+      "реализуется"
+    ]
+  },
+  {
+    "id": "q-88",
+    "question": "В чем отличие тредов от мультипроцессинга",
+    "section": "Python",
+    "topic": "GIL, потоки, процессы",
+    "tags": [
+      "concurrency",
+      "gil"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "gil",
+      "мультипроцессинга",
+      "отличие",
+      "потоки",
+      "процессы",
+      "тредов"
+    ]
+  },
+  {
+    "id": "q-89",
+    "question": "Какие задачи хорошо параллелятся, какие плохо",
+    "section": "Python",
+    "topic": "GIL, потоки, процессы",
+    "tags": [
+      "concurrency",
+      "gil"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "gil",
+      "задачи",
+      "какие",
+      "параллелятся",
+      "плохо",
+      "потоки",
+      "процессы",
+      "хорошо"
+    ]
+  },
+  {
+    "id": "100",
+    "question": "Нужно посчитать 100 уравнений. Делать это в тредах или нет",
+    "section": "Python",
+    "topic": "GIL, потоки, процессы",
+    "tags": [
+      "concurrency",
+      "gil"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "gil",
+      "делать",
+      "нет",
+      "нужно",
+      "посчитать",
+      "потоки",
+      "процессы",
+      "тредах",
+      "уравнений"
+    ]
+  },
+  {
+    "id": "q-90",
+    "question": "Треды в Питоне — это нативные треды или нет",
+    "section": "Python",
+    "topic": "GIL, потоки, процессы",
+    "tags": [
+      "concurrency",
+      "gil"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "gil",
+      "нативные",
+      "нет",
+      "питоне",
+      "потоки",
+      "процессы",
+      "треды"
+    ]
+  },
+  {
+    "id": "q-91",
+    "question": "Что такое гринлеты. Общее понятие. Примеры реализаций",
+    "section": "Python",
+    "topic": "GIL, потоки, процессы",
+    "tags": [
+      "concurrency",
+      "gil"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "gil",
+      "гринлеты",
+      "общее",
+      "понятие",
+      "потоки",
+      "примеры",
+      "процессы",
+      "реализаций"
+    ]
+  },
+  {
+    "id": "singleton",
+    "question": "Какие варианты реализации шаблона Singleton на питоне",
+    "section": "Python",
+    "topic": "Какие варианты реализации шаблона Singleton на питоне",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "singleton",
+      "варианты",
+      "какие",
+      "питоне",
+      "реализации",
+      "шаблона"
+    ]
+  },
+  {
+    "id": "q-92",
+    "question": "Какие вы знаете инструменты для проверки кодстайл",
+    "section": "Python",
+    "topic": "Какие вы знаете инструменты для проверки кодстайл",
+    "tags": [],
+    "priority": "medium",
+    "keywords": [
+      "знаете",
+      "инструменты",
+      "какие",
+      "кодстайл",
+      "проверки"
+    ]
+  },
+  {
+    "id": "list-dict-comprehension",
+    "question": "Что такое list/dict comprehension",
+    "section": "Python",
+    "topic": "Что такое list/dict comprehension",
+    "tags": [
+      "comprehension",
+      "dict",
+      "list"
+    ],
+    "priority": "high_for_aqa",
+    "keywords": [
+      "comprehension",
+      "dict",
+      "list"
+    ]
+  },
+  {
+    "id": "q-93",
+    "question": "Какая разница между одинарным и двойным подчеркиванием",
+    "section": "Python",
+    "topic": "Какая разница между одинарным и двойным подчеркиванием",
+    "tags": [],
+    "priority": "medium",
+    "keywords": [
+      "двойным",
+      "какая",
+      "между",
+      "одинарным",
+      "подчеркиванием",
+      "разница"
+    ]
+  },
+  {
+    "id": "copy-deepcopy",
+    "question": "Отличие copy() от deepcopy()",
+    "section": "Python",
+    "topic": "Отличие copy() от deepcopy()",
+    "tags": [],
+    "priority": "medium",
+    "keywords": [
+      "copy",
+      "deepcopy",
+      "отличие"
+    ]
+  },
+  {
+    "id": "garbage-collector",
+    "question": "Что такое garbage collector. В чём его плюсы и минусы",
+    "section": "Python",
+    "topic": "Что такое garbage collector. В чём его плюсы и минусы",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "collector",
+      "garbage",
+      "его",
+      "минусы",
+      "плюсы",
+      "чём"
+    ]
+  },
+  {
+    "id": "q-94",
+    "question": "Что такое интроспекция",
+    "section": "Python",
+    "topic": "Что такое интроспекция",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "интроспекция"
+    ]
+  },
+  {
+    "id": "q-95",
+    "question": "Что такое рефлексия",
+    "section": "Python",
+    "topic": "Что такое рефлексия",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "рефлексия"
+    ]
+  },
+  {
+    "id": "middleware",
+    "question": "Что такое Middleware, для чего, как реализуется",
+    "section": "Django",
+    "topic": "Что такое Middleware, для чего, как реализуется",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "middleware",
+      "реализуется",
+      "чего"
+    ]
+  },
+  {
+    "id": "q-96",
+    "question": "Назовите основные мидлвари. Зачем они нужны",
+    "section": "Django",
+    "topic": "Назовите основные мидлвари. Зачем они нужны",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "зачем",
+      "мидлвари",
+      "назовите",
+      "нужны",
+      "они",
+      "основные"
+    ]
+  },
+  {
+    "id": "csrf-middleware",
+    "question": "Опишите алгоритм работы CSRF middleware",
+    "section": "Django",
+    "topic": "Опишите алгоритм работы CSRF middleware",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "csrf",
+      "middleware",
+      "алгоритм",
+      "опишите",
+      "работы"
+    ]
+  },
+  {
+    "id": "q-97",
+    "question": "Что такое сигналы? Зачем нужны? Назовите основные",
+    "section": "Django",
+    "topic": "Что такое сигналы? Зачем нужны? Назовите основные",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "зачем",
+      "назовите",
+      "нужны",
+      "основные",
+      "сигналы"
+    ]
+  },
+  {
+    "id": "m2m",
+    "question": "Как реализуется связь m2m на уровне базы данных",
+    "section": "Django",
+    "topic": "Как реализуется связь m2m на уровне базы данных",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "базы",
+      "данных",
+      "реализуется",
+      "связь",
+      "уровне"
+    ]
+  },
+  {
+    "id": "get-post",
+    "question": "Чем лучше отправлять форму — GET или POST",
+    "section": "Django",
+    "topic": "Чем лучше отправлять форму — GET или POST",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "get",
+      "post",
+      "лучше",
+      "отправлять",
+      "форму"
+    ]
+  },
+  {
+    "id": "serializer-django-rest-framework",
+    "question": "Как работает Serializer в Django REST Framework",
+    "section": "Django",
+    "topic": "Как работает Serializer в Django REST Framework",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "django",
+      "framework",
+      "rest",
+      "serializer",
+      "работает"
+    ]
+  },
+  {
+    "id": "meta-django",
+    "question": "Что такое Meta в классах Django и для чего нужен",
+    "section": "Django",
+    "topic": "Что такое Meta в классах Django и для чего нужен",
+    "tags": [
+      "oop"
+    ],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "django",
+      "meta",
+      "классах",
+      "нужен",
+      "чего"
+    ]
+  },
+  {
+    "id": "meta",
+    "question": "За что отвечает Meta в сериализаторе",
+    "section": "Django",
+    "topic": "За что отвечает Meta в сериализаторе",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "meta",
+      "отвечает",
+      "сериализаторе"
+    ]
+  },
+  {
+    "id": "django-flask",
+    "question": "Какая разница в быстродействии между django и Flask (и почему)",
+    "section": "Django",
+    "topic": "Какая разница в быстродействии между django и Flask (и почему)",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "django",
+      "flask",
+      "быстродействии",
+      "какая",
+      "между",
+      "почему",
+      "разница"
+    ]
+  },
+  {
+    "id": "django",
+    "question": "Как в django работает система аутентификации",
+    "section": "Django",
+    "topic": "Как в django работает система аутентификации",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "django",
+      "аутентификации",
+      "работает",
+      "система"
+    ]
+  },
+  {
+    "id": "cgi",
+    "question": "Что такое CGI. Плюсы, минусы",
+    "section": "Веб-разработка",
+    "topic": "Что такое CGI. Плюсы, минусы",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "cgi",
+      "минусы",
+      "плюсы"
+    ]
+  },
+  {
+    "id": "q-98",
+    "question": "Как защитить куки от воровства и от подделки",
+    "section": "Веб-разработка",
+    "topic": "Как защитить куки от воровства и от подделки",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "воровства",
+      "защитить",
+      "куки",
+      "подделки"
+    ]
+  },
+  {
+    "id": "q-99",
+    "question": "Какая разница между аутентификацией и авторизацией",
+    "section": "Веб-разработка",
+    "topic": "Какая разница между аутентификацией и авторизацией",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "авторизацией",
+      "аутентификацией",
+      "какая",
+      "между",
+      "разница"
+    ]
+  },
+  {
+    "id": "xss",
+    "question": "Что такое XSS. Примеры. Как защитить приложение",
+    "section": "Веб-разработка",
+    "topic": "Что такое XSS. Примеры. Как защитить приложение",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "xss",
+      "защитить",
+      "приложение",
+      "примеры"
+    ]
+  },
+  {
+    "id": "rest",
+    "question": "Что такое REST",
+    "section": "Веб-разработка",
+    "topic": "REST & SOAP",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "rest",
+      "soap"
+    ]
+  },
+  {
+    "id": "soap",
+    "question": "Что такое SOAP",
+    "section": "Веб-разработка",
+    "topic": "REST & SOAP",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "rest",
+      "soap"
+    ]
+  },
+  {
+    "id": "rest-soap",
+    "question": "В чем разница между REST и SOAP веб сервисами",
+    "section": "Веб-разработка",
+    "topic": "REST & SOAP",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "rest",
+      "soap",
+      "веб",
+      "между",
+      "разница",
+      "сервисами"
+    ]
+  },
+  {
+    "id": "soap-2",
+    "question": "Можем ли мы посылать SOAP сообщения с вложением",
+    "section": "Веб-разработка",
+    "topic": "REST & SOAP",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "rest",
+      "soap",
+      "вложением",
+      "можем",
+      "посылать",
+      "сообщения"
+    ]
+  },
+  {
+    "id": "rest-soap-2",
+    "question": "Как бы вы решили какой из REST или SOAP веб сервисов использовать",
+    "section": "Веб-разработка",
+    "topic": "REST & SOAP",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "rest",
+      "soap",
+      "веб",
+      "использовать",
+      "какой",
+      "решили",
+      "сервисов"
+    ]
+  },
+  {
+    "id": "production",
+    "question": "Какие способы для мониторинга веб-приложений в production вы использовали или знаете",
+    "section": "Веб-разработка",
+    "topic": "Какие способы для мониторинга веб-приложений в production вы использовали или знаете",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "production",
+      "веб",
+      "знаете",
+      "использовали",
+      "какие",
+      "мониторинга",
+      "приложений",
+      "способы"
+    ]
+  },
+  {
+    "id": "http",
+    "question": "Как устроен протокол HTTP",
+    "section": "HTTP",
+    "topic": "Как устроен протокол HTTP",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "http",
+      "протокол",
+      "устроен"
+    ]
+  },
+  {
+    "id": "raw",
+    "question": "Написать raw запрос главной Яндекса",
+    "section": "HTTP",
+    "topic": "Написать raw запрос главной Яндекса",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "raw",
+      "главной",
+      "запрос",
+      "написать",
+      "яндекса"
+    ]
+  },
+  {
+    "id": "q-100",
+    "question": "Как клиенту понять, удался запрос или нет",
+    "section": "HTTP",
+    "topic": "Как клиенту понять, удался запрос или нет",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "запрос",
+      "клиенту",
+      "нет",
+      "понять",
+      "удался"
+    ]
+  },
+  {
+    "id": "q-101",
+    "question": "Что нужно отправить браузеру, чтобы перенаправить на другую страницу",
+    "section": "HTTP",
+    "topic": "Что нужно отправить браузеру, чтобы перенаправить на другую страницу",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "браузеру",
+      "другую",
+      "нужно",
+      "отправить",
+      "перенаправить",
+      "страницу",
+      "чтобы"
+    ]
+  },
+  {
+    "id": "http-2",
+    "question": "Как управлять кешированием в HTTP",
+    "section": "HTTP",
+    "topic": "Как управлять кешированием в HTTP",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "http",
+      "кешированием",
+      "управлять"
+    ]
+  },
+  {
+    "id": "q-102",
+    "question": "Как кэшируются файлы на уровне протокола",
+    "section": "HTTP",
+    "topic": "Как кэшируются файлы на уровне протокола",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "кэшируются",
+      "протокола",
+      "уровне",
+      "файлы"
+    ]
+  },
+  {
+    "id": "http-3",
+    "question": "Что такое HTTP",
+    "section": "HTTP",
+    "topic": "Что такое HTTP",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "http"
+    ]
+  },
+  {
+    "id": "http-https",
+    "question": "Чем отличаются HTTP и HTTPS",
+    "section": "HTTP",
+    "topic": "Чем отличаются HTTP и HTTPS",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "http",
+      "https",
+      "отличаются"
+    ]
+  },
+  {
+    "id": "q-103",
+    "question": "Инкапсуляция",
+    "section": "Общее",
+    "topic": "ООП",
+    "tags": [
+      "oop"
+    ],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "инкапсуляция",
+      "ооп"
+    ]
+  },
+  {
+    "id": "q-104",
+    "question": "Наследование",
+    "section": "Общее",
+    "topic": "ООП",
+    "tags": [
+      "oop"
+    ],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "наследование",
+      "ооп"
+    ]
+  },
+  {
+    "id": "q-105",
+    "question": "Полиморфизм",
+    "section": "Общее",
+    "topic": "ООП",
+    "tags": [
+      "oop"
+    ],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "ооп",
+      "полиморфизм"
+    ]
+  },
+  {
+    "id": "q-106",
+    "question": "Абстракция",
+    "section": "Общее",
+    "topic": "ООП",
+    "tags": [
+      "oop"
+    ],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "абстракция",
+      "ооп"
+    ]
+  },
+  {
+    "id": "q-107",
+    "question": "Какие принципы программирования вы знаете",
+    "section": "Общее",
+    "topic": "Какие принципы программирования вы знаете",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "знаете",
+      "какие",
+      "принципы",
+      "программирования"
+    ]
+  },
+  {
+    "id": "kiss",
+    "question": "KISS",
+    "section": "Общее",
+    "topic": "Какие принципы программирования вы знаете",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "kiss",
+      "знаете",
+      "какие",
+      "принципы",
+      "программирования"
+    ]
+  },
+  {
+    "id": "dry",
+    "question": "DRY",
+    "section": "Общее",
+    "topic": "Какие принципы программирования вы знаете",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "dry",
+      "знаете",
+      "какие",
+      "принципы",
+      "программирования"
+    ]
+  },
+  {
+    "id": "yagni",
+    "question": "YAGNI",
+    "section": "Общее",
+    "topic": "Какие принципы программирования вы знаете",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "yagni",
+      "знаете",
+      "какие",
+      "принципы",
+      "программирования"
+    ]
+  },
+  {
+    "id": "slap",
+    "question": "SLAP",
+    "section": "Общее",
+    "topic": "Какие принципы программирования вы знаете",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "slap",
+      "знаете",
+      "какие",
+      "принципы",
+      "программирования"
+    ]
+  },
+  {
+    "id": "solid",
+    "question": "SOLID принципы",
+    "section": "Общее",
+    "topic": "Какие принципы программирования вы знаете",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "solid",
+      "знаете",
+      "какие",
+      "принципы",
+      "программирования"
+    ]
+  },
+  {
+    "id": "code-cohesion-code-coupling",
+    "question": "Что такое code cohesion & code coupling",
+    "section": "Общее",
+    "topic": "Что такое code cohesion & code coupling",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "code",
+      "cohesion",
+      "coupling"
+    ]
+  },
+  {
+    "id": "q-108",
+    "question": "Какие шаблоны проектирования вы знаете",
+    "section": "Общее",
+    "topic": "Какие шаблоны проектирования вы знаете",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "знаете",
+      "какие",
+      "проектирования",
+      "шаблоны"
+    ]
+  },
+  {
+    "id": "creational",
+    "question": "Порождающие (Creational)",
+    "section": "Общее",
+    "topic": "Какие шаблоны проектирования вы знаете",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "creational",
+      "знаете",
+      "какие",
+      "порождающие",
+      "проектирования",
+      "шаблоны"
+    ]
+  },
+  {
+    "id": "structural",
+    "question": "Структурные (Structural)",
+    "section": "Общее",
+    "topic": "Какие шаблоны проектирования вы знаете",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "structural",
+      "знаете",
+      "какие",
+      "проектирования",
+      "структурные",
+      "шаблоны"
+    ]
+  },
+  {
+    "id": "behavioral",
+    "question": "Поведенческие (Behavioral)",
+    "section": "Общее",
+    "topic": "Какие шаблоны проектирования вы знаете",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "behavioral",
+      "знаете",
+      "какие",
+      "поведенческие",
+      "проектирования",
+      "шаблоны"
+    ]
+  },
+  {
+    "id": "lru-cache",
+    "question": "Что такое lru cache",
+    "section": "Общее",
+    "topic": "Что такое lru cache",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "cache",
+      "lru"
+    ]
+  },
+  {
+    "id": "mq",
+    "question": "Что такое MQ",
+    "section": "Общее",
+    "topic": "Что такое MQ",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": []
+  },
+  {
+    "id": "mq-2",
+    "question": "Какие готовые реализации MQ вы знаете",
+    "section": "Общее",
+    "topic": "Какие готовые реализации MQ вы знаете",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "готовые",
+      "знаете",
+      "какие",
+      "реализации"
+    ]
+  },
+  {
+    "id": "rpc",
+    "question": "Что такое RPC",
+    "section": "Общее",
+    "topic": "Что такое RPC",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "rpc"
+    ]
+  },
+  {
+    "id": "gprc",
+    "question": "Что такое gPRC",
+    "section": "Общее",
+    "topic": "Что такое gPRC",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "gprc"
+    ]
+  },
+  {
+    "id": "q-109",
+    "question": "Что такое рекурсия. Какие минусы, плюсы",
+    "section": "Алгоритмы, структуры",
+    "topic": "Что такое рекурсия. Какие минусы, плюсы",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "какие",
+      "минусы",
+      "плюсы",
+      "рекурсия"
+    ]
+  },
+  {
+    "id": "q-110",
+    "question": "Что такое хвостовая рекурсия",
+    "section": "Алгоритмы, структуры",
+    "topic": "Что такое хвостовая рекурсия",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "рекурсия",
+      "хвостовая"
+    ]
+  },
+  {
+    "id": "python-3",
+    "question": "Как можно оптимизировать хвостовую рекурсию в Python",
+    "section": "Алгоритмы, структуры",
+    "topic": "Как можно оптимизировать хвостовую рекурсию в Python",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "python",
+      "можно",
+      "оптимизировать",
+      "рекурсию",
+      "хвостовую"
+    ]
+  },
+  {
+    "id": "q-111",
+    "question": "О-большое при оценке сложности",
+    "section": "Алгоритмы, структуры",
+    "topic": "О-большое при оценке сложности",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "большое",
+      "оценке",
+      "сложности"
+    ]
+  },
+  {
+    "id": "q-112",
+    "question": "Бинарный поиск",
+    "section": "Алгоритмы, структуры",
+    "topic": "Бинарный поиск",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "бинарный",
+      "поиск"
+    ]
+  },
+  {
+    "id": "q-113",
+    "question": "Рекурсивные алгоритмы",
+    "section": "Алгоритмы, структуры",
+    "topic": "Рекурсивные алгоритмы",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "алгоритмы",
+      "рекурсивные"
+    ]
+  },
+  {
+    "id": "q-114",
+    "question": "Быстрая сортировка",
+    "section": "Алгоритмы, структуры",
+    "topic": "Быстрая сортировка",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "быстрая",
+      "сортировка"
+    ]
+  },
+  {
+    "id": "q-115",
+    "question": "Граф",
+    "section": "Алгоритмы, структуры",
+    "topic": "Граф",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "граф"
+    ]
+  },
+  {
+    "id": "q-116",
+    "question": "Очередь и стек",
+    "section": "Алгоритмы, структуры",
+    "topic": "Очередь и стек",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "очередь",
+      "стек"
+    ]
+  },
+  {
+    "id": "q-117",
+    "question": "Дерево",
+    "section": "Алгоритмы, структуры",
+    "topic": "Дерево",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "дерево"
+    ]
+  },
+  {
+    "id": "q-118",
+    "question": "Поиск в ширину",
+    "section": "Алгоритмы, структуры",
+    "topic": "Поиск в ширину",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "поиск",
+      "ширину"
+    ]
+  },
+  {
+    "id": "q-119",
+    "question": "Алгоритм Дейкстры",
+    "section": "Алгоритмы, структуры",
+    "topic": "Алгоритм Дейкстры",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "алгоритм",
+      "дейкстры"
+    ]
+  },
+  {
+    "id": "q-120",
+    "question": "Жадные алгоритмы",
+    "section": "Алгоритмы, структуры",
+    "topic": "Жадные алгоритмы",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "алгоритмы",
+      "жадные"
+    ]
+  },
+  {
+    "id": "np",
+    "question": "Как распознать NP-полную задачу",
+    "section": "Алгоритмы, структуры",
+    "topic": "Как распознать NP-полную задачу",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "задачу",
+      "полную",
+      "распознать"
+    ]
+  },
+  {
+    "id": "q-121",
+    "question": "Динамическое программирование",
+    "section": "Алгоритмы, структуры",
+    "topic": "Динамическое программирование",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "динамическое",
+      "программирование"
+    ]
+  },
+  {
+    "id": "k",
+    "question": "Алгоритм k ближайших соседей",
+    "section": "Алгоритмы, структуры",
+    "topic": "Алгоритм k ближайших соседей",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "алгоритм",
+      "ближайших",
+      "соседей"
+    ]
+  },
+  {
+    "id": "q-122",
+    "question": "Алгоритм Ричарда Фейнмана",
+    "section": "Алгоритмы, структуры",
+    "topic": "Алгоритм Ричарда Фейнмана",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "алгоритм",
+      "ричарда",
+      "фейнмана"
+    ]
+  },
+  {
+    "id": "q-123",
+    "question": "Что такое куки. Зачем они, как с ними работать и где они сохраняются",
+    "section": "Frontend",
+    "topic": "Что такое куки. Зачем они, как с ними работать и где они сохраняются",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "где",
+      "зачем",
+      "куки",
+      "ними",
+      "они",
+      "работать",
+      "сохраняются"
+    ]
+  },
+  {
+    "id": "q-124",
+    "question": "Может ли сервер изменить (добавить, удалить) куки",
+    "section": "Frontend",
+    "topic": "Может ли сервер изменить (добавить, удалить) куки",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "добавить",
+      "изменить",
+      "куки",
+      "может",
+      "сервер",
+      "удалить"
+    ]
+  },
+  {
+    "id": "jwt-json-web-token",
+    "question": "Что такое JWT (JSON Web Token)",
+    "section": "Frontend",
+    "topic": "Что такое JWT (JSON Web Token)",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "json",
+      "jwt",
+      "token",
+      "web"
+    ]
+  },
+  {
+    "id": "agile-scrum",
+    "question": "Agile/Scrum",
+    "section": "SDLC",
+    "topic": "Agile/Scrum",
+    "tags": [
+      "gil"
+    ],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "agile",
+      "scrum"
+    ]
+  },
+  {
+    "id": "ci-cd",
+    "question": "Какая разница между CI и CD",
+    "section": "SDLC",
+    "topic": "Какая разница между CI и CD",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "какая",
+      "между",
+      "разница"
+    ]
+  },
+  {
+    "id": "scrum-kanban",
+    "question": "Какая разница между Scrum и Kanban",
+    "section": "SDLC",
+    "topic": "Какая разница между Scrum и Kanban",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "kanban",
+      "scrum",
+      "какая",
+      "между",
+      "разница"
+    ]
+  },
+  {
+    "id": "q-125",
+    "question": "Вопрос для тим-лидов: что Вы будете делать, если на проекте нет тестов и заказчик не хочет тратить на их разработку время и деньги",
+    "section": "SDLC",
+    "topic": "Вопрос для тим-лидов: что Вы будете делать, если на проекте нет тестов и заказчик не хочет тратить на их разработку время и деньги",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "будете",
+      "вопрос",
+      "время",
+      "делать",
+      "деньги",
+      "если",
+      "заказчик",
+      "лидов",
+      "нет",
+      "проекте",
+      "разработку",
+      "тестов",
+      "тим",
+      "тратить",
+      "хочет"
+    ]
+  },
+  {
+    "id": "code-debt",
+    "question": "Что такое Code Debt и как с ним быть",
+    "section": "SDLC",
+    "topic": "Что такое Code Debt и как с ним быть",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "code",
+      "debt",
+      "быть",
+      "ним"
+    ]
+  },
+  {
+    "id": "git-flow",
+    "question": "Что такое Git Flow",
+    "section": "VCS",
+    "topic": "Что такое Git Flow",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "flow",
+      "git"
+    ]
+  },
+  {
+    "id": "git-rebase",
+    "question": "Что такое Git Rebase",
+    "section": "VCS",
+    "topic": "Что такое Git Rebase",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "git",
+      "rebase"
+    ]
+  },
+  {
+    "id": "git-cherry-pick",
+    "question": "Что такое Git Cherry pick",
+    "section": "VCS",
+    "topic": "Что такое Git Cherry pick",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "cherry",
+      "git",
+      "pick"
+    ]
+  },
+  {
+    "id": "force-push",
+    "question": "Что такое force push",
+    "section": "VCS",
+    "topic": "Что такое force push",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "force",
+      "push"
+    ]
+  },
+  {
+    "id": "pre-commit-check",
+    "question": "Что такое pre-commit check",
+    "section": "VCS",
+    "topic": "Что такое pre-commit check",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "check",
+      "commit",
+      "pre"
+    ]
+  },
+  {
+    "id": "q-126",
+    "question": "Что такое транзакция. Какие у неё есть свойства",
+    "section": "БД",
+    "topic": "Что такое транзакция. Какие у неё есть свойства",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "есть",
+      "какие",
+      "неё",
+      "свойства",
+      "транзакция"
+    ]
+  },
+  {
+    "id": "q-127",
+    "question": "Какие команды управления транзакциями вы знаете",
+    "section": "БД",
+    "topic": "Какие команды управления транзакциями вы знаете",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "знаете",
+      "какие",
+      "команды",
+      "транзакциями",
+      "управления"
+    ]
+  },
+  {
+    "id": "q-128",
+    "question": "Что такое уровни изолированности транзакций. Какие они бывают",
+    "section": "БД",
+    "topic": "Что такое уровни изолированности транзакций. Какие они бывают",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "бывают",
+      "изолированности",
+      "какие",
+      "они",
+      "транзакций",
+      "уровни"
+    ]
+  },
+  {
+    "id": "q-129",
+    "question": "Что такое вложенные транзакции",
+    "section": "БД",
+    "topic": "Что такое вложенные транзакции",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "вложенные",
+      "транзакции"
+    ]
+  },
+  {
+    "id": "q-130",
+    "question": "Что такое курсор и зачем он нужен",
+    "section": "БД",
+    "topic": "Что такое курсор и зачем он нужен",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "зачем",
+      "курсор",
+      "нужен"
+    ]
+  },
+  {
+    "id": "postgresql-mysql",
+    "question": "Какая разница между PostgreSQL и MySQL",
+    "section": "БД",
+    "topic": "Какая разница между PostgreSQL и MySQL",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "mysql",
+      "postgresql",
+      "какая",
+      "между",
+      "разница"
+    ]
+  },
+  {
+    "id": "vacuum-postgresql",
+    "question": "Что такое VACUUM в PostgreSQL",
+    "section": "БД",
+    "topic": "Что такое VACUUM в PostgreSQL",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "postgresql",
+      "vacuum"
+    ]
+  },
+  {
+    "id": "explain-explain-analyze",
+    "question": "Что такое EXPLAIN. Какая разница между ним и EXPLAIN ANALYZE",
+    "section": "БД",
+    "topic": "Что такое EXPLAIN. Какая разница между ним и EXPLAIN ANALYZE",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "analyze",
+      "explain",
+      "какая",
+      "между",
+      "ним",
+      "разница"
+    ]
+  },
+  {
+    "id": "join",
+    "question": "Какие виды Join'ов вы знаете, чем они отличаются друг от друга",
+    "section": "БД",
+    "topic": "Какие виды Join'ов вы знаете, чем они отличаются друг от друга",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "join",
+      "виды",
+      "друг",
+      "друга",
+      "знаете",
+      "какие",
+      "они",
+      "отличаются"
+    ]
+  },
+  {
+    "id": "q-131",
+    "question": "План интервью",
+    "section": "Дизайн-интервью",
+    "topic": "План интервью",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "интервью",
+      "план"
+    ]
+  },
+  {
+    "id": "1",
+    "question": "1. Сбор требований",
+    "section": "Дизайн-интервью",
+    "topic": "1. Сбор требований",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "сбор",
+      "требований"
+    ]
+  },
+  {
+    "id": "2",
+    "question": "2. Эстимейты",
+    "section": "Дизайн-интервью",
+    "topic": "2. Эстимейты",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "эстимейты"
+    ]
+  },
+  {
+    "id": "3-api",
+    "question": "3. API",
+    "section": "Дизайн-интервью",
+    "topic": "3. API",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "api"
+    ]
+  },
+  {
+    "id": "4-high-level-design",
+    "question": "4. High-level design",
+    "section": "Дизайн-интервью",
+    "topic": "4. High-level design",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "design",
+      "high",
+      "level"
+    ]
+  },
+  {
+    "id": "5-detailed-design",
+    "question": "5. Detailed design",
+    "section": "Дизайн-интервью",
+    "topic": "5. Detailed design",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "design",
+      "detailed"
+    ]
+  },
+  {
+    "id": "performance-mantras",
+    "question": "Performance mantras",
+    "section": "Дизайн-интервью",
+    "topic": "5. Detailed design",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "design",
+      "detailed",
+      "mantras",
+      "performance"
+    ]
+  },
+  {
+    "id": "6",
+    "question": "6. Масштабирование",
+    "section": "Дизайн-интервью",
+    "topic": "6. Масштабирование",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "масштабирование"
+    ]
+  },
+  {
+    "id": "performance-bottlenecks",
+    "question": "Performance bottlenecks",
+    "section": "Дизайн-интервью",
+    "topic": "6. Масштабирование",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "bottlenecks",
+      "performance",
+      "масштабирование"
+    ]
+  },
+  {
+    "id": "hr",
+    "question": "Вопросы HR'у",
+    "section": "Вопросы работодателю",
+    "topic": "Вопросы HR'у",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "вопросы"
+    ]
+  },
+  {
+    "id": "q-132",
+    "question": "Вопросы для технического собеседования",
+    "section": "Вопросы работодателю",
+    "topic": "Вопросы для технического собеседования",
+    "tags": [],
+    "priority": "low_rare_python_developer",
+    "keywords": [
+      "вопросы",
+      "собеседования",
+      "технического"
+    ]
+  }
+]

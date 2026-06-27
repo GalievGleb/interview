@@ -13,11 +13,20 @@
 # Whisper model files themselves are downloaded at runtime into the user cache,
 # not bundled here.
 
+import os
+
 from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 datas: list = []
 binaries: list = []
 hiddenimports: list = []
+
+# Python Knowledge Pack runtime data (parsed records; NOT the raw source md).
+_pack_rel = os.path.join("app", "knowledge", "packs", "python_interview_questions")
+for _fn in ("index.json", "answers.json", "metadata.json"):
+    _src = os.path.join(_pack_rel, _fn)
+    if os.path.exists(_src):
+        datas.append((_src, _pack_rel))
 
 for pkg in ("faster_whisper", "ctranslate2", "tokenizers", "onnxruntime", "av", "huggingface_hub"):
     try:

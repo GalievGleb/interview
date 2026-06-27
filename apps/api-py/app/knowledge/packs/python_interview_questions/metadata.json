@@ -1,0 +1,16 @@
+{
+  "sourceName": "yakimka/python_interview_questions",
+  "sourceUrl": "https://github.com/yakimka/python_interview_questions",
+  "license": "MIT",
+  "sourceQuality": "community_unverified",
+  "defaultEnabled": true,
+  "priority": "medium",
+  "useOnlyWhenIntent": "python_question",
+  "recordCount": 238,
+  "byPriority": {
+    "high_for_aqa": 106,
+    "medium": 24,
+    "low_rare_python_developer": 108
+  },
+  "note": "Auxiliary reference only. Answers may contain inaccuracies — normalize to Skillcue format and never override QA Automation context or candidate resume."
+}
