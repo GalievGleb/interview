@@ -69,6 +69,18 @@ interface LiveTimingState {
   llmEndAt: number | null;
 }
 
+// On-device STT (even large-v3 on CPU) finalises within a few seconds. A client
+// fallback latency far above this is an anchoring artifact (silence gaps,
+// filtered hallucinations), not a real measurement — drop it instead of logging
+// a misleading 30–70s value.
+const MAX_PLAUSIBLE_STT_LATENCY_MS = 20000;
+
+function sanitizeSttLatencyMs(value: number): number | undefined {
+  if (!Number.isFinite(value) || value < 0) return undefined;
+  if (value > MAX_PLAUSIBLE_STT_LATENCY_MS) return undefined;
+  return value;
+}
+
 function emptyTimingState(): LiveTimingState {
   return {
     audioCaptureStartAt: null,
@@ -308,10 +320,14 @@ export function useLiveCopilot() {
       ...buildTimingDebug(timingRef.current),
       // Prefer the server-measured speech-end -> final latency (the desktop can
       // only see when the final *arrived*, not when speech ended on the server).
+      // The client fallback can be anchored to a stale/earlier moment after
+      // silence or filtered hallucinations, producing absurd values (30s, 70s).
+      // Real STT is a second or two, so discard an implausible fallback rather
+      // than record a misleading number.
       timeToFinalMs:
         serverTimingsRef.current?.speechEndToFinalMs ??
         (questionFinalAtRef.current != null
-          ? answerStartedAt - questionFinalAtRef.current
+          ? sanitizeSttLatencyMs(answerStartedAt - questionFinalAtRef.current)
           : undefined),
       finalTranscriptionMs:
         serverTimingsRef.current?.finalInferenceMs ?? buildTimingDebug(timingRef.current).finalTranscriptionMs,
