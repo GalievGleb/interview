@@ -252,7 +252,14 @@ export function resolveFollowUpQuestion(input: ResolveFollowUpInput): FollowUpRe
     };
   }
 
-  const topic = previousTopic;
+  // A pronoun («его/это/он…») refers to the nearest EXPLICIT technical entity in
+  // the CURRENT question if there is one — only fall back to the previous topic
+  // when the current question has no explicit entity of its own. This stops
+  // previousTopic=API from overwriting an explicit «Docker» in the same question.
+  const explicitCurrent = extractExplicitCanonicalTopic(intentCorrected, corrections);
+  const usingCurrentEntity = Boolean(explicitCurrent);
+  const topic = explicitCurrent ?? previousTopic;
+
   if (!topic || !followUpCandidate) {
     return {
       resolvedQuestion: intentCorrected,
@@ -266,7 +273,9 @@ export function resolveFollowUpQuestion(input: ResolveFollowUpInput): FollowUpRe
     };
   }
 
-  if (termInQuestion(topic, intentCorrected)) {
+  // When binding to the previous topic and it is already in the question, leave it
+  // as-is. For the current question's own entity we still resolve the pronoun.
+  if (!usingCurrentEntity && termInQuestion(topic, intentCorrected)) {
     return {
       resolvedQuestion: intentCorrected,
       usedPreviousContext: false,
@@ -284,13 +293,15 @@ export function resolveFollowUpQuestion(input: ResolveFollowUpInput): FollowUpRe
   const { text, reason } = buildResolvedQuestion(intentCorrected, topic);
   return {
     resolvedQuestion: text,
-    usedPreviousContext: true,
+    usedPreviousContext: !usingCurrentEntity,
     isFollowUp: true,
     resolvedTopic: topic,
-    reason,
+    reason: usingCurrentEntity
+      ? `pronoun → explicit entity «${topic}» in current question`
+      : reason,
     resetPreviousTopic: false,
     currentTopic: topic,
-    wasPreviousTopicUsed: true,
+    wasPreviousTopicUsed: !usingCurrentEntity,
     hallucinationRisk,
     confidence: 'high',
   };

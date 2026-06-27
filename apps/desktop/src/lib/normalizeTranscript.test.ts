@@ -1,5 +1,31 @@
 import { describe, it, expect } from 'vitest';
-import { isGarbageTranscript, looksLikeQuestion, normalizeTranscript } from './normalizeTranscript';
+import {
+  isGarbageTranscript,
+  isNonQuestionFragment,
+  looksLikeQuestion,
+  normalizeTranscript,
+} from './normalizeTranscript';
+
+describe('quality gate — non-question fragments', () => {
+  it('does NOT treat «как-то/как бы…» filler as a question', () => {
+    expect(looksLikeQuestion('Как-то мы сразу убрали.')).toBe(false);
+    expect(looksLikeQuestion('Как бы мы это потом делали')).toBe(false);
+    expect(isNonQuestionFragment('Как-то мы сразу убрали.')).toBe(true);
+  });
+
+  it('flags short «?»-fragments with no intent as non-questions', () => {
+    expect(isNonQuestionFragment('Вместе или не?')).toBe(true);
+    expect(isNonQuestionFragment('Спасибо.')).toBe(true);
+    expect(isNonQuestionFragment('Слышите?')).toBe(true);
+  });
+
+  it('still accepts real questions and tech-entity questions', () => {
+    expect(looksLikeQuestion('Как ты настраивал Docker на проекте?')).toBe(true);
+    expect(isNonQuestionFragment('Как ты настраивал Docker на проекте?')).toBe(false);
+    expect(looksLikeQuestion('Какие бывают виды тестирования?')).toBe(true);
+    expect(isNonQuestionFragment('Какие бывают виды тестирования?')).toBe(false);
+  });
+});
 
 describe('normalizeTranscript', () => {
   it('does not duplicate the Cyrillic ending of тест-дизайна', () => {

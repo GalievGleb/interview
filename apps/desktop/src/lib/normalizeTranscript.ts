@@ -125,20 +125,46 @@ export function questionChanged(prev: string, next: string): boolean {
   return true;
 }
 
+// Technical entities that, when present, mark a phrase as carrying interview
+// intent even without a clean interrogative.
+const TECH_ENTITY_RE =
+  /(?<![\p{L}\p{N}])(?:docker|ci\/?cd|api|pytest|playwright|allure|gitlab|jenkins|httpx|requests|page\s*object|pom|linux|selenium|kafka|kubernetes|fixture|conftest|smoke|regression|sql|grep)(?![\p{L}\p{N}])/iu;
+
+// «как-то / как бы / как раз / как будто» are NOT interrogative — they only look
+// like a question because they start with «как».
+const NON_INTERROGATIVE_KAK_RE = /^как[\s-]*(?:то|бы|раз|будто)(?![\p{L}\p{N}])/iu;
+
+function hasQuestionSignal(t: string): boolean {
+  return (
+    /^(?:какие|какой|какая|какую|каких|каким|что|чем|зачем|почему|где|когда|расскаж|опиш|назов|перечисл|можно|благодаря|с\s+помощью|паттерн|скаж|принцип)/iu.test(
+      t,
+    ) ||
+    /^как(?![\s-]*(?:то|бы|раз|будто))/iu.test(t) ||
+    /что\s+значит|что\s+такое|что\s+это\s+за|автоматиз/i.test(t) ||
+    /(?<![\p{L}\p{N}])ли(?![\p{L}\p{N}])/iu.test(t) ||
+    TECH_ENTITY_RE.test(t)
+  );
+}
+
 export function looksLikeQuestion(text: string): boolean {
   const t = normalizeTranscript(text.trim());
   if (t.length < 8) return false;
-  return (
-    /[?]|^(как|что|какие|какой|какая|какую|расскаж|опиш|назов|перечисл|чем|можно|благодаря|с\s+помощью|зачем|почему|где|когда|паттерн|скаж|принцип)/iu.test(
-      t,
-    ) ||
-    /что\s+значит|что\s+такое|что\s+это\s+за|автоматиз/i.test(t) ||
-    // Yes/no questions with the «ли» particle ("Настраивал ли ты сам pipeline",
-    // "Будешь ли ты…") — STT often drops the question mark, so без этого они
-    // считались утверждениями и оставались без ответа. (\b is ASCII-only in JS,
-    // so use a Unicode-aware boundary.)
-    /(?<![\p{L}\p{N}])ли(?![\p{L}\p{N}])/iu.test(t)
-  );
+  if (NON_INTERROGATIVE_KAK_RE.test(t)) return false;
+  return /[?]/u.test(t) || hasQuestionSignal(t);
+}
+
+/**
+ * A non-question fragment that must NOT trigger an LLM answer even though it may
+ * contain «?»: a short fragment with no interrogative word, no «ли», no technical
+ * entity (e.g. «Вместе или не?»), or a «как-то/как бы…» filler opener.
+ */
+export function isNonQuestionFragment(text: string): boolean {
+  const t = normalizeTranscript(text.trim()).toLowerCase();
+  if (!t) return true;
+  if (NON_INTERROGATIVE_KAK_RE.test(t)) return true;
+  const words = t.split(/\s+/).filter(Boolean);
+  if (words.length <= 4 && !hasQuestionSignal(t)) return true;
+  return false;
 }
 
 export function countMeaningfulWords(text: string): number {
