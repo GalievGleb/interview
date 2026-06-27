@@ -1,5 +1,23 @@
 import { describe, it, expect } from 'vitest';
-import { isGarbageTranscript } from './normalizeTranscript';
+import { isGarbageTranscript, looksLikeQuestion } from './normalizeTranscript';
+
+describe('looksLikeQuestion', () => {
+  it('recognizes «ли» yes/no questions even without a question mark', () => {
+    expect(looksLikeQuestion('Настраивал ли ты сам pipeline.')).toBe(true);
+    expect(looksLikeQuestion('Будешь ли ты закрывать баг перед релизом')).toBe(true);
+    expect(looksLikeQuestion('Использовал ли ты Docker на проекте')).toBe(true);
+  });
+
+  it('still recognizes wh-questions and question marks', () => {
+    expect(looksLikeQuestion('Какие бывают виды тестирования?')).toBe(true);
+    expect(looksLikeQuestion('Расскажи про свой опыт работы')).toBe(true);
+  });
+
+  it('does not treat plain statements as questions', () => {
+    expect(looksLikeQuestion('Я настраивал пайплайн на прошлой работе')).toBe(false);
+    expect(looksLikeQuestion('Меня зовут Глеб')).toBe(false);
+  });
+});
 
 describe('isGarbageTranscript', () => {
   it('flags empty / too-short input', () => {

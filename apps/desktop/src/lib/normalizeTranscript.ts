@@ -123,9 +123,17 @@ export function questionChanged(prev: string, next: string): boolean {
 export function looksLikeQuestion(text: string): boolean {
   const t = normalizeTranscript(text.trim());
   if (t.length < 8) return false;
-  return /[?]|^(как|что|какие|какой|какая|какую|расскаж|опиш|назов|перечисл|чем|можно|благодаря|с\s+помощью|зачем|почему|где|когда|паттерн|скаж|принцип)/iu.test(
-    t,
-  ) || /что\s+значит|что\s+такое|что\s+это\s+за|автоматиз/i.test(t);
+  return (
+    /[?]|^(как|что|какие|какой|какая|какую|расскаж|опиш|назов|перечисл|чем|можно|благодаря|с\s+помощью|зачем|почему|где|когда|паттерн|скаж|принцип)/iu.test(
+      t,
+    ) ||
+    /что\s+значит|что\s+такое|что\s+это\s+за|автоматиз/i.test(t) ||
+    // Yes/no questions with the «ли» particle ("Настраивал ли ты сам pipeline",
+    // "Будешь ли ты…") — STT often drops the question mark, so без этого они
+    // считались утверждениями и оставались без ответа. (\b is ASCII-only in JS,
+    // so use a Unicode-aware boundary.)
+    /(?<![\p{L}\p{N}])ли(?![\p{L}\p{N}])/iu.test(t)
+  );
 }
 
 export function countMeaningfulWords(text: string): number {
