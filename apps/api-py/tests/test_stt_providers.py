@@ -15,9 +15,9 @@ from app.services.stt.whisper_models import DEFAULT_QUALITY, get_model_spec
 
 
 # --- manifest ------------------------------------------------------------
-def test_manifest_has_three_quality_tiers():
+def test_manifest_has_expected_quality_tiers():
     qualities = {m["quality"] for m in manifest()}
-    assert qualities == {"fast", "balanced", "quality"}
+    assert qualities == {"fast", "balanced", "quality", "max"}
 
 
 def test_manifest_entries_have_required_fields():

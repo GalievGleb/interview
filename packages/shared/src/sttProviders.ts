@@ -15,7 +15,7 @@
 
 export type SttProviderId = 'whisper-local' | 'deepgram-cloud';
 export type SttProviderMode = 'local' | 'cloud';
-export type WhisperQuality = 'fast' | 'balanced' | 'quality';
+export type WhisperQuality = 'fast' | 'balanced' | 'quality' | 'max';
 
 /** Privacy/resource copy — kept byte-for-byte in sync with the backend. */
 export const STT_PRIVACY_LOCAL =
@@ -58,7 +58,7 @@ export interface WhisperModelCard {
   approxDownloadMb: number;
   recommendedRamGb: number;
   recommendedDevice: 'cpu' | 'gpu' | 'any';
-  expectedSpeed: 'fastest' | 'balanced' | 'slower';
+  expectedSpeed: 'fastest' | 'balanced' | 'slower' | 'gpu-only';
 }
 
 export const WHISPER_MODEL_CARDS: WhisperModelCard[] = [
@@ -97,6 +97,18 @@ export const WHISPER_MODEL_CARDS: WhisperModelCard[] = [
     recommendedRamGb: 8,
     recommendedDevice: 'gpu',
     expectedSpeed: 'slower',
+  },
+  {
+    quality: 'max',
+    modelId: 'large-v3',
+    label: 'Max accuracy',
+    recommended: false,
+    description:
+      'Best accuracy on Russian and technical terms. Needs an NVIDIA GPU to stay fast (~1s per question on a modern GPU; very slow on CPU). Largest download. Recommended when a GPU is available.',
+    approxDownloadMb: 3100,
+    recommendedRamGb: 10,
+    recommendedDevice: 'gpu',
+    expectedSpeed: 'gpu-only',
   },
 ];
 

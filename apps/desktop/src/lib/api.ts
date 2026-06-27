@@ -5,7 +5,7 @@ import {
   NormalizedModel,
 } from './aiModels';
 
-export type WhisperQualityId = 'fast' | 'balanced' | 'quality';
+export type WhisperQualityId = 'fast' | 'balanced' | 'quality' | 'max';
 export type SttDeviceId = 'auto' | 'cpu' | 'gpu';
 
 export interface SttModelStatus {

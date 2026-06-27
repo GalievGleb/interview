@@ -15,7 +15,7 @@ from app.config import DATA_DIR, get_settings
 
 STT_SETTINGS_PATH = DATA_DIR / "stt_settings.json"
 
-VALID_MODELS = {"fast", "balanced", "quality"}
+VALID_MODELS = {"fast", "balanced", "quality", "max"}
 VALID_DEVICES = {"auto", "cpu", "gpu"}
 
 

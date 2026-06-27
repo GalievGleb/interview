@@ -14,12 +14,13 @@ import {
   type WhisperQualityId,
 } from '../lib/api';
 
-const QUALITIES: WhisperQualityId[] = ['fast', 'balanced', 'quality'];
+const QUALITIES: WhisperQualityId[] = ['fast', 'balanced', 'quality', 'max'];
 
 const METERS: Record<WhisperQualityId, { speed: number; acc: number; res: number }> = {
   fast: { speed: 3, acc: 1, res: 1 },
   balanced: { speed: 2, acc: 2, res: 2 },
   quality: { speed: 1, acc: 3, res: 3 },
+  max: { speed: 1, acc: 3, res: 3 },
 };
 
 function Meter({ label, level, kind }: { label: string; level: number; kind: 'speed' | 'acc' | 'res' }) {
@@ -59,7 +60,7 @@ function Radio({ selected }: { selected: boolean }) {
 
 type StatusMap = Record<WhisperQualityId, SttModelStatus | null>;
 
-const EMPTY_STATUS: StatusMap = { fast: null, balanced: null, quality: null };
+const EMPTY_STATUS: StatusMap = { fast: null, balanced: null, quality: null, max: null };
 
 /** Speech Recognition settings: mode, local model manager, device, privacy. */
 export default function SpeechRecognitionSettings() {

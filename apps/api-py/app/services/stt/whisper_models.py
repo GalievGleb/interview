@@ -21,6 +21,7 @@ class QualityLevel(str, Enum):
     FAST = "fast"
     BALANCED = "balanced"
     QUALITY = "quality"
+    MAX = "max"
 
 
 @dataclass(frozen=True)
@@ -94,6 +95,21 @@ WHISPER_MODELS: tuple[WhisperModelSpec, ...] = (
         recommended_device="gpu",
         expected_speed="slower",
         download_repo="Systran/faster-whisper-medium",
+    ),
+    WhisperModelSpec(
+        quality=QualityLevel.MAX,
+        model_id="large-v3",
+        label="Max accuracy",
+        description=(
+            "Best accuracy on Russian and technical terms. Requires an NVIDIA "
+            "GPU to stay fast (about a second per question on a modern GPU; very "
+            "slow on CPU). Largest download. Recommended when a GPU is available."
+        ),
+        approx_download_mb=3100,
+        recommended_ram_gb=10,
+        recommended_device="gpu",
+        expected_speed="gpu-only",
+        download_repo="Systran/faster-whisper-large-v3",
     ),
 )
 
