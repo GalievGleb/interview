@@ -1,5 +1,5 @@
 [
-  { "canonical": "CI/CD", "aliases": ["си ай си ди", "си си ди", "сейчас сиди", "саседин", "cicd", "ci cd", "cfd", "aicd", "ai cd", "с aicd", "aicd и", "icd", "ай си ди", "айсиди", "сиай сиди"] },
+  { "canonical": "CI/CD", "aliases": ["си ай си ди", "си си ди", "сейчас сиди", "саседин", "cicd", "ci cd", "cfd", "aicd", "ai cd", "с aicd", "aicd и", "icd", "ай си ди", "айсиди", "сиай сиди", "uci-cd", "uci cd", "ucicd", "юси сиди", "u ci cd"] },
   { "canonical": "Jenkins", "aliases": ["джанкин", "дженкин", "дженкинс", "джентленс", "jumpkins"] },
   { "canonical": "GitLab CI", "aliases": ["гитлаб си ай", "gitlab ci", "делатлавсиан", "delatlavsian"] },
   { "canonical": "Python", "aliases": ["python", "пайтон", "питон", "пингтон", "piton"] },
