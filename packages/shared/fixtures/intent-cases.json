@@ -1,0 +1,10 @@
+[
+  { "question": "Какие бывают виды тестирования?", "intent": "technical_list" },
+  { "question": "Расскажи про свой опыт работы", "intent": "experience" },
+  { "question": "Расскажи про подработку", "intent": "experience" },
+  { "question": "Чем list отличается от tuple?", "intent": "technical_comparison" },
+  { "question": "В чём разница PUT и PATCH?", "intent": "technical_comparison" },
+  { "question": "Что такое декоратор?", "intent": "technical_definition" },
+  { "question": "Как ты настраивал Docker?", "intent": "practical_usage" },
+  { "question": "Какие ошибки бывают в Page Object Model?", "intent": "technical_list" }
+]

@@ -1,0 +1,37 @@
+[
+  {
+    "name": "label + chatgpt tail",
+    "input": "Main answer: POM — это паттерн. Если хотите, могу подробнее рассказать.",
+    "mustNotContain": ["Main answer", "если хотите"],
+    "mustContain": ["POM"]
+  },
+  {
+    "name": "markdown header + filler opener",
+    "input": "## Key points\nfixtures дают setup и teardown. Важно отметить, что scope бывает function и session.",
+    "mustNotContain": ["#", "Key points", "Важно отметить"],
+    "mustContain": ["fixtures", "scope"]
+  },
+  {
+    "name": "empty filler sentence",
+    "input": "Я проверял status code и schema. В разных контекстах могут быть разные подходы.",
+    "mustNotContain": ["разные подходы"],
+    "mustContain": ["status code"]
+  },
+  {
+    "name": "inline labels with colon",
+    "input": "Main answer: Это паттерн. Key points: scope и conftest.",
+    "mustNotContain": ["Main answer", "Key points"],
+    "mustContain": ["паттерн", "conftest"]
+  },
+  {
+    "name": "clean technical answer untouched",
+    "input": "CI/CD я настраивал в GitLab: stages, Docker, запуск pytest, Allure и артефакты.",
+    "equals": "CI/CD я настраивал в GitLab: stages, Docker, запуск pytest, Allure и артефакты."
+  },
+  {
+    "name": "diagnostic prefix removed",
+    "input": "Похоже, вопрос про Jenkins. Jenkins — это инструмент CI/CD.",
+    "mustNotContain": ["Похоже"],
+    "mustContain": ["Jenkins"]
+  }
+]
