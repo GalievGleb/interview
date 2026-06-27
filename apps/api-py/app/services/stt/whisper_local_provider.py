@@ -34,6 +34,44 @@ from .whisper_models import DEFAULT_QUALITY, QualityLevel, get_model_spec
 
 logger = logging.getLogger("stt.whisper")
 
+
+def _register_cuda_dll_dirs() -> None:
+    """Make CUDA runtime DLLs from the nvidia-* pip packages loadable on Windows.
+
+    ctranslate2 needs cuBLAS + cuDNN at runtime to use the GPU. When these ship as
+    pip wheels (nvidia-cublas-cu12 / nvidia-cudnn-cu12) the DLLs live under
+    ``site-packages/nvidia/*/bin`` and are NOT on the DLL search path, so the GPU
+    silently falls back to CPU. Registering those dirs here (and prepending them
+    to PATH) lets both ``ctypes.WinDLL`` probing and ctranslate2's own loader find
+    them — turning the GPU path on without any manual environment setup.
+    """
+    if os.name != "nt":
+        return
+    try:
+        import sysconfig
+
+        purelib = sysconfig.get_paths().get("purelib")
+    except Exception:  # noqa: BLE001
+        return
+    if not purelib:
+        return
+    nvidia_root = Path(purelib) / "nvidia"
+    if not nvidia_root.is_dir():
+        return
+    for bin_dir in nvidia_root.glob("*/bin"):
+        if not bin_dir.is_dir():
+            continue
+        path_str = str(bin_dir)
+        try:
+            os.add_dll_directory(path_str)
+        except OSError:
+            continue
+        if path_str not in os.environ.get("PATH", ""):
+            os.environ["PATH"] = path_str + os.pathsep + os.environ.get("PATH", "")
+
+
+_register_cuda_dll_dirs()
+
 # Local model cache lives under the app data dir so the UI can show size and
 # offer "delete model" without touching the global HF cache. A packaged build can
 # point this at a bundled, pre-downloaded cache via SKILLCUE_MODELS_DIR so the
