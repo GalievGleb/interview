@@ -14,6 +14,8 @@ export default function MeetingPage() {
   const [error, setError] = useState('');
   const [fileName, setFileName] = useState('');
   const [dragOver, setDragOver] = useState(false);
+  const [localLlm, setLocalLlm] = useState(false);
+  const [localModel, setLocalModel] = useState('llama3.1');
   const fileRef = useRef<HTMLInputElement>(null);
   const cancelRef = useRef<(() => void) | null>(null);
 
@@ -42,28 +44,21 @@ export default function MeetingPage() {
     setLoading(true);
     setError('');
     setResult('');
-    if (mode === 'review') {
-      // Stream the review token-by-token for instant feedback.
-      cancelRef.current = api.streamInterviewReview(transcript, {
+    // Both modes stream token-by-token for instant feedback.
+    const stream = mode === 'review' ? api.streamInterviewReview : api.streamMeetingSummary;
+    const opts = localLlm ? { provider: 'ollama', model: localModel.trim() || 'llama3.1' } : {};
+    cancelRef.current = stream(
+      transcript,
+      {
         onChunk: (t) => setResult((prev) => prev + t),
         onDone: () => setLoading(false),
         onError: (m) => {
           setError(m);
           setLoading(false);
         },
-      });
-    } else {
-      void (async () => {
-        try {
-          const res = await api.meetingSummary(transcript);
-          setResult(res.summary);
-        } catch (err) {
-          setError(err instanceof Error ? err.message : 'Ошибка');
-        } finally {
-          setLoading(false);
-        }
-      })();
-    }
+      },
+      opts,
+    );
   };
 
   return (
@@ -76,11 +71,37 @@ export default function MeetingPage() {
         </p>
       </div>
 
-      {!hasAnyKey && (
+      {!hasAnyKey && !localLlm && (
         <div className="mb-4 rounded-xl border border-amber-700/30 bg-amber-950/20 p-3.5 text-sm text-amber-200">
-          Сначала добавьте API-ключ в «Настройках».
+          Сначала добавьте API-ключ в «Настройках» — или включите локальную модель ниже.
         </div>
       )}
+
+      {/* Local LLM (Ollama) — privacy + zero cost, off the live path */}
+      <div className="mb-3 flex flex-wrap items-center gap-3">
+        <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-ink-muted">
+          <input
+            type="checkbox"
+            checked={localLlm}
+            onChange={(e) => setLocalLlm(e.target.checked)}
+            className="h-4 w-4 accent-[#6366f1]"
+          />
+          Локально (Ollama)
+        </label>
+        {localLlm && (
+          <>
+            <input
+              value={localModel}
+              onChange={(e) => setLocalModel(e.target.value)}
+              placeholder="модель (например llama3.1)"
+              className="field max-w-[220px] py-1.5 text-xs"
+            />
+            <span className="text-xs text-ink-faint">
+              Нужен запущенный Ollama (localhost:11434). Анализ не уходит в облако.
+            </span>
+          </>
+        )}
+      </div>
 
       <div className="segmented mb-3" role="group" aria-label="Режим анализа">
         <button

@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
+import { WHISPER_MODEL_CARDS } from '@interview/shared';
+import { api } from '../lib/api';
 import { useApp } from '../context/AppContext';
 import StatusBadge from './ui/StatusBadge';
 
@@ -167,6 +169,32 @@ export default function Sidebar() {
   const sessionLive = useSessionLive();
   const [undetected, setUndetected] = useState(false);
   const [hiddenTaskbar, setHiddenTaskbar] = useState(false);
+  const [model, setModel] = useState<{ label: string; mb: number; ready: boolean } | null>(null);
+
+  useEffect(() => {
+    if (!backendOnline) return;
+    let alive = true;
+    void (async () => {
+      try {
+        const s = await api.getSttSettings();
+        const q = s.final_model ?? s.local_model;
+        const card = WHISPER_MODEL_CARDS.find((c) => c.quality === q);
+        const st = await api.sttModelStatus(q).catch(() => null);
+        if (alive) {
+          setModel({
+            label: card?.label ?? q,
+            mb: card?.approxDownloadMb ?? 0,
+            ready: st?.downloaded ?? false,
+          });
+        }
+      } catch {
+        /* backend not ready — keep placeholder */
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [backendOnline]);
 
   return (
     <aside className="flex w-[220px] shrink-0 flex-col border-r border-surface-border bg-surface-panel">
@@ -244,11 +272,15 @@ export default function Sidebar() {
           <span className="min-w-0 flex-1 leading-tight">
             <span className="flex items-center gap-1.5 text-[13px] font-medium text-ink">
               Whisper
-              <span className="sc-dot sc-dot--success" />
-              <span className="text-[11px] font-normal text-emerald-400">Ready</span>
+              <span className={`sc-dot ${model?.ready ? 'sc-dot--success' : 'sc-dot--warning'}`} />
+              <span
+                className={`text-[11px] font-normal ${model?.ready ? 'text-emerald-400' : 'text-ink-faint'}`}
+              >
+                {model ? (model.ready ? 'Ready' : 'Not downloaded') : '…'}
+              </span>
             </span>
             <span className="sc-mono block truncate text-[11px] text-ink-faint">
-              Balanced · ~480 MB
+              {model ? `${model.label}${model.mb ? ` · ~${model.mb} MB` : ''}` : 'Local Whisper'}
             </span>
           </span>
         </button>

@@ -1,20 +1,48 @@
 import { useEffect, useState } from 'react';
 import { api, type SttDiagnostics } from '../lib/api';
 import { useApp } from '../context/AppContext';
+import { readSkipped, type SkippedEntry } from '../lib/skippedLog';
 
 interface MicStatus {
   count: number;
   permission: string;
 }
 
-/** Diagnostics: STT provider/model/device/latency/last error + mic + backend. */
+interface LastTimings {
+  firstPartialMs: number | null;
+  transcribeMs: number | null;
+  sttFinalMs: number | null;
+  llmFirstMs: number | null;
+  llmTotalMs: number | null;
+  totalMs: number;
+  at: number;
+}
+
+function secs(ms?: number | null): string {
+  if (ms == null || !Number.isFinite(ms)) return '—';
+  return `${(ms / 1000).toFixed(2)} s`;
+}
+
+function readTimings(): LastTimings | null {
+  try {
+    const raw = localStorage.getItem('skillcue:lastTimings');
+    return raw ? (JSON.parse(raw) as LastTimings) : null;
+  } catch {
+    return null;
+  }
+}
+
 export default function DiagnosticsPanel() {
   const { backendOnline } = useApp();
   const [diag, setDiag] = useState<SttDiagnostics | null>(null);
   const [mic, setMic] = useState<MicStatus | null>(null);
+  const [timings, setTimings] = useState<LastTimings | null>(readTimings);
+  const [skipped, setSkipped] = useState<SkippedEntry[]>(readSkipped);
   const [error, setError] = useState('');
 
   const refresh = () => {
+    setTimings(readTimings());
+    setSkipped(readSkipped());
     api
       .sttDiagnostics()
       .then(setDiag)
@@ -30,14 +58,13 @@ export default function DiagnosticsPanel() {
         const inputs = devices.filter((d) => d.kind === 'audioinput');
         let permission = 'unknown';
         try {
-          // 'microphone' isn't in every lib.dom PermissionName union — query loosely.
           const perms = navigator.permissions as
             | { query?: (d: { name: string }) => Promise<{ state: string }> }
             | undefined;
           const p = await perms?.query?.({ name: 'microphone' });
           if (p) permission = p.state;
         } catch {
-          // Permissions API not available — leave as unknown.
+          /* Permissions API not available */
         }
         if (alive) setMic({ count: inputs.length, permission });
       } catch {
@@ -51,46 +78,158 @@ export default function DiagnosticsPanel() {
 
   const ready = diag?.reason === 'ready';
 
+  const stages = timings
+    ? [
+        { name: 'STT first partial', ms: timings.firstPartialMs ?? 0, color: '#38bdf8' },
+        { name: 'STT final', ms: timings.transcribeMs ?? 0, color: '#34d399' },
+        { name: 'LLM first token', ms: timings.llmFirstMs ?? 0, color: '#fbbf24' },
+        {
+          name: 'LLM complete',
+          ms: Math.max((timings.llmTotalMs ?? 0) - (timings.llmFirstMs ?? 0), 0),
+          color: '#6366f1',
+        },
+      ].filter((s) => s.ms > 0)
+    : [];
+  const totalStage = stages.reduce((sum, s) => sum + s.ms, 0);
+  let cumulative = 0;
+
   return (
-    <div className="card mb-5 space-y-4 p-5">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-ink">Диагностика</h3>
+    <div className="space-y-4">
+      <div className="flex justify-end">
         <button type="button" onClick={refresh} className="btn-secondary btn-sm">
-          Обновить
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 12a9 9 0 0 1 15-6.7L21 8M21 3v5h-5M21 12a9 9 0 0 1-15 6.7L3 16M3 21v-5h5" />
+          </svg>
+          Refresh
         </button>
       </div>
 
-      <div className="grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2">
-        <Row label="Backend" value={backendOnline ? 'онлайн' : 'оффлайн'} ok={backendOnline} />
-        <Row label="STT-движок" value={diag?.provider ?? '—'} />
-        <Row label="Модель" value={diag?.model ?? diag?.localModel ?? '—'} />
-        <Row label="Устройство" value={(diag?.device ?? '—').toUpperCase()} />
-        <Row
-          label="Статус модели"
-          value={diag ? (ready ? 'готова' : diag.reason) : '—'}
-          ok={ready}
-        />
-        <Row
-          label="Микрофон"
-          value={mic ? `${mic.count} устр. · доступ: ${mic.permission}` : '—'}
-          ok={mic ? mic.count > 0 && mic.permission !== 'denied' : undefined}
-        />
-        <Row
-          label="Средняя латентность STT"
-          value={diag?.avgBenchmarkLatencyMs != null ? `${diag.avgBenchmarkLatencyMs} ms` : '— (запустите бенчмарк)'}
-        />
-        <Row
-          label="Последняя ошибка STT"
-          value={diag?.lastError ?? 'нет'}
-          ok={!diag?.lastError}
-        />
+      {/* Latency waterfall */}
+      <div className="sc-card p-5">
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-[15px] font-semibold text-ink">Answer latency waterfall</h3>
+          <span className="text-xs text-ink-faint">
+            Total <span className="sc-mono font-medium text-ink">{secs(timings?.totalMs ?? totalStage)}</span>
+          </span>
+        </div>
+        {stages.length === 0 ? (
+          <div className="sc-empty rounded-xl border border-dashed border-surface-border py-8">
+            Запустите ответ в live-режиме — здесь появится разбивка задержек по этапам.
+          </div>
+        ) : (
+          <>
+            <div className="flex h-9 w-full overflow-hidden rounded-lg">
+              {stages.map((s) => (
+                <div
+                  key={s.name}
+                  style={{ width: `${(s.ms / totalStage) * 100}%`, backgroundColor: s.color }}
+                  title={`${s.name}: ${secs(s.ms)}`}
+                />
+              ))}
+            </div>
+            <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
+              {stages.map((s) => {
+                cumulative += s.ms;
+                return (
+                  <div key={s.name}>
+                    <p className="flex items-center gap-1.5 text-[11px] text-ink-faint">
+                      <span className="h-2 w-2 rounded-sm" style={{ backgroundColor: s.color }} />
+                      {s.name}
+                    </p>
+                    <p className="sc-mono mt-1 text-lg font-semibold text-ink">{secs(s.ms)}</p>
+                    <p className="sc-mono mt-0.5 text-[11px] text-ink-faint">@ {secs(cumulative)}</p>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
       </div>
 
-      {diag?.privacyDescription && (
-        <p className="rounded-xl border border-surface-border bg-surface p-3 text-xs text-ink-muted">
-          {diag.privacyDescription}
-          {diag.resourceUsage ? ` ${diag.resourceUsage}` : ''}
-        </p>
+      {/* Telemetry */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div className="sc-card p-5">
+          <h4 className="mb-3 flex items-center gap-2 text-sm font-semibold text-ink">
+            <span className="text-emerald-400">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" />
+                <path d="M19 10v1a7 7 0 0 1-14 0v-1M12 18v4M8 22h8" />
+              </svg>
+            </span>
+            Speech-to-text
+          </h4>
+          <DiagRow label="Provider" value={diag?.provider ?? '—'} />
+          <DiagRow label="Model" value={diag?.model ?? diag?.localModel ?? '—'} />
+          <DiagRow label="Device" value={(diag?.device ?? '—').toUpperCase()} />
+          <DiagRow
+            label="Average STT latency"
+            value={diag?.avgBenchmarkLatencyMs != null ? secs(diag.avgBenchmarkLatencyMs) : '—'}
+            ok={diag?.avgBenchmarkLatencyMs != null && diag.avgBenchmarkLatencyMs < 1500}
+          />
+          <DiagRow label="Time to first partial" value={secs(timings?.firstPartialMs)} />
+          <DiagRow label="Speech-end → final" value={secs(timings?.sttFinalMs)} />
+        </div>
+
+        <div className="sc-card p-5">
+          <h4 className="mb-3 flex items-center gap-2 text-sm font-semibold text-ink">
+            <span className="text-accent">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                <path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3z" />
+              </svg>
+            </span>
+            Language model
+          </h4>
+          <DiagRow label="Model" value="gpt-4o-mini" />
+          <DiagRow label="LLM first token" value={secs(timings?.llmFirstMs)} ok={timings?.llmFirstMs != null && timings.llmFirstMs < 1500} />
+          <DiagRow label="Total answer latency" value={secs(timings?.llmTotalMs ?? timings?.totalMs)} />
+          <DiagRow label="Streaming" value="enabled" ok />
+          <DiagRow
+            label="Last answer"
+            value={timings ? new Date(timings.at).toLocaleTimeString() : '—'}
+          />
+        </div>
+      </div>
+
+      {/* Audio & privacy + Last errors */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div className="sc-card p-5">
+          <h4 className="mb-3 text-sm font-semibold text-ink">Audio &amp; privacy</h4>
+          <DiagRow
+            label="Microphone"
+            value={mic ? `${mic.count} device(s) · ${mic.permission}` : '—'}
+            ok={mic ? mic.count > 0 && mic.permission !== 'denied' : undefined}
+          />
+          <DiagRow label="Privacy" value="Local" ok />
+          <DiagRow label="Model status" value={diag ? (ready ? 'ready' : diag.reason) : '—'} ok={ready} />
+          <DiagRow label="Resource usage" value={diag?.resourceUsage || '—'} />
+        </div>
+
+        <div className="sc-card p-5">
+          <h4 className="mb-3 text-sm font-semibold text-ink">Last errors</h4>
+          <DiagRow label="Backend" value={backendOnline ? 'online' : 'offline'} ok={backendOnline} />
+          <DiagRow label="Last STT error" value={diag?.lastError ?? 'none'} ok={!diag?.lastError} />
+          <DiagRow
+            label="Last benchmark"
+            value={diag?.lastBenchmarkAt ? new Date(diag.lastBenchmarkAt).toLocaleString() : '—'}
+          />
+        </div>
+      </div>
+
+      {skipped.length > 0 && (
+        <div className="sc-card p-5">
+          <h4 className="mb-3 text-sm font-semibold text-ink">Recent skipped transcripts</h4>
+          <ul className="space-y-1.5">
+            {skipped.map((s, i) => (
+              <li key={i} className="flex items-start gap-3 text-xs">
+                <span className="sc-mono shrink-0 text-ink-faint">
+                  {new Date(s.at).toLocaleTimeString()}
+                </span>
+                <span className="shrink-0 text-amber-300">⚠ {s.reason}</span>
+                <span className="sc-mono truncate text-ink-muted">{s.detail}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
 
       {error && <p className="text-sm text-red-400">{error}</p>}
@@ -98,12 +237,13 @@ export default function DiagnosticsPanel() {
   );
 }
 
-function Row({ label, value, ok }: { label: string; value: string; ok?: boolean }) {
-  const tone = ok === undefined ? 'text-ink' : ok ? 'text-emerald-400' : 'text-amber-300';
+function DiagRow({ label, value, ok }: { label: string; value: string; ok?: boolean }) {
+  const tone =
+    ok === undefined ? 'sc-diag-row__value' : ok ? 'sc-diag-row__value sc-diag-row__value--ok' : 'sc-diag-row__value sc-diag-row__value--warn';
   return (
-    <div className="flex items-center justify-between gap-3 border-b border-surface-border/50 py-1.5">
-      <span className="text-xs text-ink-faint">{label}</span>
-      <span className={`text-sm font-medium ${tone}`}>{value}</span>
+    <div className="sc-diag-row">
+      <span className="sc-diag-row__label">{label}</span>
+      <span className={tone}>{value}</span>
     </div>
   );
 }

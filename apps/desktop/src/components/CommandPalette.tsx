@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getFastAnswer, setFastAnswer } from '../lib/api';
 import { answerChimeEnabled, setAnswerChime } from '../lib/notifySound';
+import { isSpeculativeEnabled, setSpeculative } from '../lib/speculativePref';
 
 interface Command {
   id: string;
@@ -36,6 +37,11 @@ export default function CommandPalette() {
         id: 'chime',
         label: `Звук «ответ готов»: ${answerChimeEnabled() ? 'выключить' : 'включить'}`,
         run: () => setAnswerChime(!answerChimeEnabled()),
+      },
+      {
+        id: 'speculative',
+        label: `Спекулятивный ответ (по partial): ${isSpeculativeEnabled() ? 'выключить' : 'включить'}`,
+        run: () => setSpeculative(!isSpeculativeEnabled()),
       },
       { id: 'overlay', label: 'Открыть overlay', hint: 'Ctrl+Shift+H', run: () => void window.electronAPI?.overlay.show() },
     ],

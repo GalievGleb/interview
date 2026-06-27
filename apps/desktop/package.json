@@ -7,6 +7,10 @@
     "dev": "concurrently -k -n vite,electron -c blue,green \"vite\" \"wait-on http://localhost:5173 && tsc -p tsconfig.electron.json && electron .\"",
     "build": "vite build && tsc -p tsconfig.electron.json",
     "dist": "pnpm build && electron-builder",
+    "build:backend": "cd ../api-py && pyinstaller skillcue-backend.spec",
+    "predownload:model": "cd ../api-py && python predownload_models.py",
+    "dist:full": "pnpm build:backend && pnpm build && electron-builder",
+    "dist:offline": "pnpm predownload:model && pnpm dist:full",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -48,8 +52,21 @@
       "dist/**/*",
       "dist-electron/**/*"
     ],
+    "extraResources": [
+      {
+        "from": "../api-py/dist/skillcue-backend",
+        "to": "backend",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "../api-py/dist/models",
+        "to": "models",
+        "filter": ["**/*"]
+      }
+    ],
     "win": {
-      "target": ["nsis"]
+      "target": ["nsis"],
+      "icon": "build/icon.ico"
     },
     "nsis": {
       "oneClick": false,

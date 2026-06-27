@@ -65,72 +65,108 @@ export async function startLiveSession(
   params.set('engine', engine);
   params.set('sample_rate', String(sampleRate));
 
-  const ws = new WebSocket(`${toWsUrl(api.apiUrl)}/stt/stream?${params.toString()}`);
-  ws.binaryType = 'arraybuffer';
+  const wsUrl = `${toWsUrl(api.apiUrl)}/stt/stream?${params.toString()}`;
 
+  let ws: WebSocket | null = null;
   let capture: AudioCapture | null = null;
   let stopped = false;
+  let attempts = 0;
+  let reconnectTimer: number | null = null;
+  const MAX_RECONNECT = 5;
+
+  const stopCapture = () => {
+    capture?.stop();
+    capture = null;
+  };
 
   const cleanup = () => {
     if (stopped) return;
     stopped = true;
-    capture?.stop();
-    capture = null;
-    if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+    if (reconnectTimer != null) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    stopCapture();
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
       ws.close();
     }
+    ws = null;
   };
 
-  ws.onopen = async () => {
-    try {
-      capture = await startCapture(source, (buffer) => {
-        if (ws.readyState === WebSocket.OPEN) ws.send(buffer);
-      }, { sampleRateMode: audioMode });
-    } catch (err) {
-      handlers.onError(err instanceof Error ? err.message : 'Нет доступа к источнику звука');
-      cleanup();
+  const scheduleReconnect = () => {
+    if (stopped) return;
+    if (attempts >= MAX_RECONNECT) {
+      handlers.onError('Соединение со звуком потеряно — переподключение не удалось.');
+      handlers.onClose?.();
+      return;
     }
+    const delay = Math.min(500 * 2 ** attempts, 5000);
+    attempts += 1;
+    reconnectTimer = window.setTimeout(connect, delay);
   };
 
-  ws.onmessage = (event) => {
-    try {
-      const evt = JSON.parse(event.data as string);
-      if (evt.type === 'transcript') {
-        handlers.onTranscript(evt.text, Boolean(evt.is_final), Boolean(evt.speech_final));
-      } else if (evt.type === 'utterance_end') {
-        handlers.onUtteranceEnd?.(evt.timings as SttTimings | undefined);
-      } else if (evt.type === 'low_quality') {
-        handlers.onLowQuality?.(evt.text ?? '', evt.reason ?? 'low_quality');
-      } else if (evt.type === 'speech_started') {
-        handlers.onSpeechStarted?.();
-      } else if (evt.type === 'turn_resumed') {
-        handlers.onTurnResumed?.();
-      } else if (evt.type === 'ready') {
-        handlers.onReady?.({
-          engine: evt.engine ?? engine,
-          model: evt.model ?? evt.final_model ?? engine,
-          partialModel: evt.partial_model,
-          finalModel: evt.final_model ?? evt.model,
-          sampleRate: evt.sample_rate ?? sampleRate,
-        });
-      } else if (evt.type === 'error') {
-        handlers.onError(evt.message);
+  function connect() {
+    if (stopped) return;
+    ws = new WebSocket(wsUrl);
+    ws.binaryType = 'arraybuffer';
+
+    ws.onopen = async () => {
+      try {
+        capture = await startCapture(
+          source,
+          (buffer) => {
+            if (ws && ws.readyState === WebSocket.OPEN) ws.send(buffer);
+          },
+          { sampleRateMode: audioMode },
+        );
+      } catch (err) {
+        handlers.onError(err instanceof Error ? err.message : 'Нет доступа к источнику звука');
         cleanup();
       }
-    } catch {
-      // ignore non-JSON
-    }
-  };
+    };
 
-  ws.onerror = () => {
-    if (!stopped) handlers.onError('Ошибка WebSocket — проверьте, что backend запущен');
-  };
+    ws.onmessage = (event) => {
+      try {
+        const evt = JSON.parse(event.data as string);
+        if (evt.type === 'transcript') {
+          handlers.onTranscript(evt.text, Boolean(evt.is_final), Boolean(evt.speech_final));
+        } else if (evt.type === 'utterance_end') {
+          handlers.onUtteranceEnd?.(evt.timings as SttTimings | undefined);
+        } else if (evt.type === 'low_quality') {
+          handlers.onLowQuality?.(evt.text ?? '', evt.reason ?? 'low_quality');
+        } else if (evt.type === 'speech_started') {
+          handlers.onSpeechStarted?.();
+        } else if (evt.type === 'turn_resumed') {
+          handlers.onTurnResumed?.();
+        } else if (evt.type === 'ready') {
+          attempts = 0; // healthy connection — reset the backoff
+          handlers.onReady?.({
+            engine: evt.engine ?? engine,
+            model: evt.model ?? evt.final_model ?? engine,
+            partialModel: evt.partial_model,
+            finalModel: evt.final_model ?? evt.model,
+            sampleRate: evt.sample_rate ?? sampleRate,
+          });
+        } else if (evt.type === 'error') {
+          handlers.onError(evt.message);
+          cleanup();
+        }
+      } catch {
+        // ignore non-JSON
+      }
+    };
 
-  ws.onclose = () => {
-    capture?.stop();
-    capture = null;
-    if (!stopped) handlers.onClose?.();
-  };
+    // Stay quiet on transient errors — onclose drives the bounded reconnect.
+    ws.onerror = () => {};
+
+    ws.onclose = () => {
+      stopCapture();
+      if (stopped) return;
+      scheduleReconnect();
+    };
+  }
+
+  connect();
 
   return { stop: cleanup };
 }

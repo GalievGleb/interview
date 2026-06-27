@@ -1,6 +1,4 @@
 import { useCallback, useMemo, useRef, useState, type ChangeEvent } from 'react';
-import PageHeader from '../interview/PageHeader';
-import StatusBadge from '../ui/StatusBadge';
 import VoiceReportCompare from './VoiceReportCompare';
 import VoiceTestDetails from './VoiceTestDetails';
 import VoiceTestTable from './VoiceTestTable';
@@ -23,8 +21,27 @@ import {
 } from '../../test-lab/voice-test-runner';
 import type { VoiceRegressionReport, VoiceTestCase, VoiceTestResult } from '../../test-lab/voice-test-types';
 
-const actionBtn =
-  'rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm font-medium transition hover:bg-surface-panel disabled:cursor-not-allowed disabled:opacity-50';
+function StatTile({
+  label,
+  value,
+  dot,
+  valueClass,
+}: {
+  label: string;
+  value: number | string;
+  dot?: string;
+  valueClass?: string;
+}) {
+  return (
+    <div className="sc-card px-4 py-3">
+      <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-ink-faint">
+        {dot && <span className={`sc-dot ${dot}`} />}
+        {label}
+      </p>
+      <p className={`sc-mono mt-1 text-2xl font-semibold ${valueClass ?? 'text-ink'}`}>{value}</p>
+    </div>
+  );
+}
 
 export default function VoiceTestLab() {
   const [cases, setCases] = useState<VoiceTestCase[]>([]);
@@ -140,31 +157,16 @@ export default function VoiceTestLab() {
   }, [report]);
 
   return (
-    <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-5 p-6">
-      <PageHeader
-        title="Voice Tests"
-        subtitle="Voice Regression Test Mode — прогон записанных аудио через STT и LLM pipeline"
-      />
-
-      {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div>
-      )}
+    <div className="flex w-full flex-col gap-4">
+      {error && <div className="cockpit-alert cockpit-alert-error"><span>{error}</span></div>}
 
       <div className="flex flex-wrap items-center gap-2">
-        <button type="button" className={actionBtn} disabled={loadingCases} onClick={handleLoadCases}>
+        <button type="button" className="btn-secondary btn-sm" disabled={loadingCases} onClick={handleLoadCases}>
           {loadingCases ? 'Loading…' : 'Load test cases'}
         </button>
         <button
           type="button"
-          className={actionBtn}
-          disabled={running || cases.length === 0}
-          onClick={handleRunAll}
-        >
-          {running ? 'Running…' : 'Run all voice tests'}
-        </button>
-        <button
-          type="button"
-          className={actionBtn}
+          className="btn-secondary btn-sm"
           disabled={running || selectedIds.size === 0}
           onClick={handleRunSelected}
         >
@@ -172,27 +174,27 @@ export default function VoiceTestLab() {
         </button>
         <button
           type="button"
-          className={actionBtn}
-          disabled={!report}
-          onClick={() => report && exportReportJson(report)}
-        >
-          Export report JSON
-        </button>
-        <button
-          type="button"
-          className={actionBtn}
+          className="btn-ghost btn-sm"
           disabled={!report}
           onClick={() => report && exportReportCsv(report)}
         >
-          Export report CSV
+          Export CSV
         </button>
         <button
           type="button"
-          className={actionBtn}
+          className="btn-ghost btn-sm"
+          disabled={!report}
+          onClick={() => report && exportReportJson(report)}
+        >
+          Export JSON
+        </button>
+        <button
+          type="button"
+          className="btn-ghost btn-sm"
           disabled={!report}
           onClick={() => compareInputRef.current?.click()}
         >
-          Compare with previous report
+          Compare report
         </button>
         <input
           ref={compareInputRef}
@@ -201,17 +203,25 @@ export default function VoiceTestLab() {
           className="hidden"
           onChange={handleCompareReport}
         />
+        <button
+          type="button"
+          className="btn-primary btn-sm ml-auto"
+          disabled={running || cases.length === 0}
+          onClick={handleRunAll}
+        >
+          {running ? 'Running…' : 'Run all tests'}
+        </button>
       </div>
 
       {comparison && <VoiceReportCompare comparison={comparison} />}
 
       {summary && (
-        <div className="flex flex-wrap gap-2">
-          <StatusBadge label={`Total ${summary.total}`} tone="idle" />
-          <StatusBadge label={`Passed ${summary.passed}`} tone="success" />
-          <StatusBadge label={`Warning ${summary.warning}`} tone="warning" />
-          <StatusBadge label={`Failed ${summary.failed}`} tone="error" />
-          <StatusBadge label={`Error ${summary.error}`} tone="error" />
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          <StatTile label="Test cases" value={summary.total} />
+          <StatTile label="Passed" value={summary.passed} dot="sc-dot--success" valueClass="text-emerald-400" />
+          <StatTile label="Warnings" value={summary.warning} dot="sc-dot--warning" valueClass="text-amber-300" />
+          <StatTile label="Failed" value={summary.failed} dot="sc-dot--error" valueClass="text-red-400" />
+          <StatTile label="Errors" value={summary.error} dot="sc-dot--error" valueClass="text-red-400" />
         </div>
       )}
 

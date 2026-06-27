@@ -18,6 +18,8 @@ import DiagnosticsPanel from '../components/DiagnosticsPanel';
 
 import ScreenHeader from '../components/ScreenHeader';
 
+import UsageCard from '../components/UsageCard';
+
 
 
 export default function SettingsPage() {
@@ -174,6 +176,10 @@ export default function SettingsPage() {
 
 
       <DiagnosticsPanel />
+
+
+
+      <UsageCard />
 
 
 

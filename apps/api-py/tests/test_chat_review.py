@@ -74,3 +74,25 @@ def test_interview_review_stream_reports_provider_error(client, monkeypatch):
         if line.startswith("data: ")
     ]
     assert any(e["type"] == "error" for e in events)
+
+
+def test_meeting_summary_stream_emits_chunks_then_done(client, monkeypatch):
+    async def fake_stream(messages, provider=None, model=None, max_tokens=800, temperature=0.4):
+        for piece in ["Summary: ", "решения приняты."]:
+            yield piece
+
+    monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
+
+    res = client.post("/chat/meeting-summary/stream", json={"transcript": "..."})
+    assert res.status_code == 200, res.text
+    assert "text/event-stream" in res.headers["content-type"]
+
+    events = [
+        json.loads(line[len("data: ") :])
+        for line in res.text.splitlines()
+        if line.startswith("data: ")
+    ]
+    types = [e["type"] for e in events]
+    assert "chunk" in types
+    assert types[-1] == "done"
+    assert "".join(e["text"] for e in events if e["type"] == "chunk") == "Summary: решения приняты."

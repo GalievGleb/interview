@@ -1,5 +1,7 @@
+import asyncio
 import json
 import logging
+import os
 from collections.abc import AsyncGenerator
 
 import httpx
@@ -37,7 +39,7 @@ async def aclose_client() -> None:
     _client = None
 
 
-PROVIDER_CONFIG = {
+PROVIDER_CONFIG: dict[str, dict] = {
     "openai": {
         "base_url": "https://api.openai.com/v1",
         "key_name": "openai_api_key",
@@ -46,6 +48,13 @@ PROVIDER_CONFIG = {
         "base_url": DEFAULT_BASE_URL,
         "key_name": "openrouter_api_key",
     },
+    # Local LLM via Ollama's OpenAI-compatible endpoint — keyless, never used in
+    # the live answer path (only the offline review/summary features).
+    "ollama": {
+        "base_url": "http://127.0.0.1:11434/v1",
+        "key_name": None,
+        "keyless": True,
+    },
 }
 
 
@@ -53,6 +62,8 @@ def _base_url(provider: str) -> str:
     if provider == "openrouter":
         prefs = load_preferences()
         return prefs.base_url or PROVIDER_CONFIG["openrouter"]["base_url"]
+    if provider == "ollama":
+        return os.environ.get("OLLAMA_BASE_URL") or PROVIDER_CONFIG["ollama"]["base_url"]
     return PROVIDER_CONFIG[provider]["base_url"]
 
 
@@ -97,6 +108,8 @@ def _resolve(provider: str | None) -> tuple[str, str, str]:
     if provider not in PROVIDER_CONFIG:
         raise AppError(f"Unknown provider: {provider}", 400, "unknown_provider")
     cfg = PROVIDER_CONFIG[provider]
+    if cfg.get("keyless"):
+        return provider, _base_url(provider), ""
     key = secrets.get_secret(cfg["key_name"])
     if not key:
         raise AppError(
@@ -108,11 +121,74 @@ def _resolve(provider: str | None) -> tuple[str, str, str]:
 
 
 def _headers(provider: str, key: str) -> dict[str, str]:
-    headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+    headers = {"Content-Type": "application/json"}
+    if key:  # keyless providers (Ollama) send no Authorization header
+        headers["Authorization"] = f"Bearer {key}"
     if provider == "openrouter":
         headers["HTTP-Referer"] = "https://localhost"
         headers["X-Title"] = "Interview Copilot"
     return headers
+
+
+# --- transient-failure retry (hot path) ---
+_MAX_ATTEMPTS = 3
+_RETRY_STATUS = {429, 500, 502, 503, 504}
+
+
+def _backoff(attempt: int) -> float:
+    return 0.4 * (2**attempt)
+
+
+def apply_prompt_cache(messages: list[dict], model: str) -> list[dict]:
+    """Mark the leading system prompt as cacheable for providers with explicit
+    cache breakpoints (Anthropic via OpenRouter). OpenAI-family models cache long
+    stable prefixes automatically, so they are returned unchanged."""
+    if "anthropic" not in (model or "").lower():
+        return messages
+    out: list[dict] = []
+    marked = False
+    for m in messages:
+        if not marked and m.get("role") == "system" and isinstance(m.get("content"), str):
+            out.append(
+                {
+                    "role": "system",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": m["content"],
+                            "cache_control": {"type": "ephemeral"},
+                        }
+                    ],
+                }
+            )
+            marked = True
+        else:
+            out.append(m)
+    return out
+
+
+async def _post_with_retry(base_url: str, provider: str, key: str, payload: dict) -> httpx.Response:
+    """POST with bounded retry on transient transport errors / 429 / 5xx."""
+    for attempt in range(_MAX_ATTEMPTS):
+        try:
+            resp = await get_client().post(
+                f"{base_url}/chat/completions",
+                headers=_headers(provider, key),
+                json=payload,
+                timeout=120,
+            )
+        except (httpx.TimeoutException, httpx.TransportError) as exc:
+            if attempt >= _MAX_ATTEMPTS - 1:
+                raise AppError(
+                    "Провайдер не отвечает. Повторите позже.", 504, "provider_timeout"
+                ) from exc
+            await asyncio.sleep(_backoff(attempt))
+            continue
+        if resp.status_code in _RETRY_STATUS and attempt < _MAX_ATTEMPTS - 1:
+            await asyncio.sleep(_backoff(attempt))
+            continue
+        return resp
+    raise AppError("Провайдер не отвечает. Повторите позже.", 504, "provider_timeout")
 
 
 THINKING_MODEL_MARKERS = (
@@ -168,6 +244,64 @@ async def list_models(provider: str | None) -> list[str]:
     return sorted(item.get("id", "") for item in items if item.get("id"))
 
 
+class _StreamRetry(Exception):
+    """Internal: the stream failed before any content arrived — safe to retry."""
+
+
+async def _one_stream_attempt(
+    client: httpx.AsyncClient,
+    url: str,
+    headers: dict[str, str],
+    payload: dict,
+    provider: str,
+    model: str,
+) -> AsyncGenerator[str, None]:
+    """A single streaming attempt. Raises _StreamRetry only before any content is
+    produced; once tokens have been yielded a failure is terminal (no re-emit)."""
+    produced = False
+    try:
+        async with client.stream("POST", url, headers=headers, json=payload) as resp:
+            if resp.status_code >= 400:
+                body = await resp.aread()
+                if resp.status_code in _RETRY_STATUS:
+                    raise _StreamRetry()
+                raise parse_provider_error(resp.status_code, body.decode(), provider)
+            async for line in resp.aiter_lines():
+                if not line or not line.startswith("data: "):
+                    continue
+                data = line[6:].strip()
+                if data == "[DONE]":
+                    break
+                try:
+                    chunk = json.loads(data)
+                except json.JSONDecodeError:
+                    continue
+                if chunk.get("error"):
+                    err = chunk["error"]
+                    msg = err.get("message") if isinstance(err, dict) else str(err)
+                    raise AppError(msg or "Stream error", 502, "provider_error")
+                choices = chunk.get("choices") or []
+                if not choices:
+                    continue
+                choice = choices[0]
+                delta = choice.get("delta") or {}
+                if delta.get("reasoning"):
+                    continue
+                content = delta.get("content") or delta.get("text")
+                if not content and choice.get("message"):
+                    content = choice.get("message", {}).get("content")
+                if content:
+                    produced = True
+                    yield content
+                finish = choice.get("finish_reason")
+                if finish == "length":
+                    logger.warning("Stream stopped: max_tokens reached for model %s", model)
+    except (httpx.TimeoutException, httpx.TransportError) as exc:
+        if produced:
+            raise AppError("Соединение с провайдером прервалось.", 504, "provider_timeout") from exc
+        raise _StreamRetry() from exc
+
+
 async def stream_chat(
     messages: list[dict],
     provider: str | None = None,
@@ -186,7 +320,7 @@ async def stream_chat(
         max_tokens, reasoning = live_stream_options(model)
     payload: dict = {
         "model": model,
-        "messages": messages,
+        "messages": apply_prompt_cache(messages, model),
         "stream": True,
         "max_tokens": max_tokens,
         "temperature": temperature,
@@ -197,45 +331,23 @@ async def stream_chat(
     # lowest time-to-first-token (fast-answer mode only).
     if route_fast and provider == "openrouter":
         payload["provider"] = {"sort": "throughput"}
+
     client = get_client()
-    async with client.stream(
-        "POST",
-        f"{base_url}/chat/completions",
-        headers=_headers(provider, key),
-        json=payload,
-    ) as resp:
-        if resp.status_code >= 400:
-            body = await resp.aread()
-            raise parse_provider_error(resp.status_code, body.decode(), provider)
-        async for line in resp.aiter_lines():
-            if not line or not line.startswith("data: "):
-                continue
-            data = line[6:].strip()
-            if data == "[DONE]":
-                break
-            try:
-                chunk = json.loads(data)
-            except json.JSONDecodeError:
-                continue
-            if chunk.get("error"):
-                err = chunk["error"]
-                msg = err.get("message") if isinstance(err, dict) else str(err)
-                raise AppError(msg or "Stream error", 502, "provider_error")
-            choices = chunk.get("choices") or []
-            if not choices:
-                continue
-            choice = choices[0]
-            delta = choice.get("delta") or {}
-            if delta.get("reasoning"):
-                continue
-            content = delta.get("content") or delta.get("text")
-            if not content and choice.get("message"):
-                content = choice.get("message", {}).get("content")
-            if content:
-                yield content
-            finish = choice.get("finish_reason")
-            if finish == "length":
-                logger.warning("Stream stopped: max_tokens reached for model %s", model)
+    url = f"{base_url}/chat/completions"
+    headers = _headers(provider, key)
+
+    for attempt in range(_MAX_ATTEMPTS):
+        try:
+            async for piece in _one_stream_attempt(client, url, headers, payload, provider, model):
+                yield piece
+            return
+        except _StreamRetry as exc:
+            if attempt >= _MAX_ATTEMPTS - 1:
+                raise AppError(
+                    "Провайдер не отвечает. Повторите позже.", 504, "provider_timeout"
+                ) from exc
+            await asyncio.sleep(_backoff(attempt))
+            continue
 
 
 async def complete(
@@ -251,16 +363,11 @@ async def complete(
     model = model or settings.default_model
     payload = {
         "model": model,
-        "messages": messages,
+        "messages": apply_prompt_cache(messages, model),
         "max_tokens": max_tokens,
         "temperature": temperature,
     }
-    resp = await get_client().post(
-        f"{base_url}/chat/completions",
-        headers=_headers(provider, key),
-        json=payload,
-        timeout=120,
-    )
+    resp = await _post_with_retry(base_url, provider, key, payload)
     if resp.status_code >= 400:
         raise parse_provider_error(resp.status_code, resp.text, provider)
     data = resp.json()

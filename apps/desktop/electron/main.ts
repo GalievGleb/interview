@@ -11,6 +11,9 @@ import {
   nativeImage,
 } from 'electron';
 import path from 'path';
+import fs from 'fs';
+import http from 'http';
+import { spawn, type ChildProcess } from 'child_process';
 import { autoUpdater } from 'electron-updater';
 
 const API_URL = process.env.API_URL ?? 'http://127.0.0.1:8000';
@@ -25,6 +28,99 @@ const BRAND_ICON = nativeImage.createFromDataURL(
 let mainWindow: BrowserWindow | null = null;
 let overlayWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
+let backendProcess: ChildProcess | null = null;
+
+/** Resolve `${API_URL}/health` → true if the backend is already reachable. */
+function pingBackendHealth(): Promise<boolean> {
+  return new Promise((resolve) => {
+    const req = http.get(`${API_URL}/health`, (res) => {
+      res.resume();
+      resolve(res.statusCode === 200);
+    });
+    req.on('error', () => resolve(false));
+    req.setTimeout(1500, () => {
+      req.destroy();
+      resolve(false);
+    });
+  });
+}
+
+/** Locate the Python backend + the command to launch uvicorn (dev + override). */
+function resolveBackendLaunch(): { cmd: string; args: string[]; cwd: string } | null {
+  // Packaged build: spawn the bundled PyInstaller binary (no system Python needed).
+  if (app.isPackaged) {
+    const exe = process.platform === 'win32' ? 'skillcue-backend.exe' : 'skillcue-backend';
+    const bin = path.join(process.resourcesPath, 'backend', exe);
+    return fs.existsSync(bin) ? { cmd: bin, args: [], cwd: path.dirname(bin) } : null;
+  }
+  const cwd = process.env.SKILLCUE_API_DIR ?? path.join(__dirname, '..', '..', 'api-py');
+  if (!fs.existsSync(path.join(cwd, 'app', 'main.py'))) return null;
+  const port = new URL(API_URL).port || '8000';
+  const uvicornArgs = ['-m', 'uvicorn', 'app.main:app', '--port', port];
+  if (process.env.SKILLCUE_PYTHON) {
+    const parts = process.env.SKILLCUE_PYTHON.trim().split(/\s+/);
+    return { cmd: parts[0], args: [...parts.slice(1), ...uvicornArgs], cwd };
+  }
+  if (process.platform === 'win32') return { cmd: 'py', args: ['-3.12', ...uvicornArgs], cwd };
+  return { cmd: 'python3', args: uvicornArgs, cwd };
+}
+
+/** Start the backend ourselves if nothing is already serving it. Best-effort:
+ *  if Python/api-py isn't found we fall back to the renderer's offline banner. */
+async function ensureBackend(): Promise<void> {
+  if (await pingBackendHealth()) return; // a dev terminal (or prior run) is serving it
+  const cfg = resolveBackendLaunch();
+  if (!cfg) {
+    console.warn('[backend] api-py not found — start the API manually or set SKILLCUE_API_DIR');
+    return;
+  }
+  try {
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      PYTHONPATH: '.',
+      SKILLCUE_PORT: new URL(API_URL).port || '8000',
+    };
+    if (app.isPackaged) {
+      // Use the bundled, pre-downloaded Whisper cache so the first run is offline.
+      env.SKILLCUE_MODELS_DIR = path.join(process.resourcesPath, 'models');
+    }
+    backendProcess = spawn(cfg.cmd, cfg.args, {
+      cwd: cfg.cwd,
+      env,
+      stdio: 'pipe',
+      // Dev `py`/`python3` resolve via PATHEXT (needs a shell on Windows); the
+      // packaged binary is a direct path and must NOT go through a shell.
+      shell: !app.isPackaged && process.platform === 'win32',
+    });
+    backendProcess.stdout?.on('data', (d) => console.log('[backend]', String(d).trim()));
+    backendProcess.stderr?.on('data', (d) => console.log('[backend]', String(d).trim()));
+    backendProcess.on('exit', (code) => {
+      console.warn('[backend] process exited:', code);
+      backendProcess = null;
+    });
+    backendProcess.on('error', (err) => {
+      console.warn('[backend] failed to launch:', err.message);
+      backendProcess = null;
+    });
+  } catch (err) {
+    console.warn('[backend] could not start:', err);
+  }
+}
+
+function stopBackend(): void {
+  if (!backendProcess) return;
+  try {
+    if (process.platform === 'win32' && backendProcess.pid) {
+      // Kill the whole tree — the shell wrapper spawns uvicorn as a child.
+      spawn('taskkill', ['/pid', String(backendProcess.pid), '/T', '/F']);
+    } else {
+      backendProcess.kill();
+    }
+  } catch {
+    /* ignore */
+  }
+  backendProcess = null;
+}
 
 function getPreloadPath(): string {
   return path.join(__dirname, 'preload.js');
@@ -215,6 +311,16 @@ function createTray(): void {
 
 function setupAutoUpdater(): void {
   if (isDev) return;
+  const send = (status: unknown) => mainWindow?.webContents.send('updater:status', status);
+  autoUpdater.on('update-available', (info) =>
+    send({ state: 'available', version: info.version }),
+  );
+  autoUpdater.on('download-progress', (p) =>
+    send({ state: 'downloading', percent: Math.round(p.percent) }),
+  );
+  autoUpdater.on('update-downloaded', (info) => send({ state: 'ready', version: info.version }));
+  autoUpdater.on('error', (err) => send({ state: 'error', message: String(err?.message ?? err) }));
+  ipcMain.handle('updater:install', () => autoUpdater.quitAndInstall());
   autoUpdater.checkForUpdatesAndNotify();
 }
 
@@ -235,6 +341,7 @@ function setupDisplayMedia(): void {
 }
 
 app.whenReady().then(() => {
+  void ensureBackend();
   setupContentSecurityPolicy();
   setupDisplayMedia();
   registerIpc();
@@ -251,4 +358,5 @@ app.on('window-all-closed', () => {
 
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
+  stopBackend();
 });

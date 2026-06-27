@@ -281,6 +281,11 @@ def _resolve_chat(
     model: str | None = None,
     model_override: str | None = None,
 ) -> tuple[str, str, str]:
+    # Local Ollama: use the caller's model name directly (the model router only
+    # knows the cloud catalog). Offline review/summary only — never the live path.
+    if provider == "ollama":
+        return "ollama", (model_override or model or "llama3.1"), "ollama"
+
     prefs = load_preferences()
     available = {m.id for m in prefs.models_cache}
     resolved_provider = provider or prefs.provider or "openrouter"
@@ -529,6 +534,43 @@ async def interview_review_stream(payload: MeetingPayload):
         try:
             async for delta in provider_adapter.stream_chat(
                 messages, provider, model, max_tokens=1400, temperature=0.3
+            ):
+                yield f"data: {json.dumps({'type': 'chunk', 'text': delta}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'model': model})}\n\n"
+        except Exception as exc:  # noqa: BLE001
+            msg = getattr(exc, "message", str(exc))
+            yield f"data: {json.dumps({'type': 'error', 'message': msg}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.post("/chat/meeting-summary/stream")
+async def meeting_summary_stream(payload: MeetingPayload):
+    """Streaming (SSE) meeting summary — renders progressively in the UI."""
+    provider, model, _ = _resolve_chat(
+        payload.mode,
+        provider=payload.provider,
+        model=payload.model,
+        model_override=payload.model_override,
+    )
+    prompt = MEETING_PROMPT.format(transcript=payload.transcript)
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": prompt},
+    ]
+
+    async def event_stream():
+        try:
+            async for delta in provider_adapter.stream_chat(
+                messages, provider, model, max_tokens=900, temperature=0.3
             ):
                 yield f"data: {json.dumps({'type': 'chunk', 'text': delta}, ensure_ascii=False)}\n\n"
             yield f"data: {json.dumps({'type': 'done', 'model': model})}\n\n"

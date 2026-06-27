@@ -58,5 +58,9 @@ jobs:
         run: npx -y tsx packages/shared/src/correctTranscriptWithGlossary.test.ts
       - name: Typecheck desktop
         run: pnpm --filter @interview/desktop exec tsc --noEmit -p tsconfig.json
+      - name: Typecheck electron main
+        run: pnpm --filter @interview/desktop exec tsc -p tsconfig.electron.json
+      - name: Build desktop (vite)
+        run: pnpm --filter @interview/desktop exec vite build
       - name: Desktop unit tests
         run: pnpm --filter @interview/desktop test

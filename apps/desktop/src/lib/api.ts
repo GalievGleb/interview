@@ -120,6 +120,67 @@ export function setFastAnswer(on: boolean): void {
 const REQUEST_TIMEOUT_MS = 10_000;
 const LONG_REQUEST_TIMEOUT_MS = 180_000;
 
+export interface UsageRow {
+  provider: string;
+  kind: string;
+  requests: number;
+  tokens_in: number;
+  tokens_out: number;
+  stt_seconds: number;
+}
+
+interface SseHandlers {
+  onChunk: (text: string) => void;
+  onDone: () => void;
+  onError: (msg: string) => void;
+}
+
+/** Generic SSE POST stream for chat endpoints. Returns a cancel function. */
+function sseChatStream(path: string, body: unknown, handlers: SseHandlers): () => void {
+  const controller = new AbortController();
+  void (async () => {
+    try {
+      const resp = await fetch(`${API_URL}${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+      if (!resp.ok || !resp.body) {
+        handlers.onError(`Ошибка ${resp.status}`);
+        return;
+      }
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const evt = JSON.parse(line.slice(6));
+            if (evt.type === 'chunk') handlers.onChunk(evt.text);
+            else if (evt.type === 'done') handlers.onDone();
+            else if (evt.type === 'error') handlers.onError(evt.message);
+          } catch {
+            // ignore
+          }
+        }
+      }
+      handlers.onDone();
+    } catch (err) {
+      if ((err as Error).name !== 'AbortError') {
+        handlers.onError(err instanceof Error ? err.message : 'Ошибка запроса');
+      }
+    }
+  })();
+  return () => controller.abort();
+}
+
 type RequestOptions = RequestInit & { timeoutMs?: number };
 
 async function fetchWithTimeout(path: string, options: RequestOptions = {}): Promise<Response> {
@@ -419,7 +480,7 @@ export const api = {
       }),
     }),
 
-  usage: () => request<{ usage: unknown[] }>('/usage'),
+  usage: () => request<{ usage: UsageRow[] }>('/usage'),
 
   deleteAllData: () => request<{ deleted: boolean }>('/data', { method: 'DELETE' }),
 
@@ -617,54 +678,27 @@ export const api = {
   /** Streaming interview review (SSE). Returns a cancel function. */
   streamInterviewReview(
     transcript: string,
-    handlers: {
-      onChunk: (text: string) => void;
-      onDone: () => void;
-      onError: (msg: string) => void;
-    },
+    handlers: SseHandlers,
+    opts: { provider?: string; model?: string } = {},
   ): () => void {
-    const controller = new AbortController();
-    void (async () => {
-      try {
-        const resp = await fetch(`${API_URL}/chat/interview-review/stream`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ transcript, mode: 'deep' }),
-          signal: controller.signal,
-        });
-        if (!resp.ok || !resp.body) {
-          handlers.onError(`Ошибка ${resp.status}`);
-          return;
-        }
-        const reader = resp.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() ?? '';
-          for (const line of lines) {
-            if (!line.startsWith('data: ')) continue;
-            try {
-              const evt = JSON.parse(line.slice(6));
-              if (evt.type === 'chunk') handlers.onChunk(evt.text);
-              else if (evt.type === 'done') handlers.onDone();
-              else if (evt.type === 'error') handlers.onError(evt.message);
-            } catch {
-              // ignore
-            }
-          }
-        }
-        handlers.onDone();
-      } catch (err) {
-        if ((err as Error).name !== 'AbortError') {
-          handlers.onError(err instanceof Error ? err.message : 'Ошибка запроса');
-        }
-      }
-    })();
-    return () => controller.abort();
+    return sseChatStream(
+      '/chat/interview-review/stream',
+      { transcript, mode: 'deep', provider: opts.provider, model: opts.model },
+      handlers,
+    );
+  },
+
+  /** Streaming meeting summary (SSE). Returns a cancel function. */
+  streamMeetingSummary(
+    transcript: string,
+    handlers: SseHandlers,
+    opts: { provider?: string; model?: string } = {},
+  ): () => void {
+    return sseChatStream(
+      '/chat/meeting-summary/stream',
+      { transcript, mode: 'deep', provider: opts.provider, model: opts.model },
+      handlers,
+    );
   },
 
   // --- Speech-to-text (Local Whisper provider, model manager) ---

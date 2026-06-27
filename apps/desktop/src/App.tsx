@@ -1,18 +1,28 @@
-import { useEffect } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { AppProvider, useApp } from './context/AppContext';
 import Layout from './components/Layout';
-import OnboardingPage from './pages/OnboardingPage';
-import SettingsPage from './pages/SettingsPage';
-import DocumentsPage from './pages/DocumentsPage';
-import InterviewPage from './pages/InterviewPage';
-import MeetingPage from './pages/MeetingPage';
-import HistoryPage from './pages/HistoryPage';
-import TestLabPage from './pages/TestLabPage';
-import BenchmarkPage from './pages/BenchmarkPage';
-import DiagnosticsPage from './pages/DiagnosticsPage';
-import LicensesPage from './pages/LicensesPage';
-import OverlayPage from './pages/OverlayPage';
+
+// Route-level code splitting — keeps the initial bundle small and cold start fast.
+const OnboardingPage = lazy(() => import('./pages/OnboardingPage'));
+const SettingsPage = lazy(() => import('./pages/SettingsPage'));
+const DocumentsPage = lazy(() => import('./pages/DocumentsPage'));
+const InterviewPage = lazy(() => import('./pages/InterviewPage'));
+const MeetingPage = lazy(() => import('./pages/MeetingPage'));
+const HistoryPage = lazy(() => import('./pages/HistoryPage'));
+const TestLabPage = lazy(() => import('./pages/TestLabPage'));
+const BenchmarkPage = lazy(() => import('./pages/BenchmarkPage'));
+const DiagnosticsPage = lazy(() => import('./pages/DiagnosticsPage'));
+const LicensesPage = lazy(() => import('./pages/LicensesPage'));
+const OverlayPage = lazy(() => import('./pages/OverlayPage'));
+
+function PageFallback() {
+  return (
+    <div className="flex h-full min-h-[40vh] items-center justify-center text-sm text-ink-muted">
+      Загрузка…
+    </div>
+  );
+}
 
 function Gate({ children }: { children: React.ReactNode }) {
   const { onboardingDone, loading } = useApp();
@@ -33,6 +43,27 @@ function Gate({ children }: { children: React.ReactNode }) {
 function NavigationBridge() {
   const navigate = useNavigate();
   useEffect(() => window.electronAPI?.onNavigate?.((path) => navigate(path)), [navigate]);
+
+  // Warm the lazy route chunks once the app is idle so navigation feels instant
+  // (keeps the small initial bundle, but no load flash on first visit to a route).
+  useEffect(() => {
+    const prefetch = () => {
+      void import('./pages/HistoryPage');
+      void import('./pages/DocumentsPage');
+      void import('./pages/SettingsPage');
+      void import('./pages/MeetingPage');
+      void import('./pages/TestLabPage');
+      void import('./pages/BenchmarkPage');
+      void import('./pages/DiagnosticsPage');
+    };
+    if (window.requestIdleCallback) {
+      const id = window.requestIdleCallback(prefetch);
+      return () => window.cancelIdleCallback?.(id);
+    }
+    const t = window.setTimeout(prefetch, 1500);
+    return () => window.clearTimeout(t);
+  }, []);
+
   return null;
 }
 
@@ -40,21 +71,23 @@ export default function App() {
   return (
     <AppProvider>
       <NavigationBridge />
-      <Routes>
-        <Route path="/onboarding" element={<OnboardingPage />} />
-        <Route path="/overlay" element={<OverlayPage />} />
-        <Route path="/interview" element={<Gate><InterviewPage /></Gate>} />
-        <Route path="/meeting" element={<Gate><MeetingPage /></Gate>} />
-        <Route path="/documents" element={<Gate><DocumentsPage /></Gate>} />
-        <Route path="/history" element={<Gate><HistoryPage /></Gate>} />
-        <Route path="/settings" element={<Gate><SettingsPage /></Gate>} />
-        <Route path="/licenses" element={<Gate><LicensesPage /></Gate>} />
-        <Route path="/test-lab" element={<Gate><TestLabPage /></Gate>} />
-        <Route path="/benchmark" element={<Gate><BenchmarkPage /></Gate>} />
-        <Route path="/diagnostics" element={<Gate><DiagnosticsPage /></Gate>} />
-        <Route path="/" element={<Navigate to="/interview" replace />} />
-        <Route path="*" element={<Navigate to="/interview" replace />} />
-      </Routes>
+      <Suspense fallback={<PageFallback />}>
+        <Routes>
+          <Route path="/onboarding" element={<OnboardingPage />} />
+          <Route path="/overlay" element={<OverlayPage />} />
+          <Route path="/interview" element={<Gate><InterviewPage /></Gate>} />
+          <Route path="/meeting" element={<Gate><MeetingPage /></Gate>} />
+          <Route path="/documents" element={<Gate><DocumentsPage /></Gate>} />
+          <Route path="/history" element={<Gate><HistoryPage /></Gate>} />
+          <Route path="/settings" element={<Gate><SettingsPage /></Gate>} />
+          <Route path="/licenses" element={<Gate><LicensesPage /></Gate>} />
+          <Route path="/test-lab" element={<Gate><TestLabPage /></Gate>} />
+          <Route path="/benchmark" element={<Gate><BenchmarkPage /></Gate>} />
+          <Route path="/diagnostics" element={<Gate><DiagnosticsPage /></Gate>} />
+          <Route path="/" element={<Navigate to="/interview" replace />} />
+          <Route path="*" element={<Navigate to="/interview" replace />} />
+        </Routes>
+      </Suspense>
     </AppProvider>
   );
 }

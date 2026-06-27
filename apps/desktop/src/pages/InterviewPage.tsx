@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import AnswerPanel from '../components/interview/AnswerPanel';
 import FastAnswerToggle from '../components/interview/FastAnswerToggle';
-import LiveStatusBar, { type LiveTone } from '../components/interview/LiveStatusBar';
+import LiveStatusBar from '../components/interview/LiveStatusBar';
+import { deriveLiveState } from '../lib/liveStatus';
 import { AnswerTab } from '../components/interview/AnswerTabs';
 import InterviewCockpitShell from '../components/interview/InterviewCockpitShell';
 import InterviewExportButtons from '../components/interview/InterviewExportButtons';
@@ -310,24 +311,36 @@ export default function InterviewPage() {
   const sttMs = dbg?.timeToFinalMs;
   const llmMs = dbg?.timeToAnswerMs;
   const totalMs = sttMs != null && llmMs != null ? sttMs + llmMs : undefined;
-  const tone: LiveTone = isGenerating
-    ? 'processing'
-    : active
-      ? 'listening'
-      : hasAnswer
-        ? 'ready'
-        : 'idle';
-  const statusLabel = streaming
-    ? 'Answering'
-    : isGenerating
-      ? 'Transcribing'
-      : active
-        ? 'Listening'
-        : hasAnswer
-          ? 'Answer ready'
-          : 'Idle';
-  const flowStep = streaming ? 2 : isGenerating ? 1 : active ? 0 : -1;
+  const { tone, label: statusLabel, flowStep } = deriveLiveState({
+    active,
+    isGenerating,
+    streaming,
+    hasAnswer,
+  });
   const focusAnswer = displayStream || history[history.length - 1]?.spoken || '';
+
+  // Persist the last completed pipeline timings so Diagnostics can show a real
+  // latency waterfall (that route has no live session of its own).
+  useEffect(() => {
+    if (dbg?.totalEndToEndMs == null) return;
+    try {
+      localStorage.setItem(
+        'skillcue:lastTimings',
+        JSON.stringify({
+          firstPartialMs: dbg.timeToFirstPartialMs ?? null,
+          transcribeMs: dbg.finalTranscriptionMs ?? dbg.timeToFinalMs ?? null,
+          sttFinalMs: dbg.timeToFinalMs ?? null,
+          llmFirstMs: dbg.llmFirstTokenMs ?? dbg.timeToAnswerMs ?? null,
+          llmTotalMs: dbg.llmTotalMs ?? null,
+          totalMs: dbg.totalEndToEndMs,
+          at: Date.now(),
+        }),
+      );
+    } catch {
+      /* storage unavailable */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dbg?.totalEndToEndMs]);
 
   return (
     <InterviewCockpitShell>

@@ -34,8 +34,11 @@ from .whisper_models import DEFAULT_QUALITY, QualityLevel, get_model_spec
 logger = logging.getLogger("stt.whisper")
 
 # Local model cache lives under the app data dir so the UI can show size and
-# offer "delete model" without touching the global HF cache.
-MODELS_DIR = DATA_DIR / "whisper_models"
+# offer "delete model" without touching the global HF cache. A packaged build can
+# point this at a bundled, pre-downloaded cache via SKILLCUE_MODELS_DIR so the
+# first run works fully offline.
+_ENV_MODELS_DIR = os.environ.get("SKILLCUE_MODELS_DIR")
+MODELS_DIR = Path(_ENV_MODELS_DIR) if _ENV_MODELS_DIR else DATA_DIR / "whisper_models"
 
 
 def _faster_whisper_available() -> bool:

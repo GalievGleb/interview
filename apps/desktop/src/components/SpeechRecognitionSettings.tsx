@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   STT_PRIVACY_LOCAL,
   STT_RESOURCE_USAGE_LOCAL,
@@ -15,12 +16,54 @@ import {
 
 const QUALITIES: WhisperQualityId[] = ['fast', 'balanced', 'quality'];
 
+const METERS: Record<WhisperQualityId, { speed: number; acc: number; res: number }> = {
+  fast: { speed: 3, acc: 1, res: 1 },
+  balanced: { speed: 2, acc: 2, res: 2 },
+  quality: { speed: 1, acc: 3, res: 3 },
+};
+
+function Meter({ label, level, kind }: { label: string; level: number; kind: 'speed' | 'acc' | 'res' }) {
+  const on =
+    kind === 'speed'
+      ? 'sc-meter__seg--on-speed'
+      : kind === 'acc'
+        ? 'sc-meter__seg--on-acc'
+        : 'sc-meter__seg--on-res';
+  return (
+    <div className="flex items-center gap-2">
+      <span className="w-[68px] text-[10px] uppercase tracking-wide text-ink-faint">{label}</span>
+      <span className="sc-meter">
+        {[0, 1, 2].map((i) => (
+          <span key={i} className={`sc-meter__seg ${i < level ? on : ''}`} />
+        ))}
+      </span>
+    </div>
+  );
+}
+
+function Radio({ selected }: { selected: boolean }) {
+  return (
+    <span
+      className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${
+        selected ? 'border-accent bg-accent text-white' : 'border-surface-border-strong'
+      }`}
+    >
+      {selected && (
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M20 6 9 17l-5-5" />
+        </svg>
+      )}
+    </span>
+  );
+}
+
 type StatusMap = Record<WhisperQualityId, SttModelStatus | null>;
 
 const EMPTY_STATUS: StatusMap = { fast: null, balanced: null, quality: null };
 
 /** Speech Recognition settings: mode, local model manager, device, privacy. */
 export default function SpeechRecognitionSettings() {
+  const navigate = useNavigate();
   const [settings, setSettings] = useState<SttSettingsDto | null>(null);
   const [statuses, setStatuses] = useState<StatusMap>(EMPTY_STATUS);
   const [device, setDevice] = useState<SttDeviceInfo | null>(null);
@@ -134,59 +177,70 @@ export default function SpeechRecognitionSettings() {
     );
   }
 
+  const deviceOptions: { id: SttDeviceId; label: string }[] = [
+    { id: 'auto', label: 'Auto' },
+    { id: 'cpu', label: 'CPU' },
+    { id: 'gpu', label: 'GPU' },
+  ];
+
   return (
-    <div className="card mb-5 space-y-5 p-5">
+    <div className="mb-5 space-y-4">
       <div>
-        <h3 className="text-sm font-semibold text-ink">Распознавание речи (STT)</h3>
+        <h3 className="text-sm font-semibold text-ink">Speech recognition (STT)</h3>
         <p className="mt-0.5 text-sm text-ink-muted">
-          Local Whisper транскрибирует аудио локально на вашем устройстве — звук не уходит в облако.
+          Local Whisper транскрибирует аудио на вашем устройстве — звук не уходит в облако.
         </p>
       </div>
 
+      <div className="cockpit-alert cockpit-alert-info">
+        <span>Recognition: Local Whisper — audio is transcribed locally and is not sent to the cloud.</span>
+      </div>
+
       {/* Live streaming models */}
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div>
-          <span className="label">Partial model (live captions)</span>
-          <select
-            value={settings.partial_model ?? 'fast'}
-            onChange={(e) =>
-              void patchSettings({ partial_model: e.target.value as WhisperQualityId })
-            }
-            className="select-compact mt-1 w-full"
-          >
-            {QUALITIES.map((q) => (
-              <option key={q} value={q}>
-                {WHISPER_MODEL_CARDS.find((c) => c.quality === q)?.label ?? q}
-              </option>
-            ))}
-          </select>
-          <p className="mt-1 text-xs text-ink-faint">Fast updates while you speak (~500 ms).</p>
-        </div>
-        <div>
-          <span className="label">Final model (after pause)</span>
-          <select
-            value={settings.final_model ?? settings.local_model}
-            onChange={(e) =>
-              void patchSettings({
-                final_model: e.target.value as WhisperQualityId,
-                local_model: e.target.value as WhisperQualityId,
-              })
-            }
-            className="select-compact mt-1 w-full"
-          >
-            {QUALITIES.map((q) => (
-              <option key={q} value={q}>
-                {WHISPER_MODEL_CARDS.find((c) => c.quality === q)?.label ?? q}
-              </option>
-            ))}
-          </select>
-          <p className="mt-1 text-xs text-ink-faint">Higher accuracy when the utterance ends.</p>
+      <div className="sc-card p-5">
+        <p className="mb-3 text-sm font-semibold text-ink">Streaming models</p>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <span className="label">Partial model (live captions)</span>
+            <select
+              value={settings.partial_model ?? 'fast'}
+              onChange={(e) => void patchSettings({ partial_model: e.target.value as WhisperQualityId })}
+              className="select-compact mt-1 w-full"
+            >
+              {QUALITIES.map((q) => (
+                <option key={q} value={q}>
+                  {WHISPER_MODEL_CARDS.find((c) => c.quality === q)?.label ?? q}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-xs text-ink-faint">Fast updates while you speak (~500 ms).</p>
+          </div>
+          <div>
+            <span className="label">Final model (after pause)</span>
+            <select
+              value={settings.final_model ?? settings.local_model}
+              onChange={(e) =>
+                void patchSettings({
+                  final_model: e.target.value as WhisperQualityId,
+                  local_model: e.target.value as WhisperQualityId,
+                })
+              }
+              className="select-compact mt-1 w-full"
+            >
+              {QUALITIES.map((q) => (
+                <option key={q} value={q}>
+                  {WHISPER_MODEL_CARDS.find((c) => c.quality === q)?.label ?? q}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-xs text-ink-faint">Higher accuracy when the utterance ends.</p>
+          </div>
         </div>
       </div>
 
       {/* Local model cards */}
-      <div className="space-y-3">
-        <span className="label">Локальная модель</span>
+      <div className="space-y-2.5">
+        <p className="px-1 text-[10px] font-semibold uppercase tracking-wide text-ink-faint">Local model</p>
         {WHISPER_MODEL_CARDS.map((card) => {
           const st = statuses[card.quality];
           const selected = settings.local_model === card.quality;
@@ -194,56 +248,60 @@ export default function SpeechRecognitionSettings() {
           const downloading = st?.status === 'downloading';
           const failed = st?.status === 'error';
           const pct = Math.round((st?.progress ?? 0) * 100);
+          const m = METERS[card.quality];
           return (
             <div
               key={card.quality}
-              className={`rounded-xl border p-4 ${
-                selected ? 'border-accent bg-accent-soft' : 'border-surface-border bg-surface'
+              onClick={() => downloaded && void patchSettings({ local_model: card.quality })}
+              className={`sc-model-card ${selected ? 'sc-model-card--selected' : ''} ${
+                downloaded ? '' : 'cursor-default'
               }`}
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <p className="font-medium text-ink">{card.label}</p>
-                    {card.recommended && (
-                      <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[11px] text-accent">
-                        Recommended
-                      </span>
-                    )}
-                    {downloaded && (
-                      <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] text-emerald-400">
-                        Downloaded
-                      </span>
-                    )}
+                    {card.recommended && <span className="sc-badge sc-badge--accent">Recommended</span>}
                   </div>
-                  <p className="mt-0.5 text-sm text-ink-muted">{card.description}</p>
-                  <p className="mt-1 text-xs text-ink-faint">
+                  <p className="sc-model-card__specs">
                     ~{card.approxDownloadMb} MB · RAM ≥ {card.recommendedRamGb} GB ·{' '}
                     {card.recommendedDevice.toUpperCase()} · {card.expectedSpeed}
                   </p>
+                  <p className="mt-1.5 text-sm text-ink-muted">{card.description}</p>
+                  <div className="mt-3 space-y-1.5">
+                    <Meter label="Speed" level={m.speed} kind="speed" />
+                    <Meter label="Accuracy" level={m.acc} kind="acc" />
+                    <Meter label="Resource" level={m.res} kind="res" />
+                  </div>
                 </div>
-                <div className="flex shrink-0 flex-col items-end gap-2">
+                <Radio selected={selected} />
+              </div>
+
+              <div className="mt-3 flex items-center justify-between gap-3 border-t border-surface-border/60 pt-3">
+                {downloaded ? (
+                  <span className="inline-flex items-center gap-1.5 text-xs text-emerald-400">
+                    <span className="sc-dot sc-dot--success" /> Downloaded · Ready
+                  </span>
+                ) : downloading ? (
+                  <span className="sc-progress mr-3 flex-1">
+                    <span className="sc-progress__fill" style={{ width: `${Math.max(4, pct)}%` }} />
+                  </span>
+                ) : (
+                  <span className="text-xs text-ink-faint">Not downloaded</span>
+                )}
+
+                <div className="flex shrink-0 items-center gap-2" onClick={(e) => e.stopPropagation()}>
                   {downloaded ? (
-                    <>
-                      <button
-                        type="button"
-                        disabled={selected}
-                        onClick={() => void patchSettings({ local_model: card.quality })}
-                        className={selected ? 'btn-secondary btn-sm opacity-60' : 'btn-primary btn-sm'}
-                      >
-                        {selected ? 'Selected' : 'Use model'}
-                      </button>
-                      <button
-                        type="button"
-                        disabled={busy === card.quality}
-                        onClick={() => void removeModel(card.quality)}
-                        className="btn-secondary btn-sm"
-                      >
-                        Delete
-                      </button>
-                    </>
+                    <button
+                      type="button"
+                      disabled={busy === card.quality}
+                      onClick={() => void removeModel(card.quality)}
+                      className="btn-danger btn-sm"
+                    >
+                      Delete
+                    </button>
                   ) : downloading ? (
-                    <span className="text-xs text-ink-muted">Downloading… {pct}%</span>
+                    <span className="sc-mono text-xs text-ink-muted">{pct}%</span>
                   ) : (
                     <button
                       type="button"
@@ -256,14 +314,6 @@ export default function SpeechRecognitionSettings() {
                   )}
                 </div>
               </div>
-              {downloading && (
-                <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-surface-border">
-                  <div
-                    className="h-full rounded-full bg-accent transition-all"
-                    style={{ width: `${Math.max(4, pct)}%` }}
-                  />
-                </div>
-              )}
               {failed && st?.error && <p className="mt-2 text-xs text-red-400">{st.error}</p>}
             </div>
           );
@@ -273,35 +323,50 @@ export default function SpeechRecognitionSettings() {
         )}
       </div>
 
-      {/* Device + auto-choose */}
-      <div className="flex flex-wrap items-end gap-3">
+      {/* Compute device */}
+      <div className="sc-card flex flex-wrap items-center justify-between gap-4 p-5">
         <div>
-          <span className="label">Устройство</span>
-          <select
-            value={settings.device}
-            onChange={(e) => void patchSettings({ device: e.target.value as SttDeviceId })}
-            className="select-compact mt-1 min-w-[140px]"
-          >
-            <option value="auto">Auto</option>
-            <option value="cpu">CPU</option>
-            <option value="gpu">GPU (if supported)</option>
-          </select>
+          <p className="text-sm font-medium text-ink">Compute device</p>
+          <p className="text-xs text-ink-faint">
+            Auto picks GPU if available, else CPU.
+            {device ? ` ${device.totalRamGb ? `${device.totalRamGb} GB RAM` : 'RAM unknown'} · ${device.hasGpu ? 'GPU detected' : 'CPU only'}.` : ''}
+          </p>
         </div>
-        <button type="button" onClick={autoChoose} disabled={!device} className="btn-secondary btn-sm">
-          Auto choose for my device
+        <div className="flex items-center gap-2">
+          <div className="sc-segmented" role="group" aria-label="Compute device">
+            {deviceOptions.map((d) => (
+              <button
+                key={d.id}
+                type="button"
+                onClick={() => void patchSettings({ device: d.id })}
+                className={`sc-segmented__item ${settings.device === d.id ? 'sc-segmented__item--active' : ''}`}
+              >
+                {d.label}
+              </button>
+            ))}
+          </div>
+          <button type="button" onClick={autoChoose} disabled={!device} className="btn-secondary btn-sm">
+            Auto-choose
+          </button>
+        </div>
+      </div>
+
+      {/* Validation */}
+      <div className="sc-card flex flex-wrap items-center gap-2 p-5">
+        <span className="flex-1 text-sm text-ink-muted">Validation</span>
+        <button type="button" onClick={() => navigate('/benchmark')} className="btn-secondary btn-sm">
+          Run STT benchmark
         </button>
-        {device && (
-          <span className="text-xs text-ink-faint">
-            {device.totalRamGb ? `${device.totalRamGb} GB RAM` : 'RAM unknown'} ·{' '}
-            {device.hasGpu ? 'GPU detected' : 'CPU only'}
-          </span>
-        )}
+        <button type="button" onClick={() => navigate('/diagnostics')} className="btn-secondary btn-sm">
+          Open diagnostics
+        </button>
       </div>
 
       {/* Privacy note */}
-      <div className="rounded-xl border border-surface-border bg-surface p-4 text-xs text-ink-muted">
-        <p>{STT_PRIVACY_LOCAL}</p>
-        <p className="mt-1">{STT_RESOURCE_USAGE_LOCAL}</p>
+      <div className="cockpit-alert cockpit-alert-warn">
+        <span>
+          {STT_PRIVACY_LOCAL} {STT_RESOURCE_USAGE_LOCAL}
+        </span>
       </div>
 
       {note && <p className="text-xs text-emerald-400">{note}</p>}

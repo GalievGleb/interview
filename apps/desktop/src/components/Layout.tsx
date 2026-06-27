@@ -1,7 +1,8 @@
-import { ReactNode, useEffect, useState } from 'react';
+import { ReactNode, Suspense, useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import CommandPalette from './CommandPalette';
+import UpdateToast from './UpdateToast';
 import { useApp } from '../context/AppContext';
 
 const WIDE_ROUTES = new Set(['/interview', '/meeting']);
@@ -16,13 +17,32 @@ function elapsed(ms: number): string {
 }
 
 function TitleBar({ onInterview }: { onInterview: boolean }) {
-  const [start] = useState(() => Date.now());
+  const [live, setLive] = useState(false);
+  const [liveStart, setLiveStart] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
+    const onStart = () => {
+      setLive(true);
+      setLiveStart((prev) => prev ?? Date.now());
+    };
+    const onStop = () => {
+      setLive(false);
+      setLiveStart(null);
+    };
+    window.addEventListener('skillcue:live-start', onStart);
+    window.addEventListener('skillcue:live-stop', onStop);
+    return () => {
+      window.removeEventListener('skillcue:live-start', onStart);
+      window.removeEventListener('skillcue:live-stop', onStop);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!live) return;
     const id = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(id);
-  }, []);
+  }, [live]);
 
   return (
     <header className="flex h-[50px] shrink-0 items-center gap-3 border-b border-surface-border bg-surface-panel px-4">
@@ -45,9 +65,11 @@ function TitleBar({ onInterview }: { onInterview: boolean }) {
       <div className="h-5 w-px bg-surface-border" />
 
       <div className="flex items-center gap-2 text-[13px] text-ink-muted">
-        <span className="sc-dot sc-dot--success" />
-        <span>Local session</span>
-        <span className="sc-mono text-ink-faint">{elapsed(now - start)}</span>
+        <span className={`sc-dot ${live ? 'sc-dot--live' : ''}`} />
+        <span>{live ? 'Live session' : 'Idle'}</span>
+        {live && liveStart != null && (
+          <span className="sc-mono text-ink-faint">{elapsed(now - liveStart)}</span>
+        )}
       </div>
 
       <div className="ml-auto flex items-center gap-2">
@@ -101,14 +123,16 @@ export default function Layout({ children }: { children: ReactNode }) {
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-surface text-ink">
       <CommandPalette />
+      <UpdateToast />
       {showTitleBar && <TitleBar onInterview={pathname === '/interview'} />}
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <Sidebar />
         <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
           {!backendOnline && (
-            <div className="shrink-0 border-b border-red-900/30 bg-red-950/20 px-5 py-2 text-sm text-red-200/90">
-              Backend offline — start API:{' '}
-              <code className="rounded-md bg-black/30 px-1.5 py-0.5 text-red-100">
+            <div className="flex shrink-0 items-center gap-2 border-b border-amber-900/30 bg-amber-950/20 px-5 py-2 text-sm text-amber-200/90">
+              <span className="sc-dot sc-dot--processing animate-pulse" />
+              Подключение к бэкенду… запускается автоматически. Если не поднимается — вручную:{' '}
+              <code className="rounded-md bg-black/30 px-1.5 py-0.5 text-amber-100">
                 cd apps/api-py; .\run_dev.ps1
               </code>
             </div>
@@ -118,7 +142,15 @@ export default function Layout({ children }: { children: ReactNode }) {
               wide ? 'max-w-[1600px] px-5 py-4' : 'max-w-5xl overflow-y-auto px-8 py-8'
             }`}
           >
-            {children}
+            <Suspense
+              fallback={
+                <div className="flex min-h-[40vh] items-center justify-center text-sm text-ink-muted">
+                  Загрузка…
+                </div>
+              }
+            >
+              {children}
+            </Suspense>
           </div>
         </main>
       </div>

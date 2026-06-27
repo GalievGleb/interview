@@ -20,6 +20,14 @@ const api = {
     ipcRenderer.on('app:navigate', handler);
     return () => ipcRenderer.removeListener('app:navigate', handler);
   },
+  updater: {
+    onStatus: (cb: (status: unknown) => void) => {
+      const handler = (_e: unknown, status: unknown) => cb(status);
+      ipcRenderer.on('updater:status', handler);
+      return () => ipcRenderer.removeListener('updater:status', handler);
+    },
+    install: () => ipcRenderer.invoke('updater:install'),
+  },
 };
 
 contextBridge.exposeInMainWorld('electronAPI', api);

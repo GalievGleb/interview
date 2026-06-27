@@ -2,10 +2,11 @@ import type { ReactNode } from 'react';
 import { LiveSources } from '../../hooks/useLiveCopilot';
 import { SttMode } from '../../lib/liveSession';
 import { AUDIO_RATE_LABELS, AudioSampleRateMode } from '../../lib/sttOptions';
+import type { LiveTone } from '../../lib/liveStatus';
 
 const isElectron = typeof window !== 'undefined' && !!window.electronAPI;
 
-export type LiveTone = 'idle' | 'listening' | 'processing' | 'ready';
+export type { LiveTone };
 
 const FLOW = ['Listening', 'Transcribing', 'Answering'];
 

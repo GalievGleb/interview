@@ -3,6 +3,8 @@ import { api } from '../lib/api';
 import { startLiveSession, LiveSession, SttMode, SttTimings } from '../lib/liveSession';
 import { prepareTranscriptForLlm, PreparedTranscript } from '../lib/prepareTranscriptForLlm';
 import { SttSessionOptions } from '../lib/sttOptions';
+import { isSpeculativeEnabled } from '../lib/speculativePref';
+import { recordSkipped } from '../lib/skippedLog';
 import {
   createEmptySessionContext,
   isOrphanComparativeTail,
@@ -51,6 +53,8 @@ interface LiveEntry {
 const FINAL_FALLBACK_MS = 450;
 const SPEECH_FINAL_DELAY_MS = 280;
 const INCOMPLETE_RETRY_MS = 700;
+// Speculative answering: fire once the interim partial has been stable this long.
+const SPECULATIVE_STABLE_MS = 350;
 
 interface LiveTimingState {
   audioCaptureStartAt: number | null;
@@ -133,6 +137,7 @@ export function useLiveCopilot() {
   const streamGenRef = useRef(0);
   const finalPartsRef = useRef<string[]>([]);
   const finalDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const speculativeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sttMetaRef = useRef<{
     engine: string;
     model: string;
@@ -528,10 +533,38 @@ export function useLiveCopilot() {
     [runStream, syncDebugFromPrepared],
   );
 
+  const clearSpeculative = useCallback(() => {
+    if (speculativeTimerRef.current) {
+      clearTimeout(speculativeTimerRef.current);
+      speculativeTimerRef.current = null;
+    }
+  }, []);
+
+  // Speculative answering: start the LLM on a stable, question-like partial. The
+  // existing requestSuggestion handles all gating + cancel/restart when the final
+  // arrives, so a matching final keeps the running stream and a different final
+  // restarts it. Bounded to one in-flight speculation (skips while a stream runs).
+  const trySpeculative = useCallback(
+    (text: string) => {
+      if (!isSpeculativeEnabled()) return;
+      if (streamLockRef.current) return;
+      const t = text.trim();
+      if (t.length < 8) return;
+      if (isGarbageTranscript(t) || !looksLikeQuestion(t)) return;
+      questionFinalAtRef.current = performance.now();
+      requestSuggestion(t);
+    },
+    [requestSuggestion],
+  );
+
   const cancelPendingQuestion = useCallback(() => {
     if (finalDebounceRef.current) {
       clearTimeout(finalDebounceRef.current);
       finalDebounceRef.current = null;
+    }
+    if (speculativeTimerRef.current) {
+      clearTimeout(speculativeTimerRef.current);
+      speculativeTimerRef.current = null;
     }
     finalPartsRef.current = [];
   }, []);
@@ -687,6 +720,7 @@ export function useLiveCopilot() {
       streamLockRef.current = false;
       hasSessionContentRef.current = false;
       if (finalDebounceRef.current) clearTimeout(finalDebounceRef.current);
+      clearSpeculative();
       liveRef.current.forEach((e) => e.session.stop());
       liveRef.current = [];
 
@@ -724,9 +758,20 @@ export function useLiveCopilot() {
                   interimTranscript: trimmed,
                   waitReason: undefined,
                 });
+                // Speculatively answer once the partial has been stable a moment
+                // (only for the speaker we answer). No-op unless the user opted in.
+                if (speaker === triggerSpeakerRef.current) {
+                  if (speculativeTimerRef.current) clearTimeout(speculativeTimerRef.current);
+                  const snapshot = trimmed;
+                  speculativeTimerRef.current = setTimeout(
+                    () => trySpeculative(snapshot),
+                    SPECULATIVE_STABLE_MS,
+                  );
+                }
                 return;
               }
 
+              clearSpeculative();
               timingRef.current.finalTranscriptionStartAt =
                 timingRef.current.finalTranscriptionStartAt ?? performance.now();
               timingRef.current.finalTranscriptionEndAt = performance.now();
@@ -769,6 +814,7 @@ export function useLiveCopilot() {
               // Server quality gate rejected this utterance — keep listening,
               // never call the LLM with garbage. (Server logs the reason.)
               serverTimingsRef.current = null;
+              recordSkipped(_reason, text);
               patchSttDebug({
                 interimTranscript: undefined,
                 finalTranscript: text,
@@ -823,11 +869,12 @@ export function useLiveCopilot() {
         await endInterviewSession();
       }
     },
-    [appendLine, cancelPendingQuestion, endInterviewSession, flushQuestion, patchSttDebug, removeStream, scheduleFinalFallback, scheduleSpeechFinal],
+    [appendLine, cancelPendingQuestion, clearSpeculative, endInterviewSession, flushQuestion, patchSttDebug, removeStream, scheduleFinalFallback, scheduleSpeechFinal, trySpeculative],
   );
 
   const stop = useCallback(async () => {
     if (finalDebounceRef.current) clearTimeout(finalDebounceRef.current);
+    clearSpeculative();
     streamGenRef.current += 1;
     cancelStreamRef.current?.();
     streamLockRef.current = false;
@@ -838,7 +885,7 @@ export function useLiveCopilot() {
     setActive(false);
     sessionContextRef.current = createEmptySessionContext();
     if (hadStreams) await endInterviewSession();
-  }, [endInterviewSession]);
+  }, [clearSpeculative, endInterviewSession]);
 
   const updateAnswerEntry = useCallback((id: string, spoken: string) => {
     setAnswerHistory((prev) =>

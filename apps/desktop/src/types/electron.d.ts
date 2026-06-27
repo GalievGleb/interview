@@ -12,6 +12,17 @@ export interface ElectronAPI {
     setSkipTaskbar: (skip: boolean) => Promise<void>;
   };
   onNavigate?: (cb: (path: string) => void) => () => void;
+  updater?: {
+    onStatus: (cb: (status: UpdaterStatus) => void) => () => void;
+    install: () => Promise<void>;
+  };
+}
+
+export interface UpdaterStatus {
+  state: 'available' | 'downloading' | 'ready' | 'error';
+  version?: string;
+  percent?: number;
+  message?: string;
 }
 
 declare global {
