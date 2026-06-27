@@ -10,6 +10,7 @@ import {
   isOrphanComparativeTail,
   pushUtteranceBuffer,
   sanitizeLiveAnswer,
+  trimSpokenAnswer,
   shouldWaitForMoreSpeech,
   shouldForceProceedIncomplete,
   updateSessionContextAfterAnswer,
@@ -409,7 +410,7 @@ export function useLiveCopilot() {
           setSuggestLoading(false);
           timingRef.current.llmEndAt = performance.now();
           lastCompletedRef.current = q;
-          const text = sanitizeLiveAnswer(stripExperienceFooter(spoken || accumulated));
+          const text = trimSpokenAnswer(sanitizeLiveAnswer(stripExperienceFooter(spoken || accumulated)));
           const debugSnapshot = sttDebugRef.current;
           const llmLatencyMs = performance.now() - answerStartedAt;
           const pipeline = buildPipelineFromPrepared(prepared, {
@@ -443,7 +444,7 @@ export function useLiveCopilot() {
           debugRef.current.event('error', { reason: msg, text: q });
           if (accumulated) {
             lastCompletedRef.current = q;
-            const text = sanitizeLiveAnswer(stripExperienceFooter(accumulated));
+            const text = trimSpokenAnswer(sanitizeLiveAnswer(stripExperienceFooter(accumulated)));
             const debugSnapshot = sttDebugRef.current;
             const llmLatencyMs = performance.now() - answerStartedAt;
             const pipeline = buildPipelineFromPrepared(prepared, {

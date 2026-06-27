@@ -23,7 +23,7 @@ from app.services import model_router, provider_adapter, rag_service, transcript
 from app.services.domain_answer_hints import resolve_domain_answer_hints
 from app.services.preferences import load_preferences
 from app.services.question_intent import resolve_answer_strategy
-from app.services.sanitize_live_answer import sanitize_live_answer
+from app.services.sanitize_live_answer import sanitize_live_answer, trim_spoken_answer
 
 router = APIRouter(tags=["chat"])
 
@@ -245,7 +245,8 @@ async def _interview_event_stream(
     final_spoken = spoken
     if spoken:
         parsed = _parse_fast_response(spoken)
-        final_spoken = sanitize_live_answer(parsed.get("spoken") or spoken)
+        # Live answers are Say-aloud: sanitize, then enforce the spoken word cap.
+        final_spoken = trim_spoken_answer(sanitize_live_answer(parsed.get("spoken") or spoken))
 
     if err_msg and not final_spoken:
         yield f"data: {json.dumps({'type': 'error', 'message': err_msg}, ensure_ascii=False)}\n\n"

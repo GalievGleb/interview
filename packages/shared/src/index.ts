@@ -187,7 +187,14 @@ export {
   isStandaloneDefinitionQuestion,
   resolveStandaloneTopic,
 } from './standaloneQuestion';
-export { sanitizeLiveAnswer } from './sanitizeLiveAnswer';
+export { sanitizeLiveAnswer, trimSpokenAnswer } from './sanitizeLiveAnswer';
+export {
+  scoreSpokenAnswer,
+  countWords,
+  FORBIDDEN_LIVE_PHRASES,
+  INTERNAL_LABELS,
+  type SpokenAnswerQuality,
+} from './answerQuality';
 export {
   assessHallucinationRisk,
   extractExplicitCanonicalTopic,
