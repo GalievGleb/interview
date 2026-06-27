@@ -1,5 +1,25 @@
 import { describe, it, expect } from 'vitest';
-import { isGarbageTranscript, looksLikeQuestion } from './normalizeTranscript';
+import { isGarbageTranscript, looksLikeQuestion, normalizeTranscript } from './normalizeTranscript';
+
+describe('normalizeTranscript', () => {
+  it('does not duplicate the Cyrillic ending of тест-дизайна', () => {
+    expect(normalizeTranscript('Какие бывают техники тест-дизайна?')).toBe(
+      'Какие бывают техники тест-дизайна?',
+    );
+    // Must not produce the double-«а» artifact.
+    expect(normalizeTranscript('тест-дизайна')).not.toContain('дизайнаа');
+  });
+
+  it('still normalizes split/loose тест дизайн forms', () => {
+    expect(normalizeTranscript('тест дизайн')).toContain('тест-дизайна');
+  });
+
+  it('leaves ordinary text unchanged', () => {
+    expect(normalizeTranscript('Какие бывают виды тестирования?')).toBe(
+      'Какие бывают виды тестирования?',
+    );
+  });
+});
 
 describe('looksLikeQuestion', () => {
   it('recognizes «ли» yes/no questions even without a question mark', () => {

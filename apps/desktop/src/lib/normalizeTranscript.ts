@@ -29,23 +29,28 @@ const RULES: { from: string; to: string }[] = [
   { from: 'греп', to: 'grep' },
 ];
 
+// NOTE: `\w`/`\b` are ASCII-only in JS even with the `u` flag, so against
+// Cyrillic they fail to consume word endings — e.g. `дизайн\w*` left the "а" in
+// "тест-дизайна" unconsumed and the replacement re-added it ("тест-дизайнаа").
+// Use the Unicode letter/number class `[\p{L}\p{N}]` and explicit Unicode word
+// boundaries instead.
 const FUZZY: { re: RegExp; to: string }[] = [
-  { re: /тест\s*[-\s]?дизайн\w*/giu, to: 'тест-дизайна' },
-  { re: /паттерн\w*\s+по\s+тест\w*/giu, to: 'паттерны pytest' },
-  { re: /по\s+тест(?:у|ам|е)\b/giu, to: 'pytest' },
+  { re: /тест\s*[-\s]?дизайн[\p{L}\p{N}]*/giu, to: 'тест-дизайна' },
+  { re: /паттерн[\p{L}\p{N}]*\s+по\s+тест[\p{L}\p{N}]*/giu, to: 'паттерны pytest' },
+  { re: /по\s+тест(?:у|ам|е)(?![\p{L}\p{N}])/giu, to: 'pytest' },
   { re: /п(?:ai|ай|аи)\s*[-\s]?test/giu, to: 'pytest' },
-  { re: /благодаря\s+какой\s+команд\w*/giu, to: 'с помощью какой команды' },
-  { re: /какой\s+команд\w*\s+можно\s+искать/giu, to: 'с помощью какой команды можно искать' },
-  { re: /\bлин(?:укс|уксе|уз|uxe|uks|зе|за|zе)\w*\b/giu, to: 'Linux' },
-  { re: /\b(?:g\s*r\s*e\s*p|г\s*р\s*э\s*п)\b/giu, to: 'grep' },
+  { re: /благодаря\s+какой\s+команд[\p{L}\p{N}]*/giu, to: 'с помощью какой команды' },
+  { re: /какой\s+команд[\p{L}\p{N}]*\s+можно\s+искать/giu, to: 'с помощью какой команды можно искать' },
+  { re: /(?<![\p{L}\p{N}])лин(?:укс|уксе|уз|uxe|uks|зе|за|zе)[\p{L}\p{N}]*(?![\p{L}\p{N}])/giu, to: 'Linux' },
+  { re: /(?<![\p{L}\p{N}])(?:g\s*r\s*e\s*p|г\s*р\s*э\s*п)(?![\p{L}\p{N}])/giu, to: 'grep' },
   { re: /так(?:ие|ой)\s*(?:2|два)\s*принцип/giu, to: 'какие принципы' },
-  { re: /принцип\w*\s+(?:ал+[оo]п\w*|о+[лl]оп\w*)/giu, to: 'принципы ООП' },
-  { re: /принцип\w*\s+о\s+(?:[ло]{3,}\w*)+/giu, to: 'принципы ООП' },
-  { re: /(?<=принцип\w*\s+)ал+[оo]п\w*/giu, to: 'ООП' },
-  { re: /т(?:ы|и|е|а)\s*ст[ёеe]рг\w*/giu, to: 'тестирования' },
-  { re: /ст[ёеe]рг\w*/giu, to: 'тестирования' },
-  { re: /принцип\w*\s+автоматиз\w*/giu, to: 'принципы автоматизации' },
-  { re: /какие\s+бывают\s+принцип\w*/giu, to: 'какие бывают принципы автоматизации' },
+  { re: /принцип[\p{L}\p{N}]*\s+(?:ал+[оo]п[\p{L}\p{N}]*|о+[лl]оп[\p{L}\p{N}]*)/giu, to: 'принципы ООП' },
+  { re: /принцип[\p{L}\p{N}]*\s+о\s+(?:[ло]{3,}[\p{L}\p{N}]*)+/giu, to: 'принципы ООП' },
+  { re: /(?<=принцип[\p{L}\p{N}]*\s+)ал+[оo]п[\p{L}\p{N}]*/giu, to: 'ООП' },
+  { re: /т(?:ы|и|е|а)\s*ст[ёеe]рг[\p{L}\p{N}]*/giu, to: 'тестирования' },
+  { re: /ст[ёеe]рг[\p{L}\p{N}]*/giu, to: 'тестирования' },
+  { re: /принцип[\p{L}\p{N}]*\s+автоматиз[\p{L}\p{N}]*/giu, to: 'принципы автоматизации' },
+  { re: /какие\s+бывают\s+принцип[\p{L}\p{N}]*/giu, to: 'какие бывают принципы автоматизации' },
 ];
 
 function escapeRegExp(value: string): string {
