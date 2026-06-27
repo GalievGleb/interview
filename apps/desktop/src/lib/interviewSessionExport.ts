@@ -13,9 +13,20 @@ export interface TranscriptLine {
 }
 
 export interface ExchangeLatency {
+  /** Real STT latency for this utterance (speech-end → final). NOT session-elapsed. */
   sttLatencyMs: number | null;
   llmLatencyMs: number;
   totalLatencyMs: number;
+  /** Optional per-stage breakdown (live mode), all relative to the utterance. */
+  breakdown?: {
+    speechEndToFinalMs?: number;
+    speechStartToFinalMs?: number;
+    finalToAnswerStartMs?: number;
+    llmFirstTokenMs?: number;
+    llmTotalMs?: number;
+    /** Diagnostic only: wall-clock since the session started. Never use as STT latency. */
+    sessionElapsedToFinalMs?: number;
+  };
 }
 
 export interface CopilotAnswerPipeline {
@@ -152,13 +163,22 @@ function exchangeFromEntry(entry: CopilotAnswerEntry): InterviewSessionExport['e
 export function buildExchangeLatency(
   sttLatencyMs: number | null | undefined,
   llmLatencyMs: number,
+  breakdown?: ExchangeLatency['breakdown'],
 ): ExchangeLatency {
   const stt = sttLatencyMs != null ? Math.round(sttLatencyMs) : null;
   const llm = Math.round(llmLatencyMs);
+  const rounded =
+    breakdown &&
+    Object.fromEntries(
+      Object.entries(breakdown)
+        .filter(([, v]) => v != null && Number.isFinite(v))
+        .map(([k, v]) => [k, Math.round(v as number)]),
+    );
   return {
     sttLatencyMs: stt,
     llmLatencyMs: llm,
     totalLatencyMs: (stt ?? 0) + llm,
+    ...(rounded && Object.keys(rounded).length ? { breakdown: rounded } : {}),
   };
 }
 

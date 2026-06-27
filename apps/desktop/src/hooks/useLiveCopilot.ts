@@ -25,6 +25,7 @@ import {
   questionChanged,
   stripExperienceFooter,
   isGarbageTranscript,
+  isNonQuestionFragment,
 } from '../lib/normalizeTranscript';
 import type { SttDebugInfo } from '../components/SttDebugPanel';
 import { LiveDebugRecorder } from '../lib/liveDebugRecorder';
@@ -287,6 +288,17 @@ export function useLiveCopilot() {
     timingRef.current.llmRequestStartAt = answerStartedAt;
     const meta = sttMetaRef.current;
 
+    // Snapshot the REAL per-utterance STT latency now, while the server timing is
+    // fresh. The persisted exchange must use this — not the live sttDebug, which
+    // later partials of the next utterance overwrite with a session-relative value
+    // (the cause of the 24009/56622/113737ms bug). Prefer the server's
+    // speech-end→final; fall back to a sane client measure, never session-elapsed.
+    const exchangeSttLatencyMs =
+      serverTimingsRef.current?.speechEndToFinalMs ??
+      (questionFinalAtRef.current != null
+        ? sanitizeSttLatencyMs(answerStartedAt - questionFinalAtRef.current)
+        : undefined);
+
     setSttDebug({
       rawTranscript: prepared.rawTranscript,
       glossaryCorrected: prepared.corrected,
@@ -417,9 +429,26 @@ export function useLiveCopilot() {
             previousTopic: sessionContextRef.current.lastCanonicalTopic,
             llmCorrectedTranscript: debugSnapshot?.llmCorrectedTranscript,
             timeToAnswerMs: debugSnapshot?.timeToAnswerMs,
-            timeToFinalMs: debugSnapshot?.timeToFinalMs,
+            timeToFinalMs: exchangeSttLatencyMs,
           });
-          const latency = buildExchangeLatency(debugSnapshot?.timeToFinalMs, llmLatencyMs);
+          const st = serverTimingsRef.current;
+          const latency = buildExchangeLatency(exchangeSttLatencyMs, llmLatencyMs, {
+            speechEndToFinalMs: st?.speechEndToFinalMs,
+            speechStartToFinalMs:
+              st?.speechMs != null && st?.speechEndToFinalMs != null
+                ? st.speechMs + st.speechEndToFinalMs
+                : undefined,
+            finalToAnswerStartMs:
+              questionFinalAtRef.current != null
+                ? answerStartedAt - questionFinalAtRef.current
+                : undefined,
+            llmFirstTokenMs: debugSnapshot?.timeToAnswerMs,
+            llmTotalMs: llmLatencyMs,
+            sessionElapsedToFinalMs:
+              timingRef.current.speechEndedAt != null && timingRef.current.audioCaptureStartAt != null
+                ? timingRef.current.speechEndedAt - timingRef.current.audioCaptureStartAt
+                : undefined,
+          });
           debugRef.current.event('answer_done', {
             text,
             meta: { sttLatencyMs: latency.sttLatencyMs, llmLatencyMs: latency.llmLatencyMs },
@@ -450,9 +479,9 @@ export function useLiveCopilot() {
             const pipeline = buildPipelineFromPrepared(prepared, {
               previousTopic: sessionContextRef.current.lastCanonicalTopic,
               llmCorrectedTranscript: debugSnapshot?.llmCorrectedTranscript,
-              timeToFinalMs: debugSnapshot?.timeToFinalMs,
+              timeToFinalMs: exchangeSttLatencyMs,
             });
-            const latency = buildExchangeLatency(debugSnapshot?.timeToFinalMs, llmLatencyMs);
+            const latency = buildExchangeLatency(exchangeSttLatencyMs, llmLatencyMs);
             pushHistory(text, undefined, pipeline, latency);
           } else {
             setStreamText('');
@@ -539,9 +568,23 @@ export function useLiveCopilot() {
         return;
       }
       if (!looksLikeQuestion(q) && !looksLikeQuestion(raw)) {
+        // Not a question and no interview intent — never call the LLM, never
+        // touch previousTopic. Surface it as an explicit skip.
+        recordSkipped('unclear_non_question', raw);
+        debugRef.current.event('low_quality', { reason: 'unclear_non_question', text: raw });
         syncDebugFromPrepared(prepared, {
           answerTriggered: false,
-          waitReason: 'Waiting for complete question…',
+          waitReason: 'Skipped: unclear phrase (not a question)',
+        });
+        return;
+      }
+      // A «?»-fragment with no real intent («Вместе или не?») — also skip.
+      if (isNonQuestionFragment(q) && isNonQuestionFragment(raw)) {
+        recordSkipped('too_low_intent', raw);
+        debugRef.current.event('low_quality', { reason: 'too_low_intent', text: raw });
+        syncDebugFromPrepared(prepared, {
+          answerTriggered: false,
+          waitReason: 'Skipped: unclear phrase (low intent)',
         });
         return;
       }
