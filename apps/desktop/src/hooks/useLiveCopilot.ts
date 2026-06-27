@@ -30,6 +30,11 @@ import {
 import type { SttDebugInfo } from '../components/SttDebugPanel';
 import { LiveDebugRecorder } from '../lib/liveDebugRecorder';
 import {
+  buildLatencyBreakdown,
+  computeExchangeSttLatencyMs,
+  sanitizeSttLatencyMs,
+} from '../lib/liveTiming';
+import {
   buildExchangeLatency,
   buildPipelineFromPrepared,
   type CopilotAnswerEntry,
@@ -70,18 +75,6 @@ interface LiveTimingState {
   llmRequestStartAt: number | null;
   llmFirstTokenAt: number | null;
   llmEndAt: number | null;
-}
-
-// On-device STT (even large-v3 on CPU) finalises within a few seconds. A client
-// fallback latency far above this is an anchoring artifact (silence gaps,
-// filtered hallucinations), not a real measurement — drop it instead of logging
-// a misleading 30–70s value.
-const MAX_PLAUSIBLE_STT_LATENCY_MS = 20000;
-
-function sanitizeSttLatencyMs(value: number): number | undefined {
-  if (!Number.isFinite(value) || value < 0) return undefined;
-  if (value > MAX_PLAUSIBLE_STT_LATENCY_MS) return undefined;
-  return value;
 }
 
 function emptyTimingState(): LiveTimingState {
@@ -293,11 +286,11 @@ export function useLiveCopilot() {
     // later partials of the next utterance overwrite with a session-relative value
     // (the cause of the 24009/56622/113737ms bug). Prefer the server's
     // speech-end→final; fall back to a sane client measure, never session-elapsed.
-    const exchangeSttLatencyMs =
-      serverTimingsRef.current?.speechEndToFinalMs ??
-      (questionFinalAtRef.current != null
-        ? sanitizeSttLatencyMs(answerStartedAt - questionFinalAtRef.current)
-        : undefined);
+    const exchangeSttLatencyMs = computeExchangeSttLatencyMs(
+      serverTimingsRef.current?.speechEndToFinalMs,
+      answerStartedAt,
+      questionFinalAtRef.current,
+    );
 
     setSttDebug({
       rawTranscript: prepared.rawTranscript,
@@ -431,24 +424,19 @@ export function useLiveCopilot() {
             timeToAnswerMs: debugSnapshot?.timeToAnswerMs,
             timeToFinalMs: exchangeSttLatencyMs,
           });
-          const st = serverTimingsRef.current;
-          const latency = buildExchangeLatency(exchangeSttLatencyMs, llmLatencyMs, {
-            speechEndToFinalMs: st?.speechEndToFinalMs,
-            speechStartToFinalMs:
-              st?.speechMs != null && st?.speechEndToFinalMs != null
-                ? st.speechMs + st.speechEndToFinalMs
-                : undefined,
-            finalToAnswerStartMs:
-              questionFinalAtRef.current != null
-                ? answerStartedAt - questionFinalAtRef.current
-                : undefined,
-            llmFirstTokenMs: debugSnapshot?.timeToAnswerMs,
-            llmTotalMs: llmLatencyMs,
-            sessionElapsedToFinalMs:
-              timingRef.current.speechEndedAt != null && timingRef.current.audioCaptureStartAt != null
-                ? timingRef.current.speechEndedAt - timingRef.current.audioCaptureStartAt
-                : undefined,
-          });
+          const latency = buildExchangeLatency(
+            exchangeSttLatencyMs,
+            llmLatencyMs,
+            buildLatencyBreakdown({
+              serverTimings: serverTimingsRef.current,
+              answerStartedAt,
+              questionFinalAt: questionFinalAtRef.current,
+              llmFirstTokenMs: debugSnapshot?.timeToAnswerMs,
+              llmLatencyMs,
+              speechEndedAt: timingRef.current.speechEndedAt,
+              audioCaptureStartAt: timingRef.current.audioCaptureStartAt,
+            }),
+          );
           debugRef.current.event('answer_done', {
             text,
             meta: { sttLatencyMs: latency.sttLatencyMs, llmLatencyMs: latency.llmLatencyMs },
