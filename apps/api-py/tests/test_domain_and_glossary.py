@@ -39,7 +39,10 @@ def test_domain_hint_automation_types_is_correct():
 
 
 def test_domain_hint_docker_and_cicd():
-    assert "контейнер" in domain_answer_hints.resolve_domain_answer_hints("Как ты настраивал Docker?").lower()
+    assert (
+        "контейнер"
+        in domain_answer_hints.resolve_domain_answer_hints("Как ты настраивал Docker?").lower()
+    )
     cicd = domain_answer_hints.resolve_domain_answer_hints("Как ты настраивал CI/CD?")
     assert "stages" in cicd.lower()
 
@@ -50,4 +53,6 @@ def test_domain_hint_smoke_vs_regression():
 
 
 def test_domain_hint_none_for_offtopic():
-    assert "none" in domain_answer_hints.resolve_domain_answer_hints("Какая сегодня погода?").lower()
+    assert (
+        "none" in domain_answer_hints.resolve_domain_answer_hints("Какая сегодня погода?").lower()
+    )

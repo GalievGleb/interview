@@ -39,14 +39,26 @@ _CHATGPT_TAIL_RES = [
 
 # Whole filler sentences with no information.
 _FILLER_SENTENCE_RES = [
-    re.compile(r"(?:^|\s)В\s+разных\s+контекстах\s+могут\s+быть\s+разные\s+подходы[^.?!]*[.?!]\s*", re.IGNORECASE | re.UNICODE),
-    re.compile(r"(?:^|\s)Это\s+позволило\s+мне\s+углубить\s+(?:свои\s+)?знания[^.?!]*[.?!]\s*", re.IGNORECASE | re.UNICODE),
-    re.compile(r"(?:^|\s)Существуют\s+различные\s+инструменты\s+и\s+методы[^.?!]*[.?!]\s*", re.IGNORECASE | re.UNICODE),
+    re.compile(
+        r"(?:^|\s)В\s+разных\s+контекстах\s+могут\s+быть\s+разные\s+подходы[^.?!]*[.?!]\s*",
+        re.IGNORECASE | re.UNICODE,
+    ),
+    re.compile(
+        r"(?:^|\s)Это\s+позволило\s+мне\s+углубить\s+(?:свои\s+)?знания[^.?!]*[.?!]\s*",
+        re.IGNORECASE | re.UNICODE,
+    ),
+    re.compile(
+        r"(?:^|\s)Существуют\s+различные\s+инструменты\s+и\s+методы[^.?!]*[.?!]\s*",
+        re.IGNORECASE | re.UNICODE,
+    ),
 ]
 
 # Filler openers — strip the opener, keep the sentence body.
 _FILLER_OPENER_RES = [
-    re.compile(r"(?:^|(?<=[.?!]\s))(?:Важно\s+отметить|Стоит\s+отметить|Хочу\s+отметить),?\s*(?:что\s+)?", re.IGNORECASE | re.UNICODE),
+    re.compile(
+        r"(?:^|(?<=[.?!]\s))(?:Важно\s+отметить|Стоит\s+отметить|Хочу\s+отметить),?\s*(?:что\s+)?",
+        re.IGNORECASE | re.UNICODE,
+    ),
     re.compile(r"(?:^|(?<=[.?!]\s))В\s+заключение,?\s*", re.IGNORECASE | re.UNICODE),
     re.compile(r"(?:^|(?<=[.?!]\s))Давайте\s+рассмотрим,?\s*", re.IGNORECASE | re.UNICODE),
 ]

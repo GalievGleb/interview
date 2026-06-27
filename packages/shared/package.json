@@ -6,7 +6,8 @@
   "types": "./dist/index.d.ts",
   "scripts": {
     "build": "tsc && node -e \"require('fs').copyFileSync('src/qaGlossary.json','dist/qaGlossary.json')\"",
-    "dev": "tsc --watch"
+    "dev": "tsc --watch",
+    "test": "node ./scripts/run-tests.mjs"
   },
   "devDependencies": {
     "typescript": "^5.7.3"

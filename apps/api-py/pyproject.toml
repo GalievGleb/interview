@@ -26,3 +26,8 @@ warn_unused_ignores = false
 # Pragmatic adoption: not strict yet. Tighten module-by-module over time.
 disallow_untyped_defs = false
 exclude = ["data/", "tests/"]
+
+[tool.pytest.ini_options]
+# auto mode: async test functions run without a per-test @pytest.mark.asyncio,
+# and the mark works consistently whether or not it is present.
+asyncio_mode = "auto"

@@ -13,7 +13,13 @@ import json
 import re
 from pathlib import Path
 
-PACK_DIR = Path(__file__).resolve().parent.parent / "app" / "knowledge" / "packs" / "python_interview_questions"
+PACK_DIR = (
+    Path(__file__).resolve().parent.parent
+    / "app"
+    / "knowledge"
+    / "packs"
+    / "python_interview_questions"
+)
 SOURCE = PACK_DIR / "source" / "questions.md"
 
 # Only the Python section is treated as on-topic; everything else (Django, web,
@@ -23,26 +29,86 @@ PYTHON_SECTION = "Python"
 
 # High-value topics for QA Automation engineers (substring match, lowercased).
 HIGH_FOR_AQA = [
-    "последовательност", "list", "tuple", "кортеж", "список",
-    "множеств", "set", "dict", "словар", "хеш", "hashab", "хешир",
-    "изменяем", "mutable", "значени по умолчанию", "default",
-    "args", "kwargs", "аргумент",
-    "декоратор", "decorator",
-    "итератор", "генератор", "iterator", "generator", "yield",
-    "контекстн", "context manager", "with",
-    "исключени", "exception", "try", "except",
-    "класс", "объект", "oop", "ооп", "наследован", "полиморф", "инкапсул", "абстрак",
-    "mro", "staticmethod", "classmethod", "__init__", "__new__",
-    "модул", "пакет", "import", "импорт",
-    "gil", "поток", "процесс", "thread", "multiprocess", "async", "await", "корутин",
-    "comprehension", "lambda", "замыкан", "closure",
+    "последовательност",
+    "list",
+    "tuple",
+    "кортеж",
+    "список",
+    "множеств",
+    "set",
+    "dict",
+    "словар",
+    "хеш",
+    "hashab",
+    "хешир",
+    "изменяем",
+    "mutable",
+    "значени по умолчанию",
+    "default",
+    "args",
+    "kwargs",
+    "аргумент",
+    "декоратор",
+    "decorator",
+    "итератор",
+    "генератор",
+    "iterator",
+    "generator",
+    "yield",
+    "контекстн",
+    "context manager",
+    "with",
+    "исключени",
+    "exception",
+    "try",
+    "except",
+    "класс",
+    "объект",
+    "oop",
+    "ооп",
+    "наследован",
+    "полиморф",
+    "инкапсул",
+    "абстрак",
+    "mro",
+    "staticmethod",
+    "classmethod",
+    "__init__",
+    "__new__",
+    "модул",
+    "пакет",
+    "import",
+    "импорт",
+    "gil",
+    "поток",
+    "процесс",
+    "thread",
+    "multiprocess",
+    "async",
+    "await",
+    "корутин",
+    "comprehension",
+    "lambda",
+    "замыкан",
+    "closure",
 ]
 
 # Topics that are rare / legacy / out of scope for QA Automation.
 LOW_MARKERS = [
-    "python 2", "python2", "метаклас", "metaclass", "singleton", "шаблон",
-    "design pattern", "паттерн проектирован", "cpython internal", "байткод", "bytecode",
-    "garbage collector", "интроспекц", "рефлекс",
+    "python 2",
+    "python2",
+    "метаклас",
+    "metaclass",
+    "singleton",
+    "шаблон",
+    "design pattern",
+    "паттерн проектирован",
+    "cpython internal",
+    "байткод",
+    "bytecode",
+    "garbage collector",
+    "интроспекц",
+    "рефлекс",
 ]
 
 TAG_KEYWORDS = {
@@ -127,7 +193,12 @@ def parse(md: str) -> list[dict]:
             body = []
         elif m3:
             flush()
-            current = {"question": m3.group(1).strip(), "section": section, "topic": topic, "level": 3}
+            current = {
+                "question": m3.group(1).strip(),
+                "section": section,
+                "topic": topic,
+                "level": 3,
+            }
             body = []
         else:
             if current is not None:
@@ -155,7 +226,7 @@ def classify(rec: dict) -> tuple[str, list[str]]:
 def keywords_for(rec: dict) -> list[str]:
     text = f"{rec['question']} {rec.get('topic', '')}".lower()
     words = re.findall(r"[a-zа-яё_]{3,}|__\w+__", text)
-    stop = {"что", "такое", "как", "для", "или", "это", "при", "the", "это", "чем", "вы", "the"}
+    stop = {"что", "такое", "как", "для", "или", "это", "при", "the", "чем", "вы"}
     return sorted({w for w in words if w not in stop})
 
 

@@ -15,10 +15,7 @@ from functools import lru_cache
 from pathlib import Path
 
 PACK_DIR = (
-    Path(__file__).resolve().parent.parent
-    / "knowledge"
-    / "packs"
-    / "python_interview_questions"
+    Path(__file__).resolve().parent.parent / "knowledge" / "packs" / "python_interview_questions"
 )
 
 PACK_NAME = "python_interview_questions"

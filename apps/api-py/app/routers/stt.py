@@ -116,7 +116,7 @@ async def warmup_stt() -> dict:
     warmed: dict[str, str] = {}
     # ~0.4s of near-silence: enough to trigger model load + kernel compilation
     # without producing a transcript we care about.
-    dummy = (np.zeros(6400, dtype=np.float32))
+    dummy = np.zeros(6400, dtype=np.float32)
 
     for role in ("partial", "final"):
         provider = get_cached_whisper_provider(role=role)
