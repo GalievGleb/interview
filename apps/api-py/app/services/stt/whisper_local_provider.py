@@ -19,6 +19,7 @@ import asyncio
 import io
 import logging
 import os
+import re
 import threading
 from pathlib import Path
 
@@ -46,6 +47,36 @@ QA_INITIAL_PROMPT = (
     "conftest, тест-дизайн, баг, релиз, CI/CD, Page Object Model, Selenium, "
     "Playwright, Allure, regression, smoke, фикстура, скоупы, эндпоинт."
 )
+
+
+# Known Whisper hallucination phrases on silence/noise. Russian models — and
+# large-v3 especially — were trained on a lot of YouTube data, so on non-speech
+# they emit subtitle credits ("Субтитры …", "ПОДПИСЫВАЙТЕСЬ", "amara.org") and
+# stock outros. None of these can legitimately appear in a QA interview, so we
+# treat any utterance dominated by them as empty. The energy VAD upstream usually
+# blocks silence, but low-level room noise still leaks through and triggers these.
+_HALLUCINATION_RE = re.compile(
+    r"субтитр|редактор\s+субтитр|корректор|dimatorzok|amara\.?org|"
+    r"подписывайтесь|спасибо\s+за\s+просмотр|продолжение\s+следует|"
+    r"н\.?\s*новиков|а\.?\s*кулакова|а\.?\s*семкин",
+    re.IGNORECASE | re.UNICODE,
+)
+
+
+def _is_hallucination(text: str) -> bool:
+    """True if the transcript is just a Whisper silence-hallucination credit.
+
+    A hallucination is flagged when a known junk phrase is present AND almost
+    nothing else of substance remains (fewer than 3 real words once the junk is
+    removed). This catches "Субтитры создавал DimaTorzok" and the repeated
+    "субтитры субтитры…" loop while leaving any genuine sentence untouched.
+    """
+    t = (text or "").strip()
+    if not t or not _HALLUCINATION_RE.search(t):
+        return False
+    residue = _HALLUCINATION_RE.sub(" ", t)
+    meaningful = [w for w in re.findall(r"[^\W\d_]+", residue, re.UNICODE) if len(w) >= 2]
+    return len(meaningful) < 3
 
 
 def _register_cuda_dll_dirs() -> None:
@@ -283,7 +314,21 @@ class WhisperLocalProvider(BaseTranscriptionProvider):
             without_timestamps=True,
             initial_prompt=QA_INITIAL_PROMPT,
         )
-        return "".join(seg.text for seg in segments).strip()
+        # Drop segments Whisper itself flags as almost-certainly-silence: a high
+        # no_speech_prob together with low confidence is the signature of a
+        # hallucination on a quiet stretch. Keeps real (even if quiet) speech.
+        kept = [
+            seg.text
+            for seg in segments
+            if not (
+                getattr(seg, "no_speech_prob", 0.0) > 0.85
+                and getattr(seg, "avg_logprob", 0.0) < -0.7
+            )
+        ]
+        text = "".join(kept).strip()
+        if _is_hallucination(text):
+            return ""
+        return text
 
     def _transcribe_sync(self, audio, *, language: str | None) -> str:
         model = self._load_model()

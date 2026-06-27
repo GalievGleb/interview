@@ -128,6 +128,35 @@ def test_cached_provider_loads_model_once(monkeypatch):
     assert provider._model is sentinel
 
 
+# --- hallucination filter ------------------------------------------------
+def test_hallucination_filter_drops_subtitle_credits():
+    from app.services.stt.whisper_local_provider import _is_hallucination
+
+    junk = [
+        "Субтитры создавал DimaTorzok",
+        "Субтитры субтитров Н.Новикова",
+        "Субтитры субтитры субтитры субтитры субтитры",
+        "ПОДПИСЫВАЙТЕСЬ на канал",
+        "Спасибо за просмотр",
+        "Редактор субтитров А.Семкин",
+    ]
+    for t in junk:
+        assert _is_hallucination(t), t
+
+
+def test_hallucination_filter_keeps_real_questions():
+    from app.services.stt.whisper_local_provider import _is_hallucination
+
+    real = [
+        "Что такое Page Object Model?",
+        "Какие бывают техники тест-дизайна",
+        "Расскажите про pytest фикстуры и conftest",
+        "Что делать если вы нашли баг на проде",
+    ]
+    for t in real:
+        assert not _is_hallucination(t), t
+
+
 def test_diagnostics_shape():
     diag = registry.diagnostics()
     assert diag["default"] == "whisper-local"
