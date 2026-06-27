@@ -96,6 +96,45 @@ def model_delete(quality: str) -> dict:
     return download_manager.delete(_validate_quality(quality))
 
 
+@router.post("/warmup")
+async def warmup_stt() -> dict:
+    """Load and warm the live STT models before the first utterance.
+
+    Cold start is the reason the first question of a session felt slow/skipped:
+    pressing Start, the model still had to load and (on GPU) compile CUDA kernels
+    on the first inference. The desktop calls this when the live screen opens, so
+    by the time the user speaks the model is hot. Idempotent and cheap once warm.
+    """
+    import asyncio
+    import time
+
+    import numpy as np
+
+    from app.services.stt.registry import get_cached_whisper_provider
+
+    started = time.perf_counter()
+    warmed: dict[str, str] = {}
+    # ~0.4s of near-silence: enough to trigger model load + kernel compilation
+    # without producing a transcript we care about.
+    dummy = (np.zeros(6400, dtype=np.float32))
+
+    for role in ("partial", "final"):
+        provider = get_cached_whisper_provider(role=role)
+        if not (provider.is_available() and provider.is_model_downloaded()):
+            warmed[role] = "unavailable"
+            continue
+        try:
+            await asyncio.to_thread(provider.prepare)
+            # Run one throwaway inference so the first real utterance is fast.
+            await asyncio.to_thread(provider._transcribe_sync, dummy, language="ru")
+            warmed[role] = provider._active_model()
+        except Exception as exc:  # noqa: BLE001 - warmup is best-effort
+            logger.warning("STT warmup failed for %s: %s", role, exc)
+            warmed[role] = "error"
+
+    return {"warmed": warmed, "ms": int((time.perf_counter() - started) * 1000)}
+
+
 class SttSettingsPayload(BaseModel):
     local_model: str | None = None
     partial_model: str | None = None

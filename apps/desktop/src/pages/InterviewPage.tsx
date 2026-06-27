@@ -9,6 +9,7 @@ import InterviewExportButtons from '../components/interview/InterviewExportButto
 import InterviewInlineAlert from '../components/interview/InterviewInlineAlert';
 import InterviewTranscriptPanel from '../components/interview/InterviewTranscriptPanel';
 import ManualQuestionBox from '../components/interview/ManualQuestionBox';
+import { api } from '../lib/api';
 import { buildCopilotSessionExport } from '../lib/interviewSessionExport';
 import { pipelineToStreamOpts, type AnswerRevisionMode, type PipelineStreamInput } from '../lib/answerRevision';
 import { debugInfoToPipeline } from '../lib/interviewStreamHelpers';
@@ -264,6 +265,13 @@ export default function InterviewPage() {
   useEffect(() => {
     if (history.length > 0) setTab('spoken');
   }, [history.length]);
+
+  // Warm the STT model as soon as the live screen opens, so the first question
+  // isn't lost to cold-start (model load + CUDA kernel compile). Fire-and-forget:
+  // it overlaps with the user setting up, and is a no-op once the model is hot.
+  useEffect(() => {
+    void api.sttWarmup().catch(() => {});
+  }, []);
 
   // Focus mode: toggled from the title-bar button; Esc closes it.
   useEffect(() => {

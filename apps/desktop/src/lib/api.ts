@@ -704,6 +704,13 @@ export const api = {
   // --- Speech-to-text (Local Whisper provider, model manager) ---
   sttProviders: () => request<SttProviderDiagnostics>('/stt/providers'),
 
+  /** Pre-load + warm the live STT models so the first utterance isn't slow. */
+  sttWarmup: () =>
+    request<{ warmed: Record<string, string>; ms: number }>('/stt/warmup', {
+      method: 'POST',
+      timeoutMs: LONG_REQUEST_TIMEOUT_MS,
+    }),
+
   sttDevice: () => request<SttDeviceInfo>('/stt/device'),
 
   sttDiagnostics: () => request<SttDiagnostics>('/stt/diagnostics'),
