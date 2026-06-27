@@ -363,6 +363,13 @@ export function useLiveCopilot() {
                 ? {
                     ...prev,
                     ...buildTimingDebug(timingRef.current),
+                    // Keep the authoritative per-utterance STT timings runStream set
+                    // from the server. buildTimingDebug derives these from a
+                    // session-start anchor, so re-spreading it here would inflate
+                    // sttLatencyMs on every later utterance (15s, 28s, 53s...).
+                    timeToFinalMs: prev.timeToFinalMs,
+                    timeToFirstPartialMs: prev.timeToFirstPartialMs,
+                    finalTranscriptionMs: prev.finalTranscriptionMs,
                     timeToAnswerMs: performance.now() - answerStartedAt,
                   }
                 : prev,
