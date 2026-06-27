@@ -116,6 +116,9 @@ def save_stt_settings_endpoint(payload: SttSettingsPayload) -> dict:
         final_model=payload.final_model,
         device=payload.device,
     )
+    # Model/device may have changed — drop cached providers and loaded models so
+    # the next transcription reloads with the new configuration.
+    stt_registry.reset_cached_providers()
     return updated.model_dump()
 
 

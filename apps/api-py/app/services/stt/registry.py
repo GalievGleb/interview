@@ -12,7 +12,7 @@ import threading
 
 from .base import ProviderMode, TranscriptionProvider
 from .settings_store import load_stt_settings
-from .whisper_local_provider import WhisperLocalProvider
+from .whisper_local_provider import WhisperLocalProvider, clear_model_cache
 from .whisper_models import QualityLevel
 
 
@@ -57,9 +57,11 @@ def get_cached_whisper_provider(*, role: str = "final") -> WhisperLocalProvider:
 
 
 def reset_cached_providers() -> None:
-    """Drop cached providers (e.g. after the STT model/device setting changes)."""
+    """Drop cached providers and loaded models (e.g. after the STT model/device
+    setting changes, so the next call reloads with the new configuration)."""
     with _cache_lock:
         _cached_providers.clear()
+    clear_model_cache()
 
 
 def get_provider(provider_id: str) -> TranscriptionProvider:

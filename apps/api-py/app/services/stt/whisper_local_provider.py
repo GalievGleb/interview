@@ -19,6 +19,7 @@ import asyncio
 import io
 import logging
 import os
+import threading
 from pathlib import Path
 
 from app.config import DATA_DIR
@@ -39,6 +40,54 @@ logger = logging.getLogger("stt.whisper")
 # first run works fully offline.
 _ENV_MODELS_DIR = os.environ.get("SKILLCUE_MODELS_DIR")
 MODELS_DIR = Path(_ENV_MODELS_DIR) if _ENV_MODELS_DIR else DATA_DIR / "whisper_models"
+
+
+# Process-wide cache of loaded WhisperModel objects, keyed by what actually
+# determines a distinct loaded model: (model_id, device, compute_type).
+#
+# The expensive part of loading is not reading the weights — it is initialising
+# the backend (on GPU this includes the CUDA context + cuDNN autotuning, which
+# can take 10–15s the FIRST time). Caching the model object here means that cost
+# is paid once for the whole process, no matter how many provider instances are
+# created (live sessions, Test Lab, benchmark). Without this, anything that built
+# a fresh provider re-initialised CUDA from scratch — the real cause of the fixed
+# ~15s per-case STT latency on GPU machines.
+_MODEL_CACHE: dict[tuple[str, str, str], object] = {}
+_MODEL_CACHE_LOCK = threading.Lock()
+
+
+def _get_or_load_whisper_model(model_id: str, device: str, compute_type: str):
+    key = (model_id, device, compute_type)
+    cached = _MODEL_CACHE.get(key)
+    if cached is not None:
+        return cached
+    with _MODEL_CACHE_LOCK:
+        cached = _MODEL_CACHE.get(key)
+        if cached is not None:
+            return cached
+        from faster_whisper import WhisperModel  # lazy
+
+        MODELS_DIR.mkdir(parents=True, exist_ok=True)
+        logger.info(
+            "Loading Whisper model=%s device=%s compute=%s (first load this process)",
+            model_id,
+            device,
+            compute_type,
+        )
+        model = WhisperModel(
+            model_id,
+            device=device,
+            compute_type=compute_type,
+            download_root=str(MODELS_DIR),
+        )
+        _MODEL_CACHE[key] = model
+        return model
+
+
+def clear_model_cache() -> None:
+    """Drop all loaded models (e.g. when the STT model/device setting changes)."""
+    with _MODEL_CACHE_LOCK:
+        _MODEL_CACHE.clear()
 
 
 def _faster_whisper_available() -> bool:
@@ -152,24 +201,13 @@ class WhisperLocalProvider(BaseTranscriptionProvider):
     def _load_model(self, *, force_cpu: bool = False):
         if self._model is not None and not force_cpu:
             return self._model
-        from faster_whisper import WhisperModel  # lazy
-
         device, compute_type = (
             ("cpu", "int8") if force_cpu else _resolve_device(self.device_preference)
         )
-        MODELS_DIR.mkdir(parents=True, exist_ok=True)
-        logger.info(
-            "Loading Whisper model=%s device=%s compute=%s",
-            self.spec.model_id,
-            device,
-            compute_type,
-        )
-        self._model = WhisperModel(
-            self.spec.model_id,
-            device=device,
-            compute_type=compute_type,
-            download_root=str(MODELS_DIR),
-        )
+        # Reuse a process-wide loaded model so CUDA/cuDNN init is paid once,
+        # not per provider instance. This is what makes repeated transcriptions
+        # (Test Lab, benchmark, every live session) fast after the first load.
+        self._model = _get_or_load_whisper_model(self.spec.model_id, device, compute_type)
         return self._model
 
     def prepare(self) -> None:
