@@ -32,6 +32,8 @@ export interface LiveHandlers {
   }) => void;
   onError: (message: string) => void;
   onClose?: () => void;
+  /** Tee of each raw PCM16 frame sent to the server (for the debug recorder). */
+  onAudioFrame?: (buffer: ArrayBuffer) => void;
 }
 
 export interface LiveSession {
@@ -116,6 +118,7 @@ export async function startLiveSession(
           source,
           (buffer) => {
             if (ws && ws.readyState === WebSocket.OPEN) ws.send(buffer);
+            handlers.onAudioFrame?.(buffer);
           },
           { sampleRateMode: audioMode },
         );

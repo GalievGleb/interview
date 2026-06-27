@@ -26,6 +26,7 @@ import {
   isGarbageTranscript,
 } from '../lib/normalizeTranscript';
 import type { SttDebugInfo } from '../components/SttDebugPanel';
+import { LiveDebugRecorder } from '../lib/liveDebugRecorder';
 import {
   buildExchangeLatency,
   buildPipelineFromPrepared,
@@ -168,6 +169,7 @@ export function useLiveCopilot() {
   const lastFlushSpeakerRef = useRef<UtteranceSpeaker>('interviewer');
   const hasSessionContentRef = useRef(false);
   const timingRef = useRef<LiveTimingState>(emptyTimingState());
+  const debugRef = useRef<LiveDebugRecorder>(new LiveDebugRecorder());
 
   const patchSttDebug = useCallback((patch: Partial<SttDebugInfo>) => {
     setSttDebug((prev) => ({
@@ -341,6 +343,10 @@ export function useLiveCopilot() {
     setStreamText('');
     setCurrentQuestion(q);
     setError('');
+    debugRef.current.event('answer_started', {
+      text: q,
+      meta: { sttLatencyMs: serverTimingsRef.current?.speechEndToFinalMs },
+    });
 
     const pushHistory = (
       text: string,
@@ -374,6 +380,7 @@ export function useLiveCopilot() {
           if (firstChunk) {
             firstChunk = false;
             timingRef.current.llmFirstTokenAt = performance.now();
+            debugRef.current.event('answer_first_token');
             setSttDebug((prev) =>
               prev
                 ? {
@@ -412,6 +419,10 @@ export function useLiveCopilot() {
             timeToFinalMs: debugSnapshot?.timeToFinalMs,
           });
           const latency = buildExchangeLatency(debugSnapshot?.timeToFinalMs, llmLatencyMs);
+          debugRef.current.event('answer_done', {
+            text,
+            meta: { sttLatencyMs: latency.sttLatencyMs, llmLatencyMs: latency.llmLatencyMs },
+          });
           sessionContextRef.current = updateSessionContextAfterAnswer(sessionContextRef.current, {
             rawQuestion: prepared.rawTranscript,
             correctedQuestion: prepared.corrected,
@@ -429,6 +440,7 @@ export function useLiveCopilot() {
           streamLockRef.current = false;
           setStreaming(false);
           setSuggestLoading(false);
+          debugRef.current.event('error', { reason: msg, text: q });
           if (accumulated) {
             lastCompletedRef.current = q;
             const text = sanitizeLiveAnswer(stripExperienceFooter(accumulated));
@@ -742,6 +754,7 @@ export function useLiveCopilot() {
       incompleteRetryRef.current = 0;
       streamLockRef.current = false;
       hasSessionContentRef.current = false;
+      debugRef.current.start(16000);
       if (finalDebounceRef.current) clearTimeout(finalDebounceRef.current);
       clearSpeculative();
       liveRef.current.forEach((e) => e.session.stop());
@@ -777,6 +790,7 @@ export function useLiveCopilot() {
                   timingRef.current.firstPartialTranscriptAt = performance.now();
                 }
                 appendLine(trimmed, false, speaker);
+                debugRef.current.event('partial', { text: trimmed, speaker });
                 patchSttDebug({
                   interimTranscript: trimmed,
                   waitReason: undefined,
@@ -800,6 +814,7 @@ export function useLiveCopilot() {
               timingRef.current.finalTranscriptionEndAt = performance.now();
               timingRef.current.speechEndedAt = performance.now();
               appendLine(trimmed, true, speaker);
+              debugRef.current.event('final', { text: trimmed, speaker });
               patchSttDebug({
                 interimTranscript: undefined,
                 finalTranscript: trimmed,
@@ -819,6 +834,7 @@ export function useLiveCopilot() {
               }
               timingRef.current.finalTranscriptionStartAt = null;
               timingRef.current.finalTranscriptionEndAt = null;
+              debugRef.current.event('speech_started', { speaker });
             },
             onReady: (info) => {
               sttMetaRef.current = {
@@ -827,6 +843,19 @@ export function useLiveCopilot() {
                 partialModel: info.partialModel,
                 sampleRate: info.sampleRate,
               };
+              debugRef.current.setSampleRate(info.sampleRate);
+              debugRef.current.event('ready', {
+                meta: {
+                  model: info.model,
+                  partialModel: info.partialModel,
+                  finalModel: info.finalModel,
+                  sampleRate: info.sampleRate,
+                },
+              });
+            },
+            onAudioFrame: (buffer) => {
+              // Record the trigger speaker's mic so the debug WAV is the user's voice.
+              if (speaker === triggerSpeakerRef.current) debugRef.current.audioFrame(buffer);
             },
             onUtteranceEnd: (timings) => {
               lastFlushSpeakerRef.current = speaker === 'other' ? 'interviewer' : 'me';
@@ -838,6 +867,7 @@ export function useLiveCopilot() {
               // never call the LLM with garbage. (Server logs the reason.)
               serverTimingsRef.current = null;
               recordSkipped(_reason, text);
+              debugRef.current.event('low_quality', { text, reason: _reason, speaker });
               patchSttDebug({
                 interimTranscript: undefined,
                 finalTranscript: text,
@@ -920,6 +950,42 @@ export function useLiveCopilot() {
     setStreamText(text);
   }, []);
 
+  /**
+   * Download a debug bundle for the current/last session: a WAV of the user's
+   * mic plus a JSON timeline of every STT/LLM event with ms-accurate timestamps
+   * (and the per-exchange pipeline data). Lets you see exactly when each word was
+   * heard and where a slow/dropped question came from.
+   */
+  const downloadDebug = useCallback(() => {
+    const rec = debugRef.current;
+    if (!rec.hasData()) return false;
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const wav = rec.buildWav();
+    const audioName = wav ? `live-debug-${stamp}.wav` : null;
+
+    const triggerDownload = (blob: Blob, filename: string) => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    };
+
+    if (wav && audioName) triggerDownload(wav, audioName);
+
+    const bundle = rec.buildJson(audioName, {
+      stt: sttMetaRef.current,
+      sources: liveSourcesRef.current,
+      exchanges: answerHistory,
+    });
+    triggerDownload(
+      new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' }),
+      `live-debug-${stamp}.json`,
+    );
+    return true;
+  }, [answerHistory]);
+
   return {
     active,
     lines,
@@ -934,6 +1000,7 @@ export function useLiveCopilot() {
     sessionStartedAt,
     updateAnswerEntry,
     setLiveAnswerText,
+    downloadDebug,
     start,
     stop,
   };

@@ -83,6 +83,7 @@ export default function InterviewPage() {
     sessionStartedAt,
     updateAnswerEntry,
     setLiveAnswerText,
+    downloadDebug,
     start,
     stop,
   } = useLiveCopilot();
@@ -376,7 +377,7 @@ export default function InterviewPage() {
         utilities={
           <>
             <FastAnswerToggle />
-            <InterviewExportButtons exportData={exportData} />
+            <InterviewExportButtons exportData={exportData} onDownloadDebug={downloadDebug} />
             {isElectron ? (
               <button
                 type="button"

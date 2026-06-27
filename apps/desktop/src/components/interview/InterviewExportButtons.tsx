@@ -8,12 +8,15 @@ interface InterviewExportButtonsProps {
   exportData: InterviewSessionExport;
   disabled?: boolean;
   compact?: boolean;
+  /** Download the debug bundle (mic WAV + timestamped event timeline). */
+  onDownloadDebug?: () => boolean | void;
 }
 
 export default function InterviewExportButtons({
   exportData,
   disabled = false,
   compact = false,
+  onDownloadDebug,
 }: InterviewExportButtonsProps) {
   const canExport =
     !disabled && (exportData.exchanges.length > 0 || exportData.transcript.length > 0);
@@ -38,6 +41,17 @@ export default function InterviewExportButtons({
       >
         {compact ? 'TXT' : 'Export TXT'}
       </button>
+      {onDownloadDebug && (
+        <button
+          type="button"
+          className="btn-secondary btn-sm"
+          disabled={!canExport}
+          onClick={() => onDownloadDebug()}
+          title="Скачать дебаг: твой голос (WAV) + таймлайн событий STT/LLM с таймингами"
+        >
+          {compact ? 'Debug' : 'Скачать дебаг'}
+        </button>
+      )}
     </div>
   );
 }
