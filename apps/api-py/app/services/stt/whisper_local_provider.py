@@ -34,6 +34,19 @@ from .whisper_models import DEFAULT_QUALITY, QualityLevel, get_model_spec
 
 logger = logging.getLogger("stt.whisper")
 
+# Domain vocabulary fed to Whisper as ``initial_prompt`` to bias decoding toward
+# QA/automation terms it otherwise mishears ("аппи"->API, "Пайтезфикстуры"->
+# pytest fixtures, "PageObjectModel"->Page Object Model). This fixes terminology
+# at the source instead of only post-hoc via the glossary. Verified not to
+# hallucinate on silence/short utterances (it returns empty on no-speech).
+# Keep it short and term-dense; both Cyrillic and Latin spellings are listed so
+# the model anchors either rendering.
+QA_INITIAL_PROMPT = (
+    "Интервью по QA-автоматизации. Термины: UI, юай, API, pytest, фикстуры, "
+    "conftest, тест-дизайн, баг, релиз, CI/CD, Page Object Model, Selenium, "
+    "Playwright, Allure, regression, smoke, фикстура, скоупы, эндпоинт."
+)
+
 
 def _register_cuda_dll_dirs() -> None:
     """Make CUDA runtime DLLs from the nvidia-* pip packages loadable on Windows.
@@ -268,6 +281,7 @@ class WhisperLocalProvider(BaseTranscriptionProvider):
             condition_on_previous_text=False,
             temperature=0.0,
             without_timestamps=True,
+            initial_prompt=QA_INITIAL_PROMPT,
         )
         return "".join(seg.text for seg in segments).strip()
 
