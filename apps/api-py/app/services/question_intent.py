@@ -60,8 +60,12 @@ _DEFINITION_RE = re.compile(
 )
 
 _FORMAT = (
-    "3–6 short sentences (~50–90 words). First sentence = direct answer. "
-    "Use a list for 3+ items/steps/errors/comparisons. No wall of text, no filler openings."
+    "4–7 sentences (~90–150 words), natural first-person spoken style — like a strong "
+    "candidate, not a textbook. First sentence = direct answer. For a long list, group it "
+    "by dimensions when natural (e.g. «по уровню», «по цели», «по способу выполнения») and "
+    "use bullets for 3+ items/steps. No filler openings. Where it fits naturally, add a short "
+    "personal bridge from the resume (1–2 sentences, real facts only). You MAY finish with at "
+    "most one optional offer to expand («Если хотите, могу подробнее разложить, как…»)."
 )
 
 _STRATEGIES: dict[QuestionIntent, AnswerStrategy] = {
@@ -99,11 +103,15 @@ _STRATEGIES: dict[QuestionIntent, AnswerStrategy] = {
         "question_intent": "technical_list",
         "answer_strategy": (
             f"{_FORMAT} Bullets MUST name specific items/anti-patterns by name. "
-            "No resume. Do not start with «Я знаю несколько…»."
+            "Where natural, bridge to a brief personal experience line (which of these the "
+            "candidate actually used and where) — never a full resume dump. "
+            "Do not start with «Я знаю несколько…»."
         ),
-        "resume_context_used": False,
-        "resume_context_level": "none",
-        "resume_context_reason": "List/theory question — no resume injection.",
+        "resume_context_used": True,
+        "resume_context_level": "limited",
+        "resume_context_reason": (
+            "List/theory question — name the items, then a short personal experience bridge where it fits."
+        ),
         "suggest_unclear_prefix": False,
     },
     "technical_comparison": {

@@ -49,8 +49,12 @@ const DEFINITION_RE =
   /(?:что\s+такое|что\s+значит|что\s+это\s+за|объясни(?:те)?|расскаж\w*\s+что\s+такое|определени\w*)/iu;
 
 const ANSWER_FORMAT =
-  '3–6 short sentences (~50–90 words). First sentence = direct answer. ' +
-  'Use a list for 3+ items/steps/errors/comparisons. No wall of text, no filler openings.';
+  '4–7 sentences (~90–150 words), natural first-person spoken style — like a strong candidate, not a textbook. ' +
+  'First sentence = direct answer. For a long list, group it by dimensions when natural ' +
+  '(e.g. «по уровню», «по цели», «по способу выполнения») and use bullets for 3+ items/steps. ' +
+  'No filler openings. Where it fits naturally, add a short personal bridge from the resume ' +
+  '(1–2 sentences, real facts only) — e.g. «У меня основной фокус был на…, в Сбере и ГЕОМИКС я…». ' +
+  'You MAY finish with at most one optional offer to expand («Если хотите, могу подробнее разложить, как…»).';
 
 const STRATEGY_BY_INTENT: Record<QuestionIntent, Omit<AnswerStrategyResult, 'questionIntent'>> = {
   experience: {
@@ -79,10 +83,11 @@ const STRATEGY_BY_INTENT: Record<QuestionIntent, Omit<AnswerStrategyResult, 'que
   },
   technical_list: {
     answerStrategy:
-      `${ANSWER_FORMAT} Bullets MUST name specific items/anti-patterns by name. No resume. No diagnostic intro — start with the topic.`,
-    resumeContextUsed: false,
-    resumeContextLevel: 'none',
-    resumeContextReason: 'List/theory question — no resume injection.',
+      `${ANSWER_FORMAT} Bullets MUST name specific items/anti-patterns by name. ` +
+      'Where natural, bridge to a brief personal experience line (which of these the candidate actually used and where) — never a full resume dump. No diagnostic intro — start with the topic.',
+    resumeContextUsed: true,
+    resumeContextLevel: 'limited',
+    resumeContextReason: 'List/theory question — name the items, then a short personal experience bridge where it fits.',
     suggestUnclearPrefix: false,
   },
   technical_comparison: {
