@@ -135,13 +135,14 @@ def correct_transcript(text: str) -> tuple[str, list[CorrectionItem]]:
         if not match:
             continue
         src = match.group(0)
-        if src == rule.canonical:
-            continue
-        # Skip if this position is already the canonical form — prevents e.g.
-        # "smoke" inside an already-corrected "smoke testing" from re-expanding
-        # into "smoke testing testing".
         window = corrected[match.start() : match.start() + len(rule.canonical)]
-        if window.lower() == rule.canonical.lower():
+        # Already exactly canonical (incl. case) — nothing to do.
+        if window == rule.canonical:
+            continue
+        # A SHORT alias landing inside text a longer alias already corrected
+        # ("smoke" inside "smoke testing") — don't re-expand. But a full-length
+        # alias differing only by case should be normalized to canonical casing.
+        if window.lower() == rule.canonical.lower() and len(src) < len(rule.canonical):
             continue
         corrected = corrected[: match.start()] + rule.canonical + corrected[match.end() :]
         applied.append(CorrectionItem(src=src, dst=rule.canonical))

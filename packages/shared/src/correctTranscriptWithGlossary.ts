@@ -148,11 +148,19 @@ export function correctTranscriptWithGlossary(
     if (!match) continue;
 
     const from = match[0];
-    // Skip if this position is already the canonical form — prevents a short
-    // alias (e.g. "smoke") from re-expanding text that a longer alias already
-    // corrected (e.g. "smoke testing" → "smoke testing testing").
     const existing = corrected.slice(match.index!, match.index! + rule.canonical.length);
-    if (existing.toLowerCase() === rule.canonical.toLowerCase()) continue;
+    // Already exactly canonical (incl. case) — nothing to do.
+    if (existing === rule.canonical) continue;
+    // A SHORT alias landing inside text a longer alias already corrected
+    // (e.g. "smoke" inside "smoke testing") — don't re-expand. But a full-length
+    // alias that differs only by case (e.g. "page object model") SHOULD be
+    // normalized to the canonical casing ("Page Object Model").
+    if (
+      existing.toLowerCase() === rule.canonical.toLowerCase() &&
+      from.length < rule.canonical.length
+    ) {
+      continue;
+    }
     corrected = corrected.slice(0, match.index!) + rule.canonical + corrected.slice(match.index! + from.length);
     corrections.push({ from, to: rule.canonical, confidence: rule.confidence });
   }
