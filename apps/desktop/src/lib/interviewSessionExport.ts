@@ -54,6 +54,16 @@ export interface CopilotAnswerPipeline {
   resumeContextLevel?: string;
   resumeContextReason?: string;
   llmCorrectedTranscript?: string;
+  /** Python Knowledge Pack usage for this exchange (server-reported). */
+  knowledge?: {
+    knowledgePackUsed?: boolean;
+    knowledgePackName?: string | null;
+    knowledgeSource?: string;
+    retrievedItemsCount?: number;
+    injectedContextTokens?: number;
+    knowledgeRetrievalMs?: number;
+    answerLatencyWithKnowledgeMs?: number;
+  };
   /** @deprecated use entry.latency.llmLatencyMs */
   timeToAnswerMs?: number;
   /** @deprecated use entry.latency.sttLatencyMs */

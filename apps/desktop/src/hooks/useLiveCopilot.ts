@@ -165,6 +165,7 @@ export function useLiveCopilot() {
   const hasSessionContentRef = useRef(false);
   const timingRef = useRef<LiveTimingState>(emptyTimingState());
   const debugRef = useRef<LiveDebugRecorder>(new LiveDebugRecorder());
+  const knowledgeMetaRef = useRef<CopilotAnswerPipeline['knowledge'] | null>(null);
 
   const patchSttDebug = useCallback((patch: Partial<SttDebugInfo>) => {
     setSttDebug((prev) => ({
@@ -279,6 +280,7 @@ export function useLiveCopilot() {
     const gen = ++streamGenRef.current;
     const answerStartedAt = performance.now();
     timingRef.current.llmRequestStartAt = answerStartedAt;
+    knowledgeMetaRef.current = null;
     const meta = sttMetaRef.current;
 
     // Snapshot the REAL per-utterance STT latency now, while the server timing is
@@ -424,6 +426,7 @@ export function useLiveCopilot() {
             timeToAnswerMs: debugSnapshot?.timeToAnswerMs,
             timeToFinalMs: exchangeSttLatencyMs,
           });
+          if (knowledgeMetaRef.current) pipeline.knowledge = knowledgeMetaRef.current;
           const latency = buildExchangeLatency(
             exchangeSttLatencyMs,
             llmLatencyMs,
@@ -469,6 +472,7 @@ export function useLiveCopilot() {
               llmCorrectedTranscript: debugSnapshot?.llmCorrectedTranscript,
               timeToFinalMs: exchangeSttLatencyMs,
             });
+            if (knowledgeMetaRef.current) pipeline.knowledge = knowledgeMetaRef.current;
             const latency = buildExchangeLatency(exchangeSttLatencyMs, llmLatencyMs);
             pushHistory(text, undefined, pipeline, latency);
           } else {
@@ -523,6 +527,19 @@ export function useLiveCopilot() {
             }
             return next;
           });
+          // Capture server-reported Python Knowledge Pack metrics for this
+          // exchange so the export/persisted entry matches the debug bundle.
+          if (correctionMeta.knowledgePackUsed != null) {
+            knowledgeMetaRef.current = {
+              knowledgePackUsed: correctionMeta.knowledgePackUsed,
+              knowledgePackName: correctionMeta.knowledgePackName,
+              knowledgeSource: correctionMeta.knowledgeSource,
+              retrievedItemsCount: correctionMeta.retrievedItemsCount,
+              injectedContextTokens: correctionMeta.injectedContextTokens,
+              knowledgeRetrievalMs: correctionMeta.knowledgeRetrievalMs,
+              answerLatencyWithKnowledgeMs: correctionMeta.answerLatencyWithKnowledgeMs,
+            };
+          }
         },
       },
     );

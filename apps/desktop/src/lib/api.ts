@@ -229,6 +229,14 @@ export interface StreamInterviewCorrectionMeta {
   is_follow_up?: boolean;
   follow_up_reason?: string;
   current_canonical_topic?: string;
+  // Python Knowledge Pack metrics (server-reported).
+  knowledgePackUsed?: boolean;
+  knowledgePackName?: string | null;
+  knowledgeSource?: string;
+  retrievedItemsCount?: number;
+  injectedContextTokens?: number;
+  knowledgeRetrievalMs?: number;
+  answerLatencyWithKnowledgeMs?: number;
 }
 
 export interface StreamInterviewOpts {
