@@ -1,0 +1,46 @@
+{
+  "description": "Golden questions for the answer-quality eval harness. Run: python scripts/eval_answers.py. Scoring is structural (length, no forbidden phrases/labels, required terms present) — not a strict factual judge.",
+  "maxWords": 90,
+  "cases": [
+    {
+      "question": "Какие бывают виды тестирования?",
+      "requiredTerms": ["функциональн", "регресс"],
+      "note": "list answer, no «ручная автоматизация» nonsense"
+    },
+    {
+      "question": "Какие бывают виды автоматизации?",
+      "requiredTerms": ["ui", "api"],
+      "note": "must NOT say automation is done by hand"
+    },
+    {
+      "question": "Как ты настраивал CI/CD?",
+      "requiredTerms": ["docker", "allure"],
+      "note": "stages/jobs, docker, tests, artifacts"
+    },
+    {
+      "question": "Расскажи про свой опыт работы",
+      "requiredTerms": ["python"],
+      "note": "experience: 1 thesis + concrete tools, no long story"
+    },
+    {
+      "question": "Расскажи про подработку",
+      "requiredTerms": [],
+      "note": "HR: calm, not defensive, no invented job"
+    },
+    {
+      "question": "Что такое декоратор?",
+      "requiredTerms": ["функци"],
+      "note": "pure Python — knowledge pack used"
+    },
+    {
+      "question": "Чем список отличается от кортежа?",
+      "requiredTerms": ["изменя"],
+      "note": "pure Python comparison"
+    },
+    {
+      "question": "Что такое Page Object Model?",
+      "requiredTerms": ["page object"],
+      "note": "QA topic — pack NOT used"
+    }
+  ]
+}
