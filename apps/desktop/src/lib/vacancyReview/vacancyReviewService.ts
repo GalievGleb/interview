@@ -6,13 +6,16 @@
  * so swapping mock → real touches only this module. UI never calls heuristics
  * directly — it goes through these functions.
  */
+import { api } from '../api';
 import { difficultyForIndex, detectRole, detectSeniority, extractTopics } from './topicExtraction';
 import { readinessLabelFromScore, topicStatusFromScore } from './readiness';
 import type {
+  InterviewTopic,
   ReadinessReport,
   SmokeAnswerEvaluation,
   SmokeQuestion,
   SmokeReviewSession,
+  TopicImportance,
   TopicScore,
   VacancyAnalysis,
   VacancyReviewInput,
@@ -27,9 +30,63 @@ const HEDGE_RE = /(не знаю|не уверен|наверное|кажетс
 const SPECIFIC_RE =
   /(\d|playwright|pytest|docker|allure|gitlab|jenkins|httpx|selenium|sql|postgres|api|ci\/cd|fixture|в проекте|на проекте|я настраивал|я писал|я делал|я использовал)/i;
 
-/** Analyze a vacancy → topics, role, seniority, risks. (LLM seam) */
+const IMPORTANCE: TopicImportance[] = ['high', 'medium', 'low'];
+function asImportance(v: string): TopicImportance {
+  return (IMPORTANCE as string[]).includes(v) ? (v as TopicImportance) : 'medium';
+}
+
+/**
+ * Analyze a vacancy → topics, role, seniority, risks. Tries the real LLM
+ * (/vacancy/analyze) and falls back to the deterministic mock if the backend or
+ * model is unavailable — so the feature always works.
+ */
 export async function analyzeVacancy(input: VacancyReviewInput): Promise<VacancyAnalysis> {
-  // TODO(real-ai): POST /vacancy/analyze { vacancyText, resumeText, legendText, role }.
+  try {
+    const r = await api.vacancyAnalyze({
+      vacancyText: input.vacancyText,
+      targetRole: input.targetRole,
+      language: input.language,
+      resumeText: input.resumeText,
+      legendText: input.legendText,
+    });
+    if (r.interviewTopics?.length) {
+      const topics: InterviewTopic[] = r.interviewTopics.map((t) => ({
+        id: t.id,
+        title: t.title,
+        category: t.category || 'General',
+        importance: asImportance(t.importance),
+        expectedKnowledge: t.expectedKnowledge,
+        sampleQuestions: t.sampleQuestions?.length ? t.sampleQuestions : ['Расскажи про эту тему.'],
+        vacancyEvidence: t.vacancyEvidence,
+      }));
+      return {
+        id: uid(),
+        vacancyText: input.vacancyText,
+        targetRole: r.targetRole || detectRole(input.vacancyText, input.targetRole),
+        seniorityLevel: (
+          ['intern', 'junior', 'middle', 'senior', 'lead', 'unknown'] as const
+        ).includes(r.seniorityLevel as never)
+          ? (r.seniorityLevel as VacancyAnalysis['seniorityLevel'])
+          : 'unknown',
+        language: input.language,
+        extractedRequirements: r.extractedRequirements ?? [],
+        optionalSkills: r.optionalSkills ?? [],
+        interviewTopics: topics,
+        projectQuestions: r.projectQuestions ?? [],
+        riskAreas: r.riskAreas ?? [],
+        hasResume: Boolean(input.resumeText),
+        hasLegend: Boolean(input.legendText),
+        createdAt: Date.now(),
+      };
+    }
+  } catch {
+    // Backend/model unavailable — fall through to the deterministic mock.
+  }
+  return analyzeVacancyMock(input);
+}
+
+/** Deterministic fallback analysis (no backend). */
+export function analyzeVacancyMock(input: VacancyReviewInput): VacancyAnalysis {
   const { topics, requirements, optionalSkills } = extractTopics(input.vacancyText);
   const targetRole = detectRole(input.vacancyText, input.targetRole);
   const seniorityLevel = detectSeniority(input.vacancyText, targetRole);
@@ -110,13 +167,41 @@ function clamp(n: number): number {
   return Math.max(0, Math.min(100, Math.round(n)));
 }
 
-/** Evaluate one answer. Heuristic now; same shape as the LLM evaluation. */
-export function evaluateAnswer(
+/**
+ * Evaluate one answer. Tries the real LLM (/vacancy/evaluate); falls back to the
+ * deterministic heuristic if the backend/model is unavailable.
+ */
+export async function evaluateAnswer(
+  question: SmokeQuestion,
+  answerText: string,
+  analysis: VacancyAnalysis,
+): Promise<SmokeAnswerEvaluation> {
+  const text = (answerText || '').trim();
+  if (text) {
+    try {
+      const topic = analysis.interviewTopics.find((t) => t.id === question.topicId);
+      const r = await api.vacancyEvaluate({
+        question: question.question,
+        answer: text,
+        topic: topic?.title,
+        expectedSignals: question.expectedSignals,
+        language: analysis.language,
+        hasResume: analysis.hasResume,
+      });
+      return { ...r, questionId: question.id };
+    } catch {
+      // Fall through to the heuristic.
+    }
+  }
+  return evaluateAnswerMock(question, answerText, analysis);
+}
+
+/** Deterministic fallback evaluation (no backend). */
+export function evaluateAnswerMock(
   question: SmokeQuestion,
   answerText: string,
   analysis: VacancyAnalysis,
 ): SmokeAnswerEvaluation {
-  // TODO(real-ai): POST /vacancy/evaluate { question, answer, resume, legend }.
   const text = (answerText || '').trim();
   const words = text ? text.split(/\s+/).length : 0;
   const lower = text.toLowerCase();

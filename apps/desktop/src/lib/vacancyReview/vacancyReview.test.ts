@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { extractTopics, detectRole, detectSeniority } from './topicExtraction';
 import {
-  analyzeVacancy,
+  analyzeVacancyMock,
   buildSmokePlan,
-  evaluateAnswer,
+  evaluateAnswerMock,
   buildReadinessReport,
 } from './vacancyReviewService';
 import { readinessLabelFromScore, topicStatusFromScore } from './readiness';
@@ -44,7 +44,7 @@ describe('topic extraction', () => {
 
 describe('smoke plan', () => {
   it('builds 8–15 questions grouped by topic, increasing difficulty', async () => {
-    const analysis = await analyzeVacancy({ vacancyText: QA_VACANCY, language: 'ru' });
+    const analysis = analyzeVacancyMock({ vacancyText: QA_VACANCY, language: 'ru' });
     const plan = buildSmokePlan(analysis);
     expect(plan.length).toBeGreaterThanOrEqual(8);
     expect(plan.length).toBeLessThanOrEqual(15);
@@ -56,26 +56,26 @@ describe('smoke plan', () => {
 
 describe('evaluation + report', () => {
   it('scores a concrete answer higher than a vague one', async () => {
-    const analysis = await analyzeVacancy({
+    const analysis = analyzeVacancyMock({
       vacancyText: QA_VACANCY,
       language: 'ru',
       resumeText: 'Python, Playwright, Docker, GitLab CI на проекте',
     });
     const plan = buildSmokePlan(analysis);
     const q = plan[0];
-    const good = evaluateAnswer(
+    const good = evaluateAnswerMock(
       q,
       'На проекте я настраивал запуск pytest в GitLab CI внутри Docker, артефакты и Allure-отчёты, разбирал падения по логам.',
       analysis,
     );
-    const vague = evaluateAnswer(q, 'Ну, наверное, что-то делал, не знаю точно.', analysis);
+    const vague = evaluateAnswerMock(q, 'Ну, наверное, что-то делал, не знаю точно.', analysis);
     expect(good.score).toBeGreaterThan(vague.score);
   });
 
   it('flags overclaiming when there is no resume', async () => {
-    const analysis = await analyzeVacancy({ vacancyText: QA_VACANCY, language: 'ru' });
+    const analysis = analyzeVacancyMock({ vacancyText: QA_VACANCY, language: 'ru' });
     const plan = buildSmokePlan(analysis);
-    const evalRes = evaluateAnswer(
+    const evalRes = evaluateAnswerMock(
       plan[0],
       'У меня огромный опыт, я постоянно настраивал всё в продакшене.',
       analysis,
@@ -84,7 +84,7 @@ describe('evaluation + report', () => {
   });
 
   it('builds a readiness report with overall + topic scores', async () => {
-    const analysis = await analyzeVacancy({ vacancyText: QA_VACANCY, language: 'ru' });
+    const analysis = analyzeVacancyMock({ vacancyText: QA_VACANCY, language: 'ru' });
     const questions = buildSmokePlan(analysis);
     const session: SmokeReviewSession = {
       id: 's1',
@@ -99,7 +99,7 @@ describe('evaluation + report', () => {
         text: 'На проекте я использовал pytest, Playwright, Docker и Allure, разбирал падения.',
         source: 'text' as const,
         skipped: false,
-        evaluation: evaluateAnswer(q, 'pytest Playwright Docker Allure на проекте', analysis),
+        evaluation: evaluateAnswerMock(q, 'pytest Playwright Docker Allure на проекте', analysis),
         answeredAt: Date.now(),
       })),
     };

@@ -709,6 +709,61 @@ export const api = {
     );
   },
 
+  /** Vacancy Smoke Review — LLM analysis (desktop falls back to a local mock). */
+  vacancyAnalyze: (body: {
+    vacancyText: string;
+    targetRole?: string;
+    language: string;
+    resumeText?: string;
+    legendText?: string;
+  }) =>
+    request<{
+      targetRole: string;
+      seniorityLevel: string;
+      extractedRequirements: string[];
+      optionalSkills: string[];
+      interviewTopics: Array<{
+        id: string;
+        title: string;
+        category: string;
+        importance: string;
+        expectedKnowledge: string;
+        sampleQuestions: string[];
+        vacancyEvidence: string;
+      }>;
+      projectQuestions: string[];
+      riskAreas: string[];
+    }>('/vacancy/analyze', {
+      method: 'POST',
+      body: JSON.stringify(body),
+      timeoutMs: LONG_REQUEST_TIMEOUT_MS,
+    }),
+
+  vacancyEvaluate: (body: {
+    question: string;
+    answer: string;
+    topic?: string;
+    expectedSignals?: string[];
+    language: string;
+    hasResume: boolean;
+  }) =>
+    request<{
+      score: number;
+      clarityScore: number;
+      technicalAccuracyScore: number;
+      specificityScore: number;
+      confidenceScore: number;
+      feedback: string;
+      missingPoints: string[];
+      goodPoints: string[];
+      suggestedBetterAnswer: string;
+      overclaimed: boolean;
+    }>('/vacancy/evaluate', {
+      method: 'POST',
+      body: JSON.stringify(body),
+      timeoutMs: LONG_REQUEST_TIMEOUT_MS,
+    }),
+
   // --- Speech-to-text (Local Whisper provider, model manager) ---
   sttProviders: () => request<SttProviderDiagnostics>('/stt/providers'),
 

@@ -3,6 +3,7 @@ import type { Difficulty, SmokeReviewSession } from '../../lib/vacancyReview/typ
 
 interface Props {
   session: SmokeReviewSession;
+  evaluating?: boolean;
   onSubmitAnswer: (text: string, source: 'voice' | 'text', skipped?: boolean) => void;
   onNext: () => void;
   onFinish: () => void;
@@ -14,7 +15,13 @@ const DIFF_TONE: Record<Difficulty, string> = {
   hard: 'prep-tone-amber',
 };
 
-export default function SmokeInterviewView({ session, onSubmitAnswer, onNext, onFinish }: Props) {
+export default function SmokeInterviewView({
+  session,
+  evaluating = false,
+  onSubmitAnswer,
+  onNext,
+  onFinish,
+}: Props) {
   const { questions, currentIndex, vacancyAnalysis } = session;
   const question = questions[currentIndex];
   const existing = session.answers.find((a) => a.questionId === question?.id);
@@ -70,10 +77,10 @@ export default function SmokeInterviewView({ session, onSubmitAnswer, onNext, on
                 <button
                   type="button"
                   className="prep-btn"
-                  disabled={text.trim().length < 2}
+                  disabled={text.trim().length < 2 || evaluating}
                   onClick={() => onSubmitAnswer(text, 'text')}
                 >
-                  Submit answer
+                  {evaluating ? 'Evaluating…' : 'Submit answer'}
                 </button>
                 <button
                   type="button"

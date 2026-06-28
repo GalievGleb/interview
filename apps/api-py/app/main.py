@@ -22,6 +22,7 @@ from app.routers import (
     stt,
     stt_benchmark,
     usage,
+    vacancy,
     voice_tests,
 )
 from app.routers import (
@@ -58,6 +59,7 @@ app.include_router(settings_router.router)
 app.include_router(stt.router)
 app.include_router(stt_benchmark.router)
 app.include_router(voice_tests.router)
+app.include_router(vacancy.router)
 
 
 @app.on_event("startup")

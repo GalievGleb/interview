@@ -22,6 +22,7 @@ export function useVacancyReview(initial?: SmokeReviewSession | null) {
   );
   const [session, setSession] = useState<SmokeReviewSession | null>(initial ?? null);
   const [error, setError] = useState('');
+  const [evaluating, setEvaluating] = useState(false);
 
   const persist = useCallback((next: SmokeReviewSession) => {
     setSession(next);
@@ -65,18 +66,34 @@ export function useVacancyReview(initial?: SmokeReviewSession | null) {
   }, [session]);
 
   const submitAnswer = useCallback(
-    (text: string, source: 'voice' | 'text', skipped = false) => {
+    async (text: string, source: 'voice' | 'text', skipped = false) => {
       if (!session) return;
       const question = session.questions[session.currentIndex];
       if (!question) return;
-      const evaluation = skipped
-        ? undefined
-        : evaluateAnswer(question, text, session.vacancyAnalysis);
-      const answers = [
-        ...session.answers.filter((a) => a.questionId !== question.id),
-        { questionId: question.id, text, source, skipped, evaluation, answeredAt: Date.now() },
-      ];
-      persist({ ...session, answers });
+      const others = session.answers.filter((a) => a.questionId !== question.id);
+      if (skipped) {
+        persist({
+          ...session,
+          answers: [
+            ...others,
+            { questionId: question.id, text: '', source, skipped: true, answeredAt: Date.now() },
+          ],
+        });
+        return;
+      }
+      setEvaluating(true);
+      try {
+        const evaluation = await evaluateAnswer(question, text, session.vacancyAnalysis);
+        persist({
+          ...session,
+          answers: [
+            ...others,
+            { questionId: question.id, text, source, skipped: false, evaluation, answeredAt: Date.now() },
+          ],
+        });
+      } finally {
+        setEvaluating(false);
+      }
     },
     [session, persist],
   );
@@ -114,6 +131,7 @@ export function useVacancyReview(initial?: SmokeReviewSession | null) {
     phase,
     session,
     error,
+    evaluating,
     analyze,
     startInterview,
     submitAnswer,

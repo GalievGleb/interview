@@ -48,6 +48,7 @@ export default function PreparePage() {
         {phase === 'interview' && session && (
           <SmokeInterviewView
             session={session}
+            evaluating={review.evaluating}
             onSubmitAnswer={review.submitAnswer}
             onNext={review.goNext}
             onFinish={review.finish}
