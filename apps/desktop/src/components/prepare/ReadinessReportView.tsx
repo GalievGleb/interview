@@ -14,7 +14,7 @@ interface Props {
 export default function ReadinessReportView({ report, analysis, onSave, onStartLive, onNewReview }: Props) {
   const tone = readinessTone(report.status);
   return (
-    <div className="space-y-5">
+    <div className="prep-rise space-y-5">
       <div className="prep-card prep-card-pad">
         <div className="flex flex-col items-center gap-5 sm:flex-row sm:items-center">
           <ReadinessRing score={report.overallScore} label={readinessLabelText(report.status)} tone={tone} />

@@ -241,3 +241,43 @@
   height: 1px;
   background: var(--prep-border);
 }
+
+/* Entrance animation for screens / cards. */
+@keyframes prep-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.prep-rise {
+  animation: prep-rise 0.22s ease-out both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .prep-rise {
+    animation: none;
+  }
+}
+
+/* Saved-document picker chips. */
+.prep-doc-chip {
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+.prep-doc-chip:hover {
+  border-color: var(--prep-green);
+  background: var(--prep-green-soft);
+  color: #126e36;
+}
+
+/* Tighter padding on narrow windows. */
+@media (max-width: 640px) {
+  .prep-wrap {
+    padding: 18px 16px 44px;
+  }
+}

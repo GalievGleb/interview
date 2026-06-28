@@ -92,6 +92,14 @@ def list_documents(db: Session = Depends(get_db)) -> dict:
     }
 
 
+@router.get("/{document_id}")
+def get_document(document_id: str, db: Session = Depends(get_db)) -> dict:
+    doc = db.query(Document).filter(Document.id == document_id).first()
+    if not doc:
+        raise AppError("Document not found", 404, "not_found")
+    return {"id": doc.id, "kind": doc.kind, "title": doc.title, "text": doc.raw_text or ""}
+
+
 @router.delete("/{document_id}")
 def delete_document(document_id: str, db: Session = Depends(get_db)) -> dict:
     doc = db.query(Document).filter(Document.id == document_id).first()

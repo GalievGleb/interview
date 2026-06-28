@@ -17,7 +17,7 @@ export default function HomePage() {
 
   return (
     <div className="prep h-full overflow-y-auto">
-      <div className="prep-wrap">
+      <div className="prep-wrap prep-rise">
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="prep-eyebrow">Interview prep</p>

@@ -43,7 +43,7 @@ export default function SmokeInterviewView({
   const progress = Math.round(((currentIndex + (answered ? 1 : 0)) / questions.length) * 100);
 
   return (
-    <div className="grid gap-5 lg:grid-cols-[1fr_240px]">
+    <div className="prep-rise grid gap-5 lg:grid-cols-[1fr_240px]">
       <div className="space-y-4">
         <div>
           <div className="flex items-center justify-between gap-2">

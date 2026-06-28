@@ -382,6 +382,11 @@ export const api = {
 
   listDocuments: () => request<{ documents: DocumentItem[] }>('/documents'),
 
+  getDocument: (id: string) =>
+    request<{ id: string; kind: string; title: string; text: string }>(
+      `/documents/${encodeURIComponent(id)}`,
+    ),
+
   uploadText: (kind: string, title: string, text: string) =>
     request<{ id: string; kind: string; title: string; chunks: number }>('/documents/text', {
       method: 'POST',

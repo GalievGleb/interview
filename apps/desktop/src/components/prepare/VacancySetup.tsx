@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { api, type DocumentItem } from '../../lib/api';
 import type { AnswerLanguage, VacancyReviewInput } from '../../lib/vacancyReview/types';
 
 interface Props {
@@ -14,11 +15,32 @@ export default function VacancySetup({ onAnalyze, analyzing, error }: Props) {
   const [resumeText, setResumeText] = useState('');
   const [legendText, setLegendText] = useState('');
   const [showContext, setShowContext] = useState(false);
+  const [docs, setDocs] = useState<DocumentItem[]>([]);
+
+  useEffect(() => {
+    let alive = true;
+    api
+      .listDocuments()
+      .then((r) => alive && setDocs(r.documents))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const loadDoc = async (id: string, into: 'resume' | 'legend') => {
+    try {
+      const doc = await api.getDocument(id);
+      (into === 'resume' ? setResumeText : setLegendText)(doc.text);
+    } catch {
+      /* backend unavailable — paste manually */
+    }
+  };
 
   const canAnalyze = vacancyText.trim().length > 20 && !analyzing;
 
   return (
-    <div className="space-y-5">
+    <div className="prep-rise space-y-5">
       <div>
         <p className="prep-eyebrow">Vacancy Smoke Review</p>
         <h1 className="prep-h1 mt-1">Prepare by vacancy</h1>
@@ -79,16 +101,18 @@ export default function VacancySetup({ onAnalyze, analyzing, error }: Props) {
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <div>
               <label className="prep-faint">Resume</label>
+              <SavedDocs docs={docs} onPick={(id) => loadDoc(id, 'resume')} />
               <textarea
                 className="prep-textarea mt-1"
                 style={{ minHeight: 120 }}
-                placeholder="Вставьте резюме, чтобы ответы опирались на реальный опыт…"
+                placeholder="Вставьте резюме или выберите сохранённый документ…"
                 value={resumeText}
                 onChange={(e) => setResumeText(e.target.value)}
               />
             </div>
             <div>
               <label className="prep-faint">Interview legend</label>
+              <SavedDocs docs={docs} onPick={(id) => loadDoc(id, 'legend')} />
               <textarea
                 className="prep-textarea mt-1"
                 style={{ minHeight: 120 }}
@@ -115,7 +139,7 @@ export default function VacancySetup({ onAnalyze, analyzing, error }: Props) {
           </p>
         )}
 
-        <div className="mt-4 flex items-center gap-3">
+        <div className="mt-4 flex flex-wrap items-center gap-3">
           <button
             type="button"
             className="prep-btn"
@@ -135,6 +159,26 @@ export default function VacancySetup({ onAnalyze, analyzing, error }: Props) {
           <span className="prep-faint">~8–15 questions · 20–30 min mock</span>
         </div>
       </div>
+    </div>
+  );
+}
+
+function SavedDocs({ docs, onPick }: { docs: DocumentItem[]; onPick: (id: string) => void }) {
+  if (!docs.length) return null;
+  return (
+    <div className="mt-1 flex flex-wrap gap-1.5">
+      <span className="prep-faint self-center">Use saved:</span>
+      {docs.slice(0, 6).map((d) => (
+        <button
+          key={d.id}
+          type="button"
+          className="prep-chip prep-doc-chip"
+          title={`${d.kind} · ${d.title}`}
+          onClick={() => onPick(d.id)}
+        >
+          {d.title.slice(0, 22)}
+        </button>
+      ))}
     </div>
   );
 }

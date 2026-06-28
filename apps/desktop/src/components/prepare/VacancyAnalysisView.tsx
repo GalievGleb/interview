@@ -24,7 +24,7 @@ const IMPORTANCE_TONE: Record<TopicImportance, string> = {
 
 export default function VacancyAnalysisView({ analysis, onStart, onBack, questionCount }: Props) {
   return (
-    <div className="space-y-5">
+    <div className="prep-rise space-y-5">
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="prep-eyebrow">Based on this vacancy</p>
