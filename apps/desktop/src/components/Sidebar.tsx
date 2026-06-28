@@ -8,6 +8,8 @@ import StatusBadge from './ui/StatusBadge';
 const isElectron = typeof window !== 'undefined' && !!window.electronAPI;
 
 type IconName =
+  | 'home'
+  | 'vacancy'
   | 'interview'
   | 'meeting'
   | 'documents'
@@ -33,6 +35,21 @@ function Icon({ name, size = 17 }: { name: IconName; size?: number }) {
     strokeLinejoin: 'round' as const,
   };
   switch (name) {
+    case 'home':
+      return (
+        <svg {...common}>
+          <path d="M3 10.5 12 3l9 7.5" />
+          <path d="M5 9.5V21h14V9.5" />
+          <path d="M9 21v-6h6v6" />
+        </svg>
+      );
+    case 'vacancy':
+      return (
+        <svg {...common}>
+          <rect x="3" y="7" width="18" height="14" rx="2" />
+          <path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 13h18M11 11h2" />
+        </svg>
+      );
     case 'interview':
       return (
         <svg {...common}>
@@ -123,6 +140,13 @@ type NavGroup = { title: string; items: NavItem[] };
 
 const GROUPS: NavGroup[] = [
   {
+    title: 'Prepare',
+    items: [
+      { to: '/home', label: 'Home', icon: 'home' },
+      { to: '/prepare', label: 'Vacancy Smoke Review', icon: 'vacancy' },
+    ],
+  },
+  {
     title: 'Workspace',
     items: [
       { to: '/interview', label: 'Live Interview', icon: 'interview', live: true },
@@ -203,7 +227,7 @@ export default function Sidebar() {
           SC
         </div>
         <div className="min-w-0 leading-tight">
-          <p className="truncate text-sm font-semibold tracking-tight">SkillCue</p>
+          <p className="truncate text-sm font-semibold tracking-tight">Skillcue</p>
           <p className="text-[11px] text-ink-faint">AI interview copilot</p>
         </div>
       </div>

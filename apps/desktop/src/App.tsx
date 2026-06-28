@@ -5,6 +5,8 @@ import Layout from './components/Layout';
 
 // Route-level code splitting — keeps the initial bundle small and cold start fast.
 const OnboardingPage = lazy(() => import('./pages/OnboardingPage'));
+const HomePage = lazy(() => import('./pages/HomePage'));
+const PreparePage = lazy(() => import('./pages/PreparePage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const DocumentsPage = lazy(() => import('./pages/DocumentsPage'));
 const InterviewPage = lazy(() => import('./pages/InterviewPage'));
@@ -48,6 +50,8 @@ function NavigationBridge() {
   // (keeps the small initial bundle, but no load flash on first visit to a route).
   useEffect(() => {
     const prefetch = () => {
+      void import('./pages/HomePage');
+      void import('./pages/PreparePage');
       void import('./pages/HistoryPage');
       void import('./pages/DocumentsPage');
       void import('./pages/SettingsPage');
@@ -75,6 +79,8 @@ export default function App() {
         <Routes>
           <Route path="/onboarding" element={<OnboardingPage />} />
           <Route path="/overlay" element={<OverlayPage />} />
+          <Route path="/home" element={<Gate><HomePage /></Gate>} />
+          <Route path="/prepare" element={<Gate><PreparePage /></Gate>} />
           <Route path="/interview" element={<Gate><InterviewPage /></Gate>} />
           <Route path="/meeting" element={<Gate><MeetingPage /></Gate>} />
           <Route path="/documents" element={<Gate><DocumentsPage /></Gate>} />
@@ -84,8 +90,8 @@ export default function App() {
           <Route path="/test-lab" element={<Gate><TestLabPage /></Gate>} />
           <Route path="/benchmark" element={<Gate><BenchmarkPage /></Gate>} />
           <Route path="/diagnostics" element={<Gate><DiagnosticsPage /></Gate>} />
-          <Route path="/" element={<Navigate to="/interview" replace />} />
-          <Route path="*" element={<Navigate to="/interview" replace />} />
+          <Route path="/" element={<Navigate to="/home" replace />} />
+          <Route path="*" element={<Navigate to="/home" replace />} />
         </Routes>
       </Suspense>
     </AppProvider>

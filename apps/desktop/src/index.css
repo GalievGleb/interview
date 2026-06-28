@@ -1,6 +1,7 @@
 @import './styles/interview-cockpit.css';
 @import './styles/overlay-cockpit.css';
 @import './styles/workspace.css';
+@import './styles/prepare.css';
 
 @tailwind base;
 @tailwind components;

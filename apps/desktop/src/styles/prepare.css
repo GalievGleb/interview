@@ -1,0 +1,243 @@
+/* Preparation mode — light, warm, premium. Scoped under .prep so the dark Live
+   interface and overlay are untouched. */
+
+.prep {
+  --prep-bg: #faf8f4;
+  --prep-card: #ffffff;
+  --prep-ink: #1f2733;
+  --prep-ink-muted: #5b6675;
+  --prep-ink-faint: #8b95a4;
+  --prep-border: #ece7df;
+  --prep-border-strong: #ddd6ca;
+  --prep-green: #16a34a;
+  --prep-green-soft: #e8f6ee;
+  --prep-blue: #2563eb;
+  --prep-blue-soft: #e8effd;
+  --prep-amber: #d97706;
+  --prep-amber-soft: #fdf1e0;
+  --prep-red: #dc2626;
+  --prep-red-soft: #fdeaea;
+  --prep-violet: #7c3aed;
+  --prep-violet-soft: #f1ebfd;
+
+  background: var(--prep-bg);
+  color: var(--prep-ink);
+  min-height: 100%;
+  font-family:
+    Inter, 'Inter Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.prep ::selection {
+  background: var(--prep-green-soft);
+}
+
+.prep-wrap {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 28px 28px 56px;
+}
+
+.prep-eyebrow {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--prep-green);
+}
+.prep-h1 {
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--prep-ink);
+}
+.prep-h2 {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--prep-ink);
+}
+.prep-sub {
+  font-size: 13.5px;
+  color: var(--prep-ink-muted);
+  line-height: 1.55;
+}
+.prep-faint {
+  color: var(--prep-ink-faint);
+  font-size: 12.5px;
+}
+
+.prep-card {
+  background: var(--prep-card);
+  border: 1px solid var(--prep-border);
+  border-radius: 16px;
+  box-shadow: 0 1px 2px rgba(31, 39, 51, 0.04), 0 14px 30px -22px rgba(31, 39, 51, 0.25);
+}
+.prep-card-pad {
+  padding: 20px;
+}
+
+.prep-textarea {
+  width: 100%;
+  min-height: 200px;
+  resize: vertical;
+  border-radius: 14px;
+  border: 1px solid var(--prep-border-strong);
+  background: #fffdf9;
+  padding: 14px 16px;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--prep-ink);
+  outline: none;
+}
+.prep-textarea:focus {
+  border-color: var(--prep-green);
+  box-shadow: 0 0 0 3px var(--prep-green-soft);
+}
+
+.prep-input {
+  border-radius: 12px;
+  border: 1px solid var(--prep-border-strong);
+  background: #fffdf9;
+  padding: 9px 12px;
+  font-size: 13.5px;
+  color: var(--prep-ink);
+  outline: none;
+}
+.prep-input:focus {
+  border-color: var(--prep-green);
+  box-shadow: 0 0 0 3px var(--prep-green-soft);
+}
+
+.prep-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 12px;
+  padding: 10px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  background: var(--prep-green);
+  color: #fff;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    transform 0.05s ease;
+}
+.prep-btn:hover {
+  background: #15893f;
+}
+.prep-btn:active {
+  transform: translateY(1px);
+}
+.prep-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.prep-btn-ghost {
+  background: transparent;
+  color: var(--prep-ink-muted);
+  border: 1px solid var(--prep-border-strong);
+}
+.prep-btn-ghost:hover {
+  background: #fff;
+  color: var(--prep-ink);
+}
+.prep-btn-sm {
+  padding: 7px 13px;
+  font-size: 13px;
+  border-radius: 10px;
+}
+
+.prep-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 4px 11px;
+  font-size: 12px;
+  font-weight: 500;
+  background: #f4f1ec;
+  color: var(--prep-ink-muted);
+  border: 1px solid var(--prep-border);
+}
+
+.prep-tone-green {
+  background: var(--prep-green-soft);
+  color: #126e36;
+  border-color: #cdebd8;
+}
+.prep-tone-blue {
+  background: var(--prep-blue-soft);
+  color: #1d4fc4;
+  border-color: #d3e0fb;
+}
+.prep-tone-amber {
+  background: var(--prep-amber-soft);
+  color: #ad5c00;
+  border-color: #f6e0c2;
+}
+.prep-tone-red {
+  background: var(--prep-red-soft);
+  color: #b91c1c;
+  border-color: #f6d4d4;
+}
+.prep-tone-violet {
+  background: var(--prep-violet-soft);
+  color: #6024c7;
+  border-color: #e3d6fb;
+}
+
+/* Topic card accents (left rail by status). */
+.prep-topic {
+  position: relative;
+  overflow: hidden;
+}
+.prep-topic::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+}
+.prep-topic-green::before {
+  background: var(--prep-green);
+}
+.prep-topic-blue::before {
+  background: var(--prep-blue);
+}
+.prep-topic-amber::before {
+  background: var(--prep-amber);
+}
+.prep-topic-red::before {
+  background: var(--prep-red);
+}
+
+/* Thin progress bar. */
+.prep-bar {
+  height: 7px;
+  border-radius: 999px;
+  background: #efeae2;
+  overflow: hidden;
+}
+.prep-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+}
+.prep-bar-green > span {
+  background: var(--prep-green);
+}
+.prep-bar-blue > span {
+  background: var(--prep-blue);
+}
+.prep-bar-amber > span {
+  background: var(--prep-amber);
+}
+.prep-bar-red > span {
+  background: var(--prep-red);
+}
+
+.prep-divider {
+  height: 1px;
+  background: var(--prep-border);
+}
