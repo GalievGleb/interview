@@ -23,7 +23,7 @@ hiddenimports: list = []
 
 # Python Knowledge Pack runtime data (parsed records; NOT the raw source md).
 _pack_rel = os.path.join("app", "knowledge", "packs", "python_interview_questions")
-for _fn in ("index.json", "answers.json", "metadata.json"):
+for _fn in ("index.json", "answers.json", "metadata.json", "curated.json"):
     _src = os.path.join(_pack_rel, _fn)
     if os.path.exists(_src):
         datas.append((_src, _pack_rel))

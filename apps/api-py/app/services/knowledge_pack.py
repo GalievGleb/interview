@@ -60,6 +60,31 @@ def _load() -> tuple[list[dict], dict[str, dict], dict]:
     return index, answers, metadata
 
 
+@lru_cache(maxsize=1)
+def _load_curated() -> list[dict]:
+    """Verified, Skillcue-normalized answers that OUTRANK the community source."""
+    try:
+        data = json.loads((PACK_DIR / "curated.json").read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return []
+    return data.get("entries", [])
+
+
+def _match_curated(question: str) -> dict | None:
+    """Best curated entry for the question (keyword overlap), or None."""
+    qwords = set(_WORD_RE.findall(question.lower()))
+    if not qwords:
+        return None
+    best: tuple[int, dict] | None = None
+    for entry in _load_curated():
+        overlap = len(qwords & {k.lower() for k in entry.get("keywords", [])})
+        # Curated keywords are distinctive, so a single strong match is enough;
+        # the best-overlap entry wins when several match.
+        if overlap >= 1 and (best is None or overlap > best[0]):
+            best = (overlap, entry)
+    return best[1] if best else None
+
+
 def is_python_question(question: str) -> bool:
     """True only for pure-Python questions. QA-Automation topics return False so
     the QA context / domain hints are used instead."""
@@ -113,38 +138,53 @@ def build_injection(question: str, top_k: int = 3) -> tuple[str, dict]:
     Returns (block_text, metrics). block_text is '' when nothing relevant.
     """
     started = time.perf_counter()
-    records = retrieve(question, top_k=top_k)
+    curated = _match_curated(question)
+    # A curated hit is authoritative; fill any remaining slots with community
+    # records (skipping a near-duplicate of the curated topic).
+    community = retrieve(question, top_k=top_k if not curated else top_k - 1)
     retrieval_ms = int((time.perf_counter() - started) * 1000)
 
     blocks: list[str] = []
     used_chars = 0
     used_count = 0
-    for rec in records:
+    source = "none"
+
+    if curated:
+        blocks.append(f"Q: {curated['question']}\nA: {curated['answer']}")
+        used_chars += len(blocks[-1])
+        used_count += 1
+        source = "curated"
+
+    for rec in community:
         formatted = _format_record(rec)
         if used_chars + len(formatted) > MAX_INJECTED_CHARS:
             break
         blocks.append(formatted)
         used_chars += len(formatted)
         used_count += 1
+        source = "curated+community" if curated else "community"
 
     if not blocks:
         return "", {
             "knowledgePackUsed": False,
             "knowledgePackName": None,
+            "knowledgeSource": "none",
             "knowledgeRetrievalMs": retrieval_ms,
             "retrievedItemsCount": 0,
             "injectedContextTokens": 0,
         }
 
     body = "\n\n".join(blocks)
+    trust = "The first Q/A is VERIFIED — prefer it. " if source.startswith("curated") else ""
     block_text = (
         "PYTHON KNOWLEDGE PACK (auxiliary reference — may contain inaccuracies; "
-        "normalize to the Skillcue say-aloud format, do NOT copy verbatim, and let "
-        "QA context / resume win on any conflict):\n" + body
+        f"{trust}normalize to the Skillcue say-aloud format, do NOT copy verbatim, "
+        "and let QA context / resume win on any conflict):\n" + body
     )
     return block_text, {
         "knowledgePackUsed": True,
         "knowledgePackName": PACK_NAME,
+        "knowledgeSource": source,
         "knowledgeRetrievalMs": retrieval_ms,
         "retrievedItemsCount": used_count,
         "injectedContextTokens": _estimate_tokens(block_text),

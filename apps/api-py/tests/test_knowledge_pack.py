@@ -85,3 +85,33 @@ def test_high_priority_records_exist():
     priorities = {r["priority"] for r in index}
     assert "high_for_aqa" in priorities
     assert "low_rare_python_developer" in priorities
+
+
+CURATED_QUESTIONS = [
+    "Чем список отличается от кортежа?",
+    "Что делает yield?",
+    "Что такое декоратор?",
+    "Что такое MRO?",
+    "Что такое GIL?",
+    "Чем staticmethod отличается от classmethod?",
+]
+
+
+def test_curated_overrides_lead_and_are_marked_verified():
+    for q in CURATED_QUESTIONS:
+        block, meta = kp.build_injection(q)
+        assert meta["knowledgeSource"].startswith("curated"), q
+        assert "VERIFIED" in block, q
+
+
+def test_curated_entries_are_say_aloud_length():
+    for entry in kp._load_curated():
+        words = len(entry["answer"].split())
+        assert 20 <= words <= 95, f"{entry['id']}: {words} words"
+
+
+def test_community_only_when_no_curated_match():
+    # A Python question with no curated entry still works from the community pack.
+    _, meta = kp.build_injection("Что такое list comprehension?")
+    assert meta["knowledgePackUsed"] is True
+    assert meta["knowledgeSource"] in ("community", "curated+community", "curated")

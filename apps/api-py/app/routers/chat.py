@@ -411,6 +411,12 @@ async def interview(payload: InterviewPayload, db: Session = Depends(get_db)) ->
             notes=notes or "(no extra notes)",
             question=payload.question,
         )
+        # Same Python Knowledge Pack as the live path: only for pure-Python
+        # questions, appended as a capped auxiliary reference.
+        if is_python_question(payload.question):
+            kn_block, _ = build_python_pack_injection(payload.question)
+            if kn_block:
+                prompt = f"{prompt}\n\n{kn_block}"
         max_tokens = 900
         temperature = 0.4
 
