@@ -18,7 +18,9 @@ def _load_cases() -> list[dict]:
     return json.loads(_FIXTURES.read_text(encoding="utf-8"))
 
 
-@pytest.mark.parametrize("case", _load_cases(), ids=lambda c: c["intent"] + ":" + c["question"][:20])
+@pytest.mark.parametrize(
+    "case", _load_cases(), ids=lambda c: c["intent"] + ":" + c["question"][:20]
+)
 def test_intent_fixture(case: dict) -> None:
     got = classify_interview_question_intent(case["question"])["question_intent"]
     assert got == case["intent"], f"{case['question']!r}: expected {case['intent']}, got {got}"

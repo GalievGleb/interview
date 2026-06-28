@@ -6,7 +6,6 @@ diverge, one of the two suites fails.
 """
 
 import json
-from pathlib import Path
 
 import pytest
 
