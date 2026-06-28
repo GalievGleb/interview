@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useVoiceAnswer } from '../../lib/vacancyReview/useVoiceAnswer';
 import type { Difficulty, SmokeReviewSession } from '../../lib/vacancyReview/types';
 
 interface Props {
@@ -31,6 +32,8 @@ export default function SmokeInterviewView({
     setText(existing?.text ?? '');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentIndex]);
+
+  const voice = useVoiceAnswer((t) => setText(t), vacancyAnalysis.language);
 
   if (!question) return null;
   const topic = vacancyAnalysis.interviewTopics.find((t) => t.id === question.topicId);
@@ -71,6 +74,12 @@ export default function SmokeInterviewView({
             disabled={answered}
           />
 
+          {!answered && (voice.recording || voice.error) && (
+            <p className="mt-1.5 text-[12.5px]" style={{ color: voice.error ? 'var(--prep-red)' : 'var(--prep-green)' }}>
+              {voice.error ? voice.error : '● Recording — speak your answer, then Stop or Submit.'}
+            </p>
+          )}
+
           <div className="mt-2 flex flex-wrap items-center gap-2">
             {!answered ? (
               <>
@@ -78,22 +87,28 @@ export default function SmokeInterviewView({
                   type="button"
                   className="prep-btn"
                   disabled={text.trim().length < 2 || evaluating}
-                  onClick={() => onSubmitAnswer(text, 'text')}
+                  onClick={() => {
+                    voice.stop();
+                    onSubmitAnswer(text, voice.recording ? 'voice' : 'text');
+                  }}
                 >
                   {evaluating ? 'Evaluating…' : 'Submit answer'}
                 </button>
                 <button
                   type="button"
-                  className="prep-btn-ghost prep-btn-sm"
-                  title="Voice answer — coming soon"
-                  disabled
+                  className={`prep-btn-sm ${voice.recording ? 'prep-btn' : 'prep-btn-ghost'}`}
+                  onClick={voice.toggle}
+                  title="Answer by voice"
                 >
-                  🎙 Voice (soon)
+                  {voice.recording ? '⏹ Stop recording' : '🎙 Record answer'}
                 </button>
                 <button
                   type="button"
                   className="prep-btn-ghost prep-btn-sm"
-                  onClick={() => onSubmitAnswer('', 'text', true)}
+                  onClick={() => {
+                    voice.stop();
+                    onSubmitAnswer('', 'text', true);
+                  }}
                 >
                   Skip
                 </button>
