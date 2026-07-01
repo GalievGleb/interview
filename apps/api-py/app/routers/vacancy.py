@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from app.prompts.vacancy import VACANCY_ANALYZE_PROMPT, VACANCY_EVALUATE_PROMPT
 from app.services import model_router, provider_adapter
 from app.services.preferences import load_preferences
+from app.services.vacancy_guard import harden_vacancy_evaluation
 
 logger = logging.getLogger("vacancy")
 
@@ -91,6 +92,7 @@ class EvaluatePayload(BaseModel):
     expectedSignals: list[str] = []
     relatedResumeEvidence: list[str] = []
     resumeText: str | None = None
+    vacancyText: str | None = None
     legendText: str | None = None
     language: str = "ru"
     hasResume: bool = False
@@ -192,7 +194,7 @@ async def evaluate(payload: EvaluatePayload) -> dict:
         signals=", ".join(payload.expectedSignals) or "(none)",
         resume_evidence=", ".join(payload.relatedResumeEvidence) or "(none)",
         resume=(payload.resumeText or "")[:4000] or "(none)",
-        legend=(payload.legendText or "")[:2000] or "(none)",
+        vacancy=(payload.vacancyText or "")[:8000] or "(none)",
         question=payload.question[:600],
         answer=(payload.answer or "(empty)")[:1500],
         has_resume="true" if payload.hasResume else "false",
@@ -211,6 +213,16 @@ async def evaluate(payload: EvaluatePayload) -> dict:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     data = _parse_json(raw)
+    data = harden_vacancy_evaluation(
+        data,
+        resume_text=payload.resumeText or "",
+        vacancy_text=payload.vacancyText or "",
+        candidate_answer=payload.answer or "",
+        expected_signals=payload.expectedSignals,
+        topic=payload.topic,
+        level=payload.level,
+        question=payload.question,
+    )
 
     def _score(key: str) -> int:
         try:
@@ -222,6 +234,12 @@ async def evaluate(payload: EvaluatePayload) -> dict:
 
     return {
         "score": _score("score"),
+        "technicalContentScore": _score("technicalContentScore"),
+        "projectSpecificityScore": _score("projectSpecificityScore"),
+        "leadershipScore": _score("leadershipScore"),
+        "ownershipScore": _score("ownershipScore"),
+        "structureScore": _score("structureScore"),
+        "speechClarityScore": _score("speechClarityScore"),
         "clarityScore": _score("clarityScore"),
         "technicalAccuracyScore": _score("technicalAccuracyScore"),
         "specificityScore": _score("specificityScore"),
@@ -229,12 +247,15 @@ async def evaluate(payload: EvaluatePayload) -> dict:
         "levelEstimate": level if level in _QUESTION_LEVEL else "",
         "verdict": str(data.get("verdict", "")).strip()[:200],
         "feedback": str(data.get("feedback", "")).strip()[:400],
+        "detectedNoiseOrAsrErrors": _as_list(data.get("detectedNoiseOrAsrErrors"), 6),
+        "extractedValidPoints": _as_list(data.get("extractedValidPoints"), 8),
         "goodPoints": _as_list(data.get("goodPoints"), 6),
         "weakPoints": _as_list(data.get("weakPoints"), 6),
         "missingPoints": _as_list(data.get("missingPoints"), 6),
         "technicalCorrections": _as_list(data.get("technicalCorrections"), 6),
+        "hallucinationGuard": _as_list(data.get("hallucinationGuard"), 6),
         "betterStructure": _as_list(data.get("betterStructure"), 8),
-        "suggestedBetterAnswer": str(data.get("suggestedBetterAnswer", "")).strip()[:900],
+        "suggestedBetterAnswer": str(data.get("suggestedBetterAnswer", "")).strip()[:1200],
         "followUpQuestions": _as_list(data.get("followUpQuestions"), 4),
         "nextTrainingFocus": str(data.get("nextTrainingFocus", "")).strip()[:240],
         "overclaimed": bool(data.get("overclaimed", False)),

@@ -764,12 +764,19 @@ export const api = {
     expectedSignals?: string[];
     relatedResumeEvidence?: string[];
     resumeText?: string;
+    vacancyText?: string;
     legendText?: string;
     language: string;
     hasResume: boolean;
   }) =>
     request<{
       score: number;
+      technicalContentScore?: number;
+      projectSpecificityScore?: number;
+      leadershipScore?: number;
+      ownershipScore?: number;
+      structureScore?: number;
+      speechClarityScore?: number;
       clarityScore: number;
       technicalAccuracyScore: number;
       specificityScore: number;
@@ -777,10 +784,13 @@ export const api = {
       levelEstimate?: string;
       verdict?: string;
       feedback: string;
+      detectedNoiseOrAsrErrors?: string[];
+      extractedValidPoints?: string[];
       goodPoints: string[];
       weakPoints?: string[];
       missingPoints: string[];
       technicalCorrections?: string[];
+      hallucinationGuard?: string[];
       betterStructure?: string[];
       suggestedBetterAnswer: string;
       followUpQuestions?: string[];

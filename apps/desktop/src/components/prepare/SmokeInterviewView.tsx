@@ -189,14 +189,33 @@ export default function SmokeInterviewView({
               <Metric label="Конкретика" value={evaluation.specificityScore} />
               <Metric label="Структура" value={evaluation.clarityScore} />
               <Metric label="Уверенность" value={evaluation.confidenceScore} />
+              {typeof evaluation.ownershipScore === 'number' && evaluation.ownershipScore > 0 && (
+                <Metric label="Роль/ownership" value={evaluation.ownershipScore} />
+              )}
             </div>
 
             <p className="prep-sub">{evaluation.feedback}</p>
+
+            {evaluation.detectedNoiseOrAsrErrors && evaluation.detectedNoiseOrAsrErrors.length > 0 && (
+              <p className="text-[12px]" style={{ color: 'var(--prep-ink-faint)' }}>
+                🎙 В записи есть шум распознавания речи (не техническая ошибка): «
+                {evaluation.detectedNoiseOrAsrErrors.join(' » · «')}»
+              </p>
+            )}
 
             {evaluation.overclaimed && (
               <p className="text-[12.5px] font-semibold" style={{ color: 'var(--prep-red)' }}>
                 ⚠ Заявлен опыт, не подтверждённый резюме — лучше честная формулировка.
               </p>
+            )}
+
+            {evaluation.extractedValidPoints && evaluation.extractedValidPoints.length > 0 && (
+              <FeedbackList
+                label="Удалось разобрать из ответа"
+                items={evaluation.extractedValidPoints}
+                color="var(--prep-ink-muted)"
+                mark="»"
+              />
             )}
 
             {evaluation.goodPoints.length > 0 && (
@@ -235,6 +254,11 @@ export default function SmokeInterviewView({
                 Сильная версия ответа
               </summary>
               <p className="prep-sub mt-1.5 whitespace-pre-wrap">{evaluation.suggestedBetterAnswer}</p>
+              {evaluation.hallucinationGuard && evaluation.hallucinationGuard.length > 0 && (
+                <p className="mt-2 text-[11.5px]" style={{ color: 'var(--prep-ink-faint)' }}>
+                  Без выдумок: {evaluation.hallucinationGuard.join(' · ')}
+                </p>
+              )}
             </details>
 
             {evaluation.followUpQuestions && evaluation.followUpQuestions.length > 0 && (

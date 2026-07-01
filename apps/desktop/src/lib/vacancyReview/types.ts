@@ -122,6 +122,25 @@ export interface SmokeAnswerEvaluation {
   followUpQuestions?: string[];
   /** What to train next after this answer. */
   nextTrainingFocus?: string;
+  // ── Voice-answer preprocessing + finer breakdown (optional) ──
+  /** Knowledge + relevance of the content itself. */
+  technicalContentScore?: number;
+  /** How concrete the project detail was. */
+  projectSpecificityScore?: number;
+  /** How well a leadership/ownership role was shown (leadership Qs only). */
+  leadershipScore?: number;
+  /** Ownership shown specifically for project_experience_question rubric. */
+  ownershipScore?: number;
+  /** Structure of the answer. */
+  structureScore?: number;
+  /** Cleanliness of speech/delivery after ASR (not a technical penalty). */
+  speechClarityScore?: number;
+  /** ASR/noise fragments detected in the answer (speech-quality, not a tech error). */
+  detectedNoiseOrAsrErrors?: string[];
+  /** The valid points recovered from a noisy/rambling answer. */
+  extractedValidPoints?: string[];
+  /** What the stronger answer must NOT invent (metrics, titles, people mgmt…). */
+  hallucinationGuard?: string[];
 }
 
 export interface SmokeAnswer {

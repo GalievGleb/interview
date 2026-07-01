@@ -7,7 +7,7 @@ import {
   buildReadinessReport,
 } from './vacancyReviewService';
 import { readinessLabelFromScore, topicStatusFromScore } from './readiness';
-import type { SmokeReviewSession } from './types';
+import type { SmokeReviewSession, VacancyAnalysis } from './types';
 
 const QA_VACANCY = `QA Automation Engineer (Middle)
 Требования:
@@ -39,6 +39,95 @@ describe('topic extraction', () => {
 
   it('extracts no topics from empty text', () => {
     expect(extractTopics('').topics).toHaveLength(0);
+  });
+
+  it('evaluates behavioral answers with STAR semantics and returns a finished answer', () => {
+    const analysis: VacancyAnalysis = {
+      id: 'behavioral-star',
+      vacancyText: 'QA Automation role: teamwork, conflict resolution, ownership, real project examples.',
+      targetRole: 'QA Automation Engineer',
+      seniorityLevel: 'senior',
+      language: 'ru',
+      extractedRequirements: ['teamwork', 'conflict resolution', 'ownership'],
+      optionalSkills: [],
+      interviewTopics: [
+        {
+          id: 'behavioral',
+          title: 'Behavioral questions',
+          category: 'Behavioral',
+          importance: 'high',
+          level: 'senior',
+          expectedKnowledge: 'STAR answer with situation, conflict, action, result.',
+          expectedAnswerPoints: ['Teamwork', 'Conflict', 'Ownership', 'Real example', 'Result'],
+          sampleQuestions: ['Расскажите про сложную ситуацию в команде и как вы ее решили.'],
+          vacancyEvidence: 'teamwork and conflict resolution',
+        },
+      ],
+      projectQuestions: [],
+      riskAreas: [],
+      hasResume: true,
+      hasLegend: false,
+      resumeText: 'QA Automation, API tests, regression, communication with QA and developers.',
+      createdAt: Date.now(),
+    };
+    const [question] = buildSmokePlan(analysis);
+
+    const evaluation = evaluateAnswerMock(
+      question,
+      'На проекте личного кабинета я работал вместе с manual QA, разработчиками и аналитиком. Был спор по приоритетам: разработчики хотели быстрее закрыть релиз, а тестировщики видели риск в нестабильных API проверках. Я взял на себя анализ падений, предложил отделить smoke от полного regression и договорился сначала стабилизировать критичные сценарии. В результате релиз не блокировали, а спорные проверки вынесли в отдельный план.',
+      analysis,
+    );
+
+    const missing = evaluation.missingPoints.join(' ');
+    expect(missing).not.toMatch(/Teamwork|Conflict|Ownership|Real example|Result/i);
+    expect(evaluation.goodPoints.join(' ')).toMatch(/Teamwork|Conflict|Ownership|Real example/i);
+    expect(evaluation.betterStructure?.join(' ')).toMatch(/Situation|Task|Action|Result/);
+    expect(evaluation.suggestedBetterAnswer).toMatch(/^Одна из сложных ситуаций была на проекте/i);
+    expect(evaluation.suggestedBetterAnswer).not.toMatch(
+      /По теме behavioral questions|Я бы начал|Потом добавил бы|Нужно закрыть/i,
+    );
+  });
+  it('never returns coaching notes as the stronger answer in generic fallback', () => {
+    const analysis: VacancyAnalysis = {
+      id: 'generic-ready-answer',
+      vacancyText: 'QA role: test strategy, risk analysis, prioritization.',
+      targetRole: 'QA Engineer',
+      seniorityLevel: 'middle',
+      language: 'ru',
+      extractedRequirements: ['test strategy', 'risk analysis'],
+      optionalSkills: [],
+      interviewTopics: [
+        {
+          id: 'strategy',
+          title: 'Test strategy',
+          category: 'QA',
+          importance: 'medium',
+          level: 'middle',
+          expectedKnowledge: 'Risk-based test planning.',
+          expectedAnswerPoints: ['risk analysis', 'prioritization'],
+          sampleQuestions: ['Как вы подходите к тестовой стратегии на новом проекте?'],
+          vacancyEvidence: 'test strategy',
+        },
+      ],
+      projectQuestions: [],
+      riskAreas: [],
+      hasResume: true,
+      hasLegend: false,
+      resumeText: 'QA experience with regression planning and test documentation.',
+      createdAt: Date.now(),
+    };
+    const [question] = buildSmokePlan(analysis);
+
+    const evaluation = evaluateAnswerMock(
+      question,
+      'Я сначала смотрю риски продукта, критичные пользовательские сценарии и ограничения по срокам. Потом выделяю smoke и regression зоны.',
+      analysis,
+    );
+
+    expect(evaluation.suggestedBetterAnswer).not.toMatch(
+      /я отвечаю через практический пример|сначала коротко|потом объясняю|отдельно раскрываю|где применял/i,
+    );
+    expect(evaluation.suggestedBetterAnswer).toMatch(/^Я /i);
   });
 });
 
@@ -108,6 +197,241 @@ describe('evaluation + report', () => {
     expect(report.overallScore).toBeLessThanOrEqual(100);
     expect(report.topicScores.length).toBeGreaterThan(0);
     expect(report.topicScores.every((t) => t.questionsAsked > 0)).toBe(true);
+  });
+
+  it('does not turn tool-choice expected knowledge into filler missing words', () => {
+    const analysis: VacancyAnalysis = {
+      id: 'tool-choice',
+      vacancyText: 'Lead QA Automation: Python, API testing, Playwright, Allure, GitLab CI.',
+      targetRole: 'Lead QA Automation Engineer',
+      seniorityLevel: 'lead',
+      language: 'ru',
+      extractedRequirements: ['API testing', 'Playwright', 'Allure', 'GitLab CI'],
+      optionalSkills: [],
+      interviewTopics: [
+        {
+          id: 'automation-strategy',
+          title: 'Стратегии автоматизированного тестирования',
+          category: 'Testing',
+          importance: 'high',
+          level: 'lead',
+          expectedKnowledge:
+            'Кандидат должен объяснить, как формировать и развивать стратегию автоматизированного тестирования.',
+          sampleQuestions: ['Какие факторы вы учитываете при выборе инструментов для автоматизации?'],
+          vacancyEvidence: 'API testing, Playwright, Allure, GitLab CI',
+        },
+      ],
+      projectQuestions: [],
+      riskAreas: [],
+      hasResume: true,
+      hasLegend: false,
+      resumeText: 'Python, Requests, HTTPX, Playwright, Allure, GitLab CI.',
+      createdAt: Date.now(),
+    };
+    const [question] = buildSmokePlan(analysis);
+
+    expect(question.expectedSignals).not.toEqual(
+      expect.arrayContaining(['Кандидат', 'должен', 'объяснить', 'формировать', 'развивать']),
+    );
+
+    const evaluation = evaluateAnswerMock(
+      question,
+      'Инструменты уже были выбраны, но для API я использовал Requests и HTTPX, для UI — Playwright, для отчетов — Allure, а запуск был в GitLab CI.',
+      analysis,
+    );
+
+    expect(evaluation.technicalAccuracyScore).toBeGreaterThanOrEqual(50);
+    expect(evaluation.missingPoints).not.toEqual(
+      expect.arrayContaining(['Кандидат', 'должен', 'объяснить']),
+    );
+    expect(evaluation.verdict ?? '').not.toContain('Lead-уровня');
+    expect(evaluation.suggestedBetterAnswer).not.toContain('Прямо отвечаю');
+    expect(evaluation.suggestedBetterAnswer).not.toContain('Кандидат');
+    expect(evaluation.suggestedBetterAnswer).toContain('Requests');
+    expect(evaluation.suggestedBetterAnswer).toContain('Playwright');
+    expect(evaluation.suggestedBetterAnswer).toContain('GitLab CI');
+  });
+
+  it('handles autotest platform support answers without filler signals', () => {
+    const analysis: VacancyAnalysis = {
+      id: 'platform-support',
+      vacancyText:
+        'Lead QA Automation: поддержка автотестовой платформы, Playwright, API testing, pytest, Allure, GitLab CI.',
+      targetRole: 'Lead QA Automation Engineer',
+      seniorityLevel: 'lead',
+      language: 'ru',
+      extractedRequirements: ['Playwright', 'API testing', 'pytest', 'Allure', 'GitLab CI'],
+      optionalSkills: [],
+      interviewTopics: [
+        {
+          id: 'autotest-platform',
+          title: 'Автотестовая платформа и её поддержка',
+          category: 'Testing',
+          importance: 'high',
+          level: 'lead',
+          expectedKnowledge:
+            'Кандидат должен объяснить, как поддерживать и развивать автотестовую платформу.',
+          expectedAnswerPoints: [
+            'Кандидат должен объяснить поддержку и развитие платформы',
+            'UI/API инструменты',
+            'параллельные запуски',
+            'отчётность и CI/CD',
+          ],
+          sampleQuestions: ['Какие инструменты вы использовали для поддержки автотестовой платформы?'],
+          vacancyEvidence: 'поддержка автотестовой платформы, Playwright, API testing, pytest, Allure',
+        },
+      ],
+      projectQuestions: [],
+      riskAreas: [],
+      hasResume: true,
+      hasLegend: false,
+      resumeText: 'Playwright, Selenium, Requests, HTTPX, pytest-xdist, Pydantic, Allure, GitLab CI.',
+      createdAt: Date.now(),
+    };
+    const [question] = buildSmokePlan(analysis);
+
+    expect(question.expectedSignals.join(' ')).not.toMatch(/Кандидат|должен|объяснить|развивать/);
+
+    const evaluation = evaluateAnswerMock(
+      question,
+      'Для UI-автотестирования использовал Playwright, раньше Selenium. Для API — Request и HTTPX, для параллельных запусков xDisk, ещё Pydentic. Для отчётов использовал Allure. Это будет в этом видео.',
+      analysis,
+    );
+
+    expect(evaluation.technicalAccuracyScore).toBeGreaterThanOrEqual(60);
+    expect(evaluation.missingPoints.join(' ')).not.toMatch(/Кандидат|должен|объяснить|развивать/);
+    expect(evaluation.followUpQuestions?.join(' ') ?? '').not.toMatch(/Кандидат|должен|объяснить/);
+    expect(evaluation.nextTrainingFocus ?? '').not.toMatch(/Кандидат|должен|объяснить/);
+    expect(evaluation.detectedNoiseOrAsrErrors?.join(' ') ?? '').toMatch(/видео/);
+    expect(evaluation.suggestedBetterAnswer).not.toContain('Я бы начал');
+    expect(evaluation.suggestedBetterAnswer).toContain('Playwright');
+    expect(evaluation.suggestedBetterAnswer).toContain('HTTPX');
+    expect(evaluation.suggestedBetterAnswer).toContain('Allure');
+  });
+
+  it('matches expected points semantically and does not mark covered points as missing', () => {
+    const analysis: VacancyAnalysis = {
+      id: 'semantic-api',
+      vacancyText: 'QA Automation: API testing, Playwright, GitLab CI, Allure.',
+      targetRole: 'QA Automation Engineer',
+      seniorityLevel: 'middle',
+      language: 'ru',
+      extractedRequirements: ['API testing', 'Playwright', 'GitLab CI', 'Allure'],
+      optionalSkills: [],
+      interviewTopics: [
+        {
+          id: 'api-checks',
+          title: 'API testing',
+          category: 'Testing',
+          importance: 'high',
+          level: 'middle',
+          expectedKnowledge: 'API response validation beyond status 200.',
+          expectedAnswerPoints: [
+            'schema/body checks',
+            'auth',
+            'negative cases',
+            'state verification',
+          ],
+          sampleQuestions: ['Что проверяете в API кроме статус-кода 200?'],
+          vacancyEvidence: 'API testing',
+        },
+      ],
+      projectQuestions: [],
+      riskAreas: [],
+      hasResume: true,
+      hasLegend: false,
+      resumeText: 'API tests with pytest, HTTPX, Pydantic models, auth checks.',
+      createdAt: Date.now(),
+    };
+    const [question] = buildSmokePlan(analysis);
+
+    const evaluation = evaluateAnswerMock(
+      question,
+      'Кроме 200 я проверяю схему ответа через Pydantic, типы полей, обязательные поля, headers, token и права доступа. По негативным кейсам смотрю 400, 401, 403 и ошибки валидации.',
+      analysis,
+    );
+
+    expect(evaluation.technicalAccuracyScore).toBeGreaterThan(0);
+    expect(evaluation.missingPoints.join(' ')).not.toMatch(/schema\/body|auth|negative/i);
+    expect(evaluation.goodPoints.join(' ')).toMatch(/schema|auth|negative|API/i);
+    expect(evaluation.suggestedBetterAnswer).not.toMatch(/Я бы начал|Потом добавил бы|Нужно закрыть/i);
+  });
+
+  it('treats waits and Git conflict resolution as semantic partial coverage', () => {
+    const uiAnalysis: VacancyAnalysis = {
+      id: 'semantic-ui',
+      vacancyText: 'QA Automation: Playwright, flaky tests.',
+      targetRole: 'QA Automation Engineer',
+      seniorityLevel: 'middle',
+      language: 'ru',
+      extractedRequirements: ['Playwright', 'flaky tests'],
+      optionalSkills: [],
+      interviewTopics: [
+        {
+          id: 'flaky-ui',
+          title: 'Flaky UI tests',
+          category: 'Testing',
+          importance: 'high',
+          level: 'middle',
+          expectedKnowledge: 'How to stabilize UI tests.',
+          expectedAnswerPoints: ['waits', 'locators', 'failure analysis'],
+          sampleQuestions: ['Как боретесь с flaky UI-тестами?'],
+          vacancyEvidence: 'Playwright, flaky tests',
+        },
+      ],
+      projectQuestions: [],
+      riskAreas: [],
+      hasResume: true,
+      hasLegend: false,
+      resumeText: 'Playwright, Allure, screenshots, logs.',
+      createdAt: Date.now(),
+    };
+    const [uiQuestion] = buildSmokePlan(uiAnalysis);
+    const uiEval = evaluateAnswerMock(
+      uiQuestion,
+      'Я убираю sleep и добавляю явные ожидания состояния элемента, смотрю Allure, скриншоты и логи падения.',
+      uiAnalysis,
+    );
+    expect(uiEval.missingPoints).not.toContain('waits');
+    expect(uiEval.technicalAccuracyScore).toBeGreaterThan(0);
+
+    const gitAnalysis: VacancyAnalysis = {
+      id: 'semantic-git',
+      vacancyText: 'QA Automation: Git, merge, rebase.',
+      targetRole: 'QA Automation Engineer',
+      seniorityLevel: 'middle',
+      language: 'ru',
+      extractedRequirements: ['Git'],
+      optionalSkills: [],
+      interviewTopics: [
+        {
+          id: 'git',
+          title: 'Git merge vs rebase',
+          category: 'Tools',
+          importance: 'medium',
+          level: 'middle',
+          expectedKnowledge: 'Merge, rebase, conflict resolution.',
+          expectedAnswerPoints: ['merge', 'rebase', 'conflict resolution'],
+          sampleQuestions: ['Чем merge отличается от rebase?'],
+          vacancyEvidence: 'Git',
+        },
+      ],
+      projectQuestions: [],
+      riskAreas: [],
+      hasResume: true,
+      hasLegend: false,
+      resumeText: 'Git, feature branches, merge requests.',
+      createdAt: Date.now(),
+    };
+    const [gitQuestion] = buildSmokePlan(gitAnalysis);
+    const gitEval = evaluateAnswerMock(
+      gitQuestion,
+      'Merge объединяет ветки, rebase обновляет feature branch поверх develop. Если был мерч-конфликт, я разбирал его в IDE или через консоль и потом прогонял тесты.',
+      gitAnalysis,
+    );
+    expect(gitEval.missingPoints).not.toContain('conflict resolution');
+    expect(gitEval.technicalAccuracyScore).toBeGreaterThan(0);
+    expect(gitEval.suggestedBetterAnswer).not.toMatch(/Я бы начал|Потом добавил бы|Нужно закрыть/i);
   });
 });
 
