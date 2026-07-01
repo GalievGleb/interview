@@ -10,6 +10,7 @@ interface Props {
   onStartLive: () => void;
   onNewReview: () => void;
   onFollowUpRound?: () => void;
+  onPracticeTopic?: (topicId: string) => void;
 }
 
 export default function ReadinessReportView({
@@ -19,6 +20,7 @@ export default function ReadinessReportView({
   onStartLive,
   onNewReview,
   onFollowUpRound,
+  onPracticeTopic,
 }: Props) {
   const tone = readinessTone(report.status);
   const hasWeak = report.weakAreas.length > 0 || report.criticalGaps.length > 0;
@@ -72,7 +74,7 @@ export default function ReadinessReportView({
         <p className="prep-faint mt-0.5">Per-topic readiness from your answers.</p>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           {report.topicScores.map((t) => (
-            <TopicCard key={t.topicId} topic={t} />
+            <TopicCard key={t.topicId} topic={t} onPractice={onPracticeTopic} />
           ))}
         </div>
       </div>

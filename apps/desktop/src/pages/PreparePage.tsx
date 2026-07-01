@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import VacancySetup from '../components/prepare/VacancySetup';
 import VacancyAnalysisView from '../components/prepare/VacancyAnalysisView';
@@ -11,10 +11,22 @@ export default function PreparePage() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const resumeId = params.get('session');
+  const focusTopic = params.get('focusTopic');
   const initial = useMemo(() => (resumeId ? getSession(resumeId) : null), [resumeId]);
 
   const review = useVacancyReview(initial);
   const { phase, session } = review;
+
+  // Deep link from HomePage's "Повторить тему": jump straight into practicing
+  // that one topic instead of showing the report first.
+  const startedFocusTopic = useRef(false);
+  useEffect(() => {
+    if (!focusTopic || startedFocusTopic.current) return;
+    if (phase !== 'report' || !session?.report) return;
+    startedFocusTopic.current = true;
+    review.startFollowUpRound(focusTopic);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusTopic, phase, session]);
 
   const downloadReport = () => {
     if (!session?.report) return;
@@ -62,7 +74,8 @@ export default function PreparePage() {
             onSave={downloadReport}
             onStartLive={() => navigate('/interview')}
             onNewReview={review.restart}
-            onFollowUpRound={review.startFollowUpRound}
+            onFollowUpRound={() => review.startFollowUpRound()}
+            onPracticeTopic={review.startFollowUpRound}
           />
         )}
       </div>

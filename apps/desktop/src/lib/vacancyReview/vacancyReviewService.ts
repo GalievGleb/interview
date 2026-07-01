@@ -424,13 +424,28 @@ function questionFromTopic(
 }
 
 /**
- * Next round: ≤4 questions focused on the weakest topics after a first pass.
+ * Next round: ≤4 questions focused on the weakest topics after a first pass, or
+ * on one specific topic when `topicId` is given ("Повторить тему").
  * Weakest = lowest topic scores in the report, falling back to high-importance
  * topics if there's no report yet.
  */
-export function buildFollowUpRound(session: SmokeReviewSession): SmokeQuestion[] {
+export function buildFollowUpRound(session: SmokeReviewSession, topicId?: string): SmokeQuestion[] {
   const analysis = session.vacancyAnalysis;
   const byId = new Map(analysis.interviewTopics.map((t) => [t.id, t]));
+  const askedQuestions = new Set(session.questions.map((q) => q.question));
+
+  if (topicId) {
+    const topic = byId.get(topicId);
+    if (!topic) return [];
+    // Reuse every sample question for this one topic (fresh ones first) so a
+    // single-topic repeat still gives up to 4 questions, not just one.
+    const fresh = topic.sampleQuestions.filter((q) => !askedQuestions.has(q));
+    const asked = topic.sampleQuestions.filter((q) => askedQuestions.has(q));
+    const ordered = [...fresh, ...asked].slice(0, 4);
+    const pool = ordered.length ? ordered : ['Расскажи про эту тему.'];
+    return pool.map((q, i) => questionFromTopic(topic, q, i, pool.length));
+  }
+
   const weakIds = session.report?.topicScores
     ? [...session.report.topicScores]
         .sort((a, b) => a.score - b.score)
@@ -445,10 +460,9 @@ export function buildFollowUpRound(session: SmokeReviewSession): SmokeQuestion[]
   const topics = picked.length ? picked : analysis.interviewTopics.slice(0, 4);
 
   // Prefer a not-yet-asked sample question per topic; else reuse the first.
-  const askedQuestions = new Set(session.questions.map((q) => q.question));
   return topics.slice(0, 4).map((topic, i) => {
-    const fresh = topic.sampleQuestions.find((q) => !askedQuestions.has(q));
-    return questionFromTopic(topic, fresh || topic.sampleQuestions[0] || 'Расскажи про эту тему.', i, 4);
+    const freshQ = topic.sampleQuestions.find((q) => !askedQuestions.has(q));
+    return questionFromTopic(topic, freshQ || topic.sampleQuestions[0] || 'Расскажи про эту тему.', i, 4);
   });
 }
 

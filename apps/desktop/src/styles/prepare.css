@@ -533,6 +533,9 @@
 .prep-skill-violet {
   --skill-color: var(--prep-violet);
 }
+.prep-skill-red {
+  --skill-color: var(--prep-red);
+}
 
 .prep-card-pad {
   padding: 20px;

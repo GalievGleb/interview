@@ -1,62 +1,162 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ReadinessRing from '../components/prepare/ReadinessRing';
 import { readinessLabelText, readinessTone, topicStatusTone } from '../lib/vacancyReview/readiness';
-import { latestCompleted, latestInProgress, listSessions } from '../lib/vacancyReview/vacancyReviewStore';
+import {
+  deleteSession,
+  latestCompleted,
+  latestInProgress,
+  listSessions,
+} from '../lib/vacancyReview/vacancyReviewStore';
+
+function TrashIcon() {
+  return (
+    <svg
+      width="15"
+      height="15"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+    </svg>
+  );
+}
 
 export default function HomePage() {
   const navigate = useNavigate();
-  const sessions = useMemo(() => listSessions(), []);
-  const inProgress = useMemo(() => latestInProgress(), []);
-  const completed = useMemo(() => latestCompleted(), []);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const sessions = useMemo(() => listSessions(), [refreshKey]);
+  const inProgress = useMemo(() => latestInProgress(), [refreshKey]);
+  const completed = useMemo(() => latestCompleted(), [refreshKey]);
   const report = completed?.report;
+
+  const removeSession = (id: string, title: string) => {
+    if (!window.confirm(`Удалить разбор «${title}»? Действие необратимо.`)) return;
+    deleteSession(id);
+    setRefreshKey((k) => k + 1);
+  };
 
   const weakest = report
     ? [...report.topicScores].sort((a, b) => a.score - b.score).slice(0, 3)
     : [];
 
+  const inProgressPct = inProgress?.questions.length
+    ? Math.round((inProgress.answers.length / inProgress.questions.length) * 100)
+    : 0;
+
   return (
     <div className="prep h-full overflow-y-auto">
-      <div className="prep-wrap prep-rise">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="prep-eyebrow">Interview prep</p>
-            <h1 className="prep-h1 mt-1">Ready for your next interview?</h1>
-            <p className="prep-sub mt-1.5 max-w-xl">
-              Paste a vacancy → get the likely interview topics → run a quick mock → see where you’re
-              not ready yet.
+      <div className="prep-wrap prep-rise prep-home">
+        <section className="prep-hero-panel">
+          <div className="prep-hero-copy">
+            <p className="prep-eyebrow">Preparation hub</p>
+            <h1 className="prep-h1 prep-hero-title">Разберите вакансию до первого звонка.</h1>
+            <p className="prep-sub prep-hero-sub">
+              SkillCue показывает вероятные вопросы, слабые темы и короткие ответы, которые
+              звучат как ваш реальный опыт, а не как общий AI-текст.
             </p>
-          </div>
-          <button type="button" className="prep-btn" onClick={() => navigate('/prepare')}>
-            + Start smoke review
-          </button>
-        </div>
 
-        {/* Top row: vacancy readiness + continue/CTA */}
-        <div className="mt-5 grid gap-4 lg:grid-cols-[1.2fr_1fr]">
-          <div className="prep-card prep-card-pad">
+            <div className="prep-hero-actions">
+              <button type="button" className="prep-btn" onClick={() => navigate('/prepare')}>
+                Разобрать вакансию
+              </button>
+              <button
+                type="button"
+                className="prep-btn prep-btn-secondary"
+                onClick={() => navigate('/interview')}
+              >
+                Открыть live
+              </button>
+            </div>
+
+            <div className="prep-flow-line" aria-label="SkillCue workflow">
+              <span>Вакансия</span>
+              <span>Разбор</span>
+              <span>Mock</span>
+              <span>Live cue</span>
+            </div>
+          </div>
+
+          <div className="prep-hero-demo" aria-label="Live cue preview">
+            <div className="prep-demo-window">
+              <div className="prep-demo-top">
+                <span>Live interview</span>
+                <span className="prep-live-pill">Listening</span>
+              </div>
+              <div className="prep-demo-question">
+                <span>Вопрос интервьюера</span>
+                <strong>Как вы тестировали API кроме проверки статус-кода 200?</strong>
+              </div>
+              <div className="prep-demo-answer">
+                <span>Подсказка SkillCue</span>
+                <p>
+                  Кроме статус-кода 200 я сверяю тело ответа с Pydantic-моделью: обязательные
+                  поля, типы данных и бизнес-значения. Отдельно проверяю заголовки, права
+                  доступа и негативные сценарии — некорректные payload’ы и граничные значения.
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="prep-status-grid" aria-label="Readiness overview">
+          <PrepStatusCard
+            label="Vacancy"
+            title={report ? completed?.vacancyAnalysis.targetRole || 'Reviewed role' : 'Нужна вакансия'}
+            body={report ? `${report.topicScores.length} тем найдено` : 'Начните с описания роли'}
+            tone={report ? 'green' : 'amber'}
+          />
+          <PrepStatusCard
+            label="Resume / legend"
+            title="Контекст ответа"
+            body="SkillCue держит ответы в рамках вашего опыта"
+            tone="blue"
+          />
+          <PrepStatusCard
+            label="Live overlay"
+            title="Короткая подсказка"
+            body="Answer-first режим для реального созвона"
+            tone="violet"
+          />
+        </section>
+
+        <section className="prep-home-grid">
+          <div className="prep-action-card">
             {report ? (
-              <div className="flex items-center gap-5">
+              <div className="prep-report-layout">
                 <ReadinessRing
                   score={report.overallScore}
                   label={readinessLabelText(report.status)}
                   tone={readinessTone(report.status)}
-                  size={112}
+                  size={126}
                 />
                 <div className="min-w-0">
-                  <p className="prep-faint">Vacancy readiness</p>
-                  <p className="prep-h2 truncate">{completed?.vacancyAnalysis.targetRole}</p>
-                  <p className="prep-sub mt-1">
-                    {report.topicScores.length} topics · {report.strengths.length} strong ·{' '}
-                    {report.criticalGaps.length} critical
+                  <p className="prep-faint">Последний разбор вакансии</p>
+                  <h2 className="prep-h2 prep-card-title truncate">{completed?.vacancyAnalysis.targetRole}</h2>
+                  <p className="prep-sub mt-2">
+                    {report.topicScores.length} тем, {report.strengths.length} сильных зон,{' '}
+                    {report.criticalGaps.length} критичных пробелов.
                   </p>
-                  <button
-                    type="button"
-                    className="prep-btn-ghost prep-btn-sm mt-3"
-                    onClick={() => navigate(`/prepare?session=${completed!.id}`)}
-                  >
-                    View report
-                  </button>
+                  <div className="mt-4 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      className="prep-btn prep-btn-sm"
+                      onClick={() => navigate(`/prepare?session=${completed!.id}`)}
+                    >
+                      Открыть карту готовности
+                    </button>
+                    <button
+                      type="button"
+                      className="prep-btn-ghost prep-btn-sm"
+                      onClick={() => removeSession(completed!.id, completed!.vacancyAnalysis.targetRole)}
+                    >
+                      Удалить разбор
+                    </button>
+                  </div>
                 </div>
               </div>
             ) : (
@@ -64,116 +164,189 @@ export default function HomePage() {
             )}
           </div>
 
-          <div className="prep-card prep-card-pad flex flex-col">
-            <p className="prep-faint">Continue smoke review</p>
+          <div className="prep-next-card">
+            <p className="prep-faint">Следующий шаг</p>
             {inProgress ? (
               <>
-                <p className="prep-h2 mt-1 truncate">{inProgress.vacancyAnalysis.targetRole}</p>
-                <p className="prep-sub mt-1">
-                  {inProgress.answers.length} / {inProgress.questions.length} answered
+                <h2 className="prep-h2 prep-card-title truncate">{inProgress.vacancyAnalysis.targetRole}</h2>
+                <p className="prep-sub mt-2">
+                  {inProgress.answers.length} из {inProgress.questions.length} вопросов пройдено.
                 </p>
-                <div className="prep-bar prep-bar-green mt-2">
-                  <span
-                    style={{
-                      width: `${Math.round((inProgress.answers.length / inProgress.questions.length) * 100)}%`,
-                    }}
-                  />
+                <div className="prep-bar prep-bar-green mt-4">
+                  <span style={{ width: `${inProgressPct}%` }} />
                 </div>
                 <button
                   type="button"
-                  className="prep-btn prep-btn-sm mt-auto self-start"
+                  className="prep-btn prep-btn-sm mt-5 self-start"
                   onClick={() => navigate(`/prepare?session=${inProgress.id}`)}
                 >
-                  Continue
+                  Продолжить mock
                 </button>
               </>
             ) : (
               <>
-                <p className="prep-sub mt-1">No review in progress.</p>
+                <h2 className="prep-h2 prep-card-title">Сначала разберите вакансию</h2>
+                <p className="prep-sub mt-2">
+                  После разбора SkillCue соберет вероятные вопросы и покажет, где можно посыпаться.
+                </p>
                 <button
                   type="button"
-                  className="prep-btn prep-btn-sm mt-auto self-start"
+                  className="prep-btn prep-btn-sm mt-5 self-start"
                   onClick={() => navigate('/prepare')}
                 >
-                  Add vacancy
+                  Вставить вакансию
                 </button>
               </>
             )}
           </div>
-        </div>
+        </section>
 
-        {/* Weakest topics */}
+        {report && (
+          <section className="mt-5">
+            <div className="prep-preview-card">
+              <div>
+                <p className="prep-eyebrow">Карта готовности</p>
+                <h2 className="prep-h2 prep-section-title">Понятно, где уверенно, а где нужен повтор.</h2>
+              </div>
+              <div className="prep-skill-list">
+                {report.topicScores.slice(0, 6).map((t) => (
+                  <div key={t.topicId} className="prep-skill-row">
+                    <div className="prep-skill-label">
+                      <span>{t.title}</span>
+                      <strong>{t.score}%</strong>
+                    </div>
+                    <div className={`prep-skill-track prep-skill-${topicStatusTone(t.status)}`}>
+                      <span style={{ width: `${t.score}%` }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
+        )}
+
         {weakest.length > 0 && (
-          <div className="mt-4">
-            <h2 className="prep-h2">Weakest topics</h2>
-            <div className="mt-2 grid gap-3 sm:grid-cols-3">
+          <section className="mt-5">
+            <div className="prep-section-head">
+              <div>
+                <p className="prep-eyebrow">Practice focus</p>
+                <h2 className="prep-h2 prep-section-title">Самые слабые темы</h2>
+              </div>
+              <button
+                type="button"
+                className="prep-btn prep-btn-ghost prep-btn-sm"
+                onClick={() => navigate(`/prepare?session=${completed!.id}`)}
+              >
+                Тренироваться
+              </button>
+            </div>
+            <div className="prep-topic-grid">
               {weakest.map((t) => {
                 const tone = topicStatusTone(t.status);
                 return (
                   <div key={t.topicId} className={`prep-card p-4 prep-topic prep-topic-${tone}`}>
                     <p className="prep-h2 pl-2 truncate">{t.title}</p>
-                    <p className="pl-2 text-[20px] font-bold" style={{ color: 'var(--prep-ink)' }}>
+                    <p className="pl-2 text-[22px] font-bold" style={{ color: 'var(--prep-ink)' }}>
                       {t.score}%
                     </p>
                     <button
                       type="button"
-                      className="prep-btn-ghost prep-btn-sm ml-2 mt-2"
-                      onClick={() => navigate('/prepare')}
+                      className="prep-btn prep-btn-ghost prep-btn-sm ml-2 mt-3"
+                      onClick={() => navigate(`/prepare?session=${completed!.id}&focusTopic=${t.topicId}`)}
                     >
-                      Practice this topic
+                      Повторить тему
                     </button>
                   </div>
                 );
               })}
             </div>
-          </div>
+          </section>
         )}
 
-        {/* Recent sessions */}
         {sessions.length > 0 && (
-          <div className="mt-4">
-            <h2 className="prep-h2">Recent mock sessions</h2>
-            <div className="prep-card mt-2 divide-y" style={{ borderColor: 'var(--prep-border)' }}>
+          <section className="mt-5">
+            <div className="prep-section-head">
+              <div>
+                <p className="prep-eyebrow">History</p>
+                <h2 className="prep-h2 prep-section-title">Последние mock-сессии</h2>
+              </div>
+            </div>
+            <div className="mt-3 grid gap-2.5">
               {sessions.slice(0, 6).map((s) => (
-                <button
-                  key={s.id}
-                  type="button"
-                  onClick={() => navigate(`/prepare?session=${s.id}`)}
-                  className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
-                  style={{ borderColor: 'var(--prep-border)' }}
-                >
-                  <div className="min-w-0">
-                    <p className="truncate text-[13.5px] font-medium" style={{ color: 'var(--prep-ink)' }}>
-                      {s.vacancyAnalysis.targetRole}
-                    </p>
-                    <p className="prep-faint">
-                      {new Date(s.startedAt).toLocaleDateString()} ·{' '}
-                      {s.status === 'completed' ? 'completed' : 'in progress'}
-                    </p>
-                  </div>
-                  <span className="prep-chip shrink-0">
-                    {s.report ? `${s.report.overallScore}%` : `${s.answers.length}/${s.questions.length}`}
-                  </span>
-                </button>
+                <div key={s.id} className="prep-session-row">
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/prepare?session=${s.id}`)}
+                    className="prep-session-open"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-[13.5px] font-semibold" style={{ color: 'var(--prep-ink)' }}>
+                        {s.vacancyAnalysis.targetRole}
+                      </p>
+                      <p className="prep-faint">
+                        {new Date(s.startedAt).toLocaleDateString()} ·{' '}
+                        {s.status === 'completed' ? 'завершено' : 'в процессе'}
+                      </p>
+                    </div>
+                    <span className="prep-chip shrink-0">
+                      {s.report ? `${s.report.overallScore}%` : `${s.answers.length}/${s.questions.length}`}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => removeSession(s.id, s.vacancyAnalysis.targetRole)}
+                    className="prep-session-row-del"
+                    title="Удалить сессию"
+                    aria-label="Удалить сессию"
+                  >
+                    <TrashIcon />
+                  </button>
+                </div>
               ))}
             </div>
-          </div>
+          </section>
         )}
       </div>
     </div>
   );
 }
 
+function PrepStatusCard({
+  label,
+  title,
+  body,
+  tone,
+}: {
+  label: string;
+  title: string;
+  body: string;
+  tone: 'green' | 'blue' | 'amber' | 'violet';
+}) {
+  return (
+    <div className={`prep-status-card prep-status-${tone}`}>
+      <p>{label}</p>
+      <strong>{title}</strong>
+      <span>{body}</span>
+    </div>
+  );
+}
+
 function EmptyReadiness({ onStart }: { onStart: () => void }) {
   return (
-    <div className="flex flex-col items-start gap-2">
-      <p className="prep-h2">No vacancy reviewed yet</p>
-      <p className="prep-sub max-w-md">
-        Add a real vacancy and SkillCue will extract the likely interview topics and run a quick mock
-        to show your readiness — strong, weak, or not ready yet.
+    <div className="prep-empty">
+      <p className="prep-faint">Новая подготовка</p>
+      <h2 className="prep-h2 prep-card-title">Начните с вакансии, а не с пустого чата.</h2>
+      <p className="prep-sub">
+        SkillCue выделит требования, вероятные вопросы и темы риска, чтобы mock-интервью было
+        не общим, а под конкретную роль.
       </p>
-      <button type="button" className="prep-btn prep-btn-sm mt-2" onClick={onStart}>
-        Analyze a vacancy
+      <div className="prep-mini-results">
+        <span>Вероятные вопросы</span>
+        <span>Слабые темы</span>
+        <span>План подготовки</span>
+      </div>
+      <button type="button" className="prep-btn prep-btn-sm" onClick={onStart}>
+        Разобрать вакансию
       </button>
     </div>
   );

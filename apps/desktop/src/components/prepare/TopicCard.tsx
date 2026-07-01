@@ -33,7 +33,7 @@ export default function TopicCard({ topic, onPractice }: Props) {
 
       {topic.missingPoints.length > 0 && (
         <p className="mt-2 pl-2 text-[12.5px]" style={{ color: 'var(--prep-ink-muted)' }}>
-          <span className="font-semibold">Missing: </span>
+          <span className="font-semibold">Не хватает: </span>
           {topic.missingPoints.join(', ')}
         </p>
       )}
@@ -48,7 +48,7 @@ export default function TopicCard({ topic, onPractice }: Props) {
             className="prep-btn-ghost prep-btn-sm shrink-0"
             onClick={() => onPractice(topic.topicId)}
           >
-            Practice this topic
+            Потренировать тему
           </button>
         )}
       </div>

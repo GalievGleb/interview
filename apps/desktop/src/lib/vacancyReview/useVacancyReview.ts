@@ -128,10 +128,13 @@ export function useVacancyReview(initial?: SmokeReviewSession | null) {
     setPhase('setup');
   }, []);
 
-  /** Start a fresh ≤4-question round focused on the weakest topics. */
-  const startFollowUpRound = useCallback(() => {
+  /**
+   * Start a fresh ≤4-question round — on the weakest topics, or on one
+   * specific topic (topicId) when the user picks "Повторить тему".
+   */
+  const startFollowUpRound = useCallback((topicId?: string) => {
     if (!session) return;
-    const questions = buildFollowUpRound(session);
+    const questions = buildFollowUpRound(session, topicId);
     if (!questions.length) return;
     const next: SmokeReviewSession = {
       id: uid(),

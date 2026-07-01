@@ -16,11 +16,11 @@ export function readinessLabelFromScore(score: number): ReadinessLabel {
 }
 
 const LABEL_TEXT: Record<ReadinessLabel, string> = {
-  not_ready: 'Not ready',
-  weak: 'Weak',
-  almost_ready: 'Almost ready',
-  ready: 'Ready',
-  strong: 'Strong',
+  not_ready: 'Не готовы',
+  weak: 'Слабо',
+  almost_ready: 'Почти готовы',
+  ready: 'Готовы',
+  strong: 'Уверенно',
 };
 
 export function readinessLabelText(label: ReadinessLabel): string {
@@ -28,10 +28,10 @@ export function readinessLabelText(label: ReadinessLabel): string {
 }
 
 const STATUS_TEXT: Record<TopicStatus, string> = {
-  strong: 'Strong',
-  medium: 'Medium',
-  weak: 'Weak',
-  critical: 'Critical',
+  strong: 'Сильно',
+  medium: 'Средне',
+  weak: 'Слабо',
+  critical: 'Критично',
 };
 
 export function topicStatusText(status: TopicStatus): string {
