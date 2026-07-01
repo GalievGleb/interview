@@ -1,25 +1,101 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, DocumentItem } from '../lib/api';
-import ScreenHeader from '../components/ScreenHeader';
 
 const KINDS = [
   { value: 'resume', label: 'Резюме' },
+  { value: 'legend', label: 'Легенда' },
   { value: 'vacancy', label: 'Вакансия' },
   { value: 'notes', label: 'Заметки' },
 ];
 
-const KIND_STYLE: Record<string, { label: string; tile: string }> = {
-  resume: { label: 'RESUME', tile: 'bg-accent-soft text-accent' },
-  vacancy: { label: 'VACANCY', tile: 'bg-emerald-500/15 text-emerald-400' },
-  notes: { label: 'NOTES', tile: 'bg-sky-500/15 text-sky-400' },
+const KIND_STYLE: Record<string, { label: string; tone: string }> = {
+  resume: { label: 'Resume', tone: 'prep-tone-green' },
+  legend: { label: 'Legend', tone: 'prep-tone-violet' },
+  vacancy: { label: 'Vacancy', tone: 'prep-tone-blue' },
+  notes: { label: 'Notes', tone: '' },
 };
 
 function FileIcon() {
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
       <path d="M14 2v6h6" />
     </svg>
+  );
+}
+
+function ResumeIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+      <rect x="8" y="2" width="8" height="4" rx="1" />
+      <path d="M8 12h8M8 16h5" />
+    </svg>
+  );
+}
+
+function LegendIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3l7 4v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V7z" />
+      <path d="M9.5 12l1.8 1.8L15 10" />
+    </svg>
+  );
+}
+
+interface PillarProps {
+  icon: React.ReactNode;
+  label: string;
+  title: string;
+  connectedTitle: string;
+  count: number;
+  onAdd: () => void;
+}
+
+function SourcePillar({ icon, label, title, connectedTitle, count, onAdd }: PillarProps) {
+  const on = count > 0;
+  return (
+    <div className={`prep-source-pillar ${on ? 'is-on' : ''}`}>
+      <div className="prep-source-head">
+        <span className="prep-source-icon">{icon}</span>
+        <div className="min-w-0">
+          <p className="prep-eyebrow">{label}</p>
+          <h3 className="text-[15px] font-bold" style={{ color: 'var(--prep-ink)' }}>
+            {on ? connectedTitle : title}
+          </h3>
+        </div>
+        <span className={`prep-source-state ${on ? 'is-on' : ''}`}>
+          <span className="prep-source-dot" />
+          {on ? 'Подключено' : 'Пусто'}
+        </span>
+      </div>
+      <p className="prep-sub mt-3 flex-1">
+        {label === 'Resume' ? (
+          <>Реальные факты: роли, стек, проекты. Live-ответы держатся в этих рамках.</>
+        ) : (
+          <>Позиционирование и формулировки для спорных мест — чтобы ответы звучали уверенно и связно.</>
+        )}
+      </p>
+      <div className="mt-4 flex items-center gap-3">
+        <button type="button" className="prep-btn prep-btn-sm" onClick={onAdd}>
+          {on ? 'Добавить ещё' : `Добавить ${label === 'Resume' ? 'резюме' : 'легенду'}`}
+        </button>
+        {on && (
+          <span className="prep-faint">
+            <span className="prep-source-count">{count}</span> {count === 1 ? 'документ' : 'документа'}
+          </span>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -31,19 +107,28 @@ export default function DocumentsPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
 
   const load = async () => {
     try {
       const res = await api.listDocuments();
       setDocs(res.documents);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Ошибка');
+      setError(err instanceof Error ? err.message : 'Ошибка загрузки документов');
     }
   };
 
   useEffect(() => {
     void load();
   }, []);
+
+  const focusComposer = (into: string) => {
+    setKind(into);
+    requestAnimationFrame(() => {
+      composerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      composerRef.current?.focus();
+    });
+  };
 
   const addText = async () => {
     if (!text.trim()) return;
@@ -55,7 +140,7 @@ export default function DocumentsPage() {
       setTitle('');
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Ошибка');
+      setError(err instanceof Error ? err.message : 'Не удалось добавить текст');
     } finally {
       setBusy(false);
     }
@@ -70,7 +155,7 @@ export default function DocumentsPage() {
       await api.uploadFile(kind, file, file.name);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Ошибка');
+      setError(err instanceof Error ? err.message : 'Не удалось загрузить файл');
     } finally {
       setBusy(false);
       if (fileRef.current) fileRef.current.value = '';
@@ -82,69 +167,51 @@ export default function DocumentsPage() {
     await load();
   };
 
-  const kindsInUse = useMemo(() => {
-    const set = new Set(docs.map((d) => d.kind));
-    return [...set];
+  const counts = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const d of docs) map[d.kind] = (map[d.kind] ?? 0) + 1;
+    return map;
   }, [docs]);
 
+  const grounded = (counts.resume ?? 0) > 0 || (counts.legend ?? 0) > 0;
+
   return (
-    <div>
-      <ScreenHeader
-        title="Documents & context"
-        subtitle="Resume and notes SkillCue uses to tailor answers to you."
-        actions={
-          <label className="btn-primary btn-sm cursor-pointer">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 5v14M5 12h14" />
-            </svg>
-            Add file
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".pdf,.docx,.txt"
-              onChange={onFile}
-              className="hidden"
-            />
-          </label>
-        }
-      />
+    <div className="prep h-full overflow-y-auto">
+      <div className="prep-wrap prep-rise prep-home">
+        <section>
+          <p className="prep-eyebrow">Answer source</p>
+          <h1 className="prep-h1 mt-1">Откуда SkillCue берёт ответы.</h1>
+          <p className="prep-sub mt-1.5 max-w-2xl">
+            Live-подсказки грунтуются на двух вещах: реальном резюме и вашей легенде опыта.
+            Чем точнее источник, тем меньше общего AI-текста и больше ответов «от себя».
+          </p>
+        </section>
 
-      <div className="max-w-3xl space-y-5">
-        {/* Active context */}
-        <div className="sc-card border-accent/25 bg-accent/[0.05] p-5">
-          <div className="mb-3 flex items-center gap-2.5">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent-soft text-accent">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" />
-                <path d="M19 10v1a7 7 0 0 1-14 0v-1M12 18v4M8 22h8" />
-              </svg>
-            </span>
-            <div>
-              <p className="flex items-center gap-2 text-[15px] font-semibold text-ink">
-                Active context
-                <span className="sc-badge sc-badge--accent">{docs.length} files in use</span>
-              </p>
-            </div>
-          </div>
-          <p className="mb-2 text-sm text-ink-muted">Answers are tailored to:</p>
-          <div className="flex flex-wrap gap-2">
-            {kindsInUse.length === 0 && (
-              <span className="text-sm text-ink-faint">No documents yet — add your resume to start.</span>
-            )}
-            {kindsInUse.map((k) => (
-              <span key={k} className="sc-ctx-chip">
-                {KINDS.find((x) => x.value === k)?.label ?? k}
-              </span>
-            ))}
-          </div>
-        </div>
+        <section className="prep-source-grid mt-5">
+          <SourcePillar
+            icon={<ResumeIcon />}
+            label="Resume"
+            title="Резюме не подключено"
+            connectedTitle="Резюме подключено"
+            count={counts.resume ?? 0}
+            onAdd={() => focusComposer('resume')}
+          />
+          <SourcePillar
+            icon={<LegendIcon />}
+            label="Legend"
+            title="Легенда не подключена"
+            connectedTitle="Легенда подключена"
+            count={counts.legend ?? 0}
+            onAdd={() => focusComposer('legend')}
+          />
+        </section>
 
-        {/* Add context */}
-        <div className="sc-card p-5">
-          <p className="mb-3 text-sm font-semibold text-ink">Add context</p>
-          <div className="space-y-3">
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <select value={kind} onChange={(e) => setKind(e.target.value)} className="field sm:max-w-[180px]">
+        <section className="prep-doc-grid mt-5">
+          <div className="prep-action-card">
+            <p className="prep-eyebrow">Add context</p>
+            <h2 className="prep-h2 prep-card-title">Вставьте резюме, легенду или заметки.</h2>
+            <div className="mt-4 grid gap-3 sm:grid-cols-[180px_1fr]">
+              <select value={kind} onChange={(e) => setKind(e.target.value)} className="prep-input">
                 {KINDS.map((k) => (
                   <option key={k.value} value={k.value}>
                     {k.label}
@@ -152,58 +219,90 @@ export default function DocumentsPage() {
                 ))}
               </select>
               <input
-                placeholder="Заголовок (необязательно)"
+                placeholder="Название, например: QA Automation resume"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                className="field flex-1"
+                className="prep-input"
               />
             </div>
             <textarea
-              placeholder="Вставьте текст резюме / вакансии / заметок..."
+              ref={composerRef}
+              placeholder="Вставьте текст резюме, легенды или заметок..."
               value={text}
               onChange={(e) => setText(e.target.value)}
-              rows={5}
-              className="field resize-y leading-relaxed"
+              rows={7}
+              className="prep-textarea mt-3"
             />
-            <div className="flex flex-wrap items-center gap-3">
-              <button onClick={addText} disabled={busy} className="btn-primary btn-sm">
-                Добавить текст
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <button onClick={addText} disabled={busy || !text.trim()} className="prep-btn">
+                {busy ? 'Добавляю...' : 'Добавить текст'}
               </button>
-              <span className="text-xs text-ink-faint">или используйте «Add file» выше (PDF / DOCX / TXT)</span>
+              <label className="prep-btn prep-btn-secondary cursor-pointer">
+                Загрузить файл
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept=".pdf,.docx,.txt"
+                  onChange={onFile}
+                  className="hidden"
+                />
+              </label>
+              <span className="prep-faint">PDF, DOCX, TXT</span>
             </div>
-            {error && <p className="text-sm text-red-400">{error}</p>}
+            {error && (
+              <p className="mt-3 text-[13px]" style={{ color: 'var(--prep-red)' }}>
+                {error}
+              </p>
+            )}
           </div>
-        </div>
 
-        {/* Context files */}
-        <div>
-          <p className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-wide text-ink-faint">
-            Context files
-          </p>
-          <div className="space-y-2">
+          <div className="prep-next-card">
+            <p className="prep-eyebrow">В live SkillCue использует</p>
+            <h2 className="prep-h2 prep-card-title">
+              {grounded ? 'Ваш контекст, а не общий AI.' : 'Пока только общий AI.'}
+            </h2>
+            <div className="prep-rule-list mt-4">
+              <span>Инструменты и стек из резюме</span>
+              <span>Проекты и зона ответственности</span>
+              <span>Легенда: где формулировать аккуратно</span>
+            </div>
+          </div>
+        </section>
+
+        <section>
+          <div className="prep-section-head">
+            <div>
+              <p className="prep-eyebrow">Library</p>
+              <h2 className="prep-h2 prep-section-title">Подключённые материалы</h2>
+            </div>
+            {docs.length > 0 && <span className="prep-faint">{docs.length} всего</span>}
+          </div>
+
+          <div className="prep-doc-list">
             {docs.length === 0 && (
-              <div className="sc-empty rounded-2xl border border-dashed border-surface-border">
-                Документов пока нет
+              <div className="prep-empty-state">
+                <p className="prep-h2">Источников пока нет</p>
+                <p className="prep-sub mt-1">
+                  Добавьте резюме или легенду, чтобы live-ответы перестали быть общими.
+                </p>
               </div>
             )}
             {docs.map((doc) => {
-              const style = KIND_STYLE[doc.kind] ?? { label: doc.kind.toUpperCase(), tile: 'bg-surface-elevated text-ink-faint' };
+              const style = KIND_STYLE[doc.kind] ?? { label: doc.kind.toUpperCase(), tone: '' };
               return (
-                <div key={doc.id} className="sc-card flex items-center gap-3 px-4 py-3">
-                  <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${style.tile}`}>
+                <div key={doc.id} className="prep-doc-row">
+                  <span className={`prep-doc-icon ${style.tone}`}>
                     <FileIcon />
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className="flex items-center gap-2">
-                      <span className="truncate text-[15px] font-semibold text-ink">{doc.title}</span>
-                      <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-ink-faint">
-                        {style.label}
-                      </span>
+                    <p className="truncate text-[15px] font-semibold" style={{ color: 'var(--prep-ink)' }}>
+                      {doc.title}
                     </p>
+                    <span className={`prep-chip mt-1 ${style.tone}`}>{style.label}</span>
                   </div>
                   <button
-                    onClick={() => remove(doc.id)}
-                    className="shrink-0 rounded-lg px-2.5 py-1 text-xs text-ink-faint transition-colors hover:bg-red-950/40 hover:text-red-300"
+                    onClick={() => void remove(doc.id)}
+                    className="prep-btn prep-btn-ghost prep-btn-sm shrink-0"
                   >
                     Удалить
                   </button>
@@ -211,12 +310,7 @@ export default function DocumentsPage() {
               );
             })}
           </div>
-        </div>
-
-        {/* Privacy */}
-        <div className="cockpit-alert cockpit-alert-info">
-          <span>Документы хранятся локально и не загружаются в облако в локальном режиме.</span>
-        </div>
+        </section>
       </div>
     </div>
   );

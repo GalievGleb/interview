@@ -9,7 +9,7 @@ from app.services import rag_service
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
-_VALID_KINDS = {"resume", "vacancy", "company", "notes", "qa"}
+_VALID_KINDS = {"resume", "legend", "vacancy", "company", "notes", "qa"}
 
 
 class DocumentOut(BaseModel):
