@@ -86,7 +86,7 @@ export default function DiagnosticsPanel() {
         {
           name: 'LLM complete',
           ms: Math.max((timings.llmTotalMs ?? 0) - (timings.llmFirstMs ?? 0), 0),
-          color: '#6366f1',
+          color: '#34c77b',
         },
       ].filter((s) => s.ms > 0)
     : [];

@@ -84,7 +84,7 @@ export default function MeetingPage() {
             type="checkbox"
             checked={localLlm}
             onChange={(e) => setLocalLlm(e.target.checked)}
-            className="h-4 w-4 accent-[#6366f1]"
+            className="h-4 w-4 accent-[#34c77b]"
           />
           Локально (Ollama)
         </label>

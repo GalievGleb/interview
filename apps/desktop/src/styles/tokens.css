@@ -1,0 +1,49 @@
+/*
+ * SkillCue design tokens — single source of truth for the harmonized palette.
+ *
+ * One brand green across both modes; service accents only for section identity
+ * and status, never for buttons. Dark values are the default (:root); the light
+ * Preparation mode overrides under `.prep`.
+ *
+ * Consume via var(--sc-*). Tailwind's `accent` and the cockpit `--accent` are
+ * kept in sync with `--sc-brand`.
+ */
+:root {
+  /* Brand — the ONE accent (dark/Live tuning). */
+  --sc-brand: #34c77b;
+  --sc-brand-hover: #58dc96;
+  --sc-brand-strong: #22c55e;
+  --sc-brand-soft: rgba(52, 199, 123, 0.15);
+  --sc-brand-ring: rgba(52, 199, 123, 0.34);
+
+  /* Status. */
+  --sc-status-ready: #34c77b;
+  --sc-status-warning: #fbbf24;
+  --sc-status-risk: #f87171;
+  --sc-status-info: #8fb6d8;
+
+  /* Section accents (identity tints only — not actions). */
+  --sc-accent-prep: #16a34a;
+  --sc-accent-practice: #8fb6d8;
+  --sc-accent-live: #34d399;
+  --sc-accent-review: #a78bfa;
+}
+
+/* Light Preparation mode — same brand family, tuned for ivory. */
+.prep {
+  --sc-brand: #16a34a;
+  --sc-brand-hover: #15803d;
+  --sc-brand-strong: #22c55e;
+  --sc-brand-soft: #e5f6eb;
+  --sc-brand-ring: rgba(22, 163, 74, 0.18);
+
+  --sc-status-ready: #16a34a;
+  --sc-status-warning: #d97706;
+  --sc-status-risk: #dc2626;
+  --sc-status-info: #2563eb;
+
+  --sc-accent-prep: #16a34a;
+  --sc-accent-practice: #2563eb;
+  --sc-accent-live: #16a34a;
+  --sc-accent-review: #7c3aed;
+}

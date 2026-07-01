@@ -32,7 +32,7 @@ function GeneratingHint() {
   return (
     <div className="cockpit-empty py-6">
       <div className="mb-2 flex items-center gap-2 text-sm text-ink-muted">
-        <span className="h-2 w-2 animate-pulse rounded-full bg-accent shadow-[0_0_8px_rgba(99,102,241,0.5)]" />
+        <span className="h-2 w-2 animate-pulse rounded-full bg-accent shadow-[0_0_8px_rgba(52,199,123,0.5)]" />
         Generating answer…
       </div>
     </div>
@@ -109,27 +109,53 @@ export default function AnswerPanel({
         )}
 
         <div className="space-y-4">
-          {history.map((item) => (
-            <article key={item.id} className="cockpit-bento">
-              <div className="mb-3 flex items-start justify-between gap-3">
-                <p className="answer-question min-w-0 flex-1">Q: {item.question}</p>
-                <AnswerActions
-                  answer={item.spoken}
-                  disabled={isGenerating}
-                  revising={revising}
-                  onRevise={
-                    onReviseEntry
-                      ? (mode) => onReviseEntry(item.id, item.question, item.spoken, mode)
-                      : undefined
-                  }
-                />
-              </div>
-              <StructuredAnswer text={item.spoken} />
-            </article>
-          ))}
+          {history.map((item, i) => {
+            const latestCompleted = i === history.length - 1 && !displayStream;
+            return (
+              <article
+                key={item.id}
+                className={
+                  latestCompleted
+                    ? 'skillcue-answer-card skillcue-answer-card--active'
+                    : 'skillcue-answer-card skillcue-answer-card--past'
+                }
+              >
+                {latestCompleted && (
+                  <div className="skillcue-answer-label">
+                    <span>Say this</span>
+                    <span>Ready to read aloud</span>
+                  </div>
+                )}
+                <div className="mb-3 flex items-start justify-between gap-3">
+                  <p className="answer-question min-w-0 flex-1">Q: {item.question}</p>
+                  <AnswerActions
+                    answer={item.spoken}
+                    disabled={isGenerating}
+                    revising={revising}
+                    onRevise={
+                      onReviseEntry
+                        ? (mode) => onReviseEntry(item.id, item.question, item.spoken, mode)
+                        : undefined
+                    }
+                  />
+                </div>
+                <StructuredAnswer text={item.spoken} />
+              </article>
+            );
+          })}
 
           {(displayStream || (isGenerating && activeQuestion)) && (
-            <article className={displayStream ? 'cockpit-bento cockpit-bento-main animate-scale-in' : ''}>
+            <article
+              className={
+                displayStream
+                  ? 'skillcue-answer-card skillcue-answer-card--active animate-scale-in'
+                  : 'skillcue-answer-card skillcue-answer-card--pending'
+              }
+            >
+              <div className="skillcue-answer-label">
+                <span>Say this</span>
+                <span>{displayStream ? 'Ready to read aloud' : 'Building answer'}</span>
+              </div>
               {activeQuestion && (
                 <div className="mb-3 flex items-start justify-between gap-3">
                   <p className="answer-question min-w-0 flex-1">Q: {activeQuestion}</p>

@@ -27,7 +27,7 @@ export default function OnboardingPage() {
     <div className="relative flex min-h-screen flex-col overflow-y-auto bg-surface text-ink">
       <div aria-hidden className="pointer-events-none fixed inset-0 overflow-hidden">
         <div className="absolute -top-32 left-1/2 h-[480px] w-[480px] -translate-x-1/2 rounded-full bg-accent/20 blur-[120px]" />
-        <div className="absolute -bottom-40 -right-20 h-[360px] w-[360px] rounded-full bg-indigo-500/10 blur-[120px]" />
+        <div className="absolute -bottom-40 -right-20 h-[360px] w-[360px] rounded-full bg-emerald-500/10 blur-[120px]" />
       </div>
 
       {/* top bar */}
@@ -36,7 +36,7 @@ export default function OnboardingPage() {
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent text-sm font-bold text-white shadow-glow">
             SC
           </div>
-          <span className="text-base font-semibold tracking-tight">SkillCue</span>
+          <span className="text-base font-semibold tracking-tight">Skillcue</span>
           <span className="ml-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
             First-run setup
           </span>
@@ -56,7 +56,7 @@ export default function OnboardingPage() {
               Set up local speech recognition
             </h1>
             <p className="mt-2 max-w-xl text-sm leading-relaxed text-ink-muted">
-              SkillCue listens to interview questions and transcribes them in real time. Choose how
+              Skillcue listens to interview questions and transcribes them in real time. Choose how
               it runs — by default everything stays on your device.
             </p>
 
