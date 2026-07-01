@@ -727,13 +727,25 @@ export const api = {
       seniorityLevel: string;
       extractedRequirements: string[];
       optionalSkills: string[];
+      competencies?: Array<{
+        name: string;
+        priority: string;
+        expectedLevel: string;
+        resumeMatch: string;
+        note: string;
+      }>;
       interviewTopics: Array<{
         id: string;
         title: string;
         category: string;
         importance: string;
+        level?: string;
         expectedKnowledge: string;
         sampleQuestions: string[];
+        whyAsked?: string;
+        expectedAnswerPoints?: string[];
+        relatedVacancyTopics?: string[];
+        relatedResumeEvidence?: string[];
         vacancyEvidence: string;
       }>;
       projectQuestions: string[];
@@ -748,7 +760,11 @@ export const api = {
     question: string;
     answer: string;
     topic?: string;
+    level?: string;
     expectedSignals?: string[];
+    relatedResumeEvidence?: string[];
+    resumeText?: string;
+    legendText?: string;
     language: string;
     hasResume: boolean;
   }) =>
@@ -758,10 +774,17 @@ export const api = {
       technicalAccuracyScore: number;
       specificityScore: number;
       confidenceScore: number;
+      levelEstimate?: string;
+      verdict?: string;
       feedback: string;
-      missingPoints: string[];
       goodPoints: string[];
+      weakPoints?: string[];
+      missingPoints: string[];
+      technicalCorrections?: string[];
+      betterStructure?: string[];
       suggestedBetterAnswer: string;
+      followUpQuestions?: string[];
+      nextTrainingFocus?: string;
       overclaimed: boolean;
     }>('/vacancy/evaluate', {
       method: 'POST',

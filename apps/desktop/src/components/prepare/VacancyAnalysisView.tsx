@@ -1,4 +1,9 @@
-import type { TopicImportance, VacancyAnalysis } from '../../lib/vacancyReview/types';
+import type {
+  Competency,
+  ResumeMatch,
+  TopicImportance,
+  VacancyAnalysis,
+} from '../../lib/vacancyReview/types';
 
 interface Props {
   analysis: VacancyAnalysis;
@@ -20,6 +25,19 @@ const IMPORTANCE_TONE: Record<TopicImportance, string> = {
   high: 'prep-tone-red',
   medium: 'prep-tone-blue',
   low: 'prep-tone-violet',
+};
+
+const MATCH_META: Record<ResumeMatch, { label: string; tone: string }> = {
+  strong: { label: 'Резюме подтверждает', tone: 'prep-tone-green' },
+  partial: { label: 'Смежный опыт', tone: 'prep-tone-amber' },
+  gap: { label: 'Пробел', tone: 'prep-tone-red' },
+};
+
+const EXPECTED_LEVEL_LABEL: Record<Competency['expectedLevel'], string> = {
+  basic: 'теория',
+  practical: 'руками',
+  advanced: 'проектировал',
+  lead: 'стратегия / люди',
 };
 
 export default function VacancyAnalysisView({ analysis, onStart, onBack, questionCount }: Props) {
@@ -54,6 +72,40 @@ export default function VacancyAnalysisView({ analysis, onStart, onBack, questio
         </div>
       )}
 
+      {analysis.competencies && analysis.competencies.length > 0 && (
+        <div>
+          <h2 className="prep-h2">Компетенции против резюме</h2>
+          <p className="prep-faint mt-0.5">
+            Что важно для роли и где вы это подтверждаете. Красное и жёлтое спросят строже.
+          </p>
+          <div className="mt-3 grid gap-2">
+            {[...analysis.competencies]
+              .sort((a, b) => matchOrder(a.resumeMatch) - matchOrder(b.resumeMatch))
+              .map((c) => {
+                const meta = MATCH_META[c.resumeMatch];
+                return (
+                  <div
+                    key={c.name}
+                    className="prep-card flex flex-wrap items-center gap-x-3 gap-y-1.5 p-3"
+                  >
+                    <span className={`prep-chip shrink-0 ${IMPORTANCE_TONE[c.priority]}`}>{c.priority}</span>
+                    <span className="min-w-0 flex-1 truncate text-[14px] font-semibold" style={{ color: 'var(--prep-ink)' }}>
+                      {c.name}
+                    </span>
+                    <span className="prep-faint shrink-0">ждут: {EXPECTED_LEVEL_LABEL[c.expectedLevel]}</span>
+                    <span className={`prep-chip shrink-0 ${meta.tone}`}>{meta.label}</span>
+                    {c.note && (
+                      <p className="w-full text-[12.5px]" style={{ color: 'var(--prep-ink-muted)' }}>
+                        {c.note}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+          </div>
+        </div>
+      )}
+
       <div>
         <h2 className="prep-h2">Interview Readiness Map</h2>
         <p className="prep-faint mt-0.5">Topics extracted from the vacancy — this is what the mock will test.</p>
@@ -70,6 +122,9 @@ export default function VacancyAnalysisView({ analysis, onStart, onBack, questio
                 </span>
               </div>
               <p className="prep-sub mt-2">{t.expectedKnowledge}</p>
+              {t.whyAsked && (
+                <p className="prep-faint mt-1.5">{t.whyAsked}</p>
+              )}
               <p className="mt-2 text-[12px] italic" style={{ color: 'var(--prep-ink-faint)' }}>
                 “{t.vacancyEvidence}”
               </p>
@@ -104,4 +159,9 @@ export default function VacancyAnalysisView({ analysis, onStart, onBack, questio
       </div>
     </div>
   );
+}
+
+/** Show gaps first, then partial matches, then strong. */
+function matchOrder(m: ResumeMatch): number {
+  return m === 'gap' ? 0 : m === 'partial' ? 1 : 2;
 }

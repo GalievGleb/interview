@@ -10,8 +10,13 @@ import { api } from '../api';
 import { difficultyForIndex, detectRole, detectSeniority, extractTopics } from './topicExtraction';
 import { readinessLabelFromScore, topicStatusFromScore } from './readiness';
 import type {
+  Competency,
+  CompetencyLevel,
   InterviewTopic,
+  QuestionLevel,
   ReadinessReport,
+  ResumeMatch,
+  SeniorityLevel,
   SmokeAnswerEvaluation,
   SmokeQuestion,
   SmokeReviewSession,
@@ -25,6 +30,23 @@ const uid = () =>
   typeof crypto !== 'undefined' && crypto.randomUUID
     ? crypto.randomUUID()
     : `id-${Math.random().toString(36).slice(2)}`;
+
+/** Trim grounding text before we denormalize it onto the analysis/session. */
+const RESUME_CAP = 4000;
+const LEGEND_CAP = 2000;
+
+const QUESTION_LEVEL: QuestionLevel[] = ['junior', 'middle', 'senior', 'lead'];
+function asQuestionLevel(v: string | undefined): QuestionLevel | undefined {
+  return v && (QUESTION_LEVEL as string[]).includes(v) ? (v as QuestionLevel) : undefined;
+}
+
+/** The depth an interviewer targets for THIS candidate, from vacancy seniority. */
+function seniorityToLevel(s: SeniorityLevel): QuestionLevel {
+  if (s === 'lead') return 'lead';
+  if (s === 'senior') return 'senior';
+  if (s === 'junior' || s === 'intern') return 'junior';
+  return 'middle';
+}
 
 const HEDGE_RE = /(не знаю|не уверен|наверное|кажется|emм|не помню|не сталкивался|hard to say)/i;
 const SPECIFIC_RE =
@@ -55,10 +77,30 @@ export async function analyzeVacancy(input: VacancyReviewInput): Promise<Vacancy
         title: t.title,
         category: t.category || 'General',
         importance: asImportance(t.importance),
+        level: asQuestionLevel(t.level),
         expectedKnowledge: t.expectedKnowledge,
         sampleQuestions: t.sampleQuestions?.length ? t.sampleQuestions : ['Расскажи про эту тему.'],
+        whyAsked: t.whyAsked || undefined,
+        expectedAnswerPoints: t.expectedAnswerPoints?.length ? t.expectedAnswerPoints : undefined,
+        relatedVacancyTopics: t.relatedVacancyTopics?.length ? t.relatedVacancyTopics : undefined,
+        relatedResumeEvidence: t.relatedResumeEvidence?.length ? t.relatedResumeEvidence : undefined,
         vacancyEvidence: t.vacancyEvidence,
       }));
+      const competencies: Competency[] | undefined = r.competencies?.length
+        ? r.competencies.map((c) => ({
+            name: c.name,
+            priority: asImportance(c.priority),
+            expectedLevel: (['basic', 'practical', 'advanced', 'lead'] as string[]).includes(
+              c.expectedLevel,
+            )
+              ? (c.expectedLevel as CompetencyLevel)
+              : 'practical',
+            resumeMatch: (['strong', 'partial', 'gap'] as string[]).includes(c.resumeMatch)
+              ? (c.resumeMatch as ResumeMatch)
+              : 'gap',
+            note: c.note ?? '',
+          }))
+        : undefined;
       return {
         id: uid(),
         vacancyText: input.vacancyText,
@@ -71,11 +113,14 @@ export async function analyzeVacancy(input: VacancyReviewInput): Promise<Vacancy
         language: input.language,
         extractedRequirements: r.extractedRequirements ?? [],
         optionalSkills: r.optionalSkills ?? [],
+        competencies,
         interviewTopics: topics,
         projectQuestions: r.projectQuestions ?? [],
         riskAreas: r.riskAreas ?? [],
         hasResume: Boolean(input.resumeText),
         hasLegend: Boolean(input.legendText),
+        resumeText: input.resumeText?.slice(0, RESUME_CAP),
+        legendText: input.legendText?.slice(0, LEGEND_CAP),
         createdAt: Date.now(),
       };
     }
@@ -87,9 +132,43 @@ export async function analyzeVacancy(input: VacancyReviewInput): Promise<Vacancy
 
 /** Deterministic fallback analysis (no backend). */
 export function analyzeVacancyMock(input: VacancyReviewInput): VacancyAnalysis {
-  const { topics, requirements, optionalSkills } = extractTopics(input.vacancyText);
+  const { topics: rawTopics, requirements, optionalSkills } = extractTopics(input.vacancyText);
   const targetRole = detectRole(input.vacancyText, input.targetRole);
   const seniorityLevel = detectSeniority(input.vacancyText, targetRole);
+  const resume = (input.resumeText || '').toLowerCase();
+  const level = seniorityToLevel(seniorityLevel);
+
+  // Enrich each topic with the richer interviewer metadata deterministically.
+  const topics: InterviewTopic[] = rawTopics.map((t) => {
+    const points = t.expectedKnowledge
+      .replace(/\.$/, '')
+      .split(/[,;]/)
+      .map((p) => p.trim())
+      .filter(Boolean);
+    const match = resumeMatchFor(t.title, resume, Boolean(input.resumeText));
+    return {
+      ...t,
+      level,
+      whyAsked: `Проверяем «${t.title.toLowerCase()}» — тема заявлена в вакансии${
+        t.importance === 'high' ? ' как критичная' : ''
+      }.`,
+      expectedAnswerPoints: points.length ? points : undefined,
+      relatedVacancyTopics: [t.title],
+      relatedResumeEvidence:
+        match === 'strong' ? [`Опыт по «${t.title}» из резюме`] : undefined,
+    };
+  });
+
+  const competencies: Competency[] = topics.map((t) => ({
+    name: t.title,
+    priority: t.importance,
+    expectedLevel: expectedLevelFor(t.importance, level),
+    resumeMatch: resumeMatchFor(t.title, resume, Boolean(input.resumeText)),
+    note:
+      resumeMatchFor(t.title, resume, Boolean(input.resumeText)) === 'gap'
+        ? 'Нет явного подтверждения в резюме — проверить глубже.'
+        : 'Есть релевантный опыт — можно копать в детали.',
+  }));
 
   const riskAreas: string[] = [];
   if (!input.resumeText) riskAreas.push('Resume context missing — answers can’t be grounded in real experience.');
@@ -97,6 +176,10 @@ export function analyzeVacancyMock(input: VacancyReviewInput): VacancyAnalysis {
   const highTopics = topics.filter((t) => t.importance === 'high');
   if (highTopics.length) {
     riskAreas.push(`High-weight topics to nail: ${highTopics.map((t) => t.title).join(', ')}.`);
+  }
+  const gaps = competencies.filter((c) => c.resumeMatch === 'gap' && c.priority !== 'low');
+  if (gaps.length) {
+    riskAreas.push(`Пробелы против резюме: ${gaps.map((c) => c.name).join(', ')}.`);
   }
   if (!topics.length) riskAreas.push('Could not extract clear topics — paste a fuller vacancy text.');
 
@@ -113,13 +196,36 @@ export function analyzeVacancyMock(input: VacancyReviewInput): VacancyAnalysis {
     language: input.language,
     extractedRequirements: requirements,
     optionalSkills,
+    competencies,
     interviewTopics: topics,
     projectQuestions,
     riskAreas,
     hasResume: Boolean(input.resumeText),
     hasLegend: Boolean(input.legendText),
+    resumeText: input.resumeText?.slice(0, RESUME_CAP),
+    legendText: input.legendText?.slice(0, LEGEND_CAP),
     createdAt: Date.now(),
   };
+}
+
+/** Heuristic résumé coverage for a topic (mock only). */
+function resumeMatchFor(title: string, resumeLower: string, hasResume: boolean): ResumeMatch {
+  if (!hasResume) return 'gap';
+  const words = title
+    .toLowerCase()
+    .split(/[^a-zа-яё0-9+]+/i)
+    .filter((w) => w.length > 2);
+  const hit = words.some((w) => resumeLower.includes(w));
+  if (hit) return 'strong';
+  return 'partial';
+}
+
+/** Expected depth from importance + role seniority (mock only). */
+function expectedLevelFor(importance: TopicImportance, level: QuestionLevel): CompetencyLevel {
+  if (level === 'lead' && importance === 'high') return 'lead';
+  if (level === 'lead' || level === 'senior') return 'advanced';
+  if (importance === 'high') return 'practical';
+  return 'basic';
 }
 
 /** Build an 8–15 question smoke plan, grouped by topic, gradually harder. */
@@ -130,22 +236,14 @@ export function buildSmokePlan(analysis: VacancyAnalysis): SmokeQuestion[] {
   const target = Math.min(15, Math.max(8, topics.length + 3));
 
   // Round-robin one question per topic (high importance first) until we hit target.
-  const pool: { topicId: string; question: string; signals: string[] }[] = [];
+  const pool: { topic: InterviewTopic; question: string }[] = [];
   let round = 0;
   while (pool.length < target) {
     let added = false;
     for (const topic of topics) {
       const q = topic.sampleQuestions[round];
       if (!q) continue;
-      pool.push({
-        topicId: topic.id,
-        question: q,
-        signals: topic.expectedKnowledge
-          .replace(/[.,]/g, '')
-          .split(/\s+/)
-          .filter((w) => w.length > 3)
-          .slice(0, 5),
-      });
+      pool.push({ topic, question: q });
       added = true;
       if (pool.length >= target) break;
     }
@@ -153,14 +251,66 @@ export function buildSmokePlan(analysis: VacancyAnalysis): SmokeQuestion[] {
     if (!added) break; // ran out of sample questions
   }
 
-  return pool.slice(0, target).map((p, i) => ({
+  return pool.slice(0, target).map((p, i) => questionFromTopic(p.topic, p.question, i, pool.length));
+}
+
+/** Build a SmokeQuestion from a topic, carrying its interviewer metadata. */
+function questionFromTopic(
+  topic: InterviewTopic,
+  question: string,
+  index: number,
+  total: number,
+): SmokeQuestion {
+  const signals =
+    topic.expectedAnswerPoints?.length
+      ? topic.expectedAnswerPoints.slice(0, 5)
+      : topic.expectedKnowledge
+          .replace(/[.,]/g, '')
+          .split(/\s+/)
+          .filter((w) => w.length > 3)
+          .slice(0, 5);
+  return {
     id: uid(),
-    topicId: p.topicId,
-    question: p.question,
-    difficulty: difficultyForIndex(i, pool.length),
-    expectedSignals: p.signals,
+    topicId: topic.id,
+    question,
+    difficulty: difficultyForIndex(index, total),
+    expectedSignals: signals,
     redFlags: ['слишком общий ответ без конкретики', 'заявлен опыт без примера'],
-  }));
+    level: topic.level,
+    whyAsked: topic.whyAsked,
+    expectedAnswerPoints: topic.expectedAnswerPoints,
+    relatedVacancyTopics: topic.relatedVacancyTopics,
+    relatedResumeEvidence: topic.relatedResumeEvidence,
+  };
+}
+
+/**
+ * Next round: ≤4 questions focused on the weakest topics after a first pass.
+ * Weakest = lowest topic scores in the report, falling back to high-importance
+ * topics if there's no report yet.
+ */
+export function buildFollowUpRound(session: SmokeReviewSession): SmokeQuestion[] {
+  const analysis = session.vacancyAnalysis;
+  const byId = new Map(analysis.interviewTopics.map((t) => [t.id, t]));
+  const weakIds = session.report?.topicScores
+    ? [...session.report.topicScores]
+        .sort((a, b) => a.score - b.score)
+        .slice(0, 4)
+        .map((t) => t.topicId)
+    : analysis.interviewTopics
+        .filter((t) => t.importance === 'high')
+        .slice(0, 4)
+        .map((t) => t.id);
+
+  const picked = weakIds.map((id) => byId.get(id)).filter((t): t is InterviewTopic => Boolean(t));
+  const topics = picked.length ? picked : analysis.interviewTopics.slice(0, 4);
+
+  // Prefer a not-yet-asked sample question per topic; else reuse the first.
+  const askedQuestions = new Set(session.questions.map((q) => q.question));
+  return topics.slice(0, 4).map((topic, i) => {
+    const fresh = topic.sampleQuestions.find((q) => !askedQuestions.has(q));
+    return questionFromTopic(topic, fresh || topic.sampleQuestions[0] || 'Расскажи про эту тему.', i, 4);
+  });
 }
 
 function clamp(n: number): number {
@@ -184,11 +334,34 @@ export async function evaluateAnswer(
         question: question.question,
         answer: text,
         topic: topic?.title,
+        level: question.level,
         expectedSignals: question.expectedSignals,
+        relatedResumeEvidence: question.relatedResumeEvidence,
+        resumeText: analysis.resumeText,
+        legendText: analysis.legendText,
         language: analysis.language,
         hasResume: analysis.hasResume,
       });
-      return { ...r, questionId: question.id };
+      return {
+        questionId: question.id,
+        score: r.score,
+        clarityScore: r.clarityScore,
+        technicalAccuracyScore: r.technicalAccuracyScore,
+        specificityScore: r.specificityScore,
+        confidenceScore: r.confidenceScore,
+        feedback: r.feedback,
+        goodPoints: r.goodPoints ?? [],
+        missingPoints: r.missingPoints ?? [],
+        suggestedBetterAnswer: r.suggestedBetterAnswer,
+        overclaimed: r.overclaimed,
+        levelEstimate: asQuestionLevel(r.levelEstimate),
+        verdict: r.verdict || undefined,
+        weakPoints: r.weakPoints?.length ? r.weakPoints : undefined,
+        technicalCorrections: r.technicalCorrections?.length ? r.technicalCorrections : undefined,
+        betterStructure: r.betterStructure?.length ? r.betterStructure : undefined,
+        followUpQuestions: r.followUpQuestions?.length ? r.followUpQuestions : undefined,
+        nextTrainingFocus: r.nextTrainingFocus || undefined,
+      };
     } catch {
       // Fall through to the heuristic.
     }
@@ -253,6 +426,50 @@ export function evaluateAnswerMock(
 
   const suggestedBetterAnswer = buildBridgeAnswer(question, missingPoints, analysis);
 
+  // Weak points: distinct from "missing" — these are quality issues in what WAS said.
+  const weakPoints: string[] = [];
+  if (words > 0 && words < 25) weakPoints.push('Ответ короткий — не раскрыта глубина.');
+  if (!SPECIFIC_RE.test(text)) weakPoints.push('Нет конкретных инструментов и действий.');
+  if (!/(проект|компан|у нас|я настро|я внедр|я сдела|в работе)/i.test(text))
+    weakPoints.push('Нет примера из реального проекта.');
+  if (HEDGE_RE.test(text)) weakPoints.push('Много неуверенных формулировок.');
+
+  const betterStructure = [
+    'Краткий вывод — ответь на вопрос одним предложением.',
+    'Контекст проекта — где и с чем работал.',
+    'Задача или проблема, которую решал.',
+    'Что именно сделал ты.',
+    'Инструменты и подход.',
+    'Результат — что изменилось, метрика если есть.',
+    'Ограничение или вывод.',
+  ];
+
+  const topic = analysis.interviewTopics.find((t) => t.id === question.topicId);
+  const followUpQuestions = missingPoints
+    .slice(0, 3)
+    .map((m) => `Уточни: как именно ты работал с «${m}»?`);
+  if (!followUpQuestions.length && topic) {
+    followUpQuestions.push(`Приведи конкретный пример по теме «${topic.title}».`);
+  }
+
+  const nextTrainingFocus = topic
+    ? `Проработай «${topic.title}»${
+        missingPoints.length ? `: ${missingPoints.slice(0, 3).join(', ')}` : ''
+      } на конкретном примере из практики.`
+    : 'Добавляй в ответы конкретику и пример из проекта.';
+
+  const levelEstimate: QuestionLevel =
+    score >= 80 ? 'lead' : score >= 62 ? 'senior' : score >= 42 ? 'middle' : 'junior';
+
+  const verdict =
+    words === 0
+      ? 'Пропуск — ответа нет.'
+      : score >= 75
+        ? 'Сильный, уверенный ответ по делу.'
+        : score >= 55
+          ? 'Нормально, но не хватает конкретики и примера.'
+          : 'Пока слабо — тему нужно подтянуть и приземлить на практику.';
+
   return {
     questionId: question.id,
     score,
@@ -265,6 +482,12 @@ export function evaluateAnswerMock(
     goodPoints,
     suggestedBetterAnswer,
     overclaimed,
+    levelEstimate,
+    verdict,
+    weakPoints: weakPoints.length ? weakPoints : undefined,
+    betterStructure,
+    followUpQuestions: followUpQuestions.length ? followUpQuestions : undefined,
+    nextTrainingFocus,
   };
 }
 

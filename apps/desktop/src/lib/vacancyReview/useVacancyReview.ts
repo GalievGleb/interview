@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
 import {
   analyzeVacancy,
+  buildFollowUpRound,
   buildReadinessReport,
   buildSmokePlan,
   evaluateAnswer,
@@ -127,6 +128,25 @@ export function useVacancyReview(initial?: SmokeReviewSession | null) {
     setPhase('setup');
   }, []);
 
+  /** Start a fresh ≤4-question round focused on the weakest topics. */
+  const startFollowUpRound = useCallback(() => {
+    if (!session) return;
+    const questions = buildFollowUpRound(session);
+    if (!questions.length) return;
+    const next: SmokeReviewSession = {
+      id: uid(),
+      vacancyAnalysisId: session.vacancyAnalysisId,
+      vacancyAnalysis: session.vacancyAnalysis,
+      status: 'in_progress',
+      questions,
+      answers: [],
+      currentIndex: 0,
+      startedAt: Date.now(),
+    };
+    persist(next);
+    setPhase('interview');
+  }, [session, persist]);
+
   return {
     phase,
     session,
@@ -138,6 +158,7 @@ export function useVacancyReview(initial?: SmokeReviewSession | null) {
     goNext,
     finish,
     restart,
+    startFollowUpRound,
     setPhase,
   };
 }

@@ -62,6 +62,7 @@ export default function PreparePage() {
             onSave={downloadReport}
             onStartLive={() => navigate('/interview')}
             onNewReview={review.restart}
+            onFollowUpRound={review.startFollowUpRound}
           />
         )}
       </div>

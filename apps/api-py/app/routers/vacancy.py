@@ -23,6 +23,9 @@ router = APIRouter(prefix="/vacancy", tags=["vacancy"])
 
 _SENIORITY = {"intern", "junior", "middle", "senior", "lead", "unknown"}
 _IMPORTANCE = {"high", "medium", "low"}
+_QUESTION_LEVEL = {"junior", "middle", "senior", "lead"}
+_COMPETENCY_LEVEL = {"basic", "practical", "advanced", "lead"}
+_RESUME_MATCH = {"strong", "partial", "gap"}
 
 
 def _resolve(mode: str = "general") -> tuple[str, str]:
@@ -84,7 +87,11 @@ class EvaluatePayload(BaseModel):
     question: str
     answer: str
     topic: str = ""
+    level: str = ""
     expectedSignals: list[str] = []
+    relatedResumeEvidence: list[str] = []
+    resumeText: str | None = None
+    legendText: str | None = None
     language: str = "ru"
     hasResume: bool = False
 
@@ -95,7 +102,7 @@ async def analyze(payload: AnalyzePayload) -> dict:
     if len(text) < 20:
         raise HTTPException(status_code=400, detail="Vacancy text is too short")
 
-    provider, model = _resolve("deep")
+    provider, model = _resolve("vacancy")
     prompt = VACANCY_ANALYZE_PROMPT.format(
         vacancy=text[:8000],
         resume=(payload.resumeText or "")[:4000] or "(none)",
@@ -122,16 +129,39 @@ async def analyze(payload: AnalyzePayload) -> dict:
         if not isinstance(t, dict) or not str(t.get("title", "")).strip():
             continue
         importance = str(t.get("importance", "medium")).lower()
+        level = str(t.get("level", "")).lower()
         topics.append(
             {
                 "id": _slug(str(t.get("title")), used),
                 "title": str(t.get("title")).strip()[:80],
                 "category": str(t.get("category", "General")).strip()[:40] or "General",
                 "importance": importance if importance in _IMPORTANCE else "medium",
+                "level": level if level in _QUESTION_LEVEL else "",
                 "expectedKnowledge": str(t.get("expectedKnowledge", "")).strip()[:240],
                 "sampleQuestions": _as_list(t.get("sampleQuestions"), 4)
                 or ["Расскажи про эту тему."],
+                "whyAsked": str(t.get("whyAsked", "")).strip()[:240],
+                "expectedAnswerPoints": _as_list(t.get("expectedAnswerPoints"), 7),
+                "relatedVacancyTopics": _as_list(t.get("relatedVacancyTopics"), 6),
+                "relatedResumeEvidence": _as_list(t.get("relatedResumeEvidence"), 6),
                 "vacancyEvidence": str(t.get("vacancyEvidence", "")).strip()[:160],
+            }
+        )
+
+    competencies = []
+    for c in data.get("competencies", []) or []:
+        if not isinstance(c, dict) or not str(c.get("name", "")).strip():
+            continue
+        priority = str(c.get("priority", "medium")).lower()
+        expected = str(c.get("expectedLevel", "practical")).lower()
+        match = str(c.get("resumeMatch", "gap")).lower()
+        competencies.append(
+            {
+                "name": str(c.get("name")).strip()[:80],
+                "priority": priority if priority in _IMPORTANCE else "medium",
+                "expectedLevel": expected if expected in _COMPETENCY_LEVEL else "practical",
+                "resumeMatch": match if match in _RESUME_MATCH else "gap",
+                "note": str(c.get("note", "")).strip()[:200],
             }
         )
 
@@ -145,18 +175,24 @@ async def analyze(payload: AnalyzePayload) -> dict:
         "seniorityLevel": seniority if seniority in _SENIORITY else "unknown",
         "extractedRequirements": _as_list(data.get("extractedRequirements")),
         "optionalSkills": _as_list(data.get("optionalSkills")),
+        "competencies": competencies,
         "interviewTopics": topics,
         "projectQuestions": _as_list(data.get("projectQuestions"), 6),
         "riskAreas": _as_list(data.get("riskAreas"), 6),
+        "model": model,
     }
 
 
 @router.post("/evaluate")
 async def evaluate(payload: EvaluatePayload) -> dict:
-    provider, model = _resolve("general")
+    provider, model = _resolve("vacancy")
     prompt = VACANCY_EVALUATE_PROMPT.format(
         topic=payload.topic or "(unspecified)",
+        level=payload.level or "(unspecified)",
         signals=", ".join(payload.expectedSignals) or "(none)",
+        resume_evidence=", ".join(payload.relatedResumeEvidence) or "(none)",
+        resume=(payload.resumeText or "")[:4000] or "(none)",
+        legend=(payload.legendText or "")[:2000] or "(none)",
         question=payload.question[:600],
         answer=(payload.answer or "(empty)")[:1500],
         has_resume="true" if payload.hasResume else "false",
@@ -182,15 +218,25 @@ async def evaluate(payload: EvaluatePayload) -> dict:
         except (TypeError, ValueError):
             return 0
 
+    level = str(data.get("levelEstimate", "")).lower()
+
     return {
         "score": _score("score"),
         "clarityScore": _score("clarityScore"),
         "technicalAccuracyScore": _score("technicalAccuracyScore"),
         "specificityScore": _score("specificityScore"),
         "confidenceScore": _score("confidenceScore"),
+        "levelEstimate": level if level in _QUESTION_LEVEL else "",
+        "verdict": str(data.get("verdict", "")).strip()[:200],
         "feedback": str(data.get("feedback", "")).strip()[:400],
-        "missingPoints": _as_list(data.get("missingPoints"), 6),
         "goodPoints": _as_list(data.get("goodPoints"), 6),
-        "suggestedBetterAnswer": str(data.get("suggestedBetterAnswer", "")).strip()[:600],
+        "weakPoints": _as_list(data.get("weakPoints"), 6),
+        "missingPoints": _as_list(data.get("missingPoints"), 6),
+        "technicalCorrections": _as_list(data.get("technicalCorrections"), 6),
+        "betterStructure": _as_list(data.get("betterStructure"), 8),
+        "suggestedBetterAnswer": str(data.get("suggestedBetterAnswer", "")).strip()[:900],
+        "followUpQuestions": _as_list(data.get("followUpQuestions"), 4),
+        "nextTrainingFocus": str(data.get("nextTrainingFocus", "")).strip()[:240],
         "overclaimed": bool(data.get("overclaimed", False)),
+        "model": model,
     }

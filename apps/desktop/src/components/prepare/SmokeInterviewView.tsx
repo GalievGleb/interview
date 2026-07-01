@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useVoiceAnswer } from '../../lib/vacancyReview/useVoiceAnswer';
-import type { Difficulty, SmokeReviewSession } from '../../lib/vacancyReview/types';
+import type { Difficulty, QuestionLevel, SmokeReviewSession } from '../../lib/vacancyReview/types';
 
 interface Props {
   session: SmokeReviewSession;
@@ -14,6 +14,13 @@ const DIFF_TONE: Record<Difficulty, string> = {
   easy: 'prep-tone-green',
   medium: 'prep-tone-blue',
   hard: 'prep-tone-amber',
+};
+
+const LEVEL_LABEL: Record<QuestionLevel, string> = {
+  junior: 'Junior',
+  middle: 'Middle',
+  senior: 'Senior',
+  lead: 'Lead',
 };
 
 export default function SmokeInterviewView({
@@ -52,6 +59,9 @@ export default function SmokeInterviewView({
             </p>
             <div className="flex gap-1.5">
               <span className="prep-chip prep-tone-violet">{topic?.title}</span>
+              {question.level && (
+                <span className="prep-chip prep-tone-blue">{LEVEL_LABEL[question.level]}</span>
+              )}
               <span className={`prep-chip ${DIFF_TONE[question.difficulty]}`}>{question.difficulty}</span>
             </div>
           </div>
@@ -64,6 +74,26 @@ export default function SmokeInterviewView({
           <p className="text-[17px] font-semibold leading-snug" style={{ color: 'var(--prep-ink)' }}>
             {question.question}
           </p>
+
+          {question.whyAsked && (
+            <p className="prep-faint mt-2">Зачем спрашивают: {question.whyAsked}</p>
+          )}
+
+          {question.expectedAnswerPoints && question.expectedAnswerPoints.length > 0 && (
+            <details className="mt-2">
+              <summary className="cursor-pointer text-[12.5px] font-bold" style={{ color: 'var(--prep-green)' }}>
+                Что хочет услышать интервьюер
+              </summary>
+              <ul className="mt-1.5 space-y-1 pl-1">
+                {question.expectedAnswerPoints.map((p) => (
+                  <li key={p} className="prep-sub flex gap-2">
+                    <span style={{ color: 'var(--prep-green)' }}>•</span>
+                    {p}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
 
           <textarea
             className="prep-textarea mt-3"
@@ -88,8 +118,8 @@ export default function SmokeInterviewView({
                   className="prep-btn"
                   disabled={text.trim().length < 2 || evaluating}
                   onClick={() => {
-                    voice.stop();
-                    onSubmitAnswer(text, voice.recording ? 'voice' : 'text');
+                    const voiceText = voice.stop();
+                    onSubmitAnswer(voiceText || text, voice.recording ? 'voice' : 'text');
                   }}
                 >
                   {evaluating ? 'Evaluating…' : 'Submit answer'}
@@ -134,30 +164,96 @@ export default function SmokeInterviewView({
         </div>
 
         {evaluation && (
-          <div className="prep-card prep-card-pad">
-            <div className="flex items-center justify-between">
-              <p className="prep-h2">Quick evaluation</p>
-              <span className="text-[20px] font-bold" style={{ color: 'var(--prep-ink)' }}>
-                {evaluation.score}%
-              </span>
+          <div className="prep-card prep-card-pad space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="prep-h2">Оценка ответа</p>
+                {evaluation.verdict && <p className="prep-sub mt-0.5">{evaluation.verdict}</p>}
+              </div>
+              <div className="shrink-0 text-right">
+                <span className="text-[22px] font-bold leading-none" style={{ color: 'var(--prep-ink)' }}>
+                  {evaluation.score}%
+                </span>
+                {evaluation.levelEstimate && (
+                  <p className="mt-1">
+                    <span className="prep-chip prep-tone-violet">
+                      Звучит как {LEVEL_LABEL[evaluation.levelEstimate]}
+                    </span>
+                  </p>
+                )}
+              </div>
             </div>
-            <p className="prep-sub mt-1.5">{evaluation.feedback}</p>
-            {evaluation.goodPoints.length > 0 && (
-              <p className="mt-2 text-[12.5px]" style={{ color: 'var(--prep-green)' }}>
-                ✓ {evaluation.goodPoints.join(' · ')}
+
+            <div className="flex flex-wrap gap-x-4 gap-y-1">
+              <Metric label="Точность" value={evaluation.technicalAccuracyScore} />
+              <Metric label="Конкретика" value={evaluation.specificityScore} />
+              <Metric label="Структура" value={evaluation.clarityScore} />
+              <Metric label="Уверенность" value={evaluation.confidenceScore} />
+            </div>
+
+            <p className="prep-sub">{evaluation.feedback}</p>
+
+            {evaluation.overclaimed && (
+              <p className="text-[12.5px] font-semibold" style={{ color: 'var(--prep-red)' }}>
+                ⚠ Заявлен опыт, не подтверждённый резюме — лучше честная формулировка.
               </p>
+            )}
+
+            {evaluation.goodPoints.length > 0 && (
+              <FeedbackList label="Сильные стороны" items={evaluation.goodPoints} color="var(--prep-green)" mark="✓" />
+            )}
+            {evaluation.weakPoints && evaluation.weakPoints.length > 0 && (
+              <FeedbackList label="Слабые места" items={evaluation.weakPoints} color="var(--prep-amber)" mark="•" />
             )}
             {evaluation.missingPoints.length > 0 && (
-              <p className="mt-1 text-[12.5px]" style={{ color: 'var(--prep-amber)' }}>
-                Needs: {evaluation.missingPoints.join(', ')}
+              <FeedbackList label="Обязательно добавить" items={evaluation.missingPoints} color="var(--prep-amber)" mark="+" />
+            )}
+            {evaluation.technicalCorrections && evaluation.technicalCorrections.length > 0 && (
+              <FeedbackList label="Технические правки" items={evaluation.technicalCorrections} color="var(--prep-red)" mark="→" />
+            )}
+
+            {evaluation.betterStructure && evaluation.betterStructure.length > 0 && (
+              <details>
+                <summary className="cursor-pointer text-[12.5px] font-bold" style={{ color: 'var(--prep-green)' }}>
+                  Как структурировать ответ
+                </summary>
+                <ol className="mt-1.5 space-y-1 pl-1">
+                  {evaluation.betterStructure.map((s, i) => (
+                    <li key={s} className="prep-sub flex gap-2">
+                      <span className="font-semibold" style={{ color: 'var(--prep-green)' }}>
+                        {i + 1}.
+                      </span>
+                      {s}
+                    </li>
+                  ))}
+                </ol>
+              </details>
+            )}
+
+            <details open>
+              <summary className="cursor-pointer text-[12.5px] font-bold" style={{ color: 'var(--prep-green)' }}>
+                Сильная версия ответа
+              </summary>
+              <p className="prep-sub mt-1.5 whitespace-pre-wrap">{evaluation.suggestedBetterAnswer}</p>
+            </details>
+
+            {evaluation.followUpQuestions && evaluation.followUpQuestions.length > 0 && (
+              <FeedbackList
+                label="Чем докопается интервьюер"
+                items={evaluation.followUpQuestions}
+                color="var(--prep-ink-muted)"
+                mark="?"
+              />
+            )}
+
+            {evaluation.nextTrainingFocus && (
+              <p className="text-[12.5px]" style={{ color: 'var(--prep-ink-muted)' }}>
+                <span className="font-bold" style={{ color: 'var(--prep-green)' }}>
+                  Что тренировать:{' '}
+                </span>
+                {evaluation.nextTrainingFocus}
               </p>
             )}
-            <details className="mt-2">
-              <summary className="cursor-pointer text-[12.5px] font-medium" style={{ color: 'var(--prep-green)' }}>
-                Suggested stronger answer
-              </summary>
-              <p className="prep-sub mt-1.5">{evaluation.suggestedBetterAnswer}</p>
-            </details>
           </div>
         )}
       </div>
@@ -185,6 +281,45 @@ export default function SmokeInterviewView({
           })}
         </div>
       </aside>
+    </div>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: number }) {
+  return (
+    <span className="text-[12px]" style={{ color: 'var(--prep-ink-faint)' }}>
+      {label}{' '}
+      <strong style={{ color: 'var(--prep-ink)' }}>{value}</strong>
+    </span>
+  );
+}
+
+function FeedbackList({
+  label,
+  items,
+  color,
+  mark,
+}: {
+  label: string;
+  items: string[];
+  color: string;
+  mark: string;
+}) {
+  return (
+    <div>
+      <p className="text-[12px] font-bold uppercase tracking-wide" style={{ color: 'var(--prep-ink-faint)' }}>
+        {label}
+      </p>
+      <ul className="mt-1 space-y-1">
+        {items.map((it) => (
+          <li key={it} className="prep-sub flex gap-2">
+            <span className="shrink-0 font-bold" style={{ color }}>
+              {mark}
+            </span>
+            {it}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

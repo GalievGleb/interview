@@ -11,10 +11,45 @@ export type SeniorityLevel = 'intern' | 'junior' | 'middle' | 'senior' | 'lead' 
 export type TopicImportance = 'high' | 'medium' | 'low';
 export type Difficulty = 'easy' | 'medium' | 'hard';
 
+/** Per-question depth, as a real interviewer would grade it. */
+export type QuestionLevel = 'junior' | 'middle' | 'senior' | 'lead';
+/** Depth a vacancy expects for a competency. */
+export type CompetencyLevel = 'basic' | 'practical' | 'advanced' | 'lead';
+/** How well the résumé covers a vacancy competency. */
+export type ResumeMatch = 'strong' | 'partial' | 'gap';
+
 export type TopicStatus = 'strong' | 'medium' | 'weak' | 'critical';
 export type ReadinessLabel = 'not_ready' | 'weak' | 'almost_ready' | 'ready' | 'strong';
 
-export interface InterviewTopic {
+/**
+ * A vacancy competency scored against the résumé — the backbone of question
+ * selection. `priority` = how critical for the role; `expectedLevel` = how deep
+ * the vacancy needs it; `resumeMatch` = whether the candidate can back it up.
+ */
+export interface Competency {
+  name: string;
+  priority: TopicImportance;
+  expectedLevel: CompetencyLevel;
+  resumeMatch: ResumeMatch;
+  /** One line: what to probe / where the gap is. */
+  note: string;
+}
+
+/** Rich, per-question interviewer metadata (optional; absent on old sessions). */
+export interface QuestionMeta {
+  /** Why this question matters for THIS vacancy. */
+  whyAsked?: string;
+  /** 4–7 points a strong answer must cover. */
+  expectedAnswerPoints?: string[];
+  /** Interviewer's target depth for the question. */
+  level?: QuestionLevel;
+  /** Vacancy topics this question maps to. */
+  relatedVacancyTopics?: string[];
+  /** Résumé items that let the candidate answer it. */
+  relatedResumeEvidence?: string[];
+}
+
+export interface InterviewTopic extends QuestionMeta {
   id: string;
   title: string;
   category: string;
@@ -33,16 +68,24 @@ export interface VacancyAnalysis {
   language: AnswerLanguage;
   extractedRequirements: string[];
   optionalSkills: string[];
+  /** Competency map scored against the résumé (optional; absent on old data). */
+  competencies?: Competency[];
   interviewTopics: InterviewTopic[];
   projectQuestions: string[];
   riskAreas: string[];
   /** Whether resume / legend context was attached during analysis. */
   hasResume: boolean;
   hasLegend: boolean;
+  /**
+   * Denormalized grounding text, kept so evaluation can adapt the stronger
+   * answer to the candidate's real experience. Trimmed to keep storage sane.
+   */
+  resumeText?: string;
+  legendText?: string;
   createdAt: number;
 }
 
-export interface SmokeQuestion {
+export interface SmokeQuestion extends QuestionMeta {
   id: string;
   topicId: string;
   question: string;
@@ -64,6 +107,21 @@ export interface SmokeAnswerEvaluation {
   suggestedBetterAnswer: string;
   /** Heuristic flag: answer claims experience not backed by resume/legend. */
   overclaimed?: boolean;
+  // ── Richer interviewer feedback (optional; absent on old sessions) ──
+  /** Level this single answer demonstrated. */
+  levelEstimate?: QuestionLevel;
+  /** Short, honest one-line verdict. */
+  verdict?: string;
+  /** What was weak or imprecise (distinct from what was simply missing). */
+  weakPoints?: string[];
+  /** Concrete technical mistakes + the correct formulation. */
+  technicalCorrections?: string[];
+  /** The structure the candidate should answer by (ordered steps). */
+  betterStructure?: string[];
+  /** 2–4 questions an interviewer would drill in with. */
+  followUpQuestions?: string[];
+  /** What to train next after this answer. */
+  nextTrainingFocus?: string;
 }
 
 export interface SmokeAnswer {

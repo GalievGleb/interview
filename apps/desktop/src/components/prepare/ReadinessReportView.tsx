@@ -9,10 +9,19 @@ interface Props {
   onSave: () => void;
   onStartLive: () => void;
   onNewReview: () => void;
+  onFollowUpRound?: () => void;
 }
 
-export default function ReadinessReportView({ report, analysis, onSave, onStartLive, onNewReview }: Props) {
+export default function ReadinessReportView({
+  report,
+  analysis,
+  onSave,
+  onStartLive,
+  onNewReview,
+  onFollowUpRound,
+}: Props) {
   const tone = readinessTone(report.status);
+  const hasWeak = report.weakAreas.length > 0 || report.criticalGaps.length > 0;
   return (
     <div className="prep-rise space-y-5">
       <div className="prep-card prep-card-pad">
@@ -29,7 +38,16 @@ export default function ReadinessReportView({ report, analysis, onSave, onStartL
                   : 'Some core topics aren’t ready yet. Focus your practice on the critical gaps first.'}
             </p>
             <div className="mt-3 flex flex-wrap justify-center gap-2 sm:justify-start">
-              <button type="button" className="prep-btn prep-btn-sm" onClick={onStartLive}>
+              {onFollowUpRound && hasWeak && (
+                <button type="button" className="prep-btn prep-btn-sm" onClick={onFollowUpRound}>
+                  Ещё раунд по слабым темам (4 вопроса)
+                </button>
+              )}
+              <button
+                type="button"
+                className={`prep-btn-sm ${onFollowUpRound && hasWeak ? 'prep-btn-secondary' : 'prep-btn'}`}
+                onClick={onStartLive}
+              >
                 Start live interview with this context
               </button>
               <button type="button" className="prep-btn-ghost prep-btn-sm" onClick={onSave}>
