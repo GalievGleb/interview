@@ -15,6 +15,15 @@
     height: 100%;
   }
 
+  /* Consistent keyboard focus across the app — one brand-green ring for
+     keyboard users, invisible on mouse (:focus-visible). Components with their
+     own focus style already opt out via focus-visible:outline-none. */
+  :focus-visible {
+    outline: 2px solid var(--sc-brand, #34c77b);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+
   body {
     margin: 0;
     background-color: theme('colors.surface.DEFAULT');
