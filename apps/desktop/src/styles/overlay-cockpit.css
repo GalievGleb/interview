@@ -1,21 +1,51 @@
 @import './interview-cockpit.css';
 
 .overlay-shell {
-  @apply flex h-screen flex-col overflow-hidden bg-surface text-ink select-none;
+  @apply flex h-screen flex-col overflow-hidden text-ink select-none;
+  /* Flat navy — the cue must read at a glance; no decorative glow. A single
+     hairline of brand green at the top marks it as SkillCue, nothing more. */
+  background: #0b1422;
+  border-top: 2px solid var(--sc-brand, #34c77b);
 }
 
 .overlay-topbar {
-  @apply overlay-drag flex items-center border-b border-surface-border bg-surface-light/95 px-3 backdrop-blur-sm;
-  min-height: 44px;
+  @apply overlay-drag flex items-center border-b border-surface-border px-3 backdrop-blur-sm;
+  min-height: 46px;
+  background: rgba(11, 20, 34, 0.92);
 }
 
 .overlay-brand {
-  @apply flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-accent/30
-    bg-accent/10 text-[11px] font-bold text-accent;
+  position: relative;
+  display: flex;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 1px solid rgba(52, 199, 123, 0.3);
+  border-radius: 10px;
+  background: rgba(52, 199, 123, 0.15);
+  color: transparent;
+  box-shadow: var(--shadow-soft);
+}
+
+.overlay-brand::before {
+  content: '';
+  position: absolute;
+  left: 8px;
+  top: 9px;
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow:
+    6px -3px 0 rgba(143, 182, 216, 0.9),
+    8px 3px 0 rgba(52, 199, 123, 0.56);
 }
 
 .overlay-title {
-  @apply mr-4 shrink-0 text-sm font-medium text-ink;
+  @apply mr-4 shrink-0 text-sm font-semibold text-ink;
 }
 
 .overlay-tab {
@@ -28,7 +58,7 @@
 }
 
 .overlay-panel {
-  @apply flex min-h-0 flex-col border-r border-surface-border bg-surface-light/60;
+  @apply flex min-h-0 flex-col border-r border-surface-border bg-surface-light/75;
 }
 
 .overlay-panel-head {
@@ -36,18 +66,28 @@
 }
 
 .overlay-answer {
-  @apply flex-1 overflow-y-auto p-5 text-sm leading-relaxed text-ink;
+  /* Answer-first: larger, calmer type; flat background so the cue is the only
+     thing the eye lands on. */
+  @apply flex-1 overflow-y-auto p-5 text-[15px] leading-relaxed text-ink;
+  background: rgba(9, 17, 30, 0.55);
 }
 
 .overlay-menu {
   @apply absolute right-0 top-full z-50 mt-1.5 w-56 rounded-xl border border-surface-border
-    bg-surface-elevated p-1.5 shadow-card;
+    bg-surface-elevated p-1.5 shadow-pop;
 }
 
 .overlay-modal {
-  @apply w-[440px] rounded-xl border border-surface-border bg-surface-elevated p-4 shadow-card;
+  @apply w-[440px] rounded-xl border border-surface-border bg-surface-elevated p-4 shadow-pop;
 }
 
 .overlay-icon-btn {
   @apply overlay-no-drag rounded-lg p-1.5 text-ink-faint transition-colors hover:bg-surface-hover hover:text-ink;
+}
+
+.overlay-answer .cockpit-bento {
+  /* Flat card, single subtle green edge — no glow. */
+  border-color: rgba(52, 199, 123, 0.22);
+  background: rgba(12, 22, 34, 0.92);
+  box-shadow: none;
 }
