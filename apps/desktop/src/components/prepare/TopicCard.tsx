@@ -26,7 +26,7 @@ export default function TopicCard({ topic, onPractice }: Props) {
         <div className={`prep-bar prep-bar-${tone} flex-1`}>
           <span style={{ width: `${topic.score}%` }} />
         </div>
-        <span className="prep-faint shrink-0">{topic.questionsAsked} q</span>
+        <span className="prep-faint shrink-0">{topic.questionsAsked} вопр.</span>
       </div>
 
       <p className="prep-sub mt-3 pl-2">{topic.feedback}</p>

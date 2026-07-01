@@ -18,13 +18,19 @@ const SENIORITY_LABEL: Record<VacancyAnalysis['seniorityLevel'], string> = {
   middle: 'Middle',
   senior: 'Senior',
   lead: 'Lead',
-  unknown: 'Not specified',
+  unknown: 'Не указано',
 };
 
 const IMPORTANCE_TONE: Record<TopicImportance, string> = {
   high: 'prep-tone-red',
   medium: 'prep-tone-blue',
   low: 'prep-tone-violet',
+};
+
+const IMPORTANCE_LABEL: Record<TopicImportance, string> = {
+  high: 'высокая важность',
+  medium: 'средняя важность',
+  low: 'низкая важность',
 };
 
 const MATCH_META: Record<ResumeMatch, { label: string; tone: string }> = {
@@ -45,22 +51,22 @@ export default function VacancyAnalysisView({ analysis, onStart, onBack, questio
     <div className="prep-rise space-y-5">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="prep-eyebrow">Based on this vacancy</p>
+          <p className="prep-eyebrow">На основе этой вакансии</p>
           <h1 className="prep-h1 mt-1">{analysis.targetRole}</h1>
           <div className="mt-2 flex flex-wrap gap-2">
             <span className="prep-chip prep-tone-violet">{SENIORITY_LABEL[analysis.seniorityLevel]}</span>
-            <span className="prep-chip">{analysis.interviewTopics.length} topics</span>
-            <span className="prep-chip">Answers: {analysis.language.toUpperCase()}</span>
+            <span className="prep-chip">{analysis.interviewTopics.length} тем</span>
+            <span className="prep-chip">Ответы: {analysis.language.toUpperCase()}</span>
           </div>
         </div>
         <button type="button" className="prep-btn-ghost prep-btn-sm" onClick={onBack}>
-          Edit vacancy
+          Изменить вакансию
         </button>
       </div>
 
       {analysis.riskAreas.length > 0 && (
         <div className="prep-card prep-card-pad prep-topic prep-topic-amber">
-          <p className="prep-h2 pl-2">Before you start</p>
+          <p className="prep-h2 pl-2">Перед началом</p>
           <ul className="mt-2 space-y-1.5 pl-2">
             {analysis.riskAreas.map((r) => (
               <li key={r} className="prep-sub flex gap-2">
@@ -88,7 +94,9 @@ export default function VacancyAnalysisView({ analysis, onStart, onBack, questio
                     key={c.name}
                     className="prep-card flex flex-wrap items-center gap-x-3 gap-y-1.5 p-3"
                   >
-                    <span className={`prep-chip shrink-0 ${IMPORTANCE_TONE[c.priority]}`}>{c.priority}</span>
+                    <span className={`prep-chip shrink-0 ${IMPORTANCE_TONE[c.priority]}`}>
+                      {IMPORTANCE_LABEL[c.priority]}
+                    </span>
                     <span className="min-w-0 flex-1 truncate text-[14px] font-semibold" style={{ color: 'var(--prep-ink)' }}>
                       {c.name}
                     </span>
@@ -107,8 +115,8 @@ export default function VacancyAnalysisView({ analysis, onStart, onBack, questio
       )}
 
       <div>
-        <h2 className="prep-h2">Interview Readiness Map</h2>
-        <p className="prep-faint mt-0.5">Topics extracted from the vacancy — this is what the mock will test.</p>
+        <h2 className="prep-h2">Карта готовности к интервью</h2>
+        <p className="prep-faint mt-0.5">Темы извлечены из вакансии — именно это проверит mock-интервью.</p>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           {analysis.interviewTopics.map((t) => (
             <div key={t.id} className="prep-card p-4">
@@ -118,7 +126,7 @@ export default function VacancyAnalysisView({ analysis, onStart, onBack, questio
                   <p className="prep-h2 truncate">{t.title}</p>
                 </div>
                 <span className={`prep-chip shrink-0 ${IMPORTANCE_TONE[t.importance]}`}>
-                  {t.importance}
+                  {IMPORTANCE_LABEL[t.importance]}
                 </span>
               </div>
               <p className="prep-sub mt-2">{t.expectedKnowledge}</p>
@@ -135,7 +143,7 @@ export default function VacancyAnalysisView({ analysis, onStart, onBack, questio
 
       {analysis.extractedRequirements.length > 0 && (
         <div className="prep-card prep-card-pad">
-          <p className="prep-h2">Key requirements</p>
+          <p className="prep-h2">Ключевые требования</p>
           <div className="mt-2 flex flex-wrap gap-2">
             {analysis.extractedRequirements.map((r) => (
               <span key={r} className="prep-chip">
@@ -144,7 +152,7 @@ export default function VacancyAnalysisView({ analysis, onStart, onBack, questio
             ))}
             {analysis.optionalSkills.map((r) => (
               <span key={r} className="prep-chip prep-tone-violet">
-                {r} · optional
+                {r} · опционально
               </span>
             ))}
           </div>
@@ -153,9 +161,9 @@ export default function VacancyAnalysisView({ analysis, onStart, onBack, questio
 
       <div className="flex items-center gap-3">
         <button type="button" className="prep-btn" onClick={onStart} disabled={questionCount === 0}>
-          Start {questionCount}-question smoke interview
+          Начать mock-интервью: {questionCount} вопросов
         </button>
-        <span className="prep-faint">~20–30 min · grows in difficulty</span>
+        <span className="prep-faint">~20–30 мин · сложность растёт</span>
       </div>
     </div>
   );

@@ -1184,8 +1184,9 @@ export function buildReadinessReport(session: SmokeReviewSession): ReadinessRepo
 
   const nextPracticePlan = [...criticalGaps, ...weakAreas]
     .slice(0, 4)
-    .map((title) => `Practice this topic: ${title}`);
-  if (!analysis.hasResume) nextPracticePlan.push('Attach your resume so answers can be grounded in real experience.');
+    .map((title) => `Проработать тему: ${title}`);
+  if (!analysis.hasResume)
+    nextPracticePlan.push('Подключите резюме, чтобы ответы опирались на реальный опыт.');
 
   return {
     overallScore,

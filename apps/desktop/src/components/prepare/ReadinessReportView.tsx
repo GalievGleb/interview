@@ -30,14 +30,14 @@ export default function ReadinessReportView({
         <div className="flex flex-col items-center gap-5 sm:flex-row sm:items-center">
           <ReadinessRing score={report.overallScore} label={readinessLabelText(report.status)} tone={tone} />
           <div className="min-w-0 flex-1 text-center sm:text-left">
-            <p className="prep-eyebrow">Ready for this vacancy</p>
+            <p className="prep-eyebrow">Готовность к вакансии</p>
             <h1 className="prep-h1 mt-1">{analysis.targetRole}</h1>
             <p className="prep-sub mt-1.5">
               {report.overallScore >= 70
-                ? 'You’re in good shape for this vacancy — tighten the few weak spots below.'
+                ? 'Вы в хорошей форме для этой вакансии — подтяните пару слабых мест ниже.'
                 : report.overallScore >= 50
-                  ? 'Almost there — a couple of topics need stronger, more concrete answers.'
-                  : 'Some core topics aren’t ready yet. Focus your practice on the critical gaps first.'}
+                  ? 'Почти готовы — паре тем не хватает более конкретных ответов.'
+                  : 'Часть ключевых тем пока не готова. Начните тренировку с критичных пробелов.'}
             </p>
             <div className="mt-3 flex flex-wrap justify-center gap-2 sm:justify-start">
               {onFollowUpRound && hasWeak && (
@@ -50,13 +50,13 @@ export default function ReadinessReportView({
                 className={`prep-btn-sm ${onFollowUpRound && hasWeak ? 'prep-btn-secondary' : 'prep-btn'}`}
                 onClick={onStartLive}
               >
-                Start live interview with this context
+                Начать live-интервью с этим контекстом
               </button>
               <button type="button" className="prep-btn-ghost prep-btn-sm" onClick={onSave}>
-                Save report
+                Сохранить отчёт
               </button>
               <button type="button" className="prep-btn-ghost prep-btn-sm" onClick={onNewReview}>
-                New vacancy
+                Новая вакансия
               </button>
             </div>
           </div>
@@ -64,14 +64,14 @@ export default function ReadinessReportView({
       </div>
 
       <div className="grid gap-3 sm:grid-cols-3">
-        <SummaryCard tone="green" title="Strengths" items={report.strengths} empty="None strong yet" />
-        <SummaryCard tone="amber" title="Weak areas" items={report.weakAreas} empty="No weak areas" />
-        <SummaryCard tone="red" title="Critical gaps" items={report.criticalGaps} empty="No critical gaps 🎉" />
+        <SummaryCard tone="green" title="Сильные стороны" items={report.strengths} empty="Пока нет уверенных тем" />
+        <SummaryCard tone="amber" title="Слабые места" items={report.weakAreas} empty="Слабых мест нет" />
+        <SummaryCard tone="red" title="Критичные пробелы" items={report.criticalGaps} empty="Критичных пробелов нет 🎉" />
       </div>
 
       <div>
-        <h2 className="prep-h2">Interview Readiness Map</h2>
-        <p className="prep-faint mt-0.5">Per-topic readiness from your answers.</p>
+        <h2 className="prep-h2">Карта готовности к интервью</h2>
+        <p className="prep-faint mt-0.5">Готовность по темам на основе ваших ответов.</p>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           {report.topicScores.map((t) => (
             <TopicCard key={t.topicId} topic={t} onPractice={onPracticeTopic} />
@@ -81,7 +81,7 @@ export default function ReadinessReportView({
 
       {report.nextPracticePlan.length > 0 && (
         <div className="prep-card prep-card-pad prep-topic prep-topic-green">
-          <p className="prep-h2 pl-2">Recommended next practice</p>
+          <p className="prep-h2 pl-2">Рекомендации по подготовке</p>
           <ol className="mt-2 space-y-1.5 pl-2">
             {report.nextPracticePlan.map((step, i) => (
               <li key={step} className="prep-sub flex gap-2">

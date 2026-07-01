@@ -283,7 +283,7 @@ export default function SmokeInterviewView({
       </div>
 
       <aside className="prep-card prep-card-pad h-fit">
-        <p className="prep-faint">Vacancy topics</p>
+        <p className="prep-faint">Темы вакансии</p>
         <div className="mt-2 space-y-1.5">
           {vacancyAnalysis.interviewTopics.map((t) => {
             const asked = session.answers.filter(
