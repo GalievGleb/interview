@@ -3,11 +3,11 @@ import type { ReactNode } from 'react';
 export type AnswerTab = 'short' | 'spoken' | 'detailed' | 'english' | 'risk';
 
 export const ANSWER_TABS: { key: AnswerTab; label: string }[] = [
-  { key: 'short', label: 'Short' },
-  { key: 'spoken', label: 'Say aloud' },
-  { key: 'detailed', label: 'Detailed' },
-  { key: 'english', label: 'English' },
-  { key: 'risk', label: 'Risks' },
+  { key: 'spoken', label: 'Озвучить' },
+  { key: 'short', label: 'Кратко' },
+  { key: 'detailed', label: 'Подробно' },
+  { key: 'english', label: 'Английский' },
+  { key: 'risk', label: 'Риски' },
 ];
 
 interface AnswerTabsProps {

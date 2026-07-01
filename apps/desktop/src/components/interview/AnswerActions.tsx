@@ -27,7 +27,7 @@ export default function AnswerActions({
             onClick={() => onRevise('shorter')}
             title="Сократить ответ для устного ответа"
           >
-            Shorter
+            Короче
           </button>
           <button
             type="button"
@@ -36,7 +36,7 @@ export default function AnswerActions({
             onClick={() => onRevise('regenerate')}
             title="Сгенерировать ответ заново"
           >
-            Regenerate
+            Заново
           </button>
         </>
       ) : null}

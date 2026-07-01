@@ -116,7 +116,7 @@ export default function MeetingPage() {
           onClick={() => setMode('summary')}
           className={`segmented-item ${mode === 'summary' ? 'segmented-item-active' : ''}`}
         >
-          Summary встречи
+          Итоги встречи
         </button>
       </div>
 
@@ -162,7 +162,7 @@ export default function MeetingPage() {
           disabled={loading || !transcript.trim()}
           className="btn-primary"
         >
-          {loading ? 'Анализ…' : mode === 'review' ? 'Разобрать интервью' : 'Сделать summary'}
+          {loading ? 'Анализ…' : mode === 'review' ? 'Разобрать интервью' : 'Сделать итоги'}
         </button>
         {error && <p className="text-sm text-red-400">{error}</p>}
       </div>

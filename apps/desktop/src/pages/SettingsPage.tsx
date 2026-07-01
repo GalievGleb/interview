@@ -125,7 +125,7 @@ export default function SettingsPage() {
     <div className="max-w-3xl">
 
       <ScreenHeader
-        title="Settings"
+        title="Настройки"
         subtitle="API-ключи хранятся локально (OS secure storage)."
       />
 

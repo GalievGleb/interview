@@ -179,7 +179,7 @@ export default function SpeechRecognitionSettings() {
   }
 
   const deviceOptions: { id: SttDeviceId; label: string }[] = [
-    { id: 'auto', label: 'Auto' },
+    { id: 'auto', label: 'Авто' },
     { id: 'cpu', label: 'CPU' },
     { id: 'gpu', label: 'GPU' },
   ];
@@ -187,22 +187,22 @@ export default function SpeechRecognitionSettings() {
   return (
     <div className="mb-5 space-y-4">
       <div>
-        <h3 className="text-sm font-semibold text-ink">Speech recognition (STT)</h3>
+        <h3 className="text-sm font-semibold text-ink">Распознавание речи (STT)</h3>
         <p className="mt-0.5 text-sm text-ink-muted">
           Local Whisper транскрибирует аудио на вашем устройстве — звук не уходит в облако.
         </p>
       </div>
 
       <div className="cockpit-alert cockpit-alert-info">
-        <span>Recognition: Local Whisper — audio is transcribed locally and is not sent to the cloud.</span>
+        <span>Распознавание: Local Whisper — аудио распознаётся локально и не отправляется в облако.</span>
       </div>
 
       {/* Live streaming models */}
       <div className="sc-card p-5">
-        <p className="mb-3 text-sm font-semibold text-ink">Streaming models</p>
+        <p className="mb-3 text-sm font-semibold text-ink">Потоковые модели</p>
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
-            <span className="label">Partial model (live captions)</span>
+            <span className="label">Промежуточная модель (live-субтитры)</span>
             <select
               value={settings.partial_model ?? 'fast'}
               onChange={(e) => void patchSettings({ partial_model: e.target.value as WhisperQualityId })}
@@ -214,10 +214,10 @@ export default function SpeechRecognitionSettings() {
                 </option>
               ))}
             </select>
-            <p className="mt-1 text-xs text-ink-faint">Fast updates while you speak (~500 ms).</p>
+            <p className="mt-1 text-xs text-ink-faint">Быстрые обновления пока вы говорите (~500 мс).</p>
           </div>
           <div>
-            <span className="label">Final model (after pause)</span>
+            <span className="label">Финальная модель (после паузы)</span>
             <select
               value={settings.final_model ?? settings.local_model}
               onChange={(e) =>
@@ -234,14 +234,14 @@ export default function SpeechRecognitionSettings() {
                 </option>
               ))}
             </select>
-            <p className="mt-1 text-xs text-ink-faint">Higher accuracy when the utterance ends.</p>
+            <p className="mt-1 text-xs text-ink-faint">Точнее, когда фраза уже закончена.</p>
           </div>
         </div>
       </div>
 
       {/* Local model cards */}
       <div className="space-y-2.5">
-        <p className="px-1 text-[10px] font-semibold uppercase tracking-wide text-ink-faint">Local model</p>
+        <p className="px-1 text-[10px] font-semibold uppercase tracking-wide text-ink-faint">Локальная модель</p>
         {WHISPER_MODEL_CARDS.map((card) => {
           const st = statuses[card.quality];
           const selected = settings.local_model === card.quality;
@@ -262,7 +262,7 @@ export default function SpeechRecognitionSettings() {
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <p className="font-medium text-ink">{card.label}</p>
-                    {card.recommended && <span className="sc-badge sc-badge--accent">Recommended</span>}
+                    {card.recommended && <span className="sc-badge sc-badge--accent">Рекомендуется</span>}
                   </div>
                   <p className="sc-model-card__specs">
                     ~{card.approxDownloadMb} MB · RAM ≥ {card.recommendedRamGb} GB ·{' '}
@@ -270,9 +270,9 @@ export default function SpeechRecognitionSettings() {
                   </p>
                   <p className="mt-1.5 text-sm text-ink-muted">{card.description}</p>
                   <div className="mt-3 space-y-1.5">
-                    <Meter label="Speed" level={m.speed} kind="speed" />
-                    <Meter label="Accuracy" level={m.acc} kind="acc" />
-                    <Meter label="Resource" level={m.res} kind="res" />
+                    <Meter label="Скорость" level={m.speed} kind="speed" />
+                    <Meter label="Точность" level={m.acc} kind="acc" />
+                    <Meter label="Ресурсы" level={m.res} kind="res" />
                   </div>
                 </div>
                 <Radio selected={selected} />
@@ -281,14 +281,14 @@ export default function SpeechRecognitionSettings() {
               <div className="mt-3 flex items-center justify-between gap-3 border-t border-surface-border/60 pt-3">
                 {downloaded ? (
                   <span className="inline-flex items-center gap-1.5 text-xs text-emerald-400">
-                    <span className="sc-dot sc-dot--success" /> Downloaded · Ready
+                    <span className="sc-dot sc-dot--success" /> Загружена · Готова
                   </span>
                 ) : downloading ? (
                   <span className="sc-progress mr-3 flex-1">
                     <span className="sc-progress__fill" style={{ width: `${Math.max(4, pct)}%` }} />
                   </span>
                 ) : (
-                  <span className="text-xs text-ink-faint">Not downloaded</span>
+                  <span className="text-xs text-ink-faint">Не загружена</span>
                 )}
 
                 <div className="flex shrink-0 items-center gap-2" onClick={(e) => e.stopPropagation()}>
@@ -299,7 +299,7 @@ export default function SpeechRecognitionSettings() {
                       onClick={() => void removeModel(card.quality)}
                       className="btn-danger btn-sm"
                     >
-                      Delete
+                      Удалить
                     </button>
                   ) : downloading ? (
                     <span className="sc-mono text-xs text-ink-muted">{pct}%</span>
@@ -310,7 +310,7 @@ export default function SpeechRecognitionSettings() {
                       onClick={() => void download(card.quality)}
                       className="btn-primary btn-sm"
                     >
-                      {failed ? 'Retry' : `Download ~${card.approxDownloadMb} MB`}
+                      {failed ? 'Повторить' : `Скачать ~${card.approxDownloadMb} МБ`}
                     </button>
                   )}
                 </div>
@@ -327,14 +327,14 @@ export default function SpeechRecognitionSettings() {
       {/* Compute device */}
       <div className="sc-card flex flex-wrap items-center justify-between gap-4 p-5">
         <div>
-          <p className="text-sm font-medium text-ink">Compute device</p>
+          <p className="text-sm font-medium text-ink">Вычислительное устройство</p>
           <p className="text-xs text-ink-faint">
-            Auto picks GPU if available, else CPU.
-            {device ? ` ${device.totalRamGb ? `${device.totalRamGb} GB RAM` : 'RAM unknown'} · ${device.hasGpu ? 'GPU detected' : 'CPU only'}.` : ''}
+            Авто выбирает GPU при наличии, иначе CPU.
+            {device ? ` ${device.totalRamGb ? `${device.totalRamGb} ГБ RAM` : 'RAM неизвестно'} · ${device.hasGpu ? 'GPU обнаружен' : 'только CPU'}.` : ''}
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <div className="sc-segmented" role="group" aria-label="Compute device">
+          <div className="sc-segmented" role="group" aria-label="Вычислительное устройство">
             {deviceOptions.map((d) => (
               <button
                 key={d.id}
@@ -347,19 +347,19 @@ export default function SpeechRecognitionSettings() {
             ))}
           </div>
           <button type="button" onClick={autoChoose} disabled={!device} className="btn-secondary btn-sm">
-            Auto-choose
+            Выбрать авто
           </button>
         </div>
       </div>
 
       {/* Validation */}
       <div className="sc-card flex flex-wrap items-center gap-2 p-5">
-        <span className="flex-1 text-sm text-ink-muted">Validation</span>
+        <span className="flex-1 text-sm text-ink-muted">Проверка</span>
         <button type="button" onClick={() => navigate('/benchmark')} className="btn-secondary btn-sm">
-          Run STT benchmark
+          Запустить STT-бенчмарк
         </button>
         <button type="button" onClick={() => navigate('/diagnostics')} className="btn-secondary btn-sm">
-          Open diagnostics
+          Открыть диагностику
         </button>
       </div>
 

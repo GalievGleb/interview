@@ -61,7 +61,7 @@ export default function SttDebugPanel({ debug, show, onToggle }: SttDebugPanelPr
         onClick={onToggle}
         className="flex w-full items-center justify-between px-4 py-1.5 text-left text-[10px] text-ink-faint hover:bg-surface-hover"
       >
-        <span>Debug {debug?.sttEngine ? `· ${debug.sttEngine}` : ''}</span>
+        <span>Дебаг {debug?.sttEngine ? `· ${debug.sttEngine}` : ''}</span>
         <span>{show ? '▾' : '▸'}</span>
       </button>
       {show && (
@@ -71,49 +71,49 @@ export default function SttDebugPanel({ debug, show, onToggle }: SttDebugPanelPr
           ) : (
             <>
               {debug.interimTranscript && (
-                <Row label="Interim transcript" value={debug.interimTranscript} />
+                <Row label="Промежуточный транскрипт" value={debug.interimTranscript} />
               )}
-              <Row label="Raw transcript" value={debug.rawTranscript} />
-              <Row label="Final transcript" value={debug.finalTranscript ?? debug.rawTranscript} />
-              <Row label="Glossary corrected" value={debug.glossaryCorrected} />
+              <Row label="Сырой транскрипт" value={debug.rawTranscript} />
+              <Row label="Финальный транскрипт" value={debug.finalTranscript ?? debug.rawTranscript} />
+              <Row label="Исправлено по глоссарию" value={debug.glossaryCorrected} />
               <Row
-                label="Corrected final"
+                label="Исправленный финал"
                 value={debug.correctedFinalTranscript ?? debug.glossaryCorrected}
               />
-              <Row label="Intent corrected" value={debug.intentCorrected} />
+              <Row label="Исправлено по смыслу" value={debug.intentCorrected} />
               {debug.resolvedQuestion && debug.resolvedQuestion !== debug.intentCorrected && (
-                <Row label="Resolved question" value={debug.resolvedQuestion} />
+                <Row label="Распознанный вопрос" value={debug.resolvedQuestion} />
               )}
-              <Row label="Previous topic" value={debug.previousTopic ?? '—'} />
-              <Row label="Current topic" value={debug.currentCanonicalTopic ?? '—'} />
+              <Row label="Предыдущая тема" value={debug.previousTopic ?? '—'} />
+              <Row label="Текущая тема" value={debug.currentCanonicalTopic ?? '—'} />
               <Row
-                label="Was previous topic used"
+                label="Использована предыдущая тема"
                 value={debug.wasPreviousTopicUsed != null ? String(debug.wasPreviousTopicUsed) : '—'}
               />
               <Row
-                label="Reset previous topic"
+                label="Сброс предыдущей темы"
                 value={debug.resetPreviousTopic != null ? String(debug.resetPreviousTopic) : '—'}
               />
-              <Row label="Reset reason" value={debug.resetPreviousTopicReason ?? '—'} />
-              <Row label="Hallucination risk" value={debug.hallucinationRisk ?? '—'} />
-              <Row label="Resume fact source" value={debug.resumeFactSource ?? '—'} />
-              <Row label="Is follow-up" value={debug.isFollowUp != null ? String(debug.isFollowUp) : '—'} />
+              <Row label="Причина сброса" value={debug.resetPreviousTopicReason ?? '—'} />
+              <Row label="Риск галлюцинации" value={debug.hallucinationRisk ?? '—'} />
+              <Row label="Источник фактов из резюме" value={debug.resumeFactSource ?? '—'} />
+              <Row label="Уточняющий вопрос" value={debug.isFollowUp != null ? String(debug.isFollowUp) : '—'} />
               <Row
-                label="Used previous context"
+                label="Использован предыдущий контекст"
                 value={debug.usedPreviousContext != null ? String(debug.usedPreviousContext) : '—'}
               />
-              <Row label="Follow-up reason" value={debug.followUpReason ?? '—'} />
+              <Row label="Причина уточнения" value={debug.followUpReason ?? '—'} />
               <Row
-                label="Answer triggered"
+                label="Ответ запущен"
                 value={debug.answerTriggered != null ? String(debug.answerTriggered) : '—'}
               />
-              <Row label="Wait reason" value={debug.waitReason ?? '—'} />
+              <Row label="Причина ожидания" value={debug.waitReason ?? '—'} />
               {debug.llmCorrectedTranscript &&
                 debug.llmCorrectedTranscript !== debug.intentCorrected && (
-                  <Row label="LLM corrected" value={debug.llmCorrectedTranscript} />
+                  <Row label="Исправлено LLM" value={debug.llmCorrectedTranscript} />
                 )}
               <div>
-                <p className="mb-1 font-medium text-ink-muted">Term corrections</p>
+                <p className="mb-1 font-medium text-ink-muted">Исправления терминов</p>
                 {debug.corrections.length === 0 ? (
                   <p className="text-ink-faint">—</p>
                 ) : (
@@ -128,7 +128,7 @@ export default function SttDebugPanel({ debug, show, onToggle }: SttDebugPanelPr
                 )}
               </div>
               <div>
-                <p className="mb-1 font-medium text-ink-muted">Intent corrections</p>
+                <p className="mb-1 font-medium text-ink-muted">Исправления по смыслу</p>
                 {debug.intentCorrections.length === 0 ? (
                   <p className="text-ink-faint">—</p>
                 ) : (
@@ -145,68 +145,68 @@ export default function SttDebugPanel({ debug, show, onToggle }: SttDebugPanelPr
                   </ul>
                 )}
               </div>
-              <Row label="Confidence" value={debug.intentConfidence ?? '—'} />
-              <Row label="Intent reason" value={debug.intentReason ?? '—'} />
-              <Row label="Ambiguity" value={debug.ambiguity ?? '—'} />
-              <Row label="Question intent" value={debug.questionIntent ?? '—'} />
-              <Row label="Answer strategy" value={debug.answerStrategy ?? '—'} />
+              <Row label="Уверенность" value={debug.intentConfidence ?? '—'} />
+              <Row label="Причина (смысл)" value={debug.intentReason ?? '—'} />
+              <Row label="Неоднозначность" value={debug.ambiguity ?? '—'} />
+              <Row label="Смысл вопроса" value={debug.questionIntent ?? '—'} />
+              <Row label="Стратегия ответа" value={debug.answerStrategy ?? '—'} />
               <Row
-                label="Resume context used"
+                label="Использован контекст резюме"
                 value={
                   debug.resumeContextUsed != null
                     ? debug.resumeContextUsed
-                      ? `yes (${debug.resumeContextLevel ?? 'full'})`
-                      : `no (${debug.resumeContextLevel ?? 'none'})`
+                      ? `да (${debug.resumeContextLevel ?? 'полный'})`
+                      : `нет (${debug.resumeContextLevel ?? 'нет'})`
                     : '—'
                 }
               />
-              <Row label="Resume context reason" value={debug.resumeContextReason ?? '—'} />
-              <Row label="STT engine" value={debug.sttEngine ?? '—'} />
-              <Row label="STT final model" value={debug.sttModel ?? '—'} />
-              <Row label="STT partial model" value={debug.partialSttModel ?? '—'} />
-              <Row label="Sample rate" value={debug.sampleRate ? `${debug.sampleRate} Hz` : '—'} />
+              <Row label="Причина (контекст резюме)" value={debug.resumeContextReason ?? '—'} />
+              <Row label="Движок STT" value={debug.sttEngine ?? '—'} />
+              <Row label="Финальная модель STT" value={debug.sttModel ?? '—'} />
+              <Row label="Промежуточная модель STT" value={debug.partialSttModel ?? '—'} />
+              <Row label="Частота дискретизации" value={debug.sampleRate ? `${debug.sampleRate} Гц` : '—'} />
               <Row
-                label="Time to first partial"
+                label="Время до первого partial"
                 value={
                   debug.timeToFirstPartialMs != null
-                    ? `${Math.round(debug.timeToFirstPartialMs)} ms`
+                    ? `${Math.round(debug.timeToFirstPartialMs)} мс`
                     : '—'
                 }
               />
               <Row
-                label="Final transcription"
+                label="Финальное распознавание"
                 value={
                   debug.finalTranscriptionMs != null
-                    ? `${Math.round(debug.finalTranscriptionMs)} ms`
+                    ? `${Math.round(debug.finalTranscriptionMs)} мс`
                     : '—'
                 }
               />
               <Row
-                label="Glossary correction"
-                value={debug.correctionMs != null ? `${Math.round(debug.correctionMs)} ms` : '—'}
+                label="Коррекция по глоссарию"
+                value={debug.correctionMs != null ? `${Math.round(debug.correctionMs)} мс` : '—'}
               />
               <Row
-                label="Time to final"
-                value={debug.timeToFinalMs != null ? `${Math.round(debug.timeToFinalMs)} ms` : '—'}
+                label="Время до финала"
+                value={debug.timeToFinalMs != null ? `${Math.round(debug.timeToFinalMs)} мс` : '—'}
               />
               <Row
-                label="LLM first token"
+                label="Первый токен LLM"
                 value={
-                  debug.llmFirstTokenMs != null ? `${Math.round(debug.llmFirstTokenMs)} ms` : '—'
+                  debug.llmFirstTokenMs != null ? `${Math.round(debug.llmFirstTokenMs)} мс` : '—'
                 }
               />
               <Row
-                label="LLM total"
-                value={debug.llmTotalMs != null ? `${Math.round(debug.llmTotalMs)} ms` : '—'}
+                label="LLM всего"
+                value={debug.llmTotalMs != null ? `${Math.round(debug.llmTotalMs)} мс` : '—'}
               />
               <Row
-                label="Time to answer"
-                value={debug.timeToAnswerMs != null ? `${Math.round(debug.timeToAnswerMs)} ms` : '—'}
+                label="Время до ответа"
+                value={debug.timeToAnswerMs != null ? `${Math.round(debug.timeToAnswerMs)} мс` : '—'}
               />
               <Row
-                label="End-to-end"
+                label="От начала до конца"
                 value={
-                  debug.totalEndToEndMs != null ? `${Math.round(debug.totalEndToEndMs)} ms` : '—'
+                  debug.totalEndToEndMs != null ? `${Math.round(debug.totalEndToEndMs)} мс` : '—'
                 }
               />
             </>

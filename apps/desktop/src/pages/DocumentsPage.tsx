@@ -9,10 +9,10 @@ const KINDS = [
 ];
 
 const KIND_STYLE: Record<string, { label: string; tone: string }> = {
-  resume: { label: 'Resume', tone: 'prep-tone-green' },
-  legend: { label: 'Legend', tone: 'prep-tone-violet' },
-  vacancy: { label: 'Vacancy', tone: 'prep-tone-blue' },
-  notes: { label: 'Notes', tone: '' },
+  resume: { label: 'Резюме', tone: 'prep-tone-green' },
+  legend: { label: 'Легенда', tone: 'prep-tone-violet' },
+  vacancy: { label: 'Вакансия', tone: 'prep-tone-blue' },
+  notes: { label: 'Заметки', tone: '' },
 };
 
 function FileIcon() {
@@ -68,7 +68,7 @@ function SourcePillar({ icon, label, title, connectedTitle, count, onAdd }: Pill
       <div className="prep-source-head">
         <span className="prep-source-icon">{icon}</span>
         <div className="min-w-0">
-          <p className="prep-eyebrow">{label}</p>
+          <p className="prep-eyebrow">{label === 'Resume' ? 'Резюме' : 'Легенда'}</p>
           <h3 className="text-[15px] font-bold" style={{ color: 'var(--prep-ink)' }}>
             {on ? connectedTitle : title}
           </h3>
@@ -179,7 +179,7 @@ export default function DocumentsPage() {
     <div className="prep h-full overflow-y-auto">
       <div className="prep-wrap prep-rise prep-home">
         <section>
-          <p className="prep-eyebrow">Answer source</p>
+          <p className="prep-eyebrow">Источник ответов</p>
           <h1 className="prep-h1 mt-1">Откуда SkillCue берёт ответы.</h1>
           <p className="prep-sub mt-1.5 max-w-2xl">
             Live-подсказки грунтуются на двух вещах: реальном резюме и вашей легенде опыта.
@@ -208,7 +208,7 @@ export default function DocumentsPage() {
 
         <section className="prep-doc-grid mt-5">
           <div className="prep-action-card">
-            <p className="prep-eyebrow">Add context</p>
+            <p className="prep-eyebrow">Добавить контекст</p>
             <h2 className="prep-h2 prep-card-title">Вставьте резюме, легенду или заметки.</h2>
             <div className="mt-4 grid gap-3 sm:grid-cols-[180px_1fr]">
               <select value={kind} onChange={(e) => setKind(e.target.value)} className="prep-input">
@@ -272,7 +272,7 @@ export default function DocumentsPage() {
         <section>
           <div className="prep-section-head">
             <div>
-              <p className="prep-eyebrow">Library</p>
+              <p className="prep-eyebrow">Библиотека</p>
               <h2 className="prep-h2 prep-section-title">Подключённые материалы</h2>
             </div>
             {docs.length > 0 && <span className="prep-faint">{docs.length} всего</span>}

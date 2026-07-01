@@ -31,11 +31,12 @@ class ProviderMode(str, Enum):
 # Plain-language privacy copy. Re-used verbatim by the UI so the legal/ethical
 # disclosure stays consistent everywhere.
 PRIVACY_LOCAL = (
-    "Audio is processed on your device and is not sent to our servers for transcription."
+    "Аудио обрабатывается на вашем устройстве и не отправляется на наши серверы для распознавания."
 )
-PRIVACY_CLOUD = "Audio may be sent to a third-party speech-to-text provider."
+PRIVACY_CLOUD = "Аудио может отправляться стороннему провайдеру распознавания речи."
 RESOURCE_USAGE_LOCAL = (
-    "Local transcription uses your CPU/GPU and may affect battery life, performance, and fan noise."
+    "Локальное распознавание использует CPU/GPU и может влиять на батарею, "
+    "производительность и шум вентилятора."
 )
 
 

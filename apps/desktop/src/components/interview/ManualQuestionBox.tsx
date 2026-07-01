@@ -24,7 +24,7 @@ export default function ManualQuestionBox({
           onKeyDown={(e) => {
             if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) onSubmit();
           }}
-          placeholder="Type a question manually…"
+          placeholder="Введите вопрос вручную…"
           rows={2}
           className="cockpit-command-input"
         />
@@ -33,7 +33,7 @@ export default function ManualQuestionBox({
             <kbd className="cockpit-kbd !ml-0">Ctrl</kbd>
             <span className="mx-1">+</span>
             <kbd className="cockpit-kbd !ml-0">Enter</kbd>
-            <span className="ml-1.5 hidden sm:inline">to submit</span>
+            <span className="ml-1.5 hidden sm:inline">чтобы отправить</span>
           </span>
           <button
             type="button"
@@ -41,7 +41,7 @@ export default function ManualQuestionBox({
             disabled={loading || disabled || !value.trim()}
             className="btn-primary btn-sm"
           >
-            {loading ? 'Generating…' : 'Get answer'}
+            {loading ? 'Формирую…' : 'Получить ответ'}
           </button>
         </div>
       </div>

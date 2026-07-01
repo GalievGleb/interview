@@ -29,15 +29,15 @@ export default function InterviewTranscriptPanel({
   return (
     <div className="cockpit-panel flex min-h-0 flex-col lg:min-w-0 lg:flex-1">
       <div className="cockpit-panel-head">
-        <h2 className="cockpit-panel-title">Live Transcript</h2>
+        <h2 className="cockpit-panel-title">Live-транскрипт</h2>
         {lines.length > 0 && (
           <span className="rounded-full border border-surface-border bg-surface-elevated px-2 py-0.5 text-[10px] text-ink-faint">
-            {lines.length} lines
+            {lines.length} строк
           </span>
         )}
         {active && hasInterim && (
           <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-300">
-            Interim
+            Промежуточно
           </span>
         )}
       </div>
@@ -46,8 +46,8 @@ export default function InterviewTranscriptPanel({
         {lines.length === 0 && (
           <CockpitEmptyState
             icon={<TranscriptEmptyIcon />}
-            title={active ? 'Listening…' : 'Start live session to capture interview questions'}
-            hint="You and Interviewer are labeled with distinct colors."
+            title={active ? 'Слушаю…' : 'Начните live-сессию, чтобы записывать вопросы интервью'}
+            hint="Вы и интервьюер выделены разными цветами."
           />
         )}
 
@@ -66,9 +66,9 @@ export default function InterviewTranscriptPanel({
               }`}
             >
               <span className="transcript-speaker">
-                {line.speaker === 'me' ? 'You' : 'Interviewer'}
+                {line.speaker === 'me' ? 'Вы' : 'Интервьюер'}
                 {!line.isFinal && (
-                  <span className="ml-2 text-[10px] font-normal text-ink-faint">interim</span>
+                  <span className="ml-2 text-[10px] font-normal text-ink-faint">промежуточно</span>
                 )}
               </span>
               <p className={`transcript-text ${line.isFinal ? '' : 'transcript-interim'}`}>
@@ -78,11 +78,11 @@ export default function InterviewTranscriptPanel({
                 )}
               </p>
               {line.isFinal && line.normalized && line.normalized !== line.text && (
-                <p className="transcript-normalized">Final: {line.normalized}</p>
+                <p className="transcript-normalized">Финально: {line.normalized}</p>
               )}
               {line.isFinal && line.corrected && line.corrected !== line.text && (
                 <p className="transcript-normalized text-accent/90">
-                  Corrected: {line.corrected}
+                  Исправлено: {line.corrected}
                 </p>
               )}
             </div>

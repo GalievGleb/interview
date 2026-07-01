@@ -53,7 +53,7 @@ export default function HomePage() {
       <div className="prep-wrap prep-rise prep-home">
         <section className="prep-hero-panel">
           <div className="prep-hero-copy">
-            <p className="prep-eyebrow">Preparation hub</p>
+            <p className="prep-eyebrow">Центр подготовки</p>
             <h1 className="prep-h1 prep-hero-title">Разберите вакансию до первого звонка.</h1>
             <p className="prep-sub prep-hero-sub">
               SkillCue показывает вероятные вопросы, слабые темы и короткие ответы, которые
@@ -77,14 +77,14 @@ export default function HomePage() {
               <span>Вакансия</span>
               <span>Разбор</span>
               <span>Mock</span>
-              <span>Live cue</span>
+              <span>Live-подсказка</span>
             </div>
           </div>
 
           <div className="prep-hero-demo" aria-label="Live cue preview">
             <div className="prep-demo-window">
               <div className="prep-demo-top">
-                <span>Live interview</span>
+                <span>Live-интервью</span>
                 <span className="prep-live-pill">Listening</span>
               </div>
               <div className="prep-demo-question">
@@ -229,7 +229,7 @@ export default function HomePage() {
           <section className="mt-5">
             <div className="prep-section-head">
               <div>
-                <p className="prep-eyebrow">Practice focus</p>
+                <p className="prep-eyebrow">Фокус тренировки</p>
                 <h2 className="prep-h2 prep-section-title">Самые слабые темы</h2>
               </div>
               <button

@@ -50,7 +50,7 @@ function FocusOverlay({
     <div className="fixed inset-0 z-[90] flex flex-col items-center justify-center bg-surface/95 px-8 backdrop-blur-md">
       <div className="absolute right-5 top-5">
         <button type="button" onClick={onExit} className="btn-secondary btn-sm">
-          Exit <span className="cockpit-kbd">Esc</span>
+          Выход <span className="cockpit-kbd">Esc</span>
         </button>
       </div>
       <div className="w-full max-w-3xl">
@@ -62,6 +62,62 @@ function FocusOverlay({
         <p className="whitespace-pre-wrap text-[26px] leading-[1.5] text-ink">
           {answer || 'Слушаю вопрос…'}
         </p>
+      </div>
+    </div>
+  );
+}
+
+function ReadinessStrip({
+  active,
+  hasAnyKey,
+  hasStt,
+  sttWarm,
+  sources,
+}: {
+  active: boolean;
+  hasAnyKey: boolean;
+  hasStt: boolean;
+  sttWarm: 'warming' | 'ready';
+  sources: { mic: boolean; system: boolean };
+}) {
+  const items = [
+    { label: 'LLM', ok: hasAnyKey, detail: hasAnyKey ? 'готово' : 'нужен ключ' },
+    { label: 'Речь', ok: hasStt && sttWarm === 'ready', detail: hasStt ? (sttWarm === 'ready' ? 'готово' : 'загрузка') : 'нет модели' },
+    {
+      label: 'Звук',
+      ok: sources.mic || sources.system,
+      detail: sources.system ? 'системный звук' : sources.mic ? 'только микрофон' : 'выберите источник',
+    },
+    { label: 'Приватность', ok: true, detail: 'локальный STT' },
+  ];
+  const readyCount = items.filter((item) => item.ok).length;
+  const ready = readyCount === items.length;
+
+  return (
+    <div className="skillcue-readiness">
+      <div className="min-w-0">
+        <p className="skillcue-readiness__eyebrow">Пульт live-интервью</p>
+        <p className="skillcue-readiness__title">
+          {active
+            ? 'Слушаю следующий вопрос интервью'
+            : ready
+              ? 'Готово к началу интервью'
+              : 'Завершите настройку перед началом интервью'}
+        </p>
+      </div>
+      <div className="skillcue-readiness__items">
+        {items.map((item) => (
+          <span
+            key={item.label}
+            className={`skillcue-readiness__item ${
+              item.ok ? 'skillcue-readiness__item--ok' : 'skillcue-readiness__item--warn'
+            }`}
+          >
+            <span className="sc-dot" />
+            <span>{item.label}</span>
+            <span className="skillcue-readiness__detail">{item.detail}</span>
+          </span>
+        ))}
       </div>
     </div>
   );
@@ -93,6 +149,7 @@ export default function InterviewPage() {
   const [debugOpen, setDebugOpen] = useState(false);
   const [tab, setTab] = useState<AnswerTab>('spoken');
   const [focusMode, setFocusMode] = useState(false);
+  const [showTranscript, setShowTranscript] = useState(false);
   const [manualSessionStartedAt, setManualSessionStartedAt] = useState<number | null>(null);
 
   const {
@@ -387,6 +444,15 @@ export default function InterviewPage() {
         onStop={() => void stop()}
         utilities={
           <>
+            <button
+              type="button"
+              onClick={() => setShowTranscript((v) => !v)}
+              className={`btn-secondary btn-sm ${
+                showTranscript ? 'border-accent/50 text-accent' : ''
+              }`}
+            >
+              {showTranscript ? 'Скрыть транскрипт' : `Транскрипт (${lines.length})`}
+            </button>
             <FastAnswerToggle />
             <InterviewExportButtons exportData={exportData} onDownloadDebug={downloadDebug} />
             {isElectron ? (
@@ -403,16 +469,24 @@ export default function InterviewPage() {
         }
       />
 
+      <ReadinessStrip
+        active={active}
+        hasAnyKey={hasAnyKey}
+        hasStt={hasStt}
+        sttWarm={sttWarm}
+        sources={sources}
+      />
+
       {!hasAnyKey && (
         <InterviewInlineAlert tone="warn">
-          Add an API key in Settings to enable live answers.
+          Добавьте API-ключ в Настройках, чтобы включить live-ответы.
         </InterviewInlineAlert>
       )}
 
       {!hasStt && (
         <InterviewInlineAlert tone="info">
-          Local transcription needs a speech model. Open Settings → Speech Recognition to download
-          one. Manual input works without it.
+          Для локального распознавания нужна речевая модель. Откройте Настройки → Распознавание
+          речи, чтобы скачать её. Ручной ввод работает и без неё.
         </InterviewInlineAlert>
       )}
 
@@ -425,20 +499,26 @@ export default function InterviewPage() {
 
       {isElectron && sources.mic && !sources.system && (
         <InterviewInlineAlert tone="warn">
-          Enable System audio — answers are built from the interviewer&apos;s questions, not your mic.
+          Включите системный звук — ответы строятся по вопросам интервьюера, а не по вашему микрофону.
         </InterviewInlineAlert>
       )}
 
       {error && <InterviewInlineAlert tone="error">{error}</InterviewInlineAlert>}
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[minmax(330px,400px)_1fr]">
-        <InterviewTranscriptPanel
-          lines={lines}
-          debug={dbg}
-          debugOpen={debugOpen}
-          onDebugToggle={() => setDebugOpen((v) => !v)}
-          active={active}
-        />
+      <div
+        className={`grid min-h-0 flex-1 grid-cols-1 gap-4 ${
+          showTranscript ? 'lg:grid-cols-[minmax(300px,360px)_minmax(0,1fr)]' : ''
+        }`}
+      >
+        {showTranscript && (
+          <InterviewTranscriptPanel
+            lines={lines}
+            debug={dbg}
+            debugOpen={debugOpen}
+            onDebugToggle={() => setDebugOpen((v) => !v)}
+            active={active}
+          />
+        )}
 
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <AnswerPanel

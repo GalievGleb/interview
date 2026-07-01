@@ -32,7 +32,7 @@ export default function UsageCard() {
 
   return (
     <div className="sc-card mb-5 p-5">
-      <h3 className="mb-3 text-sm font-semibold text-ink">Usage — локальная активность</h3>
+      <h3 className="mb-3 text-sm font-semibold text-ink">Активность — локальная статистика</h3>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Tile label="Всего запросов" value={total} />
         <Tile label="LLM (chat)" value={sum((r) => r.kind === 'chat', (r) => r.requests)} />
@@ -41,9 +41,9 @@ export default function UsageCard() {
       </div>
       {(tokensIn > 0 || tokensOut > 0 || sttSeconds > 0) && (
         <div className="sc-mono mt-3 flex flex-wrap gap-4 text-xs text-ink-muted">
-          {tokensIn > 0 && <span>tokens in {tokensIn}</span>}
-          {tokensOut > 0 && <span>tokens out {tokensOut}</span>}
-          {sttSeconds > 0 && <span>stt {sttSeconds}s</span>}
+          {tokensIn > 0 && <span>токенов на входе: {tokensIn}</span>}
+          {tokensOut > 0 && <span>токенов на выходе: {tokensOut}</span>}
+          {sttSeconds > 0 && <span>STT: {sttSeconds}с</span>}
         </div>
       )}
       <p className="mt-3 text-xs text-ink-faint">

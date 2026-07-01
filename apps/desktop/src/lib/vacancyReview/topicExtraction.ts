@@ -26,10 +26,10 @@ interface TopicDef {
 const TOPIC_CATALOGUE: TopicDef[] = [
   {
     id: 'python',
-    title: 'Python basics',
-    category: 'Language',
+    title: 'Основы Python',
+    category: 'Язык',
     keywords: ['python', 'питон', 'pytest'],
-    expectedKnowledge: 'Core types, comprehensions, OOP, error handling, idioms.',
+    expectedKnowledge: 'Базовые типы, list/dict comprehensions, ООП, обработка ошибок, идиомы языка.',
     sampleQuestions: [
       'Чем list отличается от tuple и когда что выбираешь?',
       'Как работают генераторы и зачем нужен yield?',
@@ -39,9 +39,9 @@ const TOPIC_CATALOGUE: TopicDef[] = [
   {
     id: 'pytest',
     title: 'Pytest',
-    category: 'Testing',
+    category: 'Тестирование',
     keywords: ['pytest', 'пайтест', 'fixtures', 'фикстур'],
-    expectedKnowledge: 'Fixtures, scopes, conftest, parametrize, markers.',
+    expectedKnowledge: 'Fixtures, scope, conftest, parametrize, маркеры.',
     sampleQuestions: [
       'Какие бывают scope у фикстур и зачем нужен conftest?',
       'Как параметризуешь тесты и зачем?',
@@ -49,10 +49,10 @@ const TOPIC_CATALOGUE: TopicDef[] = [
   },
   {
     id: 'ui-automation',
-    title: 'UI automation (Playwright / Selenium)',
-    category: 'Testing',
+    title: 'UI-автоматизация (Playwright / Selenium)',
+    category: 'Тестирование',
     keywords: ['playwright', 'selenium', 'плейрайт', 'селениум', 'ui-тест', 'ui тест', 'e2e'],
-    expectedKnowledge: 'Locators, waits, page objects, flaky-test handling.',
+    expectedKnowledge: 'Locators, waits, page objects, борьба с flaky-тестами.',
     sampleQuestions: [
       'Как борешься с flaky UI-тестами?',
       'Чем Playwright удобнее Selenium на динамических интерфейсах?',
@@ -60,10 +60,10 @@ const TOPIC_CATALOGUE: TopicDef[] = [
   },
   {
     id: 'api-testing',
-    title: 'API testing',
-    category: 'Testing',
+    title: 'Тестирование API',
+    category: 'Тестирование',
     keywords: ['api', 'rest', 'http', 'httpx', 'requests', 'postman', 'swagger', 'graphql'],
-    expectedKnowledge: 'Status codes, schema/body checks, negative cases, auth.',
+    expectedKnowledge: 'Статус-коды, проверка schema/body, негативные кейсы, авторизация.',
     sampleQuestions: [
       'Что проверяешь в API-ответе кроме статус-кода 200?',
       'Какие негативные сценарии для API ты закладываешь?',
@@ -72,9 +72,9 @@ const TOPIC_CATALOGUE: TopicDef[] = [
   {
     id: 'sql',
     title: 'SQL',
-    category: 'Data',
+    category: 'Данные',
     keywords: ['sql', 'postgres', 'mysql', 'база данных', 'бд', 'database', 'запрос'],
-    expectedKnowledge: 'Joins, aggregation, filtering, basic optimization.',
+    expectedKnowledge: 'Joins, агрегация, фильтрация, базовая оптимизация запросов.',
     sampleQuestions: [
       'Чем INNER JOIN отличается от LEFT JOIN?',
       'Как проверишь данные в БД после действия в UI?',
@@ -83,9 +83,9 @@ const TOPIC_CATALOGUE: TopicDef[] = [
   {
     id: 'cicd',
     title: 'CI/CD',
-    category: 'Infrastructure',
+    category: 'Инфраструктура',
     keywords: ['ci/cd', 'cicd', 'gitlab ci', 'jenkins', 'pipeline', 'пайплайн', 'github actions'],
-    expectedKnowledge: 'Stages/jobs, running tests, artifacts, failure analysis.',
+    expectedKnowledge: 'Stages/jobs, запуск тестов, артефакты, разбор падений.',
     sampleQuestions: [
       'Как ты настраивал запуск автотестов в CI/CD?',
       'Что делаешь, когда pipeline падает — как ищешь причину?',
@@ -94,9 +94,9 @@ const TOPIC_CATALOGUE: TopicDef[] = [
   {
     id: 'docker',
     title: 'Docker',
-    category: 'Infrastructure',
+    category: 'Инфраструктура',
     keywords: ['docker', 'докер', 'container', 'контейнер', 'kubernetes', 'k8s'],
-    expectedKnowledge: 'Images, containers, reproducible test environments.',
+    expectedKnowledge: 'Образы, контейнеры, воспроизводимое тестовое окружение.',
     sampleQuestions: [
       'Зачем Docker для автотестов и как ты его использовал?',
       'Чем образ отличается от контейнера?',
@@ -104,66 +104,66 @@ const TOPIC_CATALOGUE: TopicDef[] = [
   },
   {
     id: 'reporting',
-    title: 'Test reports (Allure)',
-    category: 'Testing',
+    title: 'Отчётность (Allure)',
+    category: 'Тестирование',
     keywords: ['allure', 'аллюр', 'report', 'отчёт', 'отчет'],
-    expectedKnowledge: 'Artifacts, screenshots, logs, failure triage.',
+    expectedKnowledge: 'Артефакты, скриншоты, логи, разбор падений.',
     sampleQuestions: ['Как Allure-отчёты помогали тебе разбирать падения?'],
   },
   {
     id: 'git',
     title: 'Git',
-    category: 'Tools',
+    category: 'Инструменты',
     keywords: ['git', 'гит', 'version control', 'merge', 'branch', 'rebase'],
-    expectedKnowledge: 'Branching, merge vs rebase, conflict resolution.',
+    expectedKnowledge: 'Ветвление, merge vs rebase, разрешение конфликтов.',
     sampleQuestions: ['Чем merge отличается от rebase и что используешь?'],
   },
   {
     id: 'test-design',
-    title: 'Test design',
-    category: 'Testing',
+    title: 'Тест-дизайн',
+    category: 'Тестирование',
     keywords: ['тест-дизайн', 'test design', 'эквивалент', 'граничны', 'boundary', 'test case', 'тест-кейс'],
-    expectedKnowledge: 'Equivalence classes, boundary values, test cases, checklists.',
+    expectedKnowledge: 'Классы эквивалентности, граничные значения, тест-кейсы, чек-листы.',
     sampleQuestions: ['Какие техники тест-дизайна ты применяешь и зачем?'],
   },
   {
     id: 'regression',
-    title: 'Regression / smoke testing',
-    category: 'Testing',
+    title: 'Регресс / smoke-тестирование',
+    category: 'Тестирование',
     keywords: ['регресс', 'regression', 'smoke', 'смоук', 'санити', 'sanity'],
-    expectedKnowledge: 'Smoke vs regression, when each runs, suite maintenance.',
+    expectedKnowledge: 'Smoke vs регресс, когда что гонять, поддержка набора тестов.',
     sampleQuestions: ['Чем smoke-набор отличается от regression и когда что гоняешь?'],
   },
   {
     id: 'js-ts',
     title: 'JavaScript / TypeScript',
-    category: 'Language',
+    category: 'Язык',
     keywords: ['javascript', 'typescript', 'js', 'ts', 'node', 'react', 'vue', 'angular'],
-    expectedKnowledge: 'Types, async, closures, framework fundamentals.',
+    expectedKnowledge: 'Типы, асинхронность, замыкания, основы фреймворков.',
     sampleQuestions: ['Чем отличается == от === и почему это важно?'],
   },
   {
     id: 'backend',
-    title: 'Backend fundamentals',
-    category: 'Engineering',
+    title: 'Основы backend',
+    category: 'Инженерия',
     keywords: ['backend', 'микросервис', 'microservice', 'fastapi', 'django', 'flask', 'spring'],
-    expectedKnowledge: 'Request lifecycle, REST design, data flow.',
+    expectedKnowledge: 'Жизненный цикл запроса, REST-дизайн, поток данных.',
     sampleQuestions: ['Как устроен жизненный цикл запроса в твоём бэкенде?'],
   },
   {
     id: 'linux',
     title: 'Linux / shell',
-    category: 'Tools',
+    category: 'Инструменты',
     keywords: ['linux', 'линукс', 'bash', 'shell', 'grep', 'терминал', 'cli'],
-    expectedKnowledge: 'Navigation, logs, processes, useful commands.',
+    expectedKnowledge: 'Навигация, логи, процессы, полезные команды.',
     sampleQuestions: ['Какие команды Linux чаще всего используешь в работе?'],
   },
   {
     id: 'behavioral',
-    title: 'Behavioral questions',
-    category: 'Soft skills',
+    title: 'Поведенческие вопросы',
+    category: 'Гибкие навыки',
     keywords: ['команд', 'communication', 'agile', 'scrum', 'soft', 'коммуникац'],
-    expectedKnowledge: 'Teamwork, conflict, ownership, real examples.',
+    expectedKnowledge: 'Командная работа, конфликты, ответственность, реальные примеры.',
     sampleQuestions: ['Расскажи про сложную ситуацию в команде и как её решил.'],
   },
 ];
@@ -174,10 +174,10 @@ const ALWAYS_TOPICS = ['behavioral', 'project-experience'];
 
 const PROJECT_TOPIC: TopicDef = {
   id: 'project-experience',
-  title: 'Project experience',
-  category: 'Experience',
+  title: 'Проектный опыт',
+  category: 'Опыт',
   keywords: [],
-  expectedKnowledge: 'Concrete real projects: role, stack, impact, ownership.',
+  expectedKnowledge: 'Конкретные реальные проекты: роль, стек, эффект, ответственность.',
   sampleQuestions: [
     'Расскажи про свой самый показательный проект и твою роль в нём.',
     'С каким стеком ты работал и за что отвечал?',
@@ -229,16 +229,16 @@ export function detectRole(text: string, hinted?: string): string {
   if (firstLine && firstLine.length <= 80) return firstLine;
   const lower = text.toLowerCase();
   const roles: [RegExp, string][] = [
-    [/qa\s*automation|aqa|автоматизатор/, 'QA Automation Engineer'],
-    [/\bqa\b|тестировщик|quality/, 'QA Engineer'],
-    [/frontend|фронтенд/, 'Frontend Developer'],
-    [/backend|бэкенд|бекенд/, 'Backend Developer'],
-    [/data\s*(scientist|engineer|analyst)|данны/, 'Data Specialist'],
-    [/devops|sre/, 'DevOps Engineer'],
-    [/mobile|android|ios|мобильн/, 'Mobile Developer'],
+    [/qa\s*automation|aqa|автоматизатор/, 'Инженер по автоматизации тестирования'],
+    [/\bqa\b|тестировщик|quality/, 'Инженер по тестированию'],
+    [/frontend|фронтенд/, 'Frontend-разработчик'],
+    [/backend|бэкенд|бекенд/, 'Backend-разработчик'],
+    [/data\s*(scientist|engineer|analyst)|данны/, 'Специалист по данным'],
+    [/devops|sre/, 'DevOps-инженер'],
+    [/mobile|android|ios|мобильн/, 'Mobile-разработчик'],
   ];
   for (const [re, label] of roles) if (re.test(lower)) return label;
-  return 'Technical role';
+  return 'Техническая роль';
 }
 
 function difficultyForIndex(i: number, total: number): Difficulty {

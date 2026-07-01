@@ -8,7 +8,7 @@ const isElectron = typeof window !== 'undefined' && !!window.electronAPI;
 
 export type { LiveTone };
 
-const FLOW = ['Listening', 'Transcribing', 'Answering'];
+const FLOW = ['Слушаю', 'Распознаю', 'Отвечаю'];
 
 function secs(ms?: number): string {
   if (ms == null || !Number.isFinite(ms)) return '—';
@@ -117,20 +117,20 @@ export default function LiveStatusBar(props: LiveStatusBarProps) {
         <div className="ml-auto flex flex-wrap items-center gap-2">
           <Metric label="STT" value={secs(sttMs)} />
           <Metric label="LLM" value={secs(llmMs)} />
-          <Metric label="Total" value={secs(totalMs)} accent />
+          <Metric label="Всего" value={secs(totalMs)} accent />
           {active ? (
             <button type="button" onClick={onStop} className="btn-danger btn-sm">
-              Stop
+              Стоп
             </button>
           ) : (
             <button
               type="button"
               onClick={onStart}
               disabled={!canStart || !hasStt || noSource}
-              title={!hasStt ? 'Download a local speech model in Settings → Speech Recognition' : undefined}
+              title={!hasStt ? 'Скачайте локальную речевую модель в Настройках → Распознавание речи' : undefined}
               className="btn-primary btn-sm min-w-[110px]"
             >
-              Start Live
+              Начать live
             </button>
           )}
         </div>
@@ -138,24 +138,24 @@ export default function LiveStatusBar(props: LiveStatusBarProps) {
 
       {/* Row 2 — controls + utilities */}
       <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-surface-border/80 pt-3">
-        <div className="sc-segmented" role="group" aria-label="Audio sources">
+        <div className="sc-segmented" role="group" aria-label="Источники звука">
           <button
             type="button"
             onClick={() => onToggleSource('mic')}
             className={`sc-segmented__item ${sources.mic ? 'sc-segmented__item--active' : ''}`}
           >
-            Mic
+            Микрофон
           </button>
           <button
             type="button"
             onClick={() => onToggleSource('system')}
             disabled={!isElectron}
-            title={isElectron ? undefined : 'Desktop app only'}
+            title={isElectron ? undefined : 'Только в desktop-приложении'}
             className={`sc-segmented__item ${sources.system ? 'sc-segmented__item--active' : ''} ${
               isElectron ? '' : 'opacity-40'
             }`}
           >
-            System audio
+            Системный звук
           </button>
         </div>
 
@@ -163,29 +163,29 @@ export default function LiveStatusBar(props: LiveStatusBarProps) {
           <div className="sc-statbar text-xs">
             <span className="sc-statchip">
               <span className="sc-statchip__label">STT</span>
-              <span className="sc-statchip__value">Local Whisper</span>
+              <span className="sc-statchip__value">Локальный Whisper</span>
             </span>
             <span className="sc-statchip">
-              <span className="sc-statchip__label">Mode</span>
-              <span className="sc-statchip__value">{mode === 'fast' ? 'Fast' : 'Stable'}</span>
+              <span className="sc-statchip__label">Режим</span>
+              <span className="sc-statchip__value">{mode === 'fast' ? 'Быстрый' : 'Стабильный'}</span>
             </span>
             <span className="sc-statchip">
-              <span className="sc-statchip__label">Lang</span>
+              <span className="sc-statchip__label">Язык</span>
               <span className="sc-statchip__value uppercase">{language}</span>
             </span>
           </div>
         ) : (
           <>
-            <div className="sc-segmented" role="group" aria-label="STT mode">
+            <div className="sc-segmented" role="group" aria-label="Режим распознавания речи">
               {(['fast', 'stable'] as SttMode[]).map((m) => (
                 <button
                   key={m}
                   type="button"
                   onClick={() => onModeChange(m)}
-                  title={m === 'fast' ? 'Faster, weaker on technical terms' : 'More accurate (+~0.3s)'}
+                  title={m === 'fast' ? 'Быстрее, слабее на технических терминах' : 'Точнее (+~0.3с)'}
                   className={`sc-segmented__item ${mode === m ? 'sc-segmented__item--active' : ''}`}
                 >
-                  {m === 'fast' ? 'Fast' : 'Stable'}
+                  {m === 'fast' ? 'Быстрый' : 'Стабильный'}
                 </button>
               ))}
             </div>
@@ -205,9 +205,9 @@ export default function LiveStatusBar(props: LiveStatusBarProps) {
               onChange={(e) => onLanguageChange(e.target.value)}
               className="select-compact min-w-[120px]"
             >
-              <option value="ru">Russian</option>
-              <option value="multi">Auto (ru+en)</option>
-              <option value="en">English</option>
+              <option value="ru">Русский</option>
+              <option value="multi">Авто (ru+en)</option>
+              <option value="en">Английский</option>
             </select>
           </>
         )}

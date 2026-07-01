@@ -21,11 +21,11 @@ export default function CommandPalette() {
 
   const commands: Command[] = useMemo(
     () => [
-      { id: 'interview', label: 'Перейти: Interview (live)', hint: 'live', run: () => navigate('/interview') },
+      { id: 'interview', label: 'Перейти: Live-интервью', run: () => navigate('/interview') },
       { id: 'meeting', label: 'Перейти: Разбор разговора', run: () => navigate('/meeting') },
-      { id: 'documents', label: 'Перейти: Documents', run: () => navigate('/documents') },
+      { id: 'documents', label: 'Перейти: Документы', run: () => navigate('/documents') },
       { id: 'history', label: 'Перейти: История', run: () => navigate('/history') },
-      { id: 'testlab', label: 'Перейти: Test Lab', run: () => navigate('/test-lab') },
+      { id: 'testlab', label: 'Перейти: Тестовая лаборатория', run: () => navigate('/test-lab') },
       { id: 'settings', label: 'Перейти: Настройки', run: () => navigate('/settings') },
       { id: 'licenses', label: 'Перейти: Лицензии', run: () => navigate('/licenses') },
       {

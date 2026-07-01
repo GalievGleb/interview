@@ -37,10 +37,10 @@ export default function StatusBadge({
 export type LiveSessionStatus = 'idle' | 'listening' | 'processing' | 'answer_ready';
 
 const LIVE_STATUS_LABEL: Record<LiveSessionStatus, string> = {
-  idle: 'Idle',
-  listening: 'Listening',
-  processing: 'Processing',
-  answer_ready: 'Answer ready',
+  idle: 'Ожидание',
+  listening: 'Слушаю',
+  processing: 'Обработка',
+  answer_ready: 'Ответ готов',
 };
 
 const LIVE_STATUS_TONE: Record<LiveSessionStatus, StatusTone> = {

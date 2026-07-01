@@ -61,6 +61,7 @@ Topic & question rules:
 - Match the required stack. If the vacancy is Playwright / REST / GitLab CI, do NOT introduce unrelated tools (e.g. TestNG) without reason.
 - For a Lead / Team Lead vacancy, go beyond "how to write tests": ask about automation strategy (UI/API/integration/E2E), evolving the autotest platform & framework architecture, Playwright, REST/API, GitLab CI/CD, test stability & reproducibility, flaky tests, test-data management, pytest fixtures/markers/xdist (if Python), Allure/artifacts/reporting, code review of autotests, prioritizing automation, mentoring, managing the QA Automation team, and communication with manual QA / devs / analysts. Add JMeter/performance or RPA/E2E business-flow topics only if the vacancy mentions them. Set level="lead" for these.
 - Always include a "Project experience" topic; add a "Behavioral / leadership" topic for real roles.
+- If the vacancy names a primary programming language (Python, Java, JS/TS, Go, C#, ...) or a language-specific framework/tool (pytest, Django, FastAPI, Spring, ...), you MUST include a dedicated language-fundamentals topic for it (types, idioms, OOP, error handling, etc.) — do not fold it only into a generic "automation"/"backend" topic and drop the language itself.
 - All generated text MUST be in {language}.
 
 VACANCY:

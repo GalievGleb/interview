@@ -5,8 +5,8 @@ export default function TestLabPage() {
   return (
     <div>
       <ScreenHeader
-        title="Test Lab"
-        subtitle="Full pipeline — audio → STT → correction → LLM → answer → scoring."
+        title="Тестовая лаборатория"
+        subtitle="Полный конвейер — audio → STT → коррекция → LLM → ответ → оценка."
       />
       <VoiceTestLab />
     </div>

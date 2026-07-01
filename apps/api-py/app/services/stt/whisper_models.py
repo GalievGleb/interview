@@ -54,11 +54,11 @@ WHISPER_MODELS: tuple[WhisperModelSpec, ...] = (
     WhisperModelSpec(
         quality=QualityLevel.FAST,
         model_id="tiny",
-        label="Fast",
+        label="Быстрая",
         description=(
-            "For weak laptops or battery mode. Lowest resource usage and "
-            "fastest startup, lower accuracy on technical terms. Best for "
-            "quick testing or older machines."
+            "Для слабых ноутбуков или режима экономии батареи. Минимальное "
+            "потребление ресурсов и самый быстрый старт, точность на технических "
+            "терминах ниже. Хорошо подходит для быстрого тестирования или старых устройств."
         ),
         approx_download_mb=75,
         recommended_ram_gb=2,
@@ -69,11 +69,11 @@ WHISPER_MODELS: tuple[WhisperModelSpec, ...] = (
     WhisperModelSpec(
         quality=QualityLevel.BALANCED,
         model_id="small",
-        label="Balanced",
+        label="Сбалансированная",
         description=(
-            "For most modern laptops. Good speed/accuracy balance and the "
-            "recommended default for live interviews. Good for QA/Python "
-            "terms together with glossary correction."
+            "Для большинства современных ноутбуков. Хороший баланс скорости и "
+            "точности, рекомендуется по умолчанию для live-интервью. Хорошо "
+            "справляется с QA/Python-терминами вместе с коррекцией по глоссарию."
         ),
         approx_download_mb=480,
         recommended_ram_gb=4,
@@ -84,11 +84,11 @@ WHISPER_MODELS: tuple[WhisperModelSpec, ...] = (
     WhisperModelSpec(
         quality=QualityLevel.QUALITY,
         model_id="medium",
-        label="Quality",
+        label="Качественная",
         description=(
-            "For powerful laptops/desktops. Better accuracy with higher "
-            "CPU/GPU and memory usage. Better for noisy audio or difficult "
-            "terminology."
+            "Для мощных ноутбуков/десктопов. Точность выше, но больше нагрузка "
+            "на CPU/GPU и память. Лучше подходит для шумного звука или сложной "
+            "терминологии."
         ),
         approx_download_mb=1500,
         recommended_ram_gb=8,
@@ -99,11 +99,11 @@ WHISPER_MODELS: tuple[WhisperModelSpec, ...] = (
     WhisperModelSpec(
         quality=QualityLevel.MAX,
         model_id="large-v3",
-        label="Max accuracy",
+        label="Максимальная точность",
         description=(
-            "Best accuracy on Russian and technical terms. Requires an NVIDIA "
-            "GPU to stay fast (about a second per question on a modern GPU; very "
-            "slow on CPU). Largest download. Recommended when a GPU is available."
+            "Максимальная точность на русском языке и технических терминах. Для "
+            "скорости нужна видеокарта NVIDIA (около секунды на вопрос на современной "
+            "GPU; очень медленно на CPU). Самая большая загрузка. Рекомендуется при наличии GPU."
         ),
         approx_download_mb=3100,
         recommended_ram_gb=10,

@@ -17,13 +17,13 @@ export type SttProviderId = 'whisper-local' | 'deepgram-cloud';
 export type SttProviderMode = 'local' | 'cloud';
 export type WhisperQuality = 'fast' | 'balanced' | 'quality' | 'max';
 
-/** Privacy/resource copy — kept byte-for-byte in sync with the backend. */
+/** Privacy/resource copy — kept in sync with the backend (see app/services/stt/base.py). */
 export const STT_PRIVACY_LOCAL =
-  'Audio is processed on your device and is not sent to our servers for transcription.';
+  'Аудио обрабатывается на вашем устройстве и не отправляется на наши серверы для распознавания.';
 export const STT_PRIVACY_CLOUD =
-  'Audio may be sent to a third-party speech-to-text provider.';
+  'Аудио может отправляться стороннему провайдеру распознавания речи.';
 export const STT_RESOURCE_USAGE_LOCAL =
-  'Local transcription uses your CPU/GPU and may affect battery life, performance, and fan noise.';
+  'Локальное распознавание использует CPU/GPU и может влиять на батарею, производительность и шум вентилятора.';
 
 export interface SttProviderDescriptor {
   id: SttProviderId;
@@ -65,10 +65,10 @@ export const WHISPER_MODEL_CARDS: WhisperModelCard[] = [
   {
     quality: 'fast',
     modelId: 'tiny',
-    label: 'Fast',
+    label: 'Быстрая',
     recommended: false,
     description:
-      'For weak laptops or battery mode. Lowest resource usage, fastest startup, lower accuracy on technical terms. Best for quick testing or older machines.',
+      'Для слабых ноутбуков или режима экономии батареи. Минимальное потребление ресурсов и самый быстрый старт, точность на технических терминах ниже. Хорошо подходит для быстрого тестирования или старых устройств.',
     approxDownloadMb: 75,
     recommendedRamGb: 2,
     recommendedDevice: 'cpu',
@@ -77,10 +77,10 @@ export const WHISPER_MODEL_CARDS: WhisperModelCard[] = [
   {
     quality: 'balanced',
     modelId: 'small',
-    label: 'Balanced',
+    label: 'Сбалансированная',
     recommended: true,
     description:
-      'For most modern laptops. Good speed/accuracy balance, recommended default for live interviews. Good for QA/Python terms with glossary correction.',
+      'Для большинства современных ноутбуков. Хороший баланс скорости и точности, рекомендуется по умолчанию для live-интервью. Хорошо справляется с QA/Python-терминами вместе с коррекцией по глоссарию.',
     approxDownloadMb: 480,
     recommendedRamGb: 4,
     recommendedDevice: 'any',
@@ -89,10 +89,10 @@ export const WHISPER_MODEL_CARDS: WhisperModelCard[] = [
   {
     quality: 'quality',
     modelId: 'medium',
-    label: 'Quality',
+    label: 'Качественная',
     recommended: false,
     description:
-      'For powerful laptops/desktops. Better accuracy, higher CPU/GPU and memory usage. Better for noisy audio or difficult terminology.',
+      'Для мощных ноутбуков/десктопов. Точность выше, но больше нагрузка на CPU/GPU и память. Лучше подходит для шумного звука или сложной терминологии.',
     approxDownloadMb: 1500,
     recommendedRamGb: 8,
     recommendedDevice: 'gpu',
@@ -101,10 +101,10 @@ export const WHISPER_MODEL_CARDS: WhisperModelCard[] = [
   {
     quality: 'max',
     modelId: 'large-v3',
-    label: 'Max accuracy',
+    label: 'Максимальная точность',
     recommended: false,
     description:
-      'Best accuracy on Russian and technical terms. Needs an NVIDIA GPU to stay fast (~1s per question on a modern GPU; very slow on CPU). Largest download. Recommended when a GPU is available.',
+      'Максимальная точность на русском языке и технических терминах. Для скорости нужна видеокарта NVIDIA (~1с на вопрос на современной GPU; очень медленно на CPU). Самая большая загрузка. Рекомендуется при наличии GPU.',
     approxDownloadMb: 3100,
     recommendedRamGb: 10,
     recommendedDevice: 'gpu',

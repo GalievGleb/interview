@@ -30,7 +30,7 @@ export default function InterviewExportButtons({
         onClick={() => exportInterviewSessionJson(exportData)}
         title="Скачать JSON для анализа в AI"
       >
-        {compact ? 'JSON' : 'Export JSON'}
+        {compact ? 'JSON' : 'Скачать JSON'}
       </button>
       <button
         type="button"
@@ -39,7 +39,7 @@ export default function InterviewExportButtons({
         onClick={() => exportInterviewSessionTxt(exportData)}
         title="Скачать TXT для анализа в AI"
       >
-        {compact ? 'TXT' : 'Export TXT'}
+        {compact ? 'TXT' : 'Скачать TXT'}
       </button>
       {onDownloadDebug && (
         <button
@@ -49,7 +49,7 @@ export default function InterviewExportButtons({
           onClick={() => onDownloadDebug()}
           title="Скачать дебаг: твой голос (WAV) + таймлайн событий STT/LLM с таймингами"
         >
-          {compact ? 'Debug' : 'Скачать дебаг'}
+          {compact ? 'Дебаг' : 'Скачать дебаг'}
         </button>
       )}
     </div>

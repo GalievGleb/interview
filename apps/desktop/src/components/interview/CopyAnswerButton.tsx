@@ -26,9 +26,9 @@ export default function CopyAnswerButton({ text, className = '' }: CopyAnswerBut
       onClick={() => void copy()}
       disabled={!text.trim()}
       className={`btn-secondary btn-sm ${className}`.trim()}
-      title="Copy answer to clipboard"
+      title="Скопировать ответ в буфер обмена"
     >
-      {copied ? 'Copied' : 'Copy'}
+      {copied ? 'Скопировано' : 'Копировать'}
     </button>
   );
 }

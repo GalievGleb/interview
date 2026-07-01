@@ -38,11 +38,11 @@ export default function OnboardingPage() {
           </div>
           <span className="text-base font-semibold tracking-tight">Skillcue</span>
           <span className="ml-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
-            First-run setup
+            Первый запуск
           </span>
         </div>
         <button type="button" onClick={finish} className="btn-ghost btn-sm">
-          Skip
+          Пропустить
         </button>
       </header>
 
@@ -50,14 +50,14 @@ export default function OnboardingPage() {
         {step === 1 ? (
           <>
             <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-accent">
-              Speech recognition
+              Распознавание речи
             </p>
             <h1 className="text-[32px] font-semibold leading-tight tracking-tight">
-              Set up local speech recognition
+              Настройте локальное распознавание речи
             </h1>
             <p className="mt-2 max-w-xl text-sm leading-relaxed text-ink-muted">
-              Skillcue listens to interview questions and transcribes them in real time. Choose how
-              it runs — by default everything stays on your device.
+              SkillCue слушает вопросы интервью и распознаёт их в реальном времени. Выберите, как
+              это работает — по умолчанию всё остаётся на вашем устройстве.
             </p>
 
             <div className="mt-7 grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -67,39 +67,39 @@ export default function OnboardingPage() {
                     <Stroke d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" size={18} />
                   </span>
                   <div>
-                    <p className="text-[15px] font-semibold text-ink">Local Whisper</p>
-                    <p className="text-xs font-medium text-accent">Recommended</p>
+                    <p className="text-[15px] font-semibold text-ink">Локальный Whisper</p>
+                    <p className="text-xs font-medium text-accent">Рекомендуется</p>
                   </div>
                 </div>
                 <p className="text-sm leading-relaxed text-ink-muted">
-                  Audio is transcribed locally on your device and is{' '}
-                  <strong className="font-semibold text-ink">not sent to the cloud</strong> in local
-                  mode. Transcription runs on your CPU/GPU.
+                  Аудио распознаётся локально на вашем устройстве и{' '}
+                  <strong className="font-semibold text-ink">не отправляется в облако</strong> в
+                  локальном режиме. Распознавание выполняется на вашем CPU/GPU.
                 </p>
               </div>
 
               <div className="sc-card p-5">
                 <p className="mb-3 text-[10px] font-semibold uppercase tracking-wide text-ink-faint">
-                  What to expect
+                  Чего ожидать
                 </p>
                 <ul className="space-y-2.5 text-sm text-ink-muted">
                   <li className="flex items-start gap-2.5">
                     <span className="mt-0.5 text-emerald-400">
                       <Stroke d="M20 6 9 17l-5-5" />
                     </span>
-                    Works offline once the model is downloaded
+                    Работает офлайн после загрузки модели
                   </li>
                   <li className="flex items-start gap-2.5">
                     <span className="mt-0.5 text-amber-400">
                       <Stroke d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z|M12 9v4|M12 17h.01" />
                     </span>
-                    Uses CPU/GPU — may affect battery, fan noise and performance
+                    Использует CPU/GPU — может влиять на батарею, шум вентилятора и производительность
                   </li>
                   <li className="flex items-start gap-2.5">
                     <span className="mt-0.5 text-accent">
                       <Stroke d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4|M7 10l5 5 5-5|M12 15V3" />
                     </span>
-                    A local speech model must be downloaded first
+                    Сначала нужно загрузить локальную речевую модель
                   </li>
                 </ul>
               </div>
@@ -112,7 +112,7 @@ export default function OnboardingPage() {
             </div>
 
             <button onClick={() => setStep(2)} className="btn-primary mt-6 w-full py-3 sm:w-auto sm:px-8">
-              Choose a speech model
+              Выбрать речевую модель
             </button>
           </>
         ) : (

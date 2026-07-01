@@ -180,7 +180,7 @@ export default function OverlayPage() {
               }`}
             >
               <span className={`mr-1.5 inline-block h-2 w-2 rounded-full ${active ? 'animate-pulse bg-red-400' : 'bg-red-500'}`} />
-              {active ? 'Stop' : 'Share Audio'}
+              {active ? 'Стоп' : 'Захват звука'}
             </button>
             <button
               type="button"
@@ -219,7 +219,7 @@ export default function OverlayPage() {
             data-tip="Закрыть overlay (Esc)"
             className="tip btn-secondary btn-sm"
           >
-            Exit
+            Выход
           </button>
 
           <IconButton title="Быстрые действия (Ctrl+K)" onClick={() => setShortcutsOpen(true)}>
@@ -240,16 +240,16 @@ export default function OverlayPage() {
       <div className="overlay-no-drag flex min-h-0 flex-1">
         {showTranscript && (
           <div className="overlay-panel w-[38%] shrink-0">
-            <div className="overlay-panel-head">Transcript</div>
+            <div className="overlay-panel-head">Транскрипт</div>
             <div className="flex-1 overflow-y-auto p-4 space-y-1.5 text-sm">
               {lines.length === 0 && (
-                <p className="text-ink-faint">Share audio to start transcription</p>
+                <p className="text-ink-faint">Включите захват звука, чтобы начать распознавание</p>
               )}
               {lines.map((line, i) => (
                 <div key={i}>
                   <p>
                     <span className={line.speaker === 'me' ? 'text-accent' : 'text-emerald-400'}>
-                      {line.speaker === 'me' ? 'You: ' : 'Interviewer: '}
+                      {line.speaker === 'me' ? 'Вы: ' : 'Интервьюер: '}
                     </span>
                     <span className={line.isFinal ? 'text-ink' : 'italic text-ink-muted'}>
                       {line.text}
@@ -266,18 +266,18 @@ export default function OverlayPage() {
 
           {!active && !displayAnswer && (
             <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-ink-faint">
-              <p>Click Share Audio to start SkillCue.</p>
-              <p className="text-xs">Ctrl+K — keyboard shortcuts</p>
+              <p>Нажмите «Захват звука», чтобы запустить SkillCue.</p>
+              <p className="text-xs">Ctrl+K — горячие клавиши</p>
             </div>
           )}
 
           {(suggestLoading || revising) && !displayAnswer && (
-            <p className="animate-pulse text-ink-muted">Generating answer…</p>
+            <p className="animate-pulse text-ink-muted">Формирую ответ…</p>
           )}
 
           {displayAnswer ? (
             <div className="cockpit-bento space-y-3">
-              {displayQuestion ? <p className="answer-question">Q: {displayQuestion}</p> : null}
+              {displayQuestion ? <p className="answer-question">Вопрос: {displayQuestion}</p> : null}
               <div className="flex justify-end">
                 <AnswerActions
                   answer={displayAnswer}
@@ -299,7 +299,7 @@ export default function OverlayPage() {
         >
           <div className="overlay-modal" onClick={(e) => e.stopPropagation()}>
             <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-ink">Keyboard shortcuts</h3>
+              <h3 className="text-sm font-semibold text-ink">Горячие клавиши</h3>
               <button type="button" onClick={() => setShortcutsOpen(false)} className="overlay-icon-btn">
                 ✕
               </button>

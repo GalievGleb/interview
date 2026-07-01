@@ -46,7 +46,7 @@ export default function OnboardingSttStep({ onBack, onContinue }: OnboardingSttS
           setDownloaded(true);
           setDownloading(false);
         } else if (st.status === 'error') {
-          setError(st.error ?? 'Download failed');
+          setError(st.error ?? 'Не удалось загрузить модель');
           setDownloading(false);
         }
       } catch {
@@ -88,16 +88,16 @@ export default function OnboardingSttStep({ onBack, onContinue }: OnboardingSttS
   return (
     <div className="card p-6">
       <h2 className="text-xl font-semibold tracking-tight text-ink">
-        Choose your speech recognition mode
+        Выберите режим распознавания речи
       </h2>
       <div className="mt-3 rounded-2xl border border-accent/40 bg-accent-soft p-4">
-        <p className="font-medium text-ink">Local Whisper — Recommended</p>
+        <p className="font-medium text-ink">Local Whisper — рекомендуется</p>
         <ul className="mt-2 space-y-1 text-sm text-ink-muted">
-          <li>• Audio is transcribed locally on your device</li>
-          <li>• Audio is not sent to the cloud in local mode</li>
-          <li>• Uses CPU/GPU during transcription</li>
-          <li>• May affect battery and fan noise</li>
-          <li>• Requires downloading a speech model</li>
+          <li>• Аудио распознаётся локально на вашем устройстве</li>
+          <li>• В локальном режиме аудио не отправляется в облако</li>
+          <li>• Использует CPU/GPU во время распознавания</li>
+          <li>• Может влиять на батарею и шум вентилятора</li>
+          <li>• Требует загрузки речевой модели</li>
         </ul>
       </div>
 
@@ -117,10 +117,10 @@ export default function OnboardingSttStep({ onBack, onContinue }: OnboardingSttS
               <span className="font-medium text-ink">{card.label}</span>
               {card.recommended && (
                 <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[11px] text-accent">
-                  Recommended
+                  Рекомендуется
                 </span>
               )}
-              <span className="ml-auto text-xs text-ink-faint">~{card.approxDownloadMb} MB</span>
+              <span className="ml-auto text-xs text-ink-faint">~{card.approxDownloadMb} МБ</span>
             </div>
             <p className="mt-0.5 text-sm text-ink-muted">{card.description}</p>
           </button>
@@ -129,12 +129,12 @@ export default function OnboardingSttStep({ onBack, onContinue }: OnboardingSttS
 
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <button type="button" onClick={autoChoose} disabled={!device} className="btn-secondary btn-sm">
-          Auto choose for my device
+          Выбрать автоматически
         </button>
         {device && (
           <span className="text-xs text-ink-faint">
-            {device.totalRamGb ? `${device.totalRamGb} GB RAM` : 'RAM unknown'} ·{' '}
-            {device.hasGpu ? 'GPU detected' : 'CPU only'}
+            {device.totalRamGb ? `${device.totalRamGb} ГБ RAM` : 'RAM неизвестно'} ·{' '}
+            {device.hasGpu ? 'GPU обнаружен' : 'только CPU'}
           </span>
         )}
       </div>
@@ -148,10 +148,10 @@ export default function OnboardingSttStep({ onBack, onContinue }: OnboardingSttS
       {/* Optional download now */}
       <div className="mt-4">
         {downloaded ? (
-          <p className="text-sm text-emerald-400">Model downloaded — you're ready for local mode.</p>
+          <p className="text-sm text-emerald-400">Модель загружена — локальный режим готов к работе.</p>
         ) : downloading ? (
           <div>
-            <p className="text-sm text-ink-muted">Downloading model… {progress}%</p>
+            <p className="text-sm text-ink-muted">Загрузка модели… {progress}%</p>
             <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-surface-border">
               <div
                 className="h-full rounded-full bg-accent transition-all"
@@ -161,11 +161,11 @@ export default function OnboardingSttStep({ onBack, onContinue }: OnboardingSttS
           </div>
         ) : (
           <button type="button" onClick={() => void startDownload()} className="btn-secondary btn-sm">
-            Download model now (optional)
+            Скачать модель сейчас (необязательно)
           </button>
         )}
         <p className="mt-2 text-xs text-ink-faint">
-          You can download or change this model later in Settings → Speech Recognition.
+          Скачать или изменить модель можно позже в Настройках → Распознавание речи.
         </p>
       </div>
 
@@ -173,7 +173,7 @@ export default function OnboardingSttStep({ onBack, onContinue }: OnboardingSttS
 
       <div className="mt-6 flex items-center justify-between">
         <button type="button" onClick={onBack} className="btn-secondary">
-          Back
+          Назад
         </button>
         <button
           type="button"
@@ -181,7 +181,7 @@ export default function OnboardingSttStep({ onBack, onContinue }: OnboardingSttS
           disabled={saving}
           className="btn-primary"
         >
-          {saving ? 'Saving…' : 'Continue'}
+          {saving ? 'Сохраняю…' : 'Продолжить'}
         </button>
       </div>
     </div>

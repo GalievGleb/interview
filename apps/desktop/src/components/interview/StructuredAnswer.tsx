@@ -12,7 +12,7 @@ function SectionBlock({
   children,
   variant = 'default',
 }: {
-  title: string;
+  title?: string;
   children: ReactNode;
   variant?: 'default' | 'muted' | 'warn';
 }) {
@@ -25,9 +25,11 @@ function SectionBlock({
 
   return (
     <section className={`cockpit-bento ${extra}`}>
-      <h4 className="mb-2.5 text-[11px] font-semibold uppercase tracking-wider text-ink-faint">
-        {title}
-      </h4>
+      {title && (
+        <h4 className="mb-2.5 text-[11px] font-semibold uppercase tracking-wider text-ink-faint">
+          {title}
+        </h4>
+      )}
       <div className="answer-prose">{children}</div>
     </section>
   );
@@ -49,13 +51,13 @@ export default function StructuredAnswer({ text, className = '' }: StructuredAns
   return (
     <div className={`space-y-3 ${className}`}>
       {sections.main && (
-        <SectionBlock title="Main answer" variant="default">
+        <SectionBlock variant="default">
           <MarkdownText text={sections.main} />
         </SectionBlock>
       )}
 
       {sections.keyPoints.length > 0 && (
-        <SectionBlock title="Key points" variant="muted">
+        <SectionBlock variant="muted">
           <ul className="list-disc space-y-2 pl-4 text-[15px] leading-relaxed text-ink">
             {sections.keyPoints.map((point, i) => (
               <li key={i}>{point}</li>
@@ -65,13 +67,13 @@ export default function StructuredAnswer({ text, className = '' }: StructuredAns
       )}
 
       {sections.example && (
-        <SectionBlock title="Example" variant="muted">
+        <SectionBlock title="Пример" variant="muted">
           <MarkdownText text={sections.example} />
         </SectionBlock>
       )}
 
       {sections.avoid && (
-        <SectionBlock title="Avoid saying" variant="warn">
+        <SectionBlock title="Риски" variant="warn">
           <MarkdownText text={sections.avoid} />
         </SectionBlock>
       )}

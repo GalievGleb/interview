@@ -80,11 +80,11 @@ export default function DiagnosticsPanel() {
 
   const stages = timings
     ? [
-        { name: 'STT first partial', ms: timings.firstPartialMs ?? 0, color: '#38bdf8' },
-        { name: 'STT final', ms: timings.transcribeMs ?? 0, color: '#34d399' },
-        { name: 'LLM first token', ms: timings.llmFirstMs ?? 0, color: '#fbbf24' },
+        { name: 'STT первый partial', ms: timings.firstPartialMs ?? 0, color: '#38bdf8' },
+        { name: 'STT финальный', ms: timings.transcribeMs ?? 0, color: '#34d399' },
+        { name: 'LLM первый токен', ms: timings.llmFirstMs ?? 0, color: '#fbbf24' },
         {
-          name: 'LLM complete',
+          name: 'LLM завершение',
           ms: Math.max((timings.llmTotalMs ?? 0) - (timings.llmFirstMs ?? 0), 0),
           color: '#34c77b',
         },
@@ -100,16 +100,16 @@ export default function DiagnosticsPanel() {
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
             <path d="M3 12a9 9 0 0 1 15-6.7L21 8M21 3v5h-5M21 12a9 9 0 0 1-15 6.7L3 16M3 21v-5h5" />
           </svg>
-          Refresh
+          Обновить
         </button>
       </div>
 
       {/* Latency waterfall */}
       <div className="sc-card p-5">
         <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-[15px] font-semibold text-ink">Answer latency waterfall</h3>
+          <h3 className="text-[15px] font-semibold text-ink">Разбивка задержки ответа</h3>
           <span className="text-xs text-ink-faint">
-            Total <span className="sc-mono font-medium text-ink">{secs(timings?.totalMs ?? totalStage)}</span>
+            Всего <span className="sc-mono font-medium text-ink">{secs(timings?.totalMs ?? totalStage)}</span>
           </span>
         </div>
         {stages.length === 0 ? (
@@ -156,18 +156,18 @@ export default function DiagnosticsPanel() {
                 <path d="M19 10v1a7 7 0 0 1-14 0v-1M12 18v4M8 22h8" />
               </svg>
             </span>
-            Speech-to-text
+            Распознавание речи
           </h4>
-          <DiagRow label="Provider" value={diag?.provider ?? '—'} />
-          <DiagRow label="Model" value={diag?.model ?? diag?.localModel ?? '—'} />
-          <DiagRow label="Device" value={(diag?.device ?? '—').toUpperCase()} />
+          <DiagRow label="Провайдер" value={diag?.provider ?? '—'} />
+          <DiagRow label="Модель" value={diag?.model ?? diag?.localModel ?? '—'} />
+          <DiagRow label="Устройство" value={(diag?.device ?? '—').toUpperCase()} />
           <DiagRow
-            label="Average STT latency"
+            label="Средняя задержка STT"
             value={diag?.avgBenchmarkLatencyMs != null ? secs(diag.avgBenchmarkLatencyMs) : '—'}
             ok={diag?.avgBenchmarkLatencyMs != null && diag.avgBenchmarkLatencyMs < 1500}
           />
-          <DiagRow label="Time to first partial" value={secs(timings?.firstPartialMs)} />
-          <DiagRow label="Speech-end → final" value={secs(timings?.sttFinalMs)} />
+          <DiagRow label="Время до первого partial" value={secs(timings?.firstPartialMs)} />
+          <DiagRow label="Конец речи → финал" value={secs(timings?.sttFinalMs)} />
         </div>
 
         <div className="sc-card p-5">
@@ -177,14 +177,14 @@ export default function DiagnosticsPanel() {
                 <path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3z" />
               </svg>
             </span>
-            Language model
+            Языковая модель
           </h4>
-          <DiagRow label="Model" value="gpt-4o-mini" />
-          <DiagRow label="LLM first token" value={secs(timings?.llmFirstMs)} ok={timings?.llmFirstMs != null && timings.llmFirstMs < 1500} />
-          <DiagRow label="Total answer latency" value={secs(timings?.llmTotalMs ?? timings?.totalMs)} />
-          <DiagRow label="Streaming" value="enabled" ok />
+          <DiagRow label="Модель" value="gpt-4o-mini" />
+          <DiagRow label="Первый токен LLM" value={secs(timings?.llmFirstMs)} ok={timings?.llmFirstMs != null && timings.llmFirstMs < 1500} />
+          <DiagRow label="Общая задержка ответа" value={secs(timings?.llmTotalMs ?? timings?.totalMs)} />
+          <DiagRow label="Стриминг" value="включён" ok />
           <DiagRow
-            label="Last answer"
+            label="Последний ответ"
             value={timings ? new Date(timings.at).toLocaleTimeString() : '—'}
           />
         </div>
@@ -193,23 +193,23 @@ export default function DiagnosticsPanel() {
       {/* Audio & privacy + Last errors */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <div className="sc-card p-5">
-          <h4 className="mb-3 text-sm font-semibold text-ink">Audio &amp; privacy</h4>
+          <h4 className="mb-3 text-sm font-semibold text-ink">Аудио и приватность</h4>
           <DiagRow
-            label="Microphone"
-            value={mic ? `${mic.count} device(s) · ${mic.permission}` : '—'}
+            label="Микрофон"
+            value={mic ? `устройств: ${mic.count} · ${mic.permission}` : '—'}
             ok={mic ? mic.count > 0 && mic.permission !== 'denied' : undefined}
           />
-          <DiagRow label="Privacy" value="Local" ok />
-          <DiagRow label="Model status" value={diag ? (ready ? 'ready' : diag.reason) : '—'} ok={ready} />
-          <DiagRow label="Resource usage" value={diag?.resourceUsage || '—'} />
+          <DiagRow label="Приватность" value="Локально" ok />
+          <DiagRow label="Статус модели" value={diag ? (ready ? 'готова' : diag.reason) : '—'} ok={ready} />
+          <DiagRow label="Использование ресурсов" value={diag?.resourceUsage || '—'} />
         </div>
 
         <div className="sc-card p-5">
-          <h4 className="mb-3 text-sm font-semibold text-ink">Last errors</h4>
-          <DiagRow label="Backend" value={backendOnline ? 'online' : 'offline'} ok={backendOnline} />
-          <DiagRow label="Last STT error" value={diag?.lastError ?? 'none'} ok={!diag?.lastError} />
+          <h4 className="mb-3 text-sm font-semibold text-ink">Последние ошибки</h4>
+          <DiagRow label="Backend" value={backendOnline ? 'в сети' : 'не в сети'} ok={backendOnline} />
+          <DiagRow label="Последняя ошибка STT" value={diag?.lastError ?? 'нет'} ok={!diag?.lastError} />
           <DiagRow
-            label="Last benchmark"
+            label="Последний бенчмарк"
             value={diag?.lastBenchmarkAt ? new Date(diag.lastBenchmarkAt).toLocaleString() : '—'}
           />
         </div>
@@ -217,7 +217,7 @@ export default function DiagnosticsPanel() {
 
       {skipped.length > 0 && (
         <div className="sc-card p-5">
-          <h4 className="mb-3 text-sm font-semibold text-ink">Recent skipped transcripts</h4>
+          <h4 className="mb-3 text-sm font-semibold text-ink">Недавно пропущенные транскрипты</h4>
           <ul className="space-y-1.5">
             {skipped.map((s, i) => (
               <li key={i} className="flex items-start gap-3 text-xs">

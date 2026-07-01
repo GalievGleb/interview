@@ -33,7 +33,7 @@ function GeneratingHint() {
     <div className="cockpit-empty py-6">
       <div className="mb-2 flex items-center gap-2 text-sm text-ink-muted">
         <span className="h-2 w-2 animate-pulse rounded-full bg-accent shadow-[0_0_8px_rgba(52,199,123,0.5)]" />
-        Generating answer…
+        Формирую ответ…
       </div>
     </div>
   );
@@ -68,11 +68,11 @@ export default function AnswerPanel({
 
   const statusHint =
     status === 'processing'
-      ? 'Generating answer…'
+      ? 'Формирую ответ…'
       : status === 'listening' && active
-        ? 'Listening…'
+        ? 'Слушаю…'
         : revising
-          ? 'Revising answer…'
+          ? 'Переделываю ответ…'
           : null;
 
   return (
@@ -84,7 +84,7 @@ export default function AnswerPanel({
           statusHint ? (
             <span>{statusHint}</span>
           ) : isGenerating && displayStream ? (
-            <span>Streaming…</span>
+            <span>Печатаю…</span>
           ) : null
         }
       />
@@ -97,13 +97,13 @@ export default function AnswerPanel({
               liveHint
                 ? liveHint
                 : active
-                  ? 'Waiting for a question…'
-                  : 'Your answer will appear here'
+                  ? 'Жду вопрос…'
+                  : 'Здесь появится ваш ответ'
             }
             hint={
               liveHint
-                ? 'Speak the full question in one phrase, or use manual input below.'
-                : 'Short, structured responses — ready to say aloud in the interview.'
+                ? 'Произнесите вопрос целиком одной фразой или используйте ручной ввод ниже.'
+                : 'Короткие, структурированные ответы — готовы к озвучиванию на интервью.'
             }
           />
         )}
@@ -122,12 +122,12 @@ export default function AnswerPanel({
               >
                 {latestCompleted && (
                   <div className="skillcue-answer-label">
-                    <span>Say this</span>
-                    <span>Ready to read aloud</span>
+                    <span>Скажите это</span>
+                    <span>Готово к озвучиванию</span>
                   </div>
                 )}
                 <div className="mb-3 flex items-start justify-between gap-3">
-                  <p className="answer-question min-w-0 flex-1">Q: {item.question}</p>
+                  <p className="answer-question min-w-0 flex-1">Вопрос: {item.question}</p>
                   <AnswerActions
                     answer={item.spoken}
                     disabled={isGenerating}
@@ -153,12 +153,12 @@ export default function AnswerPanel({
               }
             >
               <div className="skillcue-answer-label">
-                <span>Say this</span>
-                <span>{displayStream ? 'Ready to read aloud' : 'Building answer'}</span>
+                <span>Скажите это</span>
+                <span>{displayStream ? 'Готово к озвучиванию' : 'Формирую ответ'}</span>
               </div>
               {activeQuestion && (
                 <div className="mb-3 flex items-start justify-between gap-3">
-                  <p className="answer-question min-w-0 flex-1">Q: {activeQuestion}</p>
+                  <p className="answer-question min-w-0 flex-1">Вопрос: {activeQuestion}</p>
                   {displayStream ? (
                     <AnswerActions
                       answer={displayStream}

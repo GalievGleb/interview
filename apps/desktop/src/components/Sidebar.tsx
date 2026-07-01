@@ -140,38 +140,37 @@ type NavGroup = { title: string; items: NavItem[] };
 
 const GROUPS: NavGroup[] = [
   {
-    title: 'Prepare',
+    title: 'Подготовка',
     items: [
-      { to: '/home', label: 'Home', icon: 'home' },
-      { to: '/prepare', label: 'Vacancy Smoke Review', icon: 'vacancy' },
+      { to: '/home', label: 'Главная', icon: 'home' },
+      { to: '/prepare', label: 'Разбор вакансии', icon: 'vacancy' },
     ],
   },
   {
-    title: 'Workspace',
+    title: 'Live',
     items: [
-      { to: '/interview', label: 'Live Interview', icon: 'interview', live: true },
-      { to: '/test-lab', label: 'Test Lab', icon: 'testlab' },
-      { to: '/benchmark', label: 'STT Benchmark', icon: 'benchmark' },
+      { to: '/interview', label: 'Live-интервью', icon: 'interview', live: true },
+      { to: '/test-lab', label: 'Тестовая лаборатория', icon: 'testlab' },
+      { to: '/benchmark', label: 'STT-бенчмарк', icon: 'benchmark' },
     ],
   },
   {
-    title: 'Library',
+    title: 'Библиотека',
     items: [
-      { to: '/documents', label: 'Documents', icon: 'documents' },
-      { to: '/history', label: 'History', icon: 'history' },
+      { to: '/documents', label: 'Резюме и контекст', icon: 'documents' },
+      { to: '/history', label: 'История', icon: 'history' },
       { to: '/meeting', label: 'Разбор разговора', icon: 'meeting' },
     ],
   },
   {
-    title: 'System',
+    title: 'Система',
     items: [
-      { to: '/diagnostics', label: 'Diagnostics', icon: 'diagnostics' },
-      { to: '/settings', label: 'Settings', icon: 'settings' },
+      { to: '/diagnostics', label: 'Диагностика', icon: 'diagnostics' },
+      { to: '/settings', label: 'Настройки', icon: 'settings' },
     ],
   },
 ];
 
-/** Tracks whether a live interview session is running (interview page emits events). */
 function useSessionLive(): boolean {
   const [live, setLive] = useState(false);
   useEffect(() => {
@@ -212,7 +211,7 @@ export default function Sidebar() {
           });
         }
       } catch {
-        /* backend not ready — keep placeholder */
+        /* backend not ready */
       }
     })();
     return () => {
@@ -221,26 +220,23 @@ export default function Sidebar() {
   }, [backendOnline]);
 
   return (
-    <aside className="flex w-[220px] shrink-0 flex-col border-r border-surface-border bg-surface-panel">
+    <aside className="skillcue-sidebar">
       <div className="flex items-center gap-2.5 px-4 py-4">
-        <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-accent text-xs font-bold text-white">
-          SC
-        </div>
+        <div className="skillcue-logo" aria-hidden />
         <div className="min-w-0 leading-tight">
-          <p className="truncate text-sm font-semibold tracking-tight">Skillcue</p>
-          <p className="text-[11px] text-ink-faint">AI interview copilot</p>
+          <p className="truncate text-sm font-semibold tracking-tight">SkillCue</p>
+          <p className="text-[11px] text-ink-faint">Пульт интервью</p>
         </div>
       </div>
 
-      {/* Search row → opens the command palette */}
-      <div className="px-3 pb-2">
+      <div className="px-3 pb-3">
         <button
           type="button"
           onClick={() => window.dispatchEvent(new Event('skillcue:open-palette'))}
-          className="flex w-full items-center gap-2 rounded-xl border border-surface-border bg-surface px-3 py-2 text-left text-sm text-ink-faint transition-colors hover:border-surface-border-strong hover:text-ink-muted"
+          className="flex w-full items-center gap-2 rounded-xl border border-surface-border bg-surface/70 px-3 py-2 text-left text-sm text-ink-faint shadow-soft transition-colors hover:border-surface-border-strong hover:bg-surface-hover hover:text-ink-muted"
         >
           <Icon name="search" size={15} />
-          <span className="flex-1">Search</span>
+          <span className="flex-1">Поиск</span>
           <span className="sc-mono rounded-md border border-surface-border bg-surface-elevated px-1.5 py-0.5 text-[10px] text-ink-faint">
             ⌘K
           </span>
@@ -250,10 +246,10 @@ export default function Sidebar() {
       <nav className="flex-1 overflow-y-auto px-2.5 py-1">
         {GROUPS.map((group) => (
           <div key={group.title} className="mb-3">
-            <p className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-ink-faint">
+            <p className="px-3 pb-1 pt-2 text-[10px] font-bold uppercase tracking-[0.08em] text-ink-faint">
               {group.title}
             </p>
-            <div className="space-y-0.5">
+            <div className="space-y-1">
               {group.items.map((item) => (
                 <NavLink
                   key={item.to}
@@ -283,12 +279,11 @@ export default function Sidebar() {
         ))}
       </nav>
 
-      {/* Local-model status card */}
       <div className="px-3 pb-2">
         <button
           type="button"
           onClick={() => navigate('/settings')}
-          className="flex w-full items-center gap-2.5 rounded-xl border border-surface-border bg-surface-card px-3 py-2.5 text-left transition-colors hover:border-surface-border-strong"
+          className="flex w-full items-center gap-2.5 rounded-xl border border-surface-border bg-surface-card/85 px-3 py-2.5 text-left shadow-soft transition-colors hover:border-surface-border-strong hover:bg-surface-hover"
         >
           <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent-soft text-accent">
             <Icon name="mic" size={16} />
@@ -298,13 +293,13 @@ export default function Sidebar() {
               Whisper
               <span className={`sc-dot ${model?.ready ? 'sc-dot--success' : 'sc-dot--warning'}`} />
               <span
-                className={`text-[11px] font-normal ${model?.ready ? 'text-emerald-400' : 'text-ink-faint'}`}
+                className={`text-[11px] font-normal ${model?.ready ? 'text-emerald-300' : 'text-ink-faint'}`}
               >
-                {model ? (model.ready ? 'Ready' : 'Not downloaded') : '…'}
+                {model ? (model.ready ? 'Готова' : 'Не загружена') : '...'}
               </span>
             </span>
             <span className="sc-mono block truncate text-[11px] text-ink-faint">
-              {model ? `${model.label}${model.mb ? ` · ~${model.mb} MB` : ''}` : 'Local Whisper'}
+              {model ? `${model.label}${model.mb ? ` · ~${model.mb} МБ` : ''}` : 'Локальный Whisper'}
             </span>
           </span>
         </button>
@@ -312,11 +307,11 @@ export default function Sidebar() {
 
       <div className="space-y-2 border-t border-surface-border px-4 py-3">
         <StatusBadge
-          label={`Backend ${backendOnline ? 'online' : 'offline'}`}
+          label={`Backend ${backendOnline ? 'в сети' : 'не в сети'}`}
           tone={backendOnline ? 'success' : 'error'}
         />
         <StatusBadge
-          label={hasAnyKey ? 'API key set' : 'No API key'}
+          label={hasAnyKey ? 'API-ключ задан' : 'Нет API-ключа'}
           tone={hasAnyKey ? 'success' : 'warning'}
         />
         {isElectron && (
@@ -330,13 +325,13 @@ export default function Sidebar() {
               }}
               className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-2 py-1.5 text-[11px] font-medium transition-colors ${
                 undetected
-                  ? 'border-emerald-500/40 bg-emerald-900/25 text-emerald-400'
+                  ? 'border-emerald-500/40 bg-emerald-900/25 text-emerald-300'
                   : 'border-surface-border text-ink-muted hover:bg-surface-hover'
               }`}
-              title="Hide from screen share"
+              title="Скрыть при демонстрации экрана"
             >
               <Icon name="shield" size={13} />
-              {undetected ? 'Hidden' : 'Visible'}
+              {undetected ? 'Скрыто' : 'Видимо'}
             </button>
             <button
               type="button"
@@ -347,13 +342,13 @@ export default function Sidebar() {
               }}
               className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-2 py-1.5 text-[11px] font-medium transition-colors ${
                 hiddenTaskbar
-                  ? 'border-amber-500/40 bg-amber-900/25 text-amber-400'
+                  ? 'border-amber-500/40 bg-amber-900/25 text-amber-300'
                   : 'border-surface-border text-ink-muted hover:bg-surface-hover'
               }`}
-              title="Hide from taskbar"
+              title="Скрыть из панели задач"
             >
               <Icon name="eye" size={13} />
-              {hiddenTaskbar ? 'Off taskbar' : 'Taskbar'}
+              {hiddenTaskbar ? 'Без панели' : 'В панели'}
             </button>
           </div>
         )}

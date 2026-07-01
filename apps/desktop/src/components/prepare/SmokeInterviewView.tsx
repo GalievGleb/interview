@@ -128,7 +128,7 @@ export default function SmokeInterviewView({
                   type="button"
                   className={`prep-btn-sm ${voice.recording ? 'prep-btn' : 'prep-btn-ghost'}`}
                   onClick={voice.toggle}
-                  title="Answer by voice"
+                  title="Ответить голосом"
                 >
                   {voice.recording ? '⏹ Stop recording' : '🎙 Record answer'}
                 </button>

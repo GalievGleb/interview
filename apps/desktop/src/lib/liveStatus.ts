@@ -33,14 +33,14 @@ export function deriveLiveState({
         : 'idle';
 
   const label = streaming
-    ? 'Answering'
+    ? 'Отвечаю'
     : isGenerating
-      ? 'Transcribing'
+      ? 'Распознаю'
       : active
-        ? 'Listening'
+        ? 'Слушаю'
         : hasAnswer
-          ? 'Answer ready'
-          : 'Idle';
+          ? 'Ответ готов'
+          : 'Ожидание';
 
   const flowStep = streaming ? 2 : isGenerating ? 1 : active ? 0 : -1;
 

@@ -8,12 +8,12 @@ type SourceFilter = 'all' | 'interview' | 'meeting';
 const SOURCE_TABS: { id: SourceFilter; label: string }[] = [
   { id: 'all', label: 'Все' },
   { id: 'interview', label: 'Live' },
-  { id: 'meeting', label: 'Manual' },
+  { id: 'meeting', label: 'Разбор' },
 ];
 
 function sourceBadge(mode: string) {
   return mode === 'meeting'
-    ? { label: 'Manual', tone: 'prep-tone-blue' }
+    ? { label: 'Разбор', tone: 'prep-tone-blue' }
     : { label: 'Live', tone: 'prep-tone-green' };
 }
 
@@ -121,7 +121,7 @@ export default function HistoryPage() {
     <div className="prep h-full overflow-y-auto">
       <div className="prep-wrap prep-rise prep-home">
         <section>
-          <p className="prep-eyebrow">Interview history</p>
+          <p className="prep-eyebrow">История интервью</p>
           <h1 className="prep-h1 mt-1">Вернитесь к вопросам, где было сложно.</h1>
           <p className="prep-sub mt-1.5 max-w-2xl">
             Каждая строка — одна сессия: источник, дата и число ответов. Откройте, чтобы разобрать
@@ -138,7 +138,7 @@ export default function HistoryPage() {
               className="prep-input w-full"
             />
           </div>
-          <div className="prep-segmented" role="group" aria-label="Source filter">
+          <div className="prep-segmented" role="group" aria-label="Фильтр источника">
             {SOURCE_TABS.map((t) => (
               <button
                 key={t.id}
@@ -178,7 +178,7 @@ export default function HistoryPage() {
               <div className="prep-empty-state">
                 <p className="prep-h2">{sessions.length === 0 ? 'Сессий пока нет' : 'Ничего не найдено'}</p>
                 <p className="prep-sub mt-1">
-                  После live interview здесь появятся вопросы, ответы и transcript.
+                  После live-интервью здесь появятся вопросы, ответы и транскрипт.
                 </p>
               </div>
             )}
@@ -192,7 +192,7 @@ export default function HistoryPage() {
                     <span className={`prep-session-dot ${isLive ? 'is-live' : 'is-manual'}`} />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-[14.5px] font-semibold" style={{ color: 'var(--prep-ink)' }}>
-                        {session.title || (session.mode === 'meeting' ? 'Разбор разговора' : 'Live session')}
+                        {session.title || (session.mode === 'meeting' ? 'Разбор разговора' : 'Live-сессия')}
                       </p>
                       <p className="prep-faint mt-0.5">
                         {badge.label} · {new Date(session.started_at).toLocaleDateString()} ·{' '}
@@ -220,7 +220,7 @@ export default function HistoryPage() {
               <div className="prep-empty-state h-full min-h-[420px]">
                 <p className="prep-h2">Выберите сессию слева</p>
                 <p className="prep-sub mt-1">
-                  Здесь появятся вопросы, ответы и transcript для разбора после интервью.
+                  Здесь появятся вопросы, ответы и транскрипт для разбора после интервью.
                 </p>
               </div>
             )}
@@ -228,11 +228,11 @@ export default function HistoryPage() {
               <div className="space-y-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <p className="prep-eyebrow">Session review</p>
+                    <p className="prep-eyebrow">Разбор сессии</p>
                     <h2 className="prep-h2 prep-section-title">{selected.title || selected.mode}</h2>
                   </div>
                   <p className="prep-faint">
-                    {selected.answers.length} answers · {selected.transcripts.length} transcript lines
+                    {selected.answers.length} ответов · {selected.transcripts.length} строк транскрипта
                   </p>
                 </div>
 
