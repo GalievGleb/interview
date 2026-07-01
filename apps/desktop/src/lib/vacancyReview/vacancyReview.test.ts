@@ -432,6 +432,104 @@ describe('evaluation + report', () => {
     expect(gitEval.missingPoints).not.toContain('conflict resolution');
     expect(gitEval.technicalAccuracyScore).toBeGreaterThan(0);
     expect(gitEval.suggestedBetterAnswer).not.toMatch(/Я бы начал|Потом добавил бы|Нужно закрыть/i);
+    // Regression: a topic whose expectedKnowledge mentions "conflict resolution"
+    // must still get the actual git explanation, not the behavioral conflict-story
+    // opening (topic.expectedKnowledge must not leak into question classification).
+    expect(gitEval.suggestedBetterAnswer).toMatch(/merge|rebase/i);
+    expect(gitEval.suggestedBetterAnswer).not.toContain('Одна из сложных ситуаций');
+  });
+
+  it('gives a Playwright-vs-Selenium answer, not the flaky-UI answer, for that specific question', () => {
+    // Regression test: this topic has TWO distinct sample questions sharing one
+    // expectedKnowledge ("...flaky-test handling"), which used to make every
+    // question under it get the flaky-test-debugging answer regardless of what
+    // was actually asked.
+    const analysis: VacancyAnalysis = {
+      id: 'ui-automation-two-questions',
+      vacancyText: 'QA Automation: Playwright, Selenium, UI tests.',
+      targetRole: 'QA Automation Engineer',
+      seniorityLevel: 'middle',
+      language: 'ru',
+      extractedRequirements: ['Playwright', 'Selenium'],
+      optionalSkills: [],
+      interviewTopics: [
+        {
+          id: 'ui-automation',
+          title: 'UI automation (Playwright / Selenium)',
+          category: 'Testing',
+          importance: 'high',
+          level: 'middle',
+          expectedKnowledge: 'Locators, waits, page objects, flaky-test handling.',
+          expectedAnswerPoints: ['Locators', 'waits', 'page objects', 'flaky-test handling'],
+          sampleQuestions: [
+            'Как борешься с flaky UI-тестами?',
+            'Чем Playwright удобнее Selenium на динамических интерфейсах?',
+          ],
+          vacancyEvidence: 'Playwright, Selenium, UI tests',
+        },
+      ],
+      projectQuestions: [],
+      riskAreas: [],
+      hasResume: true,
+      hasLegend: false,
+      resumeText: 'Playwright, Selenium, Allure.',
+      createdAt: Date.now(),
+    };
+    const questions = buildSmokePlan(analysis);
+    const pwQuestion = questions.find((q) => q.question.includes('удобнее Selenium'));
+    expect(pwQuestion).toBeDefined();
+
+    const evaluation = evaluateAnswerMock(
+      pwQuestion!,
+      'Playwright удобнее, потому что есть встроенные ожидания и встроенные ассерты на ошибки. Также удобно ставить на паузу запуск приложения для дебага.',
+      analysis,
+    );
+
+    expect(evaluation.suggestedBetterAnswer).toMatch(/playwright/i);
+    expect(evaluation.suggestedBetterAnswer).toMatch(/selenium/i);
+    expect(evaluation.suggestedBetterAnswer).not.toContain('С flaky UI-тестами я сначала разбираю причину');
+    // Expected signals must be tailored to THIS question, not the topic's
+    // generic (and here, unrelated) flaky-test-handling signal list.
+    expect(evaluation.missingPoints.join(' ')).not.toContain('page objects');
+  });
+
+  it('classifies "tell me about your project" as a project story, not a conflict story', () => {
+    const analysis: VacancyAnalysis = {
+      id: 'project-experience',
+      vacancyText: 'QA Automation Engineer role.',
+      targetRole: 'QA Automation Engineer',
+      seniorityLevel: 'middle',
+      language: 'ru',
+      extractedRequirements: [],
+      optionalSkills: [],
+      interviewTopics: [
+        {
+          id: 'project-experience',
+          title: 'Project experience',
+          category: 'Experience',
+          importance: 'high',
+          level: 'middle',
+          expectedKnowledge: 'Concrete real projects: role, stack, impact, ownership.',
+          sampleQuestions: ['Расскажи про свой самый показательный проект и твою роль в нём.'],
+          vacancyEvidence: 'Any real interview checks project experience.',
+        },
+      ],
+      projectQuestions: [],
+      riskAreas: [],
+      hasResume: true,
+      hasLegend: false,
+      resumeText: 'Playwright, pytest, Allure.',
+      createdAt: Date.now(),
+    };
+    const [question] = buildSmokePlan(analysis);
+    const evaluation = evaluateAnswerMock(
+      question,
+      'Работал над платформой автотестов на Playwright и pytest, сам выбирал, что автоматизировать.',
+      analysis,
+    );
+
+    expect(evaluation.suggestedBetterAnswer).toContain('Самый показательный проект');
+    expect(evaluation.suggestedBetterAnswer).not.toContain('Одна из сложных ситуаций');
   });
 });
 

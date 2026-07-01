@@ -333,7 +333,20 @@ function isPlatformSupportQuestionText(text: string): boolean {
 }
 
 function domainSignalsForQuestion(topic: InterviewTopic, question: string): string[] | null {
-  const text = norm(`${topic.title} ${topic.expectedKnowledge} ${question}`);
+  // Same rule as buildBridgeAnswer: classify from topic title + the actual
+  // question, not the whole-topic expectedKnowledge summary — otherwise every
+  // question under a topic gets graded against the SAME generic signal list,
+  // even when that topic's sample questions test genuinely different things.
+  const text = norm(`${topic.title} ${question}`);
+  if (isPlaywrightVsSeleniumQuestion(text)) {
+    return [
+      'встроенный auto-wait вместо explicit wait',
+      'web-first assertions с retry',
+      'работа с shadow DOM и динамическим контентом',
+      'скорость и протокол без classic WebDriver',
+      'trace viewer и встроенный debugging/pause',
+    ];
+  }
   if (isPlatformSupportQuestionText(text)) {
     return [
       'UI-автоматизация',
@@ -513,42 +526,42 @@ const SEMANTIC_SIGNAL_RULES: Array<{ label: string; signal: RegExp; answer: RegE
   {
     label: 'waits',
     signal: /\bwaits?\b|ожидан|wait/i,
-    answer: /явн\w*\s+ожидан|auto-?wait|waitfor|жд(у|ать|ал|ала|ем)|ожида(ю|л|ем)|состояни\w+\s+элемент/i,
+    answer: /явн[а-я\w]*\s+ожидан|auto-?wait|waitfor|жд(у|ать|ал|ала|ем)|ожида(ю|л|ем)|состояни[а-я\w]+\s+элемент/i,
   },
   {
     label: 'schema/body checks',
-    signal: /schema|body|схем|модел|тип\w*\s+пол|обязательн\w*\s+пол|response/i,
-    answer: /schema|body|pydantic|pydentic|схем|модел|тип\w*\s+пол|обязательн\w*\s+пол|json|структур/i,
+    signal: /schema|body|схем|модел|тип[а-я\w]*\s+пол|обязательн[а-я\w]*\s+пол|response/i,
+    answer: /schema|body|pydantic|pydentic|схем|модел|тип[а-я\w]*\s+пол|обязательн[а-я\w]*\s+пол|json|структур/i,
   },
   {
     label: 'auth',
-    signal: /\bauth\b|authorization|headers?|token|прав\w*\s+доступ|авторизац/i,
-    answer: /headers?|token|jwt|bearer|авторизац|аутентификац|прав\w*\s+доступ|роль|401|403/i,
+    signal: /\bauth\b|authorization|headers?|token|прав[а-я\w]*\s+доступ|авторизац/i,
+    answer: /headers?|token|jwt|bearer|авторизац|аутентификац|прав[а-я\w]*\s+доступ|роль|401|403/i,
   },
   {
     label: 'negative cases',
     signal: /negative|негатив|ошибк|валидац|400|401|403|404|409|422|500/i,
-    answer: /negative|негатив|невалид|ошибк\w*\s+валидац|400|401|403|404|409|422|500|bad request|forbidden|unauthorized/i,
+    answer: /negative|негатив|невалид|ошибк[а-я\w]*\s+валидац|400|401|403|404|409|422|500|bad request|forbidden|unauthorized/i,
   },
   {
     label: 'state verification',
     signal: /state|состояни|созданн|удален|после post|после delete|get после/i,
-    answer: /get после|после post|после delete|провер\w*\s+создан|провер\w*\s+удален|состояни|данн\w+\s+сохранил/i,
+    answer: /get после|после post|после delete|провер[а-я\w]*\s+создан|провер[а-я\w]*\s+удален|состояни|данн[а-я\w]+\s+сохранил/i,
   },
   {
     label: 'conflict resolution',
     signal: /conflict|конфликт|resolve/i,
-    answer: /мерч-?конфликт|merge conflict|конфликт\w*\s+в\s+файл|ide|консол|resolve|разбирал\w*\s+конфликт/i,
+    answer: /мерч-?конфликт|merge conflict|конфликт[а-я\w]*\s+в\s+файл|ide|консол|resolve|разбирал[а-я\w]*\s+конфликт/i,
   },
   {
     label: 'merge',
     signal: /\bmerge\b|мерж|объедин/i,
-    answer: /\bmerge\b|мерж|объедин\w*\s+ветк|merge commit/i,
+    answer: /\bmerge\b|мерж|объедин[а-я\w]*\s+ветк|merge commit/i,
   },
   {
     label: 'rebase',
     signal: /\brebase\b|ребейз|линейн/i,
-    answer: /\brebase\b|ребейз|поверх\s+(main|develop|актуальн)|линейн\w*\s+истор/i,
+    answer: /\brebase\b|ребейз|поверх\s+(main|develop|актуальн)|линейн[а-я\w]*\s+истор/i,
   },
   {
     label: 'ci/cd artifacts',
@@ -573,17 +586,17 @@ const SEMANTIC_SIGNAL_RULES: Array<{ label: string; signal: RegExp; answer: RegE
   {
     label: 'Conflict',
     signal: /conflict|disagreement|pressure|lack of resources|competing priorities|task\/conflict|спор|конфликт|давлен|приоритет|ожидан|ресурс|сложн/i,
-    answer: /спор|конфликт|разноглас|разные\s+ожидания|давлен|не\s+хватал\w*\s+ресурс|приоритет|хотел\w*\s+быстрее|видел\w*\s+риск|сложн/i,
+    answer: /спор|конфликт|разноглас|разные\s+ожидания|давлен|не\s+хватал[а-я\w]*\s+ресурс|приоритет|хотел[а-я\w]*\s+быстрее|видел[а-я\w]*\s+риск|сложн/i,
   },
   {
     label: 'Ownership',
     signal: /ownership|action|decision|responsibility|analysis|prioriti[sz]ation|implementation|действ|решени|ответствен|анализ|приорит|реализац/i,
-    answer: /взял\w*\s+на\s+себя|предложил|решил|сделал|договорил|проанализировал|анализ\s+паден|приоритиз|реализовал|внедрил|отвечал/i,
+    answer: /взял[а-я\w]*\s+на\s+себя|предложил|решил|сделал|договорил|проанализировал|анализ\s+паден|приоритиз|реализовал|внедрил|отвечал/i,
   },
   {
     label: 'Real example',
     signal: /real example|specific example|project|scenario|domain|tool|пример|проект|сценар|домен|инструмент/i,
-    answer: /на\s+проекте|в\s+проекте|личн\w*\s+кабинет|релиз|api|smoke|regression|playwright|pytest|allure|gitlab|docker|сценар/i,
+    answer: /на\s+проекте|в\s+проекте|личн[а-я\w]*\s+кабинет|релиз|api|smoke|regression|playwright|pytest|allure|gitlab|docker|сценар/i,
   },
   {
     label: 'Result',
@@ -630,6 +643,30 @@ function isLeadershipOrProjectQuestion(topic: InterviewTopic | undefined, questi
       text,
     ) && !/(выбор|выбира|выбрать|фактор).{0,60}(инструмент|tool)/.test(text)
   );
+}
+
+// "Tell me about your project/role" is NOT a conflict story — must be checked
+// before isBehavioralQuestionText, which would otherwise claim it (its trigger
+// list includes "ownership", present in nearly every project-experience topic).
+function isProjectExperienceQuestionText(text: string): boolean {
+  const t = norm(text);
+  return /расскаж[а-я\w]*\s+(?:мне\s+)?(?:про|о|об)\s+проект|самый\s+показательн[а-я\w]*\s+проект|(?:тво[а-я\w]+|ваш[а-я\w]*)\s+рол[а-я\w]+\s+в\s+проект|что\s+делал[а-я\w]*\s+на\s+(?:последнем|прошлом|текущем)\s+(?:месте|проекте)|опиши\s+проект|проект\s+из\s+резюме|с\s+каким\s+стеком|за\s+что\s+отвечал/.test(
+    t,
+  );
+}
+
+function buildProjectExperienceAnswer(analysis: VacancyAnalysis, answerText: string): string {
+  const corpus = `${analysis.resumeText ?? ''}\n${analysis.vacancyText ?? ''}\n${answerText}`;
+  const tools = mentionedToolsFrom(corpus);
+  const toolText = tools.length ? ` Стек: ${tools.slice(0, 5).join(', ')}.` : '';
+  const hasOwnershipLanguage = /выбира|принима[а-я\w]*\s+решени|внедри|разрабатыва|отвечал[а-я\w]*\s+за|в моей зоне|с нуля/i.test(
+    answerText || '',
+  );
+  const role = hasOwnershipLanguage
+    ? 'Моя роль была преимущественно технической: я участвовал в выборе решений по автоматизации и отвечал за практическую часть.'
+    : 'Роль была технической, без преувеличения — полноценным people manager я себя не называю.';
+  const roleText = analysis.targetRole ? ` под роль «${analysis.targetRole}»` : '';
+  return `Самый показательный проект для меня — тот, где я на практике применял релевантный опыт${roleText}. ${role}${toolText} Точных цифр сейчас не приведу, но эффект был в более понятной поддержке автотестов и ускоренном разборе падений.`;
 }
 
 function isBehavioralQuestionText(text: string): boolean {
@@ -1023,7 +1060,7 @@ function buildApiAnswer(analysis: VacancyAnalysis, answerText: string): string {
 }
 
 function isFlakyUiQuestion(text: string): boolean {
-  return /flaky|нестабил|ui|playwright|selenium|локатор|ожидан/.test(norm(text));
+  return /flaky|нестабил|мига(?:ет|ющ)|retry|ретрай/.test(norm(text));
 }
 
 function buildFlakyUiAnswer(analysis: VacancyAnalysis, answerText: string): string {
@@ -1035,6 +1072,24 @@ function buildFlakyUiAnswer(analysis: VacancyAnalysis, answerText: string): stri
   );
 }
 
+function isPlaywrightVsSeleniumQuestion(text: string): boolean {
+  const t = norm(text);
+  return (
+    /playwright/.test(t) &&
+    /selenium/.test(t) &&
+    /(удобн|лучше|преимуществ|отлич|advantage|better|чем.*удобнее)/.test(t)
+  );
+}
+
+function buildPlaywrightAdvantageAnswer(analysis: VacancyAnalysis, answerText: string): string {
+  const corpus = `${analysis.resumeText ?? ''}\n${analysis.vacancyText ?? ''}\n${answerText}`;
+  const tools = mentionedToolsFrom(corpus).filter((t) => ['Playwright', 'Selenium'].includes(t));
+  const toolText = tools.length ? ` В своей практике использовал ${tools.join(', ')}.` : '';
+  return (
+    `На динамических интерфейсах Playwright удобнее за счёт встроенных auto-wait и web-first assertions — не нужно вручную писать explicit wait на каждое состояние элемента, как часто приходится в Selenium. Playwright также лучше справляется с shadow DOM и асинхронной подгрузкой контента, использует более быстрый протокол вместо классического WebDriver и даёт из коробки trace viewer, скриншоты и видео падений — это ускоряет дебаг, плюс можно поставить выполнение на паузу и посмотреть состояние страницы вживую.${toolText} При этом Selenium остаётся разумным выбором для legacy-проекта с большой базой тестов — ради смены инструмента я бы её не переписывал, но для нового проекта выбрал бы Playwright.`
+  );
+}
+
 function buildBridgeAnswer(
   question: SmokeQuestion,
   missing: string[],
@@ -1042,7 +1097,13 @@ function buildBridgeAnswer(
   answerText = '',
 ): string {
   const topic = analysis.interviewTopics.find((t) => t.id === question.topicId);
-  const topicText = norm(`${topic?.title ?? ''} ${topic?.expectedKnowledge ?? ''} ${question.question}`);
+  // Classify by topic title + the ACTUAL question asked — not topic.expectedKnowledge,
+  // which is a whole-topic summary and can contain words ("flaky", "ownership", ...)
+  // that don't apply to every one of that topic's sample questions.
+  const topicText = norm(`${topic?.title ?? ''} ${question.question}`);
+  if (isProjectExperienceQuestionText(topicText)) {
+    return buildProjectExperienceAnswer(analysis, answerText);
+  }
   if (isBehavioralQuestionText(topicText)) {
     return buildBehavioralAnswer(answerText);
   }
@@ -1051,6 +1112,9 @@ function buildBridgeAnswer(
   }
   if (isApiQuestion(topicText)) {
     return buildApiAnswer(analysis, answerText);
+  }
+  if (isPlaywrightVsSeleniumQuestion(topicText)) {
+    return buildPlaywrightAdvantageAnswer(analysis, answerText);
   }
   if (isFlakyUiQuestion(topicText)) {
     return buildFlakyUiAnswer(analysis, answerText);
