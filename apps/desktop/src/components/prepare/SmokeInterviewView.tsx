@@ -16,6 +16,12 @@ const DIFF_TONE: Record<Difficulty, string> = {
   hard: 'prep-tone-amber',
 };
 
+const DIFF_LABEL: Record<Difficulty, string> = {
+  easy: 'лёгкий',
+  medium: 'средний',
+  hard: 'сложный',
+};
+
 const LEVEL_LABEL: Record<QuestionLevel, string> = {
   junior: 'Junior',
   middle: 'Middle',
@@ -55,14 +61,16 @@ export default function SmokeInterviewView({
         <div>
           <div className="flex items-center justify-between gap-2">
             <p className="prep-faint">
-              Question {currentIndex + 1} / {questions.length}
+              Вопрос {currentIndex + 1} из {questions.length}
             </p>
             <div className="flex gap-1.5">
               <span className="prep-chip prep-tone-violet">{topic?.title}</span>
               {question.level && (
                 <span className="prep-chip prep-tone-blue">{LEVEL_LABEL[question.level]}</span>
               )}
-              <span className={`prep-chip ${DIFF_TONE[question.difficulty]}`}>{question.difficulty}</span>
+              <span className={`prep-chip ${DIFF_TONE[question.difficulty]}`}>
+                {DIFF_LABEL[question.difficulty]}
+              </span>
             </div>
           </div>
           <div className="prep-bar prep-bar-green mt-2">
@@ -106,7 +114,9 @@ export default function SmokeInterviewView({
 
           {!answered && (voice.recording || voice.error) && (
             <p className="mt-1.5 text-[12.5px]" style={{ color: voice.error ? 'var(--prep-red)' : 'var(--prep-green)' }}>
-              {voice.error ? voice.error : '● Recording — speak your answer, then Stop or Submit.'}
+              {voice.error
+                ? voice.error
+                : '● Идёт запись — проговорите ответ, затем остановите запись или отправьте.'}
             </p>
           )}
 
@@ -122,7 +132,7 @@ export default function SmokeInterviewView({
                     onSubmitAnswer(voiceText || text, voice.recording ? 'voice' : 'text');
                   }}
                 >
-                  {evaluating ? 'Evaluating…' : 'Submit answer'}
+                  {evaluating ? 'Оцениваю…' : 'Отправить ответ'}
                 </button>
                 <button
                   type="button"
@@ -130,7 +140,7 @@ export default function SmokeInterviewView({
                   onClick={voice.toggle}
                   title="Ответить голосом"
                 >
-                  {voice.recording ? '⏹ Stop recording' : '🎙 Record answer'}
+                  {voice.recording ? '⏹ Остановить запись' : '🎙 Ответить голосом'}
                 </button>
                 <button
                   type="button"
@@ -140,26 +150,28 @@ export default function SmokeInterviewView({
                     onSubmitAnswer('', 'text', true);
                   }}
                 >
-                  Skip
+                  Пропустить
                 </button>
               </>
             ) : (
               <>
                 {isLast ? (
                   <button type="button" className="prep-btn" onClick={onFinish}>
-                    Finish review
+                    Завершить разбор
                   </button>
                 ) : (
                   <button type="button" className="prep-btn" onClick={onNext}>
-                    Next question
+                    Следующий вопрос
                   </button>
                 )}
               </>
             )}
             <span className="flex-1" />
-            <button type="button" className="prep-btn-ghost prep-btn-sm" onClick={onFinish}>
-              Finish review
-            </button>
+            {!(answered && isLast) && (
+              <button type="button" className="prep-btn-ghost prep-btn-sm" onClick={onFinish}>
+                Завершить досрочно
+              </button>
+            )}
           </div>
         </div>
 

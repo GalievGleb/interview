@@ -33,7 +33,7 @@ export default function VacancySetup({ onAnalyze, analyzing, error }: Props) {
       const doc = await api.getDocument(id);
       (into === 'resume' ? setResumeText : setLegendText)(doc.text);
     } catch {
-      /* backend unavailable — paste manually */
+      /* backend unavailable - paste manually */
     }
   };
 
@@ -42,35 +42,35 @@ export default function VacancySetup({ onAnalyze, analyzing, error }: Props) {
   return (
     <div className="prep-rise space-y-5">
       <div>
-        <p className="prep-eyebrow">Vacancy Smoke Review</p>
-        <h1 className="prep-h1 mt-1">Prepare by vacancy</h1>
+        <p className="prep-eyebrow">Разбор вакансии</p>
+        <h1 className="prep-h1 mt-1">Поймите, что вас спросят до интервью.</h1>
         <p className="prep-sub mt-1.5 max-w-2xl">
-          Paste a real job vacancy → get the topics this interview will likely cover → run a quick
-          30-min mock → see where you’re not ready yet. Topics come straight from the vacancy, not a
-          generic skills list.
+          Вставьте реальную вакансию, и SkillCue выделит требования, вероятные вопросы,
+          темы риска и план короткого mock-интервью. Это подготовка под конкретную роль,
+          а не общий список навыков.
         </p>
       </div>
 
       <div className="prep-card prep-card-pad">
-        <label className="prep-h2">Vacancy text</label>
+        <label className="prep-h2">Текст вакансии</label>
         <textarea
           className="prep-textarea mt-2"
-          placeholder="Вставьте полный текст вакансии: обязанности, требования, стек…"
+          placeholder="Вставьте описание роли: обязанности, требования, стек, формат интервью..."
           value={vacancyText}
           onChange={(e) => setVacancyText(e.target.value)}
         />
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <div>
-            <label className="prep-faint">Target role (optional)</label>
+            <label className="prep-faint">Целевая роль, если нужно уточнить</label>
             <input
               className="prep-input mt-1 w-full"
-              placeholder="e.g. QA Automation Engineer"
+              placeholder="Например: QA Automation Engineer"
               value={targetRole}
               onChange={(e) => setTargetRole(e.target.value)}
             />
           </div>
           <div>
-            <label className="prep-faint">Language of answers</label>
+            <label className="prep-faint">Язык ответов</label>
             <div className="mt-1 flex gap-1.5">
               {(['ru', 'en'] as AnswerLanguage[]).map((lng) => (
                 <button
@@ -90,33 +90,33 @@ export default function VacancySetup({ onAnalyze, analyzing, error }: Props) {
 
         <button
           type="button"
-          className="mt-3 text-[12.5px] font-medium"
+          className="mt-3 text-[12.5px] font-bold"
           style={{ color: 'var(--prep-green)' }}
           onClick={() => setShowContext((v) => !v)}
         >
-          {showContext ? '− Hide resume / legend' : '+ Add resume / legend (optional, improves grounding)'}
+          {showContext ? '− Скрыть резюме / легенду' : '+ Добавить резюме / легенду'}
         </button>
 
         {showContext && (
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <div>
-              <label className="prep-faint">Resume</label>
+              <label className="prep-faint">Резюме</label>
               <SavedDocs docs={docs} onPick={(id) => loadDoc(id, 'resume')} />
               <textarea
                 className="prep-textarea mt-1"
                 style={{ minHeight: 120 }}
-                placeholder="Вставьте резюме или выберите сохранённый документ…"
+                placeholder="Вставьте резюме или выберите сохранённый документ..."
                 value={resumeText}
                 onChange={(e) => setResumeText(e.target.value)}
               />
             </div>
             <div>
-              <label className="prep-faint">Interview legend</label>
+              <label className="prep-faint">Легенда опыта</label>
               <SavedDocs docs={docs} onPick={(id) => loadDoc(id, 'legend')} />
               <textarea
                 className="prep-textarea mt-1"
                 style={{ minHeight: 120 }}
-                placeholder="Легенда: проекты, роли, формулировки для bridging-ответов…"
+                placeholder="Проекты, зона ответственности, формулировки для спорных мест..."
                 value={legendText}
                 onChange={(e) => setLegendText(e.target.value)}
               />
@@ -126,10 +126,10 @@ export default function VacancySetup({ onAnalyze, analyzing, error }: Props) {
 
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <span className={`prep-chip ${resumeText.trim() ? 'prep-tone-green' : ''}`}>
-            {resumeText.trim() ? 'Resume connected' : 'Resume context missing'}
+            {resumeText.trim() ? 'Резюме подключено' : 'Резюме не подключено'}
           </span>
           <span className={`prep-chip ${legendText.trim() ? 'prep-tone-green' : ''}`}>
-            {legendText.trim() ? 'Legend connected' : 'Legend not connected'}
+            {legendText.trim() ? 'Легенда подключена' : 'Легенда не подключена'}
           </span>
         </div>
 
@@ -154,9 +154,9 @@ export default function VacancySetup({ onAnalyze, analyzing, error }: Props) {
               })
             }
           >
-            {analyzing ? 'Analyzing…' : 'Analyze vacancy'}
+            {analyzing ? 'Разбираю...' : 'Разобрать вакансию'}
           </button>
-          <span className="prep-faint">~8–15 questions · 20–30 min mock</span>
+          <span className="prep-faint">8-15 вопросов · 20-30 минут mock</span>
         </div>
       </div>
     </div>
@@ -167,7 +167,7 @@ function SavedDocs({ docs, onPick }: { docs: DocumentItem[]; onPick: (id: string
   if (!docs.length) return null;
   return (
     <div className="mt-1 flex flex-wrap gap-1.5">
-      <span className="prep-faint self-center">Use saved:</span>
+      <span className="prep-faint self-center">Сохранённые:</span>
       {docs.slice(0, 6).map((d) => (
         <button
           key={d.id}

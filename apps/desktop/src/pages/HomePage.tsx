@@ -85,7 +85,7 @@ export default function HomePage() {
             <div className="prep-demo-window">
               <div className="prep-demo-top">
                 <span>Live-интервью</span>
-                <span className="prep-live-pill">Listening</span>
+                <span className="prep-live-pill">Слушаю</span>
               </div>
               <div className="prep-demo-question">
                 <span>Вопрос интервьюера</span>
@@ -105,19 +105,19 @@ export default function HomePage() {
 
         <section className="prep-status-grid" aria-label="Readiness overview">
           <PrepStatusCard
-            label="Vacancy"
-            title={report ? completed?.vacancyAnalysis.targetRole || 'Reviewed role' : 'Нужна вакансия'}
+            label="Вакансия"
+            title={report ? completed?.vacancyAnalysis.targetRole || 'Роль разобрана' : 'Нужна вакансия'}
             body={report ? `${report.topicScores.length} тем найдено` : 'Начните с описания роли'}
             tone={report ? 'green' : 'amber'}
           />
           <PrepStatusCard
-            label="Resume / legend"
+            label="Резюме и легенда"
             title="Контекст ответа"
             body="SkillCue держит ответы в рамках вашего опыта"
             tone="blue"
           />
           <PrepStatusCard
-            label="Live overlay"
+            label="Live-подсказки"
             title="Короткая подсказка"
             body="Answer-first режим для реального созвона"
             tone="violet"
@@ -185,17 +185,24 @@ export default function HomePage() {
               </>
             ) : (
               <>
-                <h2 className="prep-h2 prep-card-title">Сначала разберите вакансию</h2>
-                <p className="prep-sub mt-2">
-                  После разбора SkillCue соберет вероятные вопросы и покажет, где можно посыпаться.
-                </p>
-                <button
-                  type="button"
-                  className="prep-btn prep-btn-sm mt-5 self-start"
-                  onClick={() => navigate('/prepare')}
-                >
-                  Вставить вакансию
-                </button>
+                <h2 className="prep-h2 prep-card-title">Как это устроено</h2>
+                <ol className="mt-3 grid gap-2.5">
+                  {[
+                    'Вставьте вакансию — SkillCue выделит темы и вероятные вопросы',
+                    'Пройдите короткий mock и получите честную карту готовности',
+                    'На реальном созвоне включите live-подсказки с этим контекстом',
+                  ].map((step, i) => (
+                    <li key={step} className="prep-sub flex gap-2.5">
+                      <span
+                        className="font-bold"
+                        style={{ color: 'var(--prep-green)' }}
+                      >
+                        {i + 1}.
+                      </span>
+                      {step}
+                    </li>
+                  ))}
+                </ol>
               </>
             )}
           </div>
@@ -267,7 +274,7 @@ export default function HomePage() {
           <section className="mt-5">
             <div className="prep-section-head">
               <div>
-                <p className="prep-eyebrow">History</p>
+                <p className="prep-eyebrow">История</p>
                 <h2 className="prep-h2 prep-section-title">Последние mock-сессии</h2>
               </div>
             </div>

@@ -219,17 +219,20 @@ export function analyzeVacancyMock(input: VacancyReviewInput): VacancyAnalysis {
   }));
 
   const riskAreas: string[] = [];
-  if (!input.resumeText) riskAreas.push('Resume context missing — answers can’t be grounded in real experience.');
-  if (!input.legendText) riskAreas.push('Legend not connected — bridging answers may sound generic.');
+  if (!input.resumeText)
+    riskAreas.push('Резюме не подключено — ответы не будут опираться на ваш реальный опыт.');
+  if (!input.legendText)
+    riskAreas.push('Легенда не подключена — связки в ответах могут звучать обобщённо.');
   const highTopics = topics.filter((t) => t.importance === 'high');
   if (highTopics.length) {
-    riskAreas.push(`High-weight topics to nail: ${highTopics.map((t) => t.title).join(', ')}.`);
+    riskAreas.push(`Темы с высоким весом: ${highTopics.map((t) => t.title).join(', ')}.`);
   }
   const gaps = competencies.filter((c) => c.resumeMatch === 'gap' && c.priority !== 'low');
   if (gaps.length) {
     riskAreas.push(`Пробелы против резюме: ${gaps.map((c) => c.name).join(', ')}.`);
   }
-  if (!topics.length) riskAreas.push('Could not extract clear topics — paste a fuller vacancy text.');
+  if (!topics.length)
+    riskAreas.push('Не удалось выделить чёткие темы — вставьте более полный текст вакансии.');
 
   const projectQuestions = topics
     .filter((t) => t.importance !== 'low')

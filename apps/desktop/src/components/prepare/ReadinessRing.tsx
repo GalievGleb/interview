@@ -6,10 +6,10 @@ interface Props {
 }
 
 const TONE_HEX: Record<NonNullable<Props['tone']>, string> = {
-  green: '#16a34a',
-  blue: '#2563eb',
-  amber: '#d97706',
-  red: '#dc2626',
+  green: '#34c77b',
+  blue: '#8fb6d8',
+  amber: '#fbbf24',
+  red: '#f87171',
 };
 
 /** Circular readiness gauge for the Preparation dashboard. */
@@ -24,7 +24,14 @@ export default function ReadinessRing({ score, label, size = 132, tone = 'green'
   return (
     <div className="relative inline-flex items-center justify-center" style={{ width: size, height: size }}>
       <svg width={size} height={size} className="-rotate-90">
-        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#efeae2" strokeWidth={stroke} />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          fill="none"
+          stroke="rgba(255, 255, 255, 0.08)"
+          strokeWidth={stroke}
+        />
         <circle
           cx={size / 2}
           cy={size / 2}
