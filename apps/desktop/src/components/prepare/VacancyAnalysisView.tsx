@@ -1,3 +1,4 @@
+import { pluralRu } from '../../lib/pluralRu';
 import type {
   Competency,
   ResumeMatch,
@@ -55,7 +56,10 @@ export default function VacancyAnalysisView({ analysis, onStart, onBack, questio
           <h1 className="prep-h1 mt-1">{analysis.targetRole}</h1>
           <div className="mt-2 flex flex-wrap gap-2">
             <span className="prep-chip prep-tone-violet">{SENIORITY_LABEL[analysis.seniorityLevel]}</span>
-            <span className="prep-chip">{analysis.interviewTopics.length} тем</span>
+            <span className="prep-chip">
+              {analysis.interviewTopics.length}{' '}
+              {pluralRu(analysis.interviewTopics.length, 'тема', 'темы', 'тем')}
+            </span>
             <span className="prep-chip">Ответы: {analysis.language.toUpperCase()}</span>
           </div>
         </div>

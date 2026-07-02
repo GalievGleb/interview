@@ -10,7 +10,7 @@ interface Props {
 export default function TopicCard({ topic, onPractice }: Props) {
   const tone = topicStatusTone(topic.status);
   return (
-    <div className={`prep-card prep-topic prep-topic-${tone} p-4`}>
+    <div className={`prep-card prep-card-lift prep-topic prep-topic-${tone} p-4`}>
       <div className="flex items-start justify-between gap-3 pl-2">
         <div className="min-w-0">
           <p className="prep-faint">{topic.category}</p>
@@ -20,7 +20,7 @@ export default function TopicCard({ topic, onPractice }: Props) {
       </div>
 
       <div className="mt-3 flex items-center gap-3 pl-2">
-        <span className="text-[22px] font-bold" style={{ color: 'var(--prep-ink)' }}>
+        <span className="text-[22px] font-bold" style={{ color: `var(--prep-${tone})` }}>
           {topic.score}%
         </span>
         <div className={`prep-bar prep-bar-${tone} flex-1`}>

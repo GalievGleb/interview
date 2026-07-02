@@ -38,7 +38,7 @@ export function topicStatusText(status: TopicStatus): string {
   return STATUS_TEXT[status];
 }
 
-/** Tailwind-ish tone token for the Preparation (light) palette. */
+/** Tone token for the Preparation palette (--prep-green/blue/amber/red). */
 export function topicStatusTone(status: TopicStatus): 'green' | 'blue' | 'amber' | 'red' {
   switch (status) {
     case 'strong':

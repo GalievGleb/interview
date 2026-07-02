@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ReadinessRing from '../components/prepare/ReadinessRing';
+import { pluralRu } from '../lib/pluralRu';
 import { readinessLabelText, readinessTone, topicStatusTone } from '../lib/vacancyReview/readiness';
 import {
   deleteSession,
@@ -107,7 +108,11 @@ export default function HomePage() {
           <PrepStatusCard
             label="Вакансия"
             title={report ? completed?.vacancyAnalysis.targetRole || 'Роль разобрана' : 'Нужна вакансия'}
-            body={report ? `${report.topicScores.length} тем найдено` : 'Начните с описания роли'}
+            body={
+              report
+                ? `Найдено: ${report.topicScores.length} ${pluralRu(report.topicScores.length, 'тема', 'темы', 'тем')}`
+                : 'Начните с описания роли'
+            }
             tone={report ? 'green' : 'amber'}
           />
           <PrepStatusCard
@@ -138,8 +143,18 @@ export default function HomePage() {
                   <p className="prep-faint">Последний разбор вакансии</p>
                   <h2 className="prep-h2 prep-card-title truncate">{completed?.vacancyAnalysis.targetRole}</h2>
                   <p className="prep-sub mt-2">
-                    {report.topicScores.length} тем, {report.strengths.length} сильных зон,{' '}
-                    {report.criticalGaps.length} критичных пробелов.
+                    {report.topicScores.length}{' '}
+                    {pluralRu(report.topicScores.length, 'тема', 'темы', 'тем')},{' '}
+                    {report.strengths.length}{' '}
+                    {pluralRu(report.strengths.length, 'сильная зона', 'сильные зоны', 'сильных зон')},{' '}
+                    {report.criticalGaps.length}{' '}
+                    {pluralRu(
+                      report.criticalGaps.length,
+                      'критичный пробел',
+                      'критичных пробела',
+                      'критичных пробелов',
+                    )}
+                    .
                   </p>
                   <div className="mt-4 flex flex-wrap items-center gap-2">
                     <button
@@ -251,9 +266,12 @@ export default function HomePage() {
               {weakest.map((t) => {
                 const tone = topicStatusTone(t.status);
                 return (
-                  <div key={t.topicId} className={`prep-card p-4 prep-topic prep-topic-${tone}`}>
+                  <div
+                    key={t.topicId}
+                    className={`prep-card prep-card-lift p-4 prep-topic prep-topic-${tone}`}
+                  >
                     <p className="prep-h2 pl-2 truncate">{t.title}</p>
-                    <p className="pl-2 text-[22px] font-bold" style={{ color: 'var(--prep-ink)' }}>
+                    <p className="pl-2 text-[22px] font-bold" style={{ color: `var(--prep-${tone})` }}>
                       {t.score}%
                     </p>
                     <button

@@ -1,6 +1,12 @@
 import { useEffect, useState } from 'react';
+import { topicStatusFromScore, topicStatusTone } from '../../lib/vacancyReview/readiness';
 import { useVoiceAnswer } from '../../lib/vacancyReview/useVoiceAnswer';
 import type { Difficulty, QuestionLevel, SmokeReviewSession } from '../../lib/vacancyReview/types';
+
+/** Same thresholds as the readiness map, so scores read identically everywhere. */
+function scoreColor(value: number): string {
+  return `var(--prep-${topicStatusTone(topicStatusFromScore(value))})`;
+}
 
 interface Props {
   session: SmokeReviewSession;
@@ -183,7 +189,10 @@ export default function SmokeInterviewView({
                 {evaluation.verdict && <p className="prep-sub mt-0.5">{evaluation.verdict}</p>}
               </div>
               <div className="shrink-0 text-right">
-                <span className="text-[22px] font-bold leading-none" style={{ color: 'var(--prep-ink)' }}>
+                <span
+                  className="text-[26px] font-bold leading-none"
+                  style={{ color: scoreColor(evaluation.score) }}
+                >
                   {evaluation.score}%
                 </span>
                 {evaluation.levelEstimate && (
@@ -338,7 +347,7 @@ function Metric({ label, value }: { label: string; value: number }) {
   return (
     <span className="text-[12px]" style={{ color: 'var(--prep-ink-faint)' }}>
       {label}{' '}
-      <strong style={{ color: 'var(--prep-ink)' }}>{value}</strong>
+      <strong style={{ color: scoreColor(value) }}>{value}</strong>
     </span>
   );
 }
