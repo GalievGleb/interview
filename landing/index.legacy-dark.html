@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Skillcue - live interview assistant for QA Automation and Python</title>
+  <style>
+    :root {
+      --bg: #0a0b0f;
+      --panel: #0f1117;
+      --card: #15171e;
+      --elevated: #1d212b;
+      --border: #23262f;
+      --border-strong: #2f333f;
+      --text: #e7e9ef;
+      --muted: #9aa1ad;
+      --faint: #6b7280;
+      --accent: #6366f1;
+      --accent-2: #818cf8;
+      --ok: #34d399;
+      --warn: #fbbf24;
+      --danger: #f87171;
+      --shadow: 0 28px 80px -34px rgba(0, 0, 0, .86);
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, "Segoe UI Variable", "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
+    a { color: inherit; text-decoration: none; }
+
+    .shell {
+      min-height: 100vh;
+      overflow: hidden;
+      background:
+        linear-gradient(rgba(255,255,255,.018) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,.018) 1px, transparent 1px),
+        var(--bg);
+      background-size: 48px 48px;
+    }
+
+    .nav {
+      position: fixed;
+      inset: 0 0 auto 0;
+      z-index: 30;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 64px;
+      padding: 0 28px;
+      border-bottom: 1px solid rgba(35, 38, 47, .72);
+      background: rgba(10, 11, 15, .82);
+      backdrop-filter: blur(18px);
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      letter-spacing: -.01em;
+    }
+    .mark {
+      display: grid;
+      place-items: center;
+      width: 32px;
+      height: 32px;
+      border-radius: 10px;
+      background: var(--accent);
+      color: white;
+      font-size: 12px;
+    }
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 22px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .nav-links a:hover { color: var(--text); }
+    .nav-cta {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 36px;
+      padding: 0 14px;
+      border: 1px solid rgba(99,102,241,.45);
+      border-radius: 999px;
+      background: rgba(99,102,241,.14);
+      color: var(--text);
+      font-weight: 650;
+    }
+
+    .hero {
+      position: relative;
+      min-height: min(760px, 88svh);
+      padding: 128px 28px 72px;
+      display: flex;
+      align-items: center;
+    }
+    .hero-scene {
+      position: absolute;
+      inset: 82px max(24px, calc((100vw - 1180px) / 2)) 42px;
+      border: 1px solid rgba(47, 51, 63, .8);
+      border-radius: 28px;
+      background: rgba(15,17,23,.88);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      transform: perspective(1200px) rotateX(2deg) rotateY(-5deg) translateX(110px);
+      transform-origin: center right;
+      opacity: .86;
+    }
+    .hero-scene::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 60% 45% at 64% 18%, rgba(99,102,241,.18), transparent 62%),
+        linear-gradient(90deg, rgba(10,11,15,.9) 0%, rgba(10,11,15,.52) 34%, rgba(10,11,15,.12) 100%);
+      pointer-events: none;
+    }
+    .app-top {
+      height: 48px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(15,17,23,.9);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 16px;
+      color: var(--faint);
+      font-size: 12px;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 16px rgba(52,211,153,.45); }
+    .mono { font-family: "JetBrains Mono", "SF Mono", Consolas, monospace; font-variant-numeric: tabular-nums; }
+    .app-grid {
+      position: relative;
+      display: grid;
+      grid-template-columns: 220px minmax(280px, 360px) minmax(420px, 1fr);
+      height: calc(100% - 48px);
+      min-height: 500px;
+    }
+    .sidebar, .transcript, .answer {
+      border-right: 1px solid var(--border);
+      padding: 18px;
+    }
+    .side-pill {
+      height: 34px;
+      border-radius: 999px;
+      margin-bottom: 8px;
+      background: rgba(99,102,241,.14);
+      border: 1px solid rgba(99,102,241,.25);
+    }
+    .side-line {
+      height: 30px;
+      border-radius: 999px;
+      margin-bottom: 8px;
+      background: rgba(255,255,255,.045);
+    }
+    .transcript h3, .answer h3 {
+      margin: 0 0 14px;
+      color: var(--muted);
+      font-size: 11px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .bubble {
+      padding: 12px;
+      border: 1px solid rgba(52,211,153,.18);
+      border-radius: 16px;
+      background: rgba(52,211,153,.06);
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+      margin-bottom: 12px;
+    }
+    .bubble.you {
+      border-color: rgba(167,139,250,.18);
+      background: rgba(167,139,250,.06);
+    }
+    .answer {
+      border-right: 0;
+      padding: 24px;
+    }
+    .answer-card {
+      position: relative;
+      min-height: 310px;
+      border: 1px solid rgba(99,102,241,.36);
+      border-radius: 22px;
+      background: rgba(21,23,30,.94);
+      padding: 22px;
+      box-shadow: 0 24px 70px -32px rgba(99,102,241,.55);
+    }
+    .answer-card::before {
+      content: "";
+      position: absolute;
+      inset: 0 0 auto;
+      height: 3px;
+      background: linear-gradient(90deg, var(--accent), var(--ok));
+      border-radius: 22px 22px 0 0;
+    }
+    .question {
+      color: var(--accent-2);
+      font-size: 13px;
+      margin-bottom: 16px;
+    }
+    .answer-card p {
+      margin: 0;
+      max-width: 620px;
+      font-size: 18px;
+      line-height: 1.68;
+    }
+    .metrics {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 22px;
+    }
+    .metric {
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 6px 10px;
+      color: var(--muted);
+      background: rgba(29,33,43,.75);
+      font-size: 12px;
+    }
+    .hero-content {
+      position: relative;
+      z-index: 4;
+      width: min(620px, 100%);
+      margin-left: max(0px, calc((100vw - 1180px) / 2));
+      text-shadow: 0 2px 26px rgba(0,0,0,.8);
+    }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--ok);
+      font-size: 13px;
+      font-weight: 650;
+      margin-bottom: 18px;
+    }
+    h1 {
+      margin: 0;
+      font-size: clamp(54px, 8vw, 116px);
+      line-height: .88;
+      letter-spacing: -.075em;
+    }
+    .hero-copy {
+      margin: 24px 0 0;
+      max-width: 560px;
+      color: var(--muted);
+      font-size: clamp(18px, 2vw, 22px);
+      line-height: 1.55;
+    }
+    .hero-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 34px;
+    }
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 46px;
+      padding: 0 18px;
+      border-radius: 14px;
+      border: 1px solid var(--border-strong);
+      background: rgba(29,33,43,.92);
+      color: var(--text);
+      font-weight: 700;
+    }
+    .button.primary {
+      border-color: rgba(99,102,241,.55);
+      background: #6366f1;
+      color: white;
+      box-shadow: 0 12px 34px -18px rgba(99,102,241,.8);
+    }
+
+    main {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 46px 28px 90px;
+    }
+    .section-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 24px;
+      align-items: flex-end;
+      margin-bottom: 22px;
+    }
+    .section-head h2 {
+      margin: 0;
+      max-width: 640px;
+      font-size: clamp(28px, 4vw, 48px);
+      line-height: 1.04;
+      letter-spacing: -.045em;
+    }
+    .section-head p {
+      margin: 0;
+      max-width: 390px;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+    .card {
+      min-height: 220px;
+      padding: 22px;
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      background: rgba(21,23,30,.86);
+      box-shadow: 0 12px 42px -30px rgba(0,0,0,.9);
+    }
+    .card-kicker {
+      color: var(--faint);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      margin-bottom: 40px;
+    }
+    .card h3 {
+      margin: 0 0 10px;
+      font-size: 20px;
+      letter-spacing: -.02em;
+    }
+    .card p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.62;
+    }
+    .trust {
+      margin-top: 14px;
+      display: grid;
+      grid-template-columns: 1.1fr .9fr;
+      gap: 14px;
+    }
+    .trust .card { min-height: 180px; }
+    .list {
+      display: grid;
+      gap: 10px;
+      margin: 16px 0 0;
+      padding: 0;
+      list-style: none;
+      color: var(--muted);
+    }
+    .list li {
+      display: flex;
+      gap: 10px;
+      align-items: baseline;
+    }
+    .list li::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--accent-2);
+      flex: 0 0 auto;
+    }
+    footer {
+      border-top: 1px solid var(--border);
+      color: var(--faint);
+      padding: 26px 28px;
+      text-align: center;
+      font-size: 13px;
+    }
+
+    @media (max-width: 900px) {
+      .nav-links a:not(.nav-cta) { display: none; }
+      .hero { min-height: 88svh; padding-top: 108px; }
+      .hero-scene {
+        inset: 88px 16px 24px;
+        transform: perspective(900px) rotateX(3deg) translateX(0);
+        opacity: .44;
+      }
+      .app-grid { grid-template-columns: 1fr; }
+      .sidebar, .transcript { display: none; }
+      .answer-card p { font-size: 15px; }
+      .cards, .trust { grid-template-columns: 1fr; }
+      .section-head { display: block; }
+      .section-head p { margin-top: 14px; }
+    }
+
+    @media (prefers-reduced-motion: no-preference) {
+      .dot { animation: pulse 1.8s ease-in-out infinite; }
+      @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <nav class="nav" aria-label="Main navigation">
+      <a class="brand" href="#">
+        <span class="mark">SC</span>
+        <span>Skillcue</span>
+      </a>
+      <div class="nav-links">
+        <a href="#workflow">Workflow</a>
+        <a href="#trust">Privacy</a>
+        <a href="#fit">For QA/Python</a>
+        <a class="nav-cta" href="https://github.com/GalievGleb/interview/releases">Download</a>
+      </div>
+    </nav>
+
+    <section class="hero">
+      <div class="hero-scene" aria-hidden="true">
+        <div class="app-top">
+          <span class="mark">SC</span>
+          <strong style="color:var(--text)">Skillcue</strong>
+          <span class="dot"></span>
+          <span>Live session</span>
+          <span class="mono">00:14:06</span>
+          <span style="margin-left:auto;color:var(--ok)">Local / Private</span>
+        </div>
+        <div class="app-grid">
+          <aside class="sidebar">
+            <div class="side-pill"></div>
+            <div class="side-line"></div>
+            <div class="side-line" style="width:82%"></div>
+            <div class="side-line" style="width:68%"></div>
+            <div style="height:40px"></div>
+            <div class="side-line" style="width:74%"></div>
+            <div class="side-line" style="width:58%"></div>
+          </aside>
+          <section class="transcript">
+            <h3>Transcript</h3>
+            <div class="bubble">Расскажи, как ты настраивал CI/CD под автотесты?</div>
+            <div class="bubble you">Я делал это через GitLab CI, Docker, pytest и Allure...</div>
+            <div class="bubble">Что делал с flaky-тестами?</div>
+          </section>
+          <section class="answer">
+            <h3>Say this</h3>
+            <div class="answer-card">
+              <div class="question">Q: Как ты настраивал CI/CD?</div>
+              <p>
+                Я обычно делал пайплайн так, чтобы тесты запускались предсказуемо:
+                отдельные jobs для smoke и regression, Docker-окружение с зависимостями,
+                запуск pytest, сохранение Allure report, логов и скриншотов как artifacts.
+              </p>
+              <div class="metrics">
+                <span class="metric">STT <span class="mono">0.72s</span></span>
+                <span class="metric">LLM <span class="mono">3.8s</span></span>
+                <span class="metric">Total <span class="mono">4.5s</span></span>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <div class="hero-content">
+        <div class="eyebrow"><span class="dot"></span> Local STT / QA Automation / Python interviews</div>
+        <h1>Skillcue</h1>
+        <p class="hero-copy">
+          Desktop AI assistant that listens to technical interview questions and gives short,
+          specific answers you can say aloud - based on your resume, vacancy and QA/Python context.
+        </p>
+        <div class="hero-actions">
+          <a class="button primary" href="https://github.com/GalievGleb/interview/releases">Download for Windows</a>
+          <a class="button" href="#workflow">See how it works</a>
+        </div>
+      </div>
+    </section>
+
+    <main>
+      <section id="workflow">
+        <div class="section-head">
+          <h2>Built around the actual interview moment.</h2>
+          <p>Skillcue keeps the answer dominant, transcript secondary, and diagnostics one click away when something needs debugging.</p>
+        </div>
+        <div class="cards">
+          <article class="card">
+            <div class="card-kicker">01 / Listen</div>
+            <h3>Captures the question</h3>
+            <p>Microphone and system audio feed local Whisper, with glossary corrections for CI/CD, pytest, Docker, API and QA terms.</p>
+          </article>
+          <article class="card">
+            <div class="card-kicker">02 / Understand</div>
+            <h3>Uses your context</h3>
+            <p>Resume, vacancy and notes steer the answer toward your real QA Automation and Python experience instead of generic advice.</p>
+          </article>
+          <article class="card">
+            <div class="card-kicker">03 / Answer</div>
+            <h3>Short enough to say aloud</h3>
+            <p>The default mode targets a concise spoken answer, with shorter, detailed, English and risk variants available when needed.</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="trust" style="margin-top:72px">
+        <div class="section-head">
+          <h2>Private by default, inspectable when it matters.</h2>
+          <p>The product is designed for stressful live usage, but still gives power users serious telemetry and regression tools.</p>
+        </div>
+        <div class="trust">
+          <article class="card">
+            <div class="card-kicker">Local mode</div>
+            <h3>Speech recognition can run on-device</h3>
+            <p>Local Whisper keeps audio processing on your machine in local mode. The app also exposes readiness, latency, debug bundles and skipped transcript reasons.</p>
+          </article>
+          <article class="card">
+            <div class="card-kicker">Quality loop</div>
+            <h3>Test Lab for real QA</h3>
+            <ul class="list">
+              <li>Voice regression reports for transcript and answer quality.</li>
+              <li>STT benchmark for glossary and audio diagnostics.</li>
+              <li>History and exports for post-interview analysis.</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <section id="fit" style="margin-top:72px">
+        <div class="section-head">
+          <h2>Focused on QA Automation, not generic meeting notes.</h2>
+          <p>Skillcue is tuned for Python, pytest, Playwright, API testing, CI/CD, Docker, Allure and practical interview answers.</p>
+        </div>
+        <div class="cards">
+          <article class="card">
+            <div class="card-kicker">QA answers</div>
+            <h3>Concrete, not fluffy</h3>
+            <p>Answers mention tools, checks and responsibilities: smoke/regression, API negatives, artifacts, logs, flaky-test triage.</p>
+          </article>
+          <article class="card">
+            <div class="card-kicker">Python pack</div>
+            <h3>Useful for pure Python questions</h3>
+            <p>Python knowledge is auxiliary, so it helps with language theory without overriding resume and QA Automation context.</p>
+          </article>
+          <article class="card">
+            <div class="card-kicker">Overlay</div>
+            <h3>Desktop-first workflow</h3>
+            <p>The overlay keeps help available during Zoom, Teams or browser interviews while the main app handles setup and diagnostics.</p>
+          </article>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <footer>
+    Skillcue - live interview assistant for QA Automation and Python engineers.
+  </footer>
+</body>
+</html>

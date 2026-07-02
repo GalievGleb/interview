@@ -1,114 +1,1555 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Interview Assistant — AI-помощник для интервью</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SkillCue - подготовка и live-подсказки для интервью</title>
+  <meta name="description" content="SkillCue разбирает вакансию, тренирует ответы и показывает короткую live-подсказку во время интервью." />
+  <meta name="theme-color" content="#05070b" />
+  <meta property="og:title" content="SkillCue - подготовка и live-подсказки для интервью" />
+  <meta property="og:description" content="От вакансии до короткой подсказки на live-интервью: разбор, тренировка, карта готовности и overlay." />
+  <meta property="og:type" content="website" />
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg: #05070b;
+      --bg-2: #080d15;
+      --panel: #0d1420;
+      --panel-2: #111b2a;
+      --panel-3: #162235;
+      --line: rgba(194, 213, 240, .13);
+      --line-strong: rgba(194, 213, 240, .23);
+      --text: #f4f7fb;
+      --soft: #c7d2e2;
+      --muted: #7f8da3;
+      --green: #46d37d;
+      --green-2: #7ee7a4;
+      --blue: #7eb3ff;
+      --violet: #a391ff;
+      --yellow: #ffd66d;
+      --danger: #ff7f7f;
+      --paper: #eef5f1;
+      --paper-2: #dfece8;
+      --paper-text: #101927;
+      --paper-muted: #516071;
+      --radius-xl: 34px;
+      --radius-lg: 24px;
+      --radius-md: 16px;
+      --shadow: 0 34px 110px rgba(0, 0, 0, .46);
+      --shadow-soft: 0 18px 60px rgba(0, 0, 0, .28);
+      --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --display: Manrope, Inter, ui-sans-serif, system-ui, sans-serif;
+      --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    }
+
+    * { box-sizing: border-box; }
+
+    *::selection {
+      background: rgba(126, 231, 164, .28);
+      color: var(--text);
+    }
+
+    html {
+      scroll-behavior: smooth;
+      background: var(--bg);
+      overflow-x: hidden;
+    }
+
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      background: #0f1117;
-      color: #fff;
+      margin: 0;
+      min-width: 320px;
+      background:
+        radial-gradient(720px 520px at 50% 0%, rgba(72, 118, 191, .18), transparent 60%),
+        radial-gradient(620px 420px at 18% 38%, rgba(70, 211, 125, .09), transparent 66%),
+        radial-gradient(620px 420px at 88% 52%, rgba(163, 145, 255, .08), transparent 64%),
+        linear-gradient(180deg, #05070b 0%, #07101c 48%, #05070b 100%);
+      color: var(--text);
+      font-family: var(--sans);
+      text-rendering: geometricPrecision;
+      overflow-x: hidden;
+    }
+
+    a { color: inherit; text-decoration: none; }
+
+    a:focus-visible,
+    button:focus-visible,
+    [tabindex]:focus-visible {
+      outline: 3px solid rgba(126, 179, 255, .62);
+      outline-offset: 4px;
+    }
+
+    .skip-link {
+      position: fixed;
+      left: 16px;
+      top: 12px;
+      z-index: 100;
+      padding: 10px 14px;
+      border-radius: 12px;
+      background: var(--text);
+      color: #05070b;
+      font-weight: 850;
+      transform: translateY(-160%);
+      transition: transform .16s ease;
+    }
+
+    .skip-link:focus {
+      transform: translateY(0);
+    }
+
+    .wrap {
+      width: min(100% - 40px, 1120px);
+      margin-inline: auto;
+    }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 30;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 22px;
+      width: min(100% - 40px, 1120px);
+      height: 74px;
+      margin: 0 auto;
+      padding: 0 14px;
+      border: 1px solid var(--line);
+      border-top: 0;
+      border-radius: 0 0 22px 22px;
+      background: rgba(5, 7, 11, .72);
+      backdrop-filter: blur(18px);
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 920;
+      font-size: 20px;
+      letter-spacing: -.045em;
+      min-height: 44px;
+    }
+
+    .brand-mark {
+      width: 30px;
+      height: 30px;
+      position: relative;
+      border-radius: 9px 14px 14px 9px;
+      background: linear-gradient(135deg, var(--green), #98efb6);
+      box-shadow: 0 0 0 1px rgba(255,255,255,.22) inset, 0 12px 26px rgba(70,211,125,.2);
+    }
+
+    .brand-mark::before {
+      content: "";
+      position: absolute;
+      left: 7px;
+      top: 9px;
+      width: 13px;
+      height: 9px;
+      border: 2px solid #061019;
+      border-left: 0;
+      border-radius: 0 9px 9px 0;
+    }
+
+    .nav {
+      display: flex;
+      align-items: center;
+      gap: 22px;
+      color: rgba(244,247,251,.72);
+      font-size: 13px;
+      font-weight: 760;
+    }
+
+    .nav a {
+      display: inline-flex;
+      align-items: center;
+      min-height: 40px;
+      transition: color .16s ease;
+    }
+
+    .nav a:hover { color: var(--text); }
+
+    .actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 9px;
+      min-height: 44px;
+      padding: 0 18px;
+      border: 1px solid var(--line-strong);
+      border-radius: 13px;
+      background: rgba(255,255,255,.045);
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 820;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
+      transition: transform .16s ease, border-color .16s ease, background .16s ease, box-shadow .16s ease;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .btn:hover {
+      transform: translateY(-1px);
+      border-color: rgba(244,247,251,.3);
+      background: rgba(255,255,255,.065);
+    }
+
+    .btn:active {
+      transform: translateY(0);
+    }
+
+    .btn-primary {
+      border-color: rgba(70,211,125,.34);
+      background: linear-gradient(180deg, #65df91, #34c96f);
+      color: #06140d;
+      box-shadow: 0 22px 50px rgba(70,211,125,.22), inset 0 1px 0 rgba(255,255,255,.36);
+    }
+
+    .btn-primary:hover {
+      border-color: rgba(126,231,164,.5);
+      background: linear-gradient(180deg, #7bea9f, #3bd273);
+      box-shadow: 0 28px 62px rgba(70,211,125,.28), inset 0 1px 0 rgba(255,255,255,.42);
+    }
+
+    .btn-primary::after {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-right: 2px solid currentColor;
+      border-bottom: 2px solid currentColor;
+      transform: rotate(-45deg);
+      opacity: .72;
+    }
+
+    .btn-ghost {
+      background: rgba(255,255,255,.025);
+      box-shadow: none;
+    }
+
+    .hero {
+      padding: 82px 0 58px;
+      text-align: center;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 22px;
+      padding: 8px 12px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(255,255,255,.045);
+      color: rgba(244,247,251,.78);
+      font-size: 12px;
+      font-weight: 840;
+    }
+
+    .pulse {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 0 5px rgba(70,211,125,.14);
+    }
+
+    .mobile-break {
+      display: none;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin-top: 0;
+    }
+
+    .hero h1 {
+      max-width: 760px;
+      margin: 0 auto 18px;
+      font-family: var(--display);
+      font-size: clamp(42px, 7.2vw, 76px);
+      line-height: .97;
+      letter-spacing: -.073em;
+      font-weight: 880;
+      overflow-wrap: normal;
+    }
+
+    .hero h1 span {
+      color: var(--green-2);
+    }
+
+    .hero-copy {
+      max-width: 610px;
+      margin: 0 auto;
+      color: rgba(244,247,251,.82);
+      font-size: 18px;
+      line-height: 1.58;
+    }
+
+    .hero-actions {
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin: 28px 0 48px;
+    }
+
+    .hero-demo {
+      width: min(100%, 960px);
+      margin: 0 auto;
+      padding: 28px;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius-xl);
+      background:
+        radial-gradient(620px 260px at 50% 0%, rgba(126,179,255,.13), transparent 60%),
+        linear-gradient(180deg, rgba(255,255,255,.075), rgba(255,255,255,.035));
+      box-shadow: var(--shadow), 0 0 0 1px rgba(126,179,255,.04), inset 0 1px 0 rgba(255,255,255,.08);
+      text-align: left;
+    }
+
+    .demo-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 16px;
+      color: rgba(244,247,251,.66);
+      font-size: 12px;
+      font-weight: 820;
+    }
+
+    .traffic {
+      display: inline-flex;
+      gap: 8px;
+    }
+
+    .traffic i {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #ff6d6d;
+    }
+
+    .traffic i:nth-child(2) { background: #ffd35d; }
+    .traffic i:nth-child(3) { background: var(--green); }
+
+    .live-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 7px 10px;
+      border: 1px solid rgba(70,211,125,.22);
+      border-radius: 999px;
+      background: rgba(70,211,125,.11);
+      color: #91f2ad;
+      font-size: 12px;
+      font-weight: 880;
+    }
+
+    .demo-grid {
+      display: grid;
+      grid-template-columns: minmax(280px, .62fr) minmax(0, 1fr);
+      gap: 22px;
+      align-items: stretch;
+      min-width: 0;
+    }
+
+    .call-panel,
+    .cue-panel {
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      background: rgba(6, 12, 22, .72);
+      min-width: 0;
+    }
+
+    .call-panel {
+      min-height: 292px;
+      padding: 18px;
+      background:
+        radial-gradient(240px 150px at 20% 20%, rgba(126,179,255,.11), transparent 66%),
+        rgba(6, 12, 22, .7);
+    }
+
+    .bubble {
+      width: fit-content;
+      max-width: 86%;
+      margin-bottom: 12px;
+      padding: 12px 14px;
+      border-radius: 16px;
+      color: rgba(244,247,251,.86);
+      background: rgba(255,255,255,.072);
+      font-size: 13px;
+      line-height: 1.38;
+    }
+
+    .bubble.blue {
+      margin-left: auto;
+      background: rgba(126,179,255,.2);
+      color: #eaf3ff;
+    }
+
+    .cue-panel {
+      padding: 22px;
+      background:
+        radial-gradient(280px 160px at 100% 0%, rgba(70,211,125,.1), transparent 66%),
+        rgba(4, 10, 18, .84);
+      min-width: 0;
+    }
+
+    .cue-question {
+      padding: 20px;
+      border-radius: 17px;
+      background: rgba(255,255,255,.92);
+      color: #111927;
+      font-size: 23px;
+      line-height: 1.25;
+      font-weight: 900;
+      letter-spacing: -.035em;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      max-width: 100%;
+    }
+
+    .cue-answer {
+      margin-top: 14px;
+      padding: 20px;
+      border: 1px solid rgba(70,211,125,.24);
+      border-radius: 17px;
+      background:
+        radial-gradient(240px 110px at 100% 0%, rgba(70,211,125,.12), transparent 64%),
+        rgba(70,211,125,.08);
+      min-width: 0;
+    }
+
+    .cue-answer span,
+    .section-label {
+      display: block;
+      margin-bottom: 8px;
+      color: #92f3ad;
+      font-size: 11px;
+      font-weight: 920;
+      letter-spacing: .075em;
+      text-transform: uppercase;
+    }
+
+    .cue-answer p {
+      margin: 0;
+      color: rgba(244,247,251,.93);
+      font-size: 16px;
+      line-height: 1.62;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    .cue-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .meta-pill {
+      padding: 8px 11px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(255,255,255,.06);
+      color: rgba(244,247,251,.74);
+      font-size: 12px;
+      font-weight: 820;
+      overflow-wrap: anywhere;
+    }
+
+    .meta-pill.strong {
+      border-color: rgba(70,211,125,.28);
+      color: #98efb6;
+      background: rgba(70,211,125,.09);
+    }
+
+    .section {
+      padding: 76px 0;
+    }
+
+    .result-snapshot {
+      padding: 12px 0 84px;
+    }
+
+    .paper-panel {
+      border: 1px solid rgba(255,255,255,.46);
+      border-radius: var(--radius-xl);
+      background:
+        radial-gradient(540px 260px at 82% 0%, rgba(126, 179, 255, .22), transparent 62%),
+        radial-gradient(440px 220px at 0% 100%, rgba(70, 211, 125, .19), transparent 64%),
+        linear-gradient(135deg, #f5faf7, var(--paper));
+      color: var(--paper-text);
+      box-shadow: 0 34px 100px rgba(0,0,0,.34), inset 0 1px 0 rgba(255,255,255,.82);
+    }
+
+    .paper-panel .section-label {
+      color: #11844a;
+    }
+
+    .result-panel {
+      display: grid;
+      grid-template-columns: minmax(0, .92fr) minmax(0, 1.08fr);
+      gap: 24px;
+      align-items: stretch;
+      padding: 30px;
+    }
+
+    .result-copy {
+      display: flex;
+      min-height: 100%;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 22px;
+    }
+
+    .result-copy h2,
+    .skills-copy h2 {
+      margin-bottom: 12px;
+      font-family: var(--display);
+      font-size: clamp(30px, 4.6vw, 52px);
+      line-height: 1.02;
+      letter-spacing: -.064em;
+    }
+
+    .result-copy p,
+    .skills-copy p {
+      max-width: 520px;
+      margin: 0;
+      color: var(--paper-muted);
+      font-size: 16px;
+      line-height: 1.58;
+    }
+
+    .result-proof {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .result-proof-card {
+      padding: 16px;
+      border: 1px solid rgba(16,25,39,.1);
+      border-radius: 20px;
+      background: rgba(255,255,255,.62);
+      box-shadow: 0 16px 44px rgba(18,34,52,.08);
+    }
+
+    .result-proof-card strong {
+      display: block;
+      margin-bottom: 5px;
+      color: #0d5f35;
+      font-family: var(--display);
+      font-size: 30px;
+      line-height: .95;
+      letter-spacing: -.055em;
+    }
+
+    .result-proof-card span {
+      display: block;
+      color: var(--paper-muted);
+      font-size: 13px;
+      line-height: 1.35;
+      font-weight: 760;
+    }
+
+    .result-example {
+      padding: 18px;
+      border: 1px solid rgba(16,25,39,.1);
+      border-radius: 24px;
+      background: rgba(255,255,255,.74);
+      box-shadow: 0 22px 60px rgba(18,34,52,.12);
+    }
+
+    .result-example-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 14px;
+      color: #11844a;
+      font-size: 12px;
+      font-weight: 920;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+    }
+
+    .result-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .result-item {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 12px;
+      align-items: center;
+      padding: 13px 14px;
+      border: 1px solid rgba(16,25,39,.09);
+      border-radius: 16px;
+      background: #fff;
+      color: var(--paper-text);
+      font-size: 14px;
+      font-weight: 820;
+    }
+
+    .result-item i {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 0 5px rgba(70,211,125,.14);
+    }
+
+    .result-item em {
+      color: var(--paper-muted);
+      font-style: normal;
+      font-size: 12px;
+      font-weight: 860;
+    }
+
+    .skills-section {
+      padding: 24px 0 84px;
+    }
+
+    .skills-panel {
+      display: grid;
+      grid-template-columns: minmax(0, .76fr) minmax(0, 1.24fr);
+      gap: 28px;
+      align-items: center;
+      padding: 34px;
+    }
+
+    .skills-board {
+      display: grid;
+      gap: 14px;
+    }
+
+    .skill-row {
+      padding: 16px;
+      border: 1px solid rgba(16,25,39,.1);
+      border-radius: 18px;
+      background: rgba(255,255,255,.7);
+      box-shadow: 0 14px 42px rgba(18,34,52,.08);
+    }
+
+    .skill-row-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 10px;
+      color: var(--paper-text);
+      font-size: 14px;
+      font-weight: 900;
+    }
+
+    .skill-row-head span:last-child {
+      color: #13854b;
+      font-family: var(--mono);
+      font-size: 13px;
+    }
+
+    .skill-track {
+      height: 10px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: rgba(16,25,39,.1);
+    }
+
+    .skill-track span {
+      display: block;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #26bd6a, #73e79a);
+    }
+
+    .skill-row.warn .skill-row-head span:last-child {
+      color: #8c6710;
+    }
+
+    .skill-row.warn .skill-track span {
+      background: linear-gradient(90deg, #d8ad45, #ffd66d);
+    }
+
+    .skill-row.risk .skill-row-head span:last-child {
+      color: #a33f38;
+    }
+
+    .skill-row.risk .skill-track span {
+      background: linear-gradient(90deg, #c6655d, #ff9d91);
+    }
+
+    .section-head {
+      max-width: 680px;
+      margin: 0 auto 34px;
+      text-align: center;
+    }
+
+    .section-head h2 {
+      margin-bottom: 12px;
+      font-family: var(--display);
+      font-size: clamp(32px, 5vw, 54px);
+      line-height: 1.02;
+      letter-spacing: -.06em;
+    }
+
+    .section-head p {
+      margin-bottom: 0;
+      color: rgba(244,247,251,.72);
+      font-size: 16px;
+      line-height: 1.58;
+    }
+
+    .timeline {
+      position: relative;
+      display: grid;
+      gap: 38px;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    .timeline::before {
+      content: "";
+      position: absolute;
+      left: 50%;
+      top: 18px;
+      bottom: 18px;
+      width: 1px;
+      background: linear-gradient(180deg, transparent, rgba(244,247,251,.18), transparent);
+    }
+
+    .step {
+      position: relative;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 44px minmax(0, 1fr);
+      gap: 22px;
+      align-items: center;
+    }
+
+    .step:nth-child(even) .step-copy {
+      grid-column: 3;
+    }
+
+    .step:nth-child(even) .step-visual {
+      grid-column: 1;
+      grid-row: 1;
+    }
+
+    .step-dot {
+      grid-column: 2;
+      display: grid;
+      place-items: center;
+      width: 34px;
+      height: 34px;
+      margin: 0 auto;
+      border: 1px solid var(--line-strong);
+      border-radius: 50%;
+      background: #0a101a;
+      color: var(--green-2);
+      font-size: 12px;
+      font-weight: 920;
+      box-shadow: 0 0 0 7px rgba(70,211,125,.06);
+    }
+
+    .step-copy h3 {
+      margin-bottom: 8px;
+      font-size: 24px;
+      letter-spacing: -.04em;
+    }
+
+    .step-copy p {
+      margin: 0;
+      color: rgba(244,247,251,.75);
+      font-size: 14px;
       line-height: 1.6;
     }
-    .hero {
-      max-width: 800px;
-      margin: 0 auto;
-      padding: 80px 24px;
-      text-align: center;
+
+    .step-visual {
+      min-height: 154px;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.032));
+      box-shadow: var(--shadow-soft), inset 0 1px 0 rgba(255,255,255,.07);
     }
-    h1 { font-size: 2.5rem; margin-bottom: 16px; }
-    .subtitle { color: #9ca3af; font-size: 1.2rem; margin-bottom: 40px; }
-    .cta {
+
+    .mini-lines {
+      display: grid;
+      gap: 10px;
+    }
+
+    .mini-line {
+      height: 10px;
+      border-radius: 999px;
+      background: rgba(126,179,255,.28);
+    }
+
+    .mini-line.green { background: rgba(70,211,125,.5); }
+    .mini-line.yellow { background: rgba(255,214,109,.55); }
+    .mini-line.short { width: 58%; }
+
+    .risk-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 9px;
+      padding: 10px 12px;
+      border-radius: 13px;
+      background: rgba(255,255,255,.07);
+      color: rgba(244,247,251,.83);
+      font-size: 12px;
+      font-weight: 830;
+    }
+
+    .risk-row strong {
+      color: var(--yellow);
+    }
+
+    .progress-card strong {
+      display: block;
+      margin-bottom: 12px;
+      color: var(--green-2);
+      font-family: var(--display);
+      font-size: 48px;
+      line-height: .9;
+      letter-spacing: -.065em;
+    }
+
+    .progress-track {
+      height: 12px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: rgba(255,255,255,.11);
+    }
+
+    .progress-track span {
+      display: block;
+      width: 78%;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--green), var(--green-2));
+    }
+
+    .live-mini {
+      padding: 14px;
+      border: 1px solid rgba(70,211,125,.22);
+      border-radius: 17px;
+      background: rgba(4, 10, 18, .82);
+      color: rgba(244,247,251,.88);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .feature-grid,
+    .pricing-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .feature-card,
+    .price-card,
+    .faq-item {
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      background: rgba(255,255,255,.045);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
+    }
+
+    .feature-card {
+      min-height: 184px;
+      padding: 22px;
+      transition: transform .16s ease, border-color .16s ease, background .16s ease;
+    }
+
+    .feature-card.primary-feature {
+      grid-column: span 1;
+      border-color: rgba(70,211,125,.28);
+      background:
+        radial-gradient(260px 150px at 100% 0%, rgba(70,211,125,.13), transparent 66%),
+        rgba(255,255,255,.06);
+    }
+
+    .feature-card ul {
+      display: grid;
+      gap: 8px;
+      margin: 16px 0 0;
+      padding: 0;
+      list-style: none;
+      color: rgba(244,247,251,.76);
+      font-size: 13px;
+      font-weight: 760;
+    }
+
+    .feature-card li::before {
+      content: "";
       display: inline-block;
-      background: #6366f1;
-      color: #fff;
-      padding: 14px 32px;
-      border-radius: 10px;
-      text-decoration: none;
-      font-weight: 600;
-      margin: 8px;
+      width: 7px;
+      height: 7px;
+      margin-right: 9px;
+      border-radius: 50%;
+      background: var(--green);
     }
-    .cta:hover { background: #818cf8; }
-    .features {
-      max-width: 900px;
-      margin: 60px auto;
-      padding: 0 24px;
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-      gap: 24px;
+
+    .feature-card:hover {
+      transform: translateY(-2px);
+      border-color: rgba(126,179,255,.24);
+      background: rgba(255,255,255,.058);
     }
-    .feature {
-      background: #1a1d27;
-      border: 1px solid #2a2d3a;
-      border-radius: 12px;
-      padding: 24px;
+
+    .feature-card small,
+    .price-card small {
+      display: block;
+      margin-bottom: 16px;
+      color: var(--green-2);
+      font-size: 11px;
+      font-weight: 920;
+      letter-spacing: .075em;
+      text-transform: uppercase;
     }
-    .feature h3 { margin-bottom: 8px; color: #818cf8; }
-    .feature p { color: #9ca3af; font-size: 0.95rem; }
+
+    .feature-card h3,
+    .price-card h3 {
+      margin-bottom: 10px;
+      font-size: 20px;
+      letter-spacing: -.035em;
+    }
+
+    .feature-card p,
+    .price-card p {
+      margin: 0;
+      color: rgba(244,247,251,.72);
+      font-size: 14px;
+      line-height: 1.52;
+    }
+
     .pricing {
-      max-width: 700px;
-      margin: 60px auto;
-      padding: 0 24px;
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 24px;
+      position: relative;
     }
-    .plan {
-      background: #1a1d27;
-      border: 1px solid #2a2d3a;
-      border-radius: 12px;
-      padding: 32px;
+
+    .price-card {
+      padding: 22px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .price {
+      margin: 18px 0 18px;
+      font-family: var(--display);
+      font-size: 36px;
+      line-height: 1;
+      letter-spacing: -.065em;
+      font-weight: 920;
+    }
+
+    .price span {
+      color: var(--muted);
+      font-size: 14px;
+      letter-spacing: 0;
+      font-family: var(--sans);
+    }
+
+    .price-card ul {
+      display: grid;
+      gap: 10px;
+      min-height: 126px;
+      margin: 0 0 20px;
+      padding: 0;
+      color: rgba(244,247,251,.78);
+      font-size: 13px;
+      list-style: none;
+    }
+
+    .price-card li::before {
+      content: "";
+      display: inline-block;
+      width: 7px;
+      height: 7px;
+      margin-right: 9px;
+      border-radius: 50%;
+      background: var(--green);
+    }
+
+    .price-card.highlight {
+      border-color: rgba(70,211,125,.38);
+      background:
+        radial-gradient(260px 160px at 80% 0%, rgba(70,211,125,.14), transparent 66%),
+        rgba(255,255,255,.058);
+      box-shadow: 0 24px 72px rgba(70,211,125,.1), inset 0 1px 0 rgba(255,255,255,.08);
+    }
+
+    .price-card .btn {
+      margin-top: auto;
+      width: 100%;
+    }
+
+    .faq-list {
+      max-width: 780px;
+      margin: 0 auto;
+      display: grid;
+      gap: 10px;
+    }
+
+    .faq-item {
+      padding: 18px 20px;
+      transition: border-color .16s ease, background .16s ease;
+    }
+
+    .faq-item:hover {
+      border-color: rgba(126,179,255,.22);
+      background: rgba(255,255,255,.055);
+    }
+
+    .faq-item h3 {
+      margin-bottom: 8px;
+      font-size: 16px;
+      letter-spacing: -.02em;
+    }
+
+    .faq-item p {
+      margin: 0;
+      color: rgba(244,247,251,.72);
+      font-size: 14px;
+      line-height: 1.55;
+    }
+
+    .final {
+      padding: 46px 0 70px;
       text-align: center;
     }
-    .plan.pro { border-color: #6366f1; }
-    .price { font-size: 2rem; font-weight: 700; margin: 12px 0; }
-    footer { text-align: center; padding: 40px; color: #6b7280; font-size: 0.85rem; }
+
+    .final-box {
+      padding: 44px 22px;
+      border: 1px solid rgba(70,211,125,.18);
+      border-radius: var(--radius-xl);
+      background:
+        radial-gradient(500px 220px at 50% 0%, rgba(70,211,125,.13), transparent 62%),
+        rgba(255,255,255,.045);
+    }
+
+    .final h2 {
+      max-width: 760px;
+      margin: 0 auto 18px;
+      font-family: var(--display);
+      font-size: clamp(30px, 4.5vw, 52px);
+      line-height: 1.04;
+      letter-spacing: -.062em;
+    }
+
+    .footer {
+      padding: 24px 0 36px;
+      border-top: 1px solid var(--line);
+      color: rgba(244,247,251,.44);
+      font-size: 12px;
+      text-align: center;
+    }
+
+    .micro-proof {
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin: 18px auto 0;
+      color: rgba(244,247,251,.56);
+      font-size: 12px;
+      font-weight: 760;
+    }
+
+    .micro-proof span {
+      padding: 7px 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(255,255,255,.035);
+    }
+
+    @media (max-width: 860px) {
+      .topbar {
+        position: relative;
+      }
+
+      .nav,
+      .actions .btn-ghost {
+        display: none;
+      }
+
+      .demo-grid,
+      .result-panel,
+      .skills-panel,
+      .feature-grid,
+      .pricing-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .timeline::before {
+        left: 17px;
+      }
+
+      .step,
+      .step:nth-child(even) {
+        grid-template-columns: 44px minmax(0, 1fr);
+      }
+
+      .step-dot {
+        grid-column: 1;
+        grid-row: 1;
+      }
+
+      .step-copy,
+      .step:nth-child(even) .step-copy,
+      .step-visual,
+      .step:nth-child(even) .step-visual {
+        grid-column: 2;
+      }
+
+      .step-visual,
+      .step:nth-child(even) .step-visual {
+        grid-row: auto;
+      }
+    }
+
+    @media (max-width: 560px) {
+      .wrap,
+      .topbar {
+        width: min(100% - 28px, 1040px);
+      }
+
+      .topbar {
+        justify-content: center;
+      }
+
+      .actions {
+        display: none;
+      }
+
+      .hero {
+        padding-top: 48px;
+      }
+
+      .hero h1 {
+        max-width: 350px;
+        font-size: clamp(38px, 11vw, 44px);
+        line-height: 1.02;
+        letter-spacing: -.06em;
+      }
+
+      .hero-copy {
+        max-width: 320px;
+        font-size: 16px;
+      }
+
+      .mobile-break {
+        display: block;
+      }
+
+      .hero-actions {
+        display: grid;
+        grid-template-columns: 1fr;
+        width: min(100%, 300px);
+        margin-inline: auto;
+      }
+
+      .hero-actions .btn {
+        width: 100%;
+      }
+
+      .hero-demo {
+        width: 100%;
+        max-width: none;
+        margin-left: 0;
+        margin-right: 0;
+        padding: 14px;
+        border-radius: 26px;
+        overflow: hidden;
+      }
+
+      .demo-grid,
+      .cue-panel,
+      .cue-question,
+      .cue-answer {
+        width: 100%;
+        min-width: 0;
+      }
+
+      .demo-top {
+        justify-content: center;
+      }
+
+      .demo-top .traffic,
+      .demo-top .live-chip {
+        display: none;
+      }
+
+      .call-panel {
+        display: none;
+      }
+
+      .cue-question {
+        font-size: 15px;
+        line-height: 1.28;
+      }
+
+      .cue-answer p {
+        font-size: 13px;
+        line-height: 1.58;
+      }
+
+      .section-head h2 {
+        font-size: 32px;
+        letter-spacing: -.052em;
+      }
+
+      .section-head p {
+        font-size: 15px;
+      }
+
+      .result-snapshot,
+      .skills-section {
+        padding-bottom: 60px;
+      }
+
+      .result-panel,
+      .skills-panel {
+        padding: 22px;
+      }
+
+      .result-proof {
+        grid-template-columns: 1fr;
+      }
+
+      .result-item {
+        grid-template-columns: auto 1fr;
+      }
+
+      .result-item em {
+        grid-column: 2;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html {
+        scroll-behavior: auto;
+      }
+    }
   </style>
 </head>
 <body>
-  <div class="hero">
-    <h1>Interview Assistant</h1>
-    <p class="subtitle">
-      AI-помощник для интервью и встреч.<br>
-      Real-time подсказки — без настройки API-ключей.
-    </p>
-    <a href="https://github.com/GalievGleb/interview/releases" class="cta">Скачать для Windows</a>
-  </div>
+  <a class="skip-link" href="#main">Перейти к содержимому</a>
+  <header class="topbar">
+    <a class="brand" href="#top" aria-label="SkillCue">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span>SkillCue</span>
+    </a>
+    <nav class="nav" aria-label="Навигация">
+      <a href="#how">Как работает</a>
+      <a href="#features">Возможности</a>
+      <a href="#pricing">Тарифы</a>
+      <a href="#faq">FAQ</a>
+    </nav>
+    <div class="actions">
+      <a class="btn btn-ghost" href="#snapshot">Пример</a>
+      <a class="btn btn-primary" href="#pricing">Разобрать</a>
+    </div>
+  </header>
 
-  <div class="features">
-    <div class="feature">
-      <h3>Real-time STT</h3>
-      <p>Мгновенная транскрипция речи с микрофона прямо во время интервью</p>
-    </div>
-    <div class="feature">
-      <h3>AI-подсказки</h3>
-      <p>Умные рекомендации что ответить, на основе контекста разговора</p>
-    </div>
-    <div class="feature">
-      <h3>Overlay</h3>
-      <p>Прозрачное окно поверх любых приложений — Zoom, Teams, браузер</p>
-    </div>
-    <div class="feature">
-      <h3>Подписка</h3>
-      <p>Оплата через Stripe или ЮKassa — всё работает из коробки</p>
-    </div>
-  </div>
+  <main id="main">
+    <section class="hero wrap" id="top">
+      <div class="eyebrow"><span class="pulse"></span> Разбор вакансии + live-подсказка</div>
+      <h1>Готовься по вакансии.<br class="mobile-break"> Отвечай <span>уверенно</span>.</h1>
+      <p class="hero-copy">Загрузите вакансию — SkillCue покажет вероятные вопросы, риски по навыкам и короткие подсказки, которые можно использовать на собеседовании.</p>
+      <div class="hero-actions">
+        <a class="btn btn-primary" href="#pricing">Разобрать вакансию бесплатно</a>
+        <a class="btn" href="#snapshot">Посмотреть пример разбора</a>
+      </div>
 
-  <div class="pricing">
-    <div class="plan">
-      <h3>Basic</h3>
-      <div class="price">$9/мес</div>
-      <p>300 мин STT · 500K токенов · General Meeting</p>
-    </div>
-    <div class="plan pro">
-      <h3>Pro</h3>
-      <div class="price">$19/мес</div>
-      <p>1200 мин STT · 2M токенов · + Technical Interview</p>
-    </div>
-  </div>
+      <div class="hero-demo" id="hero-demo" aria-label="Демо live-подсказки SkillCue">
+        <div class="demo-top">
+          <span class="traffic"><i></i><i></i><i></i></span>
+          <span>Live-подсказка SkillCue</span>
+          <span class="live-chip"><span class="pulse"></span>Слушает вопрос</span>
+        </div>
+        <div class="demo-grid">
+          <div class="call-panel">
+            <div class="bubble">Расскажите про ваш опыт с API-тестами.</div>
+            <div class="bubble blue">Работал с pytest, HTTPX и Allure.</div>
+            <div class="bubble">А если кроме проверки 200?</div>
+            <div class="bubble blue">Сейчас отвечу структурно.</div>
+          </div>
+          <div class="cue-panel">
+            <div class="cue-question">Что проверяли в API-тестах кроме статус-кода 200?</div>
+            <div class="cue-answer">
+              <span>Короткая подсказка</span>
+              <p>Скажите про контракт ответа: поля, типы, схему. Потом auth/roles, негативные payload, пустые и граничные значения. Из инструментов: pytest + HTTPX/Requests, Allure-отчёты, request/response в логах.</p>
+            </div>
+            <div class="cue-meta">
+              <span class="meta-pill strong">Вакансия учтена</span>
+              <span class="meta-pill">Резюме учтено</span>
+              <span class="meta-pill">API готовность 78%</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
 
-  <footer>&copy; 2025 Interview Assistant</footer>
+    <section class="result-snapshot wrap" id="snapshot">
+      <div class="paper-panel result-panel">
+        <div class="result-copy">
+          <div>
+            <span class="section-label">Через 60 секунд после загрузки вакансии</span>
+            <h2>Вы видите, где можете посыпаться.</h2>
+            <p>SkillCue не просто “генерирует ответы”. Он превращает вакансию в вероятные вопросы, риски по навыкам и короткий план подготовки.</p>
+          </div>
+          <div class="result-proof" aria-label="Что показывает SkillCue после разбора вакансии">
+            <div class="result-proof-card">
+              <strong>12</strong>
+              <span>вероятных вопросов по роли</span>
+            </div>
+            <div class="result-proof-card">
+              <strong>5</strong>
+              <span>тем, где ответ может звучать слабо</span>
+            </div>
+            <div class="result-proof-card">
+              <strong>78%</strong>
+              <span>готовность по ключевым навыкам</span>
+            </div>
+            <div class="result-proof-card">
+              <strong>25 мин</strong>
+              <span>план тренировки перед созвоном</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="result-example" aria-label="Пример разбора вакансии">
+          <div class="result-example-head">
+            <span>Пример разбора вакансии</span>
+            <span>QA / API / CI/CD</span>
+          </div>
+          <div class="result-list">
+            <div class="result-item"><i></i><span>Что проверяли в API кроме 200?</span><em>высокий шанс</em></div>
+            <div class="result-item"><i></i><span>Как вы разделяли smoke и regression в CI/CD?</span><em>высокий шанс</em></div>
+            <div class="result-item"><i></i><span>Что делали с нестабильными автотестами?</span><em>риск</em></div>
+            <div class="result-item"><i></i><span>Где вы реально настраивали pipeline, а где поддерживали?</span><em>проверка опыта</em></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section wrap" id="how">
+      <div class="section-head">
+        <h2>От вакансии до ответа на собеседовании.</h2>
+        <p>SkillCue не заменяет подготовку — он показывает, что готовить в первую очередь и какие ответы нужно докрутить.</p>
+      </div>
+
+      <div class="timeline">
+        <article class="step">
+          <div class="step-copy">
+            <span class="section-label">01</span>
+            <h3>Разбор вакансии</h3>
+            <p>Вы вставляете описание роли. SkillCue выделяет стек, требования и темы, по которым вас могут проверить глубже.</p>
+          </div>
+          <div class="step-dot">01</div>
+          <div class="step-visual">
+            <div class="mini-lines">
+              <div class="mini-line"></div>
+              <div class="mini-line green"></div>
+              <div class="mini-line short"></div>
+              <div class="mini-line yellow"></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="step">
+          <div class="step-copy">
+            <span class="section-label">02</span>
+            <h3>Риски и вопросы</h3>
+            <p>Видите не абстрактные темы, а конкретные вопросы: API кроме 200, CI/CD, нестабильные тесты, зона ответственности.</p>
+          </div>
+          <div class="step-dot">02</div>
+          <div class="step-visual">
+            <div class="risk-row"><span>API кроме 200</span><strong>важно</strong></div>
+            <div class="risk-row"><span>CI/CD pipeline</span><strong>важно</strong></div>
+            <div class="risk-row"><span>Зона ответственности</span><strong>риск</strong></div>
+          </div>
+        </article>
+
+        <article class="step">
+          <div class="step-copy">
+            <span class="section-label">03</span>
+            <h3>Готовность по навыкам</h3>
+            <p>Понимаете, где звучите уверенно, а где интервьюер может быстро увидеть пробел.</p>
+          </div>
+          <div class="step-dot">03</div>
+          <div class="step-visual progress-card">
+            <strong>78%</strong>
+            <div class="progress-track"><span></span></div>
+          </div>
+        </article>
+
+        <article class="step">
+          <div class="step-copy">
+            <span class="section-label">04</span>
+            <h3>Live-подсказка</h3>
+            <p>На созвоне остаётся компактная подсказка: 2-4 строки, без лишнего интерфейса и длинной лекции.</p>
+          </div>
+          <div class="step-dot">04</div>
+          <div class="step-visual">
+            <div class="live-mini">stages/jobs, Docker, Allure, artifacts, logs. Привяжите ответ к своему проекту.</div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="skills-section wrap" id="skills">
+      <div class="paper-panel skills-panel">
+        <div class="skills-copy">
+          <span class="section-label">Карта готовности</span>
+          <h2>Процент — не для красоты. Он показывает, что повторить.</h2>
+          <p>После тренировки SkillCue раскладывает ответы по навыкам: где уже можно говорить уверенно, а где нужен пример, инструмент или конкретика из вашего опыта.</p>
+        </div>
+        <div class="skills-board" aria-label="Пример готовности по навыкам">
+          <div class="skill-row">
+            <div class="skill-row-head"><span>Рассказ об опыте</span><span>86%</span></div>
+            <div class="skill-track"><span style="width: 86%"></span></div>
+          </div>
+          <div class="skill-row">
+            <div class="skill-row-head"><span>API-тестирование</span><span>78%</span></div>
+            <div class="skill-track"><span style="width: 78%"></span></div>
+          </div>
+          <div class="skill-row warn">
+            <div class="skill-row-head"><span>CI/CD и Docker</span><span>61%</span></div>
+            <div class="skill-track"><span style="width: 61%"></span></div>
+          </div>
+          <div class="skill-row risk">
+            <div class="skill-row-head"><span>Проектные кейсы и ответственность</span><span>52%</span></div>
+            <div class="skill-track"><span style="width: 52%"></span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section wrap" id="features">
+      <div class="section-head">
+        <h2>Фокус на том, что спросят именно вас.</h2>
+        <p>Вместо общего AI-чата — три вещи, которые помогают перед реальным интервью: план, тренировка и короткая подсказка.</p>
+      </div>
+      <div class="feature-grid">
+        <article class="feature-card primary-feature">
+          <small>Подготовка</small>
+          <h3>Вакансия становится планом</h3>
+          <p>SkillCue вытаскивает требования и превращает их в список вероятных вопросов.</p>
+          <ul>
+            <li>вероятные вопросы</li>
+            <li>риски по навыкам</li>
+            <li>готовность по темам</li>
+          </ul>
+        </article>
+        <article class="feature-card">
+          <small>Тренировка</small>
+          <h3>Ответы проверяются заранее</h3>
+          <p>Вы отвечаете на вопросы и видите, где не хватает конкретики, примера или связи с опытом.</p>
+        </article>
+        <article class="feature-card">
+          <small>Live</small>
+          <h3>Overlay не мешает говорить</h3>
+          <p>Во время звонка появляется короткая подсказка, а не длинная лекция или новый чат.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="section wrap pricing" id="pricing">
+      <div class="section-head">
+        <h2>Тарифы</h2>
+        <p>Начните с бесплатного разбора. Платные режимы нужны, когда готовитесь системно или хотите live-подсказку во время звонка.</p>
+      </div>
+      <div class="pricing-grid">
+        <article class="price-card">
+          <small>Free</small>
+          <h3>Проверить одну роль</h3>
+          <div class="price">0 <span>руб.</span></div>
+          <ul>
+            <li>1 разбор вакансии</li>
+            <li>Вероятные вопросы и риски</li>
+            <li>Пример короткой подсказки</li>
+          </ul>
+          <a class="btn" href="#snapshot">Начать бесплатно</a>
+        </article>
+        <article class="price-card highlight">
+          <small>Pro</small>
+          <h3>Готовиться к собеседованию</h3>
+          <div class="price">999 <span>руб./мес</span></div>
+          <ul>
+            <li>До 10 разборов вакансий</li>
+            <li>Тренировки по слабым темам</li>
+            <li>Полные карты готовности</li>
+            <li>План повторения перед звонком</li>
+          </ul>
+          <a class="btn btn-primary" href="#snapshot">Готовиться к собеседованию</a>
+        </article>
+        <article class="price-card">
+          <small>Live</small>
+          <h3>Live-собеседование</h3>
+          <div class="price">1999 <span>руб./мес</span></div>
+          <ul>
+            <li>Desktop overlay</li>
+            <li>Контекст вакансии и резюме</li>
+            <li>История вопросов</li>
+            <li>Отчёт после звонка</li>
+          </ul>
+          <a class="btn" href="#hero-demo">Открыть live-подсказку</a>
+        </article>
+      </div>
+    </section>
+
+    <section class="section wrap" id="faq">
+      <div class="section-head">
+        <h2>FAQ</h2>
+        <p>Коротко закрываем вопросы, которые появляются перед первым запуском.</p>
+      </div>
+      <div class="faq-list">
+        <article class="faq-item">
+          <h3>Это только для IT?</h3>
+          <p>Нет. Сейчас демо показывает QA/IT, но SkillCue работает от вакансии и вашего опыта, поэтому подходит для разных ролей.</p>
+        </article>
+        <article class="faq-item">
+          <h3>Что я получу после загрузки вакансии?</h3>
+          <p>Вероятные вопросы, риски по темам, процент готовности и план тренировки перед интервью.</p>
+        </article>
+        <article class="faq-item">
+          <h3>Можно без live-режима?</h3>
+          <p>Да. Разбор вакансии и тренировка полезны сами по себе, особенно перед очным интервью.</p>
+        </article>
+        <article class="faq-item">
+          <h3>Ответы не будут общими?</h3>
+          <p>Если добавить резюме и пару фактов о проектах, подсказки становятся личнее. SkillCue не должен выдумывать опыт.</p>
+        </article>
+        <article class="faq-item">
+          <h3>Что загрузить сначала?</h3>
+          <p>Начните с вакансии. Потом добавьте резюме и короткую легенду опыта, чтобы ответы звучали как ваши.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="final wrap">
+      <div class="final-box">
+        <h2>Загрузите вакансию — SkillCue покажет риски, вероятные вопросы и готовность по навыкам.</h2>
+        <a class="btn btn-primary" href="#pricing">Разобрать вакансию бесплатно</a>
+        <div class="micro-proof">
+          <span>вероятные вопросы</span>
+          <span>готовность по навыкам</span>
+          <span>live-подсказка</span>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="wrap">© 2026 SkillCue. Подготовка и live-подсказки для интервью.</div>
+  </footer>
 </body>
 </html>
