@@ -31,6 +31,7 @@ class AiSettingsPayload(BaseModel):
     coding_assistant_model: str | None = None
     fast_live_model: str | None = None
     deep_reasoning_model: str | None = None
+    vacancy_review_model: str | None = None
 
 
 class AiSettingsResponse(BaseModel):
@@ -40,6 +41,7 @@ class AiSettingsResponse(BaseModel):
     coding_assistant_model: str
     fast_live_model: str
     deep_reasoning_model: str
+    vacancy_review_model: str
     last_models_sync_at: str | None
     models_cache_count: int
     has_openrouter_key: bool
@@ -75,6 +77,7 @@ def save_ai_settings(payload: AiSettingsPayload) -> AiSettingsResponse:
         "coding_assistant_model",
         "fast_live_model",
         "deep_reasoning_model",
+        "vacancy_review_model",
     ):
         value = getattr(payload, field)
         if value is not None:
@@ -92,6 +95,7 @@ def _ai_response() -> AiSettingsResponse:
         coding_assistant_model=prefs.coding_assistant_model,
         fast_live_model=prefs.fast_live_model,
         deep_reasoning_model=prefs.deep_reasoning_model,
+        vacancy_review_model=prefs.vacancy_review_model,
         last_models_sync_at=prefs.last_models_sync_at,
         models_cache_count=len(prefs.models_cache),
         has_openrouter_key=secrets.has_secret("openrouter_api_key"),

@@ -43,6 +43,7 @@ class AiPreferencesModel(BaseModel):
     coding_assistant_model: str = "auto"
     fast_live_model: str = "auto"
     deep_reasoning_model: str = "auto"
+    vacancy_review_model: str = "auto"
     last_models_sync_at: str | None = None
     models_cache: list[NormalizedModelModel] = Field(default_factory=list)
 

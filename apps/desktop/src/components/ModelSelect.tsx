@@ -14,6 +14,8 @@ interface Props {
   models: NormalizedModel[];
   onChange: (value: string) => void;
   missing?: boolean;
+  autoTitle?: string;
+  autoSubtitle?: string;
 }
 
 export default function ModelSelect({
@@ -23,6 +25,8 @@ export default function ModelSelect({
   models,
   onChange,
   missing = false,
+  autoTitle = 'Автовыбор',
+  autoSubtitle = 'SkillCue выберет модель по задаче',
 }: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -31,9 +35,7 @@ export default function ModelSelect({
   const filtered = useMemo(() => filterModels(sorted, query), [sorted, query]);
 
   const selectedLabel =
-    value === AUTO_VALUE
-      ? 'Auto Select'
-      : models.find((m) => m.id === value)?.name ?? value;
+    value === AUTO_VALUE ? autoTitle : models.find((m) => m.id === value)?.name ?? value;
 
   const pick = (id: string) => {
     onChange(id);
@@ -50,7 +52,7 @@ export default function ModelSelect({
 
       {missing && (
         <p className="text-xs text-amber-400">
-          Выбранная модель недоступна в каталоге — выберите Auto Select или другую модель.
+          Выбранная модель недоступна в каталоге — выберите автовыбор или другую модель.
         </p>
       )}
 
@@ -70,15 +72,15 @@ export default function ModelSelect({
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Поиск по name, id, provider..."
+                placeholder="Поиск по названию, id или провайдеру..."
                 className="field text-sm"
                 autoFocus
               />
             </div>
             <div className="max-h-56 overflow-y-auto p-1">
               <OptionRow
-                title="Auto Select"
-                subtitle="Verve AI / Smart routing"
+                title={autoTitle}
+                subtitle={autoSubtitle}
                 active={value === AUTO_VALUE}
                 onPick={() => pick(AUTO_VALUE)}
               />

@@ -19,18 +19,51 @@ function isDashListLine(line: string): boolean {
   return /^[A-ZА-ЯЁ][A-Za-zА-Яа-яЁё0-9(),\- ]{2,}? — /u.test(line);
 }
 
-/** Простой markdown: **bold**, абзацы, списки. */
+const FENCED_CODE_REGEX = /```([a-zA-Z0-9+#_-]*)\n?([\s\S]*?)```/g;
+
+function CodeBlock({ language, code }: { language: string; code: string }) {
+  return (
+    <div className="overflow-hidden rounded-xl border border-surface-border bg-surface-elevated">
+      {language && (
+        <div className="border-b border-surface-border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
+          {language}
+        </div>
+      )}
+      <pre className="overflow-x-auto px-3.5 py-3">
+        <code className="sc-mono block whitespace-pre text-[13px] leading-relaxed text-emerald-200">
+          {code.replace(/\n+$/, '')}
+        </code>
+      </pre>
+    </div>
+  );
+}
+
+/** Простой markdown: **bold**, `code`, ```code blocks```, абзацы, списки. */
 export default function MarkdownText({ text, className = '' }: { text: string; className?: string }) {
   if (!text) return null;
 
   const formatted = formatLiveMarkdown(text);
-  const blocks = formatted.split(/\n{2,}/);
 
-  return (
-    <div className={`space-y-4 text-sm leading-relaxed ${className}`}>
-      {blocks.map((block, i) => renderBlock(block, i))}
-    </div>
-  );
+  // Сначала вырезаем fenced code blocks — их нельзя резать по пустым строкам.
+  const segments: ReactNode[] = [];
+  let cursor = 0;
+  let key = 0;
+  FENCED_CODE_REGEX.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = FENCED_CODE_REGEX.exec(formatted)) !== null) {
+    const before = formatted.slice(cursor, match.index).trim();
+    if (before) {
+      before.split(/\n{2,}/).forEach((block) => segments.push(renderBlock(block, key++)));
+    }
+    segments.push(<CodeBlock key={key++} language={match[1] ?? ''} code={match[2] ?? ''} />);
+    cursor = match.index + match[0].length;
+  }
+  const rest = formatted.slice(cursor).trim();
+  if (rest) {
+    rest.split(/\n{2,}/).forEach((block) => segments.push(renderBlock(block, key++)));
+  }
+
+  return <div className={`space-y-4 text-sm leading-relaxed ${className}`}>{segments}</div>;
 }
 
 function renderBlock(block: string, key: number): ReactNode {
@@ -95,13 +128,23 @@ function renderBlock(block: string, key: number): ReactNode {
 }
 
 function renderInline(text: string): ReactNode[] {
-  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
   return parts.map((part, i) => {
     if (part.startsWith('**') && part.endsWith('**')) {
       return (
         <strong key={i} className="font-semibold text-violet-300">
           {part.slice(2, -2)}
         </strong>
+      );
+    }
+    if (part.startsWith('`') && part.endsWith('`') && part.length > 2) {
+      return (
+        <code
+          key={i}
+          className="sc-mono rounded-md border border-surface-border bg-surface-elevated px-1.5 py-0.5 text-[12.5px] text-emerald-200"
+        >
+          {part.slice(1, -1)}
+        </code>
       );
     }
     return <span key={i}>{part}</span>;

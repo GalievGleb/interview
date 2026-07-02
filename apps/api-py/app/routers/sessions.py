@@ -13,6 +13,10 @@ def _session_is_empty(session: InterviewSession) -> bool:
     return len(session.answers) == 0 and len(session.transcripts) == 0
 
 
+def _session_has_content(session: InterviewSession) -> bool:
+    return not _session_is_empty(session) or bool(session.summary)
+
+
 class CreateSessionPayload(BaseModel):
     mode: str  # interview | meeting
     title: str | None = None
@@ -44,7 +48,7 @@ def list_sessions(db: Session = Depends(get_db)) -> dict:
                 "transcript_count": len(s.transcripts),
             }
             for s in rows
-            if not _session_is_empty(s)
+            if _session_has_content(s)
         ]
     }
 
@@ -129,7 +133,8 @@ def end_session(session_id: str, payload: EndPayload, db: Session = Depends(get_
     s = db.query(InterviewSession).filter(InterviewSession.id == session_id).first()
     if not s:
         raise AppError("Session not found", 404, "not_found")
-    if _session_is_empty(s):
+    # A summary alone (e.g. meeting review) makes the session worth keeping.
+    if _session_is_empty(s) and not payload.summary:
         db.delete(s)
         db.commit()
         return {"deleted": session_id}

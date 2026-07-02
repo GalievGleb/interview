@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import AnswerPanel from '../components/interview/AnswerPanel';
 import FastAnswerToggle from '../components/interview/FastAnswerToggle';
+import SpeculativeToggle from '../components/interview/SpeculativeToggle';
 import LiveStatusBar from '../components/interview/LiveStatusBar';
 import { deriveLiveState } from '../lib/liveStatus';
 import { AnswerTab } from '../components/interview/AnswerTabs';
@@ -249,6 +250,19 @@ export default function InterviewPage() {
     [answerHistory, manualHistory, runRevision, setManualHistory, setManualStream, updateAnswerEntry],
   );
 
+  const handleEditEntry = useCallback(
+    (entryId: string, text: string) => {
+      if (answerHistory.some((item) => item.id === entryId)) {
+        updateAnswerEntry(entryId, text);
+        return;
+      }
+      setManualHistory((prev) =>
+        prev.map((item) => (item.id === entryId ? { ...item, spoken: text } : item)),
+      );
+    },
+    [answerHistory, setManualHistory, updateAnswerEntry],
+  );
+
   const handleReviseActive = useCallback(
     (questionText: string, answer: string, revisionMode: AnswerRevisionMode) => {
       const pipeline = debugInfoToPipeline(active ? sttDebug : manualDebug);
@@ -454,6 +468,7 @@ export default function InterviewPage() {
               {showTranscript ? 'Скрыть транскрипт' : `Транскрипт (${lines.length})`}
             </button>
             <FastAnswerToggle />
+            <SpeculativeToggle />
             <InterviewExportButtons exportData={exportData} onDownloadDebug={downloadDebug} />
             {isElectron ? (
               <button
@@ -534,6 +549,7 @@ export default function InterviewPage() {
             revising={revising}
             onReviseEntry={handleReviseEntry}
             onReviseActive={handleReviseActive}
+            onEditEntry={handleEditEntry}
             footer={
               <ManualQuestionBox
                 value={question}

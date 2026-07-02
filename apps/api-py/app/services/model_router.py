@@ -5,12 +5,16 @@ from __future__ import annotations
 from app.services.preferences import AiPreferencesModel, load_preferences
 
 AUTO = "auto"
+VACANCY_DEFAULT_MODEL = "openai/gpt-5.5"
 
 MODE_SETTING: dict[str, str] = {
     "general": "default_copilot_model",
     "coding": "coding_assistant_model",
     "fast": "fast_live_model",
     "deep": "deep_reasoning_model",
+    # Offline vacancy analysis/evaluation can spend more reasoning than live
+    # answers, so vacancy review has its own explicit heavy-model setting.
+    "vacancy": "vacancy_review_model",
 }
 
 # Паттерны id — проверяются по substring в lower(id). Без gemini-2.5/3 — thinking тормозит live.
@@ -52,6 +56,22 @@ DEEP_PATTERNS = [
     "gpt-4o",
     "gpt-4.1",
     "deepseek-reasoner",
+]
+
+VACANCY_PATTERNS = [
+    "gpt-5.5",
+    "gpt-5-5",
+    "gpt-5.4",
+    "gpt-5-4",
+    "gpt-5",
+    "gpt-4.1",
+    "gpt-4o",
+    "claude-sonnet-4",
+    "claude-3.7-sonnet",
+    "claude-3.5-sonnet",
+    "claude-sonnet",
+    "gemini-2.5-pro",
+    "o3",
 ]
 
 FALLBACK_IDS = [
@@ -102,10 +122,16 @@ def _pattern_pick(
 def pick_auto_model(mode: str, available: set[str]) -> str:
     """Выбор модели при Auto Select."""
     if not available:
+        if mode == "vacancy":
+            return VACANCY_DEFAULT_MODEL
         return "openai/gpt-4o-mini"
 
     if mode == "fast":
         found = _pattern_pick(LIVE_PATTERNS, available, skip_reasoning=True)
+        if found:
+            return found
+    elif mode == "vacancy":
+        found = _pattern_pick(VACANCY_PATTERNS, available)
         if found:
             return found
     elif mode == "coding":

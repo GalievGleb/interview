@@ -161,6 +161,14 @@ INTERVIEW_PROMPT_STREAM = """<RESUME>
 {vacancy}
 </VACANCY>
 
+<LEGEND>
+{legend}
+</LEGEND>
+LEGEND USAGE: the legend is the candidate's agreed self-presentation (background facts,
+framing of experience). Use it to keep answers consistent with how the candidate presents
+themselves. It supplements the resume — never contradicts it, never invents new tools,
+companies or metrics beyond it. If legend is "(нет)" — ignore this block.
+
 <CANDIDATE_PROFILE>
 QA Automation Engineer, Python. Main focus: UI + API automation.
 Projects (use ONLY when resume context level is full or limited AND question asks about experience/usage):
@@ -336,6 +344,7 @@ Return ONLY the spoken answer text."""
 
 RESUME_CONTEXT_LIMIT = 2000
 VACANCY_CONTEXT_LIMIT = 400
+LEGEND_CONTEXT_LIMIT = 700
 
 RESUME_PLACEHOLDER_NONE = (
     "(resume not needed for this question — do not mention projects or companies)"

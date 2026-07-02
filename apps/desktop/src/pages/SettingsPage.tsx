@@ -183,6 +183,31 @@ export default function SettingsPage() {
 
 
 
+      <div className="card mb-5 p-5">
+        <h3 className="text-sm font-semibold text-ink">Инструменты разработчика</h3>
+        <p className="mt-0.5 mb-3 text-sm text-ink-muted">
+          STT-бенчмарк и диагностика задержек — для отладки, в повседневной подготовке не нужны.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => navigate('/benchmark')}
+            className="btn-secondary btn-sm"
+          >
+            STT-бенчмарк
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate('/diagnostics')}
+            className="btn-secondary btn-sm"
+          >
+            Диагностика задержек
+          </button>
+        </div>
+      </div>
+
+
+
       <div className="card mb-5 flex items-center justify-between p-5">
 
         <div>

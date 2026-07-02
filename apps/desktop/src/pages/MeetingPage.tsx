@@ -16,10 +16,29 @@ export default function MeetingPage() {
   const [dragOver, setDragOver] = useState(false);
   const [localLlm, setLocalLlm] = useState(false);
   const [localModel, setLocalModel] = useState('llama3.1');
+  const [savedToHistory, setSavedToHistory] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const cancelRef = useRef<(() => void) | null>(null);
 
   useEffect(() => () => cancelRef.current?.(), []);
+
+  // Сохраняем готовый разбор в Историю (mode=meeting), чтобы он не терялся
+  // после закрытия страницы: summary + исходный транскрипт.
+  const saveToHistory = async (summary: string, sourceTranscript: string, kind: Mode) => {
+    try {
+      const title = `${kind === 'review' ? 'Разбор интервью' : 'Итоги встречи'}${
+        fileName ? ` — ${fileName}` : ''
+      }`;
+      const session = await api.createSession('meeting', title);
+      await api
+        .addTranscript(session.id, 'other', sourceTranscript.slice(0, 20000))
+        .catch(() => undefined);
+      await api.endSession(session.id, summary);
+      setSavedToHistory(true);
+    } catch {
+      /* non-fatal: результат остаётся на экране */
+    }
+  };
 
   const readFile = async (file: File) => {
     try {
@@ -44,14 +63,24 @@ export default function MeetingPage() {
     setLoading(true);
     setError('');
     setResult('');
+    setSavedToHistory(false);
     // Both modes stream token-by-token for instant feedback.
     const stream = mode === 'review' ? api.streamInterviewReview : api.streamMeetingSummary;
     const opts = localLlm ? { provider: 'ollama', model: localModel.trim() || 'llama3.1' } : {};
+    const sourceTranscript = transcript;
+    const kind = mode;
+    let accumulated = '';
     cancelRef.current = stream(
       transcript,
       {
-        onChunk: (t) => setResult((prev) => prev + t),
-        onDone: () => setLoading(false),
+        onChunk: (t) => {
+          accumulated += t;
+          setResult((prev) => prev + t);
+        },
+        onDone: () => {
+          setLoading(false);
+          if (accumulated.trim()) void saveToHistory(accumulated.trim(), sourceTranscript, kind);
+        },
         onError: (m) => {
           setError(m);
           setLoading(false);
@@ -169,6 +198,9 @@ export default function MeetingPage() {
 
       {result && (
         <div className="card mt-6 p-5 text-sm leading-relaxed text-ink">
+          {savedToHistory && (
+            <p className="mb-3 text-xs text-emerald-400">Сохранено в Историю (фильтр «Разбор»)</p>
+          )}
           <MarkdownText text={result} />
         </div>
       )}

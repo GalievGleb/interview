@@ -29,6 +29,7 @@ export interface AiSettings {
   coding_assistant_model: string;
   fast_live_model: string;
   deep_reasoning_model: string;
+  vacancy_review_model: string;
   last_models_sync_at: string | null;
   models_cache_count: number;
   has_openrouter_key: boolean;
@@ -37,12 +38,12 @@ export interface AiSettings {
 export const AUTO_VALUE = 'auto';
 
 export const TAG_LABELS: Record<string, string> = {
-  fast: 'Fast',
-  coding: 'Coding',
+  fast: 'Быстрая',
+  coding: 'Код',
   reasoning: 'Reasoning',
-  cheap: 'Cheap',
+  cheap: 'Дешёвая',
   premium: 'Premium',
-  free: 'Free',
+  free: 'Бесплатная',
   vision: 'Vision',
 };
 
@@ -64,10 +65,18 @@ export function isModelMissing(modelId: string, models: NormalizedModel[]): bool
 
 export function groupModelsForSelect(models: NormalizedModel[]): NormalizedModel[] {
   const recommended = new Set([
+    'openai/gpt-5.5',
+    'openai/gpt-5.4',
+    'openai/gpt-5',
+    'anthropic/claude-sonnet-4',
+    'anthropic/claude-3.7-sonnet',
     'openai/gpt-4o-mini',
     'openai/gpt-4o',
+    'openai/gpt-4.1',
+    'openai/o3',
     'anthropic/claude-3.5-sonnet',
     'google/gemini-2.0-flash-001',
+    'google/gemini-2.5-pro',
     'deepseek/deepseek-chat',
   ]);
   const rec = models.filter((m) => recommended.has(m.id));

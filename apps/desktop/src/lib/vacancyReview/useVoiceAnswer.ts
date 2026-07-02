@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { startLiveSession, type LiveSession } from '../liveSession';
+import { createVoiceAnswerTranscript, flushVoiceAnswerTranscript } from '../voiceAnswerTranscript';
 
 /**
  * Lightweight voice capture for a single mock-interview answer. Reuses the live
@@ -10,26 +11,26 @@ export function useVoiceAnswer(onText: (text: string) => void, language = 'ru') 
   const [recording, setRecording] = useState(false);
   const [error, setError] = useState('');
   const sessionRef = useRef<LiveSession | null>(null);
-  const bufferRef = useRef('');
+  const transcriptRef = useRef(createVoiceAnswerTranscript());
 
   const stop = useCallback(() => {
+    const flushed = flushVoiceAnswerTranscript(transcriptRef.current);
+    if (flushed) onText(flushed);
     sessionRef.current?.stop();
     sessionRef.current = null;
     setRecording(false);
-  }, []);
+    return flushed;
+  }, [onText]);
 
   const start = useCallback(async () => {
     setError('');
-    bufferRef.current = '';
+    transcriptRef.current.reset();
     try {
       const session = await startLiveSession(
         {
           onTranscript: (text, isFinal) => {
-            if (!isFinal) return;
-            const t = text.trim();
-            if (!t) return;
-            bufferRef.current = `${bufferRef.current} ${t}`.trim();
-            onText(bufferRef.current);
+            const next = transcriptRef.current.accept(text, isFinal);
+            if (next) onText(next);
           },
           onError: (msg) => {
             setError(msg);

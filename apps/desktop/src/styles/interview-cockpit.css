@@ -17,8 +17,8 @@
 
 .cockpit-bg-glow {
   background:
-    radial-gradient(ellipse 50% 40% at 15% -5%, rgba(99, 102, 241, 0.12), transparent 55%),
-    radial-gradient(ellipse 40% 35% at 85% 0%, rgba(16, 185, 129, 0.06), transparent 50%);
+    radial-gradient(ellipse 50% 40% at 15% -5%, rgba(52, 199, 123, 0.12), transparent 55%),
+    radial-gradient(ellipse 40% 35% at 85% 0%, rgba(143, 182, 216, 0.1), transparent 50%);
 }
 
 .cockpit-content {
@@ -75,6 +75,77 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
+.skillcue-readiness {
+  @apply mb-4 flex shrink-0 flex-wrap items-center justify-between gap-3 rounded-2xl
+    border border-surface-border bg-surface-panel/70 px-4 py-3 shadow-soft backdrop-blur-sm;
+}
+
+.skillcue-readiness__eyebrow {
+  @apply text-[10px] font-semibold uppercase tracking-wider text-ink-faint;
+}
+
+.skillcue-readiness__title {
+  @apply mt-0.5 truncate text-sm font-medium text-ink;
+}
+
+.skillcue-readiness__items {
+  @apply flex flex-wrap items-center gap-2;
+}
+
+.skillcue-readiness__item {
+  @apply inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px]
+    font-medium;
+}
+
+.skillcue-readiness__item--ok {
+  @apply border-emerald-500/20 bg-emerald-500/10 text-emerald-300;
+}
+
+.skillcue-readiness__item--ok .sc-dot {
+  @apply bg-emerald-400;
+}
+
+.skillcue-readiness__item--warn {
+  @apply border-amber-500/25 bg-amber-500/10 text-amber-300;
+}
+
+.skillcue-readiness__item--warn .sc-dot {
+  @apply bg-amber-400;
+}
+
+.skillcue-readiness__detail {
+  @apply text-ink-faint;
+}
+
+.skillcue-answer-card {
+  @apply rounded-2xl border p-4 transition-colors duration-200;
+}
+
+.skillcue-answer-card--active {
+  @apply border-accent/35 bg-accent/[0.055] shadow-panel-focus;
+  box-shadow:
+    0 0 0 1px rgba(52, 199, 123, 0.13),
+    0 20px 60px -28px rgba(52, 199, 123, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.035);
+}
+
+.skillcue-answer-card--pending {
+  @apply border-surface-border bg-surface-elevated/30;
+}
+
+.skillcue-answer-card--past {
+  @apply border-surface-border bg-surface-elevated/30 hover:border-surface-border-strong;
+}
+
+.skillcue-answer-label {
+  @apply mb-3 flex items-center justify-between gap-3 text-[10px] font-semibold uppercase
+    tracking-wider text-accent;
+}
+
+.skillcue-answer-label span:last-child {
+  @apply font-medium normal-case tracking-normal text-ink-faint;
+}
+
 .cockpit-panel-head {
   @apply flex items-center justify-between border-b border-surface-border px-4 py-3;
 }
@@ -104,8 +175,8 @@
 .cockpit-bento-main {
   @apply border-accent/25 bg-accent/[0.05];
   box-shadow:
-    0 0 0 1px rgba(99, 102, 241, 0.12),
-    0 12px 34px -18px rgba(99, 102, 241, 0.4);
+    0 0 0 1px rgba(52, 199, 123, 0.12),
+    0 12px 34px -18px rgba(52, 199, 123, 0.38);
 }
 
 .cockpit-alert {
@@ -158,7 +229,7 @@
 }
 
 .cockpit-transcript-me {
-  @apply border-violet-500/15 bg-violet-500/[0.05];
+  @apply border-sky-500/15 bg-sky-500/[0.05];
 }
 
 .cockpit-transcript-other {

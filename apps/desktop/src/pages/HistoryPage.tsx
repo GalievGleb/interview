@@ -2,19 +2,41 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import InterviewExportButtons from '../components/interview/InterviewExportButtons';
 import { api, SessionItem, SessionDetail } from '../lib/api';
 import { buildStoredSessionExport } from '../lib/interviewSessionExport';
+import {
+  listSessions as listMockSessions,
+  deleteSession as deleteMockSession,
+} from '../lib/vacancyReview/vacancyReviewStore';
+import type { ReadinessLabel, SmokeReviewSession } from '../lib/vacancyReview/types';
 
-type SourceFilter = 'all' | 'interview' | 'meeting';
+type SourceFilter = 'all' | 'interview' | 'meeting' | 'mock';
 
 const SOURCE_TABS: { id: SourceFilter; label: string }[] = [
   { id: 'all', label: 'Все' },
   { id: 'interview', label: 'Live' },
+  { id: 'mock', label: 'Мок' },
   { id: 'meeting', label: 'Разбор' },
 ];
 
-function sourceBadge(mode: string) {
-  return mode === 'meeting'
-    ? { label: 'Разбор', tone: 'prep-tone-blue' }
-    : { label: 'Live', tone: 'prep-tone-green' };
+const READINESS_LABELS: Record<ReadinessLabel, string> = {
+  not_ready: 'Не готов',
+  weak: 'Слабо',
+  almost_ready: 'Почти готов',
+  ready: 'Готов',
+  strong: 'Сильный уровень',
+};
+
+/** Единый элемент списка: сессии backend (live/meeting) + локальные мок-сессии. */
+type HistoryRow =
+  | { kind: 'backend'; id: string; startedAt: number; session: SessionItem }
+  | { kind: 'mock'; id: string; startedAt: number; session: SmokeReviewSession };
+
+function sourceBadge(row: HistoryRow) {
+  if (row.kind === 'mock') return { label: 'Мок' };
+  return row.session.mode === 'meeting' ? { label: 'Разбор' } : { label: 'Live' };
+}
+
+function speakerLabel(speaker: string) {
+  return speaker === 'me' ? 'Вы' : 'Интервьюер';
 }
 
 function TrashIcon() {
@@ -34,9 +56,99 @@ function TrashIcon() {
   );
 }
 
+function MockSessionDetail({ session }: { session: SmokeReviewSession }) {
+  const report = session.report;
+  const answered = session.answers.filter((a) => !a.skipped);
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="prep-eyebrow">Мок-интервью</p>
+          <h2 className="prep-h2 prep-section-title">
+            {session.vacancyAnalysis.targetRole || 'Мок-интервью по вакансии'}
+          </h2>
+        </div>
+        <p className="prep-faint">
+          {answered.length}/{session.questions.length} вопросов ·{' '}
+          {new Date(session.startedAt).toLocaleString()}
+        </p>
+      </div>
+
+      {report && (
+        <div className="prep-preview-card space-y-3 text-sm leading-relaxed">
+          <p className="text-[15px] font-semibold">
+            Готовность: {report.overallScore}/100 — {READINESS_LABELS[report.status]}
+          </p>
+          {report.strengths.length > 0 && (
+            <div>
+              <p className="font-semibold">Сильные стороны</p>
+              <ul className="mt-1 list-disc space-y-1 pl-5">
+                {report.strengths.map((s, i) => (
+                  <li key={i}>{s}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {report.weakAreas.length > 0 && (
+            <div>
+              <p className="font-semibold">Слабые места</p>
+              <ul className="mt-1 list-disc space-y-1 pl-5">
+                {report.weakAreas.map((s, i) => (
+                  <li key={i}>{s}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {report.criticalGaps.length > 0 && (
+            <div>
+              <p className="font-semibold">Критичные пробелы</p>
+              <ul className="mt-1 list-disc space-y-1 pl-5">
+                {report.criticalGaps.map((s, i) => (
+                  <li key={i}>{s}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {report.nextPracticePlan.length > 0 && (
+            <div>
+              <p className="font-semibold">План тренировки</p>
+              <ul className="mt-1 list-disc space-y-1 pl-5">
+                {report.nextPracticePlan.map((s, i) => (
+                  <li key={i}>{s}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
+      {answered.length > 0 && (
+        <div className="space-y-3">
+          {answered.map((answer) => {
+            const question = session.questions.find((q) => q.id === answer.questionId);
+            return (
+              <article key={answer.questionId} className="prep-answer-review">
+                <p className="prep-answer-question">{question?.question ?? 'Вопрос'}</p>
+                <p className="prep-answer-text">{answer.text}</p>
+                {answer.evaluation && (
+                  <p className="prep-faint mt-2">
+                    {answer.evaluation.score}/100 — {answer.evaluation.feedback}
+                  </p>
+                )}
+              </article>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function HistoryPage() {
   const [sessions, setSessions] = useState<SessionItem[]>([]);
+  const [mockSessions, setMockSessions] = useState<SmokeReviewSession[]>([]);
   const [selected, setSelected] = useState<SessionDetail | null>(null);
+  const [selectedMock, setSelectedMock] = useState<SmokeReviewSession | null>(null);
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [clearing, setClearing] = useState(false);
@@ -47,6 +159,7 @@ export default function HistoryPage() {
   const loadSessions = useCallback(async () => {
     setLoading(true);
     setError('');
+    setMockSessions(listMockSessions());
     try {
       const res = await api.listSessions();
       setSessions(res.sessions);
@@ -65,20 +178,33 @@ export default function HistoryPage() {
     try {
       const detail = await api.getSession(id);
       setSelected(detail);
+      setSelectedMock(null);
       setError('');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Не удалось открыть сессию');
     }
   };
 
-  const remove = async (id: string) => {
+  const openMock = (session: SmokeReviewSession) => {
+    setSelectedMock(session);
+    setSelected(null);
+    setError('');
+  };
+
+  const remove = async (row: HistoryRow) => {
     if (!window.confirm('Удалить сессию и все связанные ответы?')) return;
-    setDeletingId(id);
+    setDeletingId(row.id);
     setError('');
     try {
-      await api.deleteSession(id);
-      setSessions((prev) => prev.filter((item) => item.id !== id));
-      if (selected?.id === id) setSelected(null);
+      if (row.kind === 'mock') {
+        deleteMockSession(row.id);
+        setMockSessions(listMockSessions());
+        if (selectedMock?.id === row.id) setSelectedMock(null);
+      } else {
+        await api.deleteSession(row.id);
+        setSessions((prev) => prev.filter((item) => item.id !== row.id));
+        if (selected?.id === row.id) setSelected(null);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Не удалось удалить сессию');
     } finally {
@@ -107,15 +233,39 @@ export default function HistoryPage() {
     [selected],
   );
 
+  const rows = useMemo<HistoryRow[]>(() => {
+    const backendRows: HistoryRow[] = sessions.map((s) => ({
+      kind: 'backend',
+      id: s.id,
+      startedAt: new Date(s.started_at).getTime(),
+      session: s,
+    }));
+    const mockRows: HistoryRow[] = mockSessions.map((s) => ({
+      kind: 'mock',
+      id: s.id,
+      startedAt: s.startedAt,
+      session: s,
+    }));
+    return [...backendRows, ...mockRows].sort((a, b) => b.startedAt - a.startedAt);
+  }, [sessions, mockSessions]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return sessions.filter((s) => {
-      if (source !== 'all' && s.mode !== source) return false;
+    return rows.filter((row) => {
+      if (source === 'mock' && row.kind !== 'mock') return false;
+      if ((source === 'interview' || source === 'meeting') &&
+        (row.kind !== 'backend' || row.session.mode !== source)) {
+        return false;
+      }
       if (!q) return true;
-      const hay = `${s.title ?? ''} ${s.mode} ${new Date(s.started_at).toLocaleString()}`.toLowerCase();
+      const title =
+        row.kind === 'mock'
+          ? `мок ${row.session.vacancyAnalysis.targetRole}`
+          : `${row.session.title ?? ''} ${row.session.mode}`;
+      const hay = `${title} ${new Date(row.startedAt).toLocaleString()}`.toLowerCase();
       return hay.includes(q);
     });
-  }, [sessions, query, source]);
+  }, [rows, query, source]);
 
   return (
     <div className="prep h-full overflow-y-auto">
@@ -124,8 +274,8 @@ export default function HistoryPage() {
           <p className="prep-eyebrow">История интервью</p>
           <h1 className="prep-h1 mt-1">Вернитесь к вопросам, где было сложно.</h1>
           <p className="prep-sub mt-1.5 max-w-2xl">
-            Каждая строка — одна сессия: источник, дата и число ответов. Откройте, чтобы разобрать
-            вопросы и сохранить удачные формулировки.
+            Live-сессии, мок-интервью и разборы разговоров — в одном месте. Откройте, чтобы
+            разобрать вопросы и сохранить удачные формулировки.
           </p>
         </section>
 
@@ -176,34 +326,52 @@ export default function HistoryPage() {
             {loading && <p className="prep-faint">Загрузка...</p>}
             {!loading && filtered.length === 0 && (
               <div className="prep-empty-state">
-                <p className="prep-h2">{sessions.length === 0 ? 'Сессий пока нет' : 'Ничего не найдено'}</p>
+                <p className="prep-h2">{rows.length === 0 ? 'Сессий пока нет' : 'Ничего не найдено'}</p>
                 <p className="prep-sub mt-1">
-                  После live-интервью здесь появятся вопросы, ответы и транскрипт.
+                  После live-интервью, мока или разбора здесь появятся вопросы, ответы и транскрипт.
                 </p>
               </div>
             )}
-            {filtered.map((session) => {
-              const badge = sourceBadge(session.mode);
-              const active = selected?.id === session.id;
-              const isLive = session.mode !== 'meeting';
+            {filtered.map((row) => {
+              const badge = sourceBadge(row);
+              const active =
+                row.kind === 'mock' ? selectedMock?.id === row.id : selected?.id === row.id;
+              const isLive = row.kind === 'backend' && row.session.mode !== 'meeting';
+              const title =
+                row.kind === 'mock'
+                  ? `Мок: ${row.session.vacancyAnalysis.targetRole || 'по вакансии'}`
+                  : row.session.title ||
+                    (row.session.mode === 'meeting' ? 'Разбор разговора' : 'Live-сессия');
+              const subtitle =
+                row.kind === 'mock'
+                  ? `${badge.label} · ${new Date(row.startedAt).toLocaleDateString()} · ${
+                      row.session.report ? `${row.session.report.overallScore}/100` : 'без отчёта'
+                    }`
+                  : `${badge.label} · ${new Date(row.startedAt).toLocaleDateString()} · ${
+                      row.session.answer_count ?? 0
+                    } ответов`;
               return (
-                <div key={session.id} className={`prep-session-row ${active ? 'is-active' : ''}`}>
-                  <button type="button" onClick={() => open(session.id)} className="prep-session-open">
+                <div key={row.id} className={`prep-session-row ${active ? 'is-active' : ''}`}>
+                  <button
+                    type="button"
+                    onClick={() => (row.kind === 'mock' ? openMock(row.session) : void open(row.id))}
+                    className="prep-session-open"
+                  >
                     <span className={`prep-session-dot ${isLive ? 'is-live' : 'is-manual'}`} />
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-[14.5px] font-semibold" style={{ color: 'var(--prep-ink)' }}>
-                        {session.title || (session.mode === 'meeting' ? 'Разбор разговора' : 'Live-сессия')}
+                      <p
+                        className="truncate text-[14.5px] font-semibold"
+                        style={{ color: 'var(--prep-ink)' }}
+                      >
+                        {title}
                       </p>
-                      <p className="prep-faint mt-0.5">
-                        {badge.label} · {new Date(session.started_at).toLocaleDateString()} ·{' '}
-                        {session.answer_count ?? 0} ответов
-                      </p>
+                      <p className="prep-faint mt-0.5">{subtitle}</p>
                     </div>
                   </button>
                   <button
                     type="button"
-                    onClick={() => void remove(session.id)}
-                    disabled={deletingId === session.id}
+                    onClick={() => void remove(row)}
+                    disabled={deletingId === row.id}
                     className="prep-session-row-del"
                     title="Удалить сессию"
                     aria-label="Удалить сессию"
@@ -216,7 +384,7 @@ export default function HistoryPage() {
           </div>
 
           <div className="prep-session-detail">
-            {!selected && (
+            {!selected && !selectedMock && (
               <div className="prep-empty-state h-full min-h-[420px]">
                 <p className="prep-h2">Выберите сессию слева</p>
                 <p className="prep-sub mt-1">
@@ -224,6 +392,7 @@ export default function HistoryPage() {
                 </p>
               </div>
             )}
+            {selectedMock && <MockSessionDetail session={selectedMock} />}
             {selected && (
               <div className="space-y-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
@@ -257,7 +426,7 @@ export default function HistoryPage() {
                   <div className="prep-transcript-review">
                     {selected.transcripts.map((line, index) => (
                       <p key={index}>
-                        <span>{line.speaker}:</span> {line.text}
+                        <span>{speakerLabel(line.speaker)}:</span> {line.text}
                       </p>
                     ))}
                   </div>

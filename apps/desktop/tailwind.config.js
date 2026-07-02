@@ -5,25 +5,25 @@ export default {
     extend: {
       colors: {
         surface: {
-          DEFAULT: '#0a0b0f', // app background — near black
-          panel: '#0f1117', // sidebar / panels
-          light: '#15171e', // cards (legacy name kept for compatibility)
-          card: '#15171e',
-          hover: '#1b1e26',
-          elevated: '#1d212b',
-          border: '#23262f',
-          'border-strong': '#2f333f',
+          DEFAULT: '#07101d',
+          panel: '#0b1422',
+          light: '#101c2d',
+          card: '#111f31',
+          hover: '#17283d',
+          elevated: '#1a2c44',
+          border: '#24364f',
+          'border-strong': '#34506f',
         },
         accent: {
-          DEFAULT: '#6366f1',
-          hover: '#7c83f6',
-          soft: 'rgba(99,102,241,0.14)',
-          ring: 'rgba(99,102,241,0.35)',
+          DEFAULT: '#34c77b',
+          hover: '#58dc96',
+          soft: 'rgba(52,199,123,0.15)',
+          ring: 'rgba(52,199,123,0.34)',
         },
         ink: {
-          DEFAULT: '#e7e9ef',
-          muted: '#9aa1ad',
-          faint: '#6b7280',
+          DEFAULT: '#edf6ff',
+          muted: '#a9b8cb',
+          faint: '#73849b',
         },
       },
       fontFamily: {
@@ -45,12 +45,12 @@ export default {
         card: '16px',
       },
       boxShadow: {
-        soft: '0 1px 2px rgba(0,0,0,0.5)',
-        card: '0 1px 2px rgba(0,0,0,0.4), 0 12px 32px -16px rgba(0,0,0,0.7)',
-        pop: '0 28px 70px -24px rgba(0,0,0,0.8)',
-        glow: '0 0 0 1px rgba(99,102,241,0.35), 0 10px 32px -10px rgba(99,102,241,0.45)',
+        soft: '0 1px 2px rgba(0,0,0,0.45)',
+        card: '0 1px 2px rgba(0,0,0,0.38), 0 18px 44px -22px rgba(0,0,0,0.72)',
+        pop: '0 34px 90px -30px rgba(0,0,0,0.82)',
+        glow: '0 0 0 1px rgba(52,199,123,0.34), 0 12px 36px -12px rgba(52,199,123,0.45)',
         'panel-focus':
-          '0 1px 2px rgba(0,0,0,0.4), 0 22px 60px -28px rgba(0,0,0,0.75), inset 0 1px 0 rgba(255,255,255,0.03)',
+          '0 1px 2px rgba(0,0,0,0.4), 0 26px 74px -32px rgba(0,0,0,0.82), inset 0 1px 0 rgba(255,255,255,0.04)',
       },
       keyframes: {
         'fade-in': {

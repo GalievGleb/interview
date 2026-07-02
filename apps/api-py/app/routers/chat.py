@@ -8,11 +8,13 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.core.errors import AppError
 from app.db.models import Answer, ApiUsage
 from app.db.session import SessionLocal, get_db
 from app.prompts.interview import INTERVIEW_PROMPT
 from app.prompts.interview_fast import (
     INTERVIEW_PROMPT_STREAM,
+    LEGEND_CONTEXT_LIMIT,
     LIVE_SYSTEM_PROMPT,
     RESUME_CONTEXT_LIMIT,
     RESUME_PLACEHOLDER_NONE,
@@ -98,6 +100,39 @@ class MeetingPayload(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class AnswerVariantPayload(BaseModel):
+    question: str
+    answer: str
+    variant: str  # short | detailed | english | risk
+    provider: str | None = None
+    model: str | None = None
+    model_override: str | None = Field(default=None, alias="modelOverride")
+
+    model_config = {"populate_by_name": True}
+
+
+_VARIANT_PROMPTS: dict[str, str] = {
+    "short": (
+        "Сократи ответ кандидата до 1–2 предложений (максимум 30 слов), сохранив суть. "
+        "Первое предложение — прямой ответ на вопрос. Без вступлений и воды."
+    ),
+    "detailed": (
+        "Разверни ответ кандидата в подробный (120–180 слов): добавь ключевые детали, "
+        "примеры и структуру списком, где уместно. Стиль — живая речь кандидата на "
+        "интервью, первое лицо, без заголовков и корпоративных клише."
+    ),
+    "english": (
+        "Rewrite the candidate's answer in natural spoken English, as the candidate would "
+        "say it at an interview. Keep the same meaning and length, first person, no headers."
+    ),
+    "risk": (
+        "Проанализируй ответ кандидата и перечисли риски: какие уточняющие вопросы может "
+        "задать интервьюер, где ответ звучит слабо или неточно, чего в нём НЕ стоит "
+        "говорить. 3–5 коротких пунктов списком, по делу."
+    ),
+}
+
+
 async def _finalize_question(payload: InterviewPayload) -> tuple[str, str, str, dict]:
     raw = (payload.raw_question or payload.question or "").strip()
     glossary = (payload.glossary_corrected or payload.question or raw).strip()
@@ -179,6 +214,7 @@ async def _interview_event_stream(
     payload: InterviewPayload,
     resume: str,
     vacancy: str,
+    legend: str = "(нет)",
     db: Session | None = None,
 ):
     parts: list[str] = []
@@ -214,6 +250,7 @@ async def _interview_event_stream(
         prompt = INTERVIEW_PROMPT_STREAM.format(
             resume=resume_text,
             vacancy=vacancy or "(нет)",
+            legend=legend or "(нет)",
             question=final_question,
             raw_question=raw_question,
             glossary_corrected=glossary_corrected,
@@ -359,6 +396,7 @@ async def interview(payload: InterviewPayload, db: Session = Depends(get_db)) ->
 
     resume = _clip(rag_service.get_context_text(db, "resume"), RESUME_CONTEXT_LIMIT)
     vacancy = _clip(rag_service.get_context_text(db, "vacancy"), VACANCY_CONTEXT_LIMIT)
+    legend = _clip(rag_service.get_context_text(db, "legend"), LEGEND_CONTEXT_LIMIT)
     final_question, raw_question, glossary_corrected, correction_meta = await _finalize_question(
         payload
     )
@@ -384,6 +422,7 @@ async def interview(payload: InterviewPayload, db: Session = Depends(get_db)) ->
         prompt = INTERVIEW_PROMPT_STREAM.format(
             resume=resume_text,
             vacancy=vacancy or "(нет)",
+            legend=legend or "(нет)",
             question=final_question,
             raw_question=raw_question,
             glossary_corrected=glossary_corrected,
@@ -402,7 +441,7 @@ async def interview(payload: InterviewPayload, db: Session = Depends(get_db)) ->
         notes = ""
     else:
         notes_chunks = await rag_service.search(
-            db, payload.question, kinds=["notes", "qa", "company"], top_k=4
+            db, payload.question, kinds=["notes", "qa", "company", "legend"], top_k=4
         )
         notes = "\n\n".join(c["text"] for c in notes_chunks)
         prompt = INTERVIEW_PROMPT.format(
@@ -452,6 +491,35 @@ async def interview(payload: InterviewPayload, db: Session = Depends(get_db)) ->
     }
 
 
+@router.post("/chat/answer-variant")
+async def answer_variant(payload: AnswerVariantPayload, db: Session = Depends(get_db)) -> dict:
+    """Ленивая генерация варианта ответа (short/detailed/english/risk) по клику на таб."""
+    instruction = _VARIANT_PROMPTS.get(payload.variant)
+    if not instruction:
+        raise AppError("variant must be one of: short, detailed, english, risk", 400, "invalid_variant")
+
+    provider, model, source = _resolve_chat(
+        "fast",
+        provider=payload.provider,
+        model=payload.model,
+        model_override=payload.model_override,
+    )
+    prompt = (
+        f"Вопрос интервьюера:\n{payload.question}\n\n"
+        f"Ответ кандидата:\n{payload.answer}\n\n"
+        f"ЗАДАЧА: {instruction}\n"
+        "Верни ТОЛЬКО текст результата, без пояснений и меток."
+    )
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": prompt},
+    ]
+    text = await provider_adapter.complete(messages, provider, model, max_tokens=600, temperature=0.3)
+    db.add(ApiUsage(provider=provider, kind="chat"))
+    db.commit()
+    return {"text": text.strip(), "model": model, "model_source": source, "variant": payload.variant}
+
+
 @router.post("/chat/interview/stream")
 async def interview_stream(payload: InterviewPayload):
     """SSE-стрим live-подсказки — первые токены сразу."""
@@ -459,6 +527,7 @@ async def interview_stream(payload: InterviewPayload):
     try:
         resume = _clip(rag_service.get_context_text(db, "resume"), RESUME_CONTEXT_LIMIT)
         vacancy = _clip(rag_service.get_context_text(db, "vacancy"), VACANCY_CONTEXT_LIMIT)
+        legend = _clip(rag_service.get_context_text(db, "legend"), LEGEND_CONTEXT_LIMIT)
     except Exception:
         db.close()
         raise
@@ -479,6 +548,7 @@ async def interview_stream(payload: InterviewPayload):
                 payload=payload,
                 resume=resume or "(нет)",
                 vacancy=vacancy or "(нет)",
+                legend=legend or "(нет)",
                 db=db,
             ):
                 yield line

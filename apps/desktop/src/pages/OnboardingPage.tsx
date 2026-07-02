@@ -20,7 +20,9 @@ export default function OnboardingPage() {
 
   const finish = () => {
     completeOnboarding();
-    navigate('/settings');
+    // После первого запуска ведём к контенту (резюме/вакансия), а не в настройки:
+    // документы — следующий обязательный шаг перед мок-интервью и live-режимом.
+    navigate('/documents');
   };
 
   return (

@@ -290,6 +290,8 @@ export interface InterviewAnswer {
   risk: string;
 }
 
+export type AnswerVariantKind = 'short' | 'detailed' | 'english' | 'risk';
+
 export interface SessionItem {
   id: string;
   mode: string;
@@ -443,6 +445,21 @@ export const api = {
     request<{ id: string; ended_at: string }>(`/sessions/${id}/end`, {
       method: 'POST',
       body: JSON.stringify({ summary }),
+    }),
+
+  /** Сохранить финальную строку транскрипта в сессию (для пост-разбора в Истории). */
+  addTranscript: (sessionId: string, speaker: 'me' | 'other', text: string) =>
+    request<{ id: string }>(`/sessions/${sessionId}/transcript`, {
+      method: 'POST',
+      body: JSON.stringify({ speaker, text, is_final: true }),
+    }),
+
+  /** Ленивая генерация варианта ответа для табов «Кратко/Подробно/Английский/Риски». */
+  answerVariant: (question: string, answer: string, variant: AnswerVariantKind) =>
+    request<{ text: string; model?: string; variant: string }>('/chat/answer-variant', {
+      method: 'POST',
+      timeoutMs: LONG_REQUEST_TIMEOUT_MS,
+      body: JSON.stringify({ question, answer, variant }),
     }),
 
   interview: (

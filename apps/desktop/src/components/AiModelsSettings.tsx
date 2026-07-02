@@ -30,6 +30,7 @@ export default function AiModelsSettings() {
   const [codingModel, setCodingModel] = useState(AUTO_VALUE);
   const [fastModel, setFastModel] = useState(AUTO_VALUE);
   const [deepModel, setDeepModel] = useState(AUTO_VALUE);
+  const [vacancyModel, setVacancyModel] = useState(AUTO_VALUE);
   const [models, setModels] = useState<NormalizedModel[]>([]);
   const [hasKey, setHasKey] = useState(false);
 
@@ -45,6 +46,7 @@ export default function AiModelsSettings() {
       setCodingModel(ai.coding_assistant_model);
       setFastModel(ai.fast_live_model);
       setDeepModel(ai.deep_reasoning_model);
+      setVacancyModel(ai.vacancy_review_model ?? AUTO_VALUE);
       setHasKey(ai.has_openrouter_key);
 
       if (ai.models_cache_count > 0) {
@@ -52,7 +54,7 @@ export default function AiModelsSettings() {
         setModels(cached.models);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Не удалось загрузить настройки AI');
+      setError(err instanceof Error ? err.message : 'Не удалось загрузить AI-настройки');
     } finally {
       setLoading(false);
     }
@@ -72,7 +74,8 @@ export default function AiModelsSettings() {
       defaultModel !== initial.default_copilot_model ||
       codingModel !== initial.coding_assistant_model ||
       fastModel !== initial.fast_live_model ||
-      deepModel !== initial.deep_reasoning_model
+      deepModel !== initial.deep_reasoning_model ||
+      vacancyModel !== (initial.vacancy_review_model ?? AUTO_VALUE)
     );
   }, [
     initial,
@@ -83,6 +86,7 @@ export default function AiModelsSettings() {
     codingModel,
     fastModel,
     deepModel,
+    vacancyModel,
   ]);
 
   const syncModels = async () => {
@@ -99,7 +103,7 @@ export default function AiModelsSettings() {
       setModels(res.models);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Не удалось загрузить модели');
+      setError(err instanceof Error ? err.message : 'Не удалось синхронизировать модели');
     } finally {
       setSyncing(false);
     }
@@ -116,7 +120,7 @@ export default function AiModelsSettings() {
         setHasKey(true);
       }
       const res = await api.testOpenRouter(defaultModel === AUTO_VALUE ? undefined : defaultModel);
-      setToast(`Подключение OK: ${res.model}`);
+      setToast(`Подключение работает: ${res.model}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка подключения');
     } finally {
@@ -141,9 +145,10 @@ export default function AiModelsSettings() {
         coding_assistant_model: codingModel,
         fast_live_model: fastModel,
         deep_reasoning_model: deepModel,
+        vacancy_review_model: vacancyModel,
       });
       await load();
-      setToast('Settings saved');
+      setToast('Настройки сохранены');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка сохранения');
     } finally {
@@ -153,31 +158,31 @@ export default function AiModelsSettings() {
 
   if (loading) {
     return (
-      <div className="card mb-5 p-5 text-sm text-ink-muted">Загрузка AI Models...</div>
+      <div className="card mb-5 p-5 text-sm text-ink-muted">Загрузка AI-моделей...</div>
     );
   }
 
   return (
     <div className="card mb-5 space-y-6 p-5">
       <div>
-        <h3 className="text-sm font-semibold text-ink">AI Provider</h3>
+        <h3 className="text-sm font-semibold text-ink">AI-провайдер</h3>
         <p className="mt-0.5 text-sm text-ink-muted">
-          OpenRouter — основной провайдер для Copilot
+          OpenRouter — основной провайдер для SkillCue
         </p>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
         <div>
-          <label className="label">Provider</label>
+          <label className="label">Провайдер</label>
           <select value={provider} onChange={(e) => setProvider(e.target.value)} className="field">
             <option value="openrouter">OpenRouter</option>
             <option value="openai" disabled>
-              OpenAI (later)
+              OpenAI (позже)
             </option>
           </select>
         </div>
         <div>
-          <label className="label">OpenRouter API Key</label>
+          <label className="label">API-ключ OpenRouter</label>
           <div className="flex gap-2">
             <input
               type={showKey ? 'text' : 'password'}
@@ -187,7 +192,7 @@ export default function AiModelsSettings() {
               className="field flex-1"
             />
             <button type="button" onClick={() => setShowKey((v) => !v)} className="btn-secondary btn-sm">
-              {showKey ? 'Hide' : 'Show'}
+              {showKey ? 'Скрыть' : 'Показать'}
             </button>
           </div>
         </div>
@@ -195,69 +200,82 @@ export default function AiModelsSettings() {
 
       <div className="flex flex-wrap items-center gap-2">
         <button onClick={testConnection} disabled={testing || (!hasKey && !openrouterKey)} className="btn-secondary">
-          {testing ? 'Проверка...' : 'Test connection'}
+          {testing ? 'Проверяю...' : 'Проверить подключение'}
         </button>
         <button onClick={syncModels} disabled={syncing || (!hasKey && !openrouterKey)} className="btn-secondary">
-          {syncing ? 'Sync...' : 'Sync models'}
+          {syncing ? 'Синхронизация...' : 'Синхронизировать модели'}
         </button>
         <button type="button" onClick={() => setAdvanced((v) => !v)} className="btn-ghost btn-sm">
-          {advanced ? 'Hide Advanced' : 'Advanced'}
+          {advanced ? 'Скрыть дополнительно' : 'Дополнительно'}
         </button>
         {initial?.last_models_sync_at && (
           <span className="text-xs text-ink-faint">
-            Sync: {new Date(initial.last_models_sync_at).toLocaleString()}
+            Синхронизация: {new Date(initial.last_models_sync_at).toLocaleString()}
           </span>
         )}
       </div>
 
       {advanced && (
         <div>
-          <label className="label">Base URL</label>
+          <label className="label">Базовый URL</label>
           <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} className="field" />
         </div>
       )}
 
       <div className="border-t border-surface-border pt-5">
-        <h3 className="mb-4 text-sm font-semibold text-ink">Model Selection</h3>
+        <h3 className="mb-4 text-sm font-semibold text-ink">Выбор моделей</h3>
         <div className="space-y-5">
           <ModelSelect
-            label="Default Copilot Model"
-            description="Select the default AI model for general copilot interactions."
+            label="Основная модель Copilot"
+            description="Для обычных ответов и общих действий SkillCue."
             value={defaultModel}
             models={models}
             missing={isModelMissing(defaultModel, models)}
             onChange={setDefaultModel}
           />
           <ModelSelect
-            label="Coding Assistant Model"
-            description="Select the default AI model for coding-related tasks."
+            label="Модель для кода"
+            description="Для задач, где важны код, архитектура, технические объяснения и исправления."
             value={codingModel}
             models={models}
             missing={isModelMissing(codingModel, models)}
             onChange={setCodingModel}
           />
           <ModelSelect
-            label="Fast Live Answer Model"
-            description="Used for short real-time answers during interviews or meetings."
+            label="Быстрая live-модель"
+            description="Для коротких ответов в реальном интервью. Здесь важнее скорость, чем глубокий анализ."
             value={fastModel}
             models={models}
             missing={isModelMissing(fastModel, models)}
             onChange={setFastModel}
+            autoSubtitle="SkillCue выберет быструю модель для live-ответов"
           />
+          <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
+            <ModelSelect
+              label="Модель разбора вакансии"
+              description="Для вкладки «Разбор вакансии», Smoke Review и оценки ответов. Ставьте тяжёлую модель: GPT-5.5, GPT-5.4 или Sonnet 4."
+              value={vacancyModel}
+              models={models}
+              missing={isModelMissing(vacancyModel, models)}
+              onChange={setVacancyModel}
+              autoSubtitle="Авто выберет сильную модель для медленного, качественного разбора вакансии"
+            />
+          </div>
           <ModelSelect
-            label="Deep Reasoning Model"
-            description="Used for detailed analysis, mock interview feedback, resume/vacancy review."
+            label="Модель глубокого анализа"
+            description="Для детального анализа, mock feedback, резюме и легенды. Не влияет на live-скорость."
             value={deepModel}
             models={models}
             missing={isModelMissing(deepModel, models)}
             onChange={setDeepModel}
+            autoSubtitle="SkillCue выберет reasoning-модель для подробного анализа"
           />
         </div>
       </div>
 
       <div className="flex items-center gap-3 border-t border-surface-border pt-4">
         <button onClick={save} disabled={!dirty || saving} className="btn-primary">
-          {saving ? 'Saving...' : 'Save'}
+          {saving ? 'Сохраняю...' : 'Сохранить'}
         </button>
         {toast && <p className="text-sm text-emerald-400">{toast}</p>}
         {error && <p className="text-sm text-red-400">{error}</p>}
@@ -266,7 +284,7 @@ export default function AiModelsSettings() {
 
       {models.length === 0 && (
         <p className="text-sm text-ink-muted">
-          Список моделей пуст. Добавьте OpenRouter API key и нажмите Sync models.
+          Список моделей пуст. Добавьте OpenRouter API key и нажмите «Синхронизировать модели».
         </p>
       )}
     </div>

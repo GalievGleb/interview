@@ -151,7 +151,6 @@ const GROUPS: NavGroup[] = [
     items: [
       { to: '/interview', label: 'Live-интервью', icon: 'interview', live: true },
       { to: '/test-lab', label: 'Тестовая лаборатория', icon: 'testlab' },
-      { to: '/benchmark', label: 'STT-бенчмарк', icon: 'benchmark' },
     ],
   },
   {
@@ -163,11 +162,9 @@ const GROUPS: NavGroup[] = [
     ],
   },
   {
+    // Benchmark/Диагностика — инструменты разработчика, доступны из Настроек.
     title: 'Система',
-    items: [
-      { to: '/diagnostics', label: 'Диагностика', icon: 'diagnostics' },
-      { to: '/settings', label: 'Настройки', icon: 'settings' },
-    ],
+    items: [{ to: '/settings', label: 'Настройки', icon: 'settings' }],
   },
 ];
 

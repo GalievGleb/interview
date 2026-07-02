@@ -6,6 +6,7 @@ import UpdateToast from './UpdateToast';
 import { useApp } from '../context/AppContext';
 
 const WIDE_ROUTES = new Set(['/interview', '/meeting']);
+const PREP_ROUTES = new Set(['/home', '/prepare', '/documents', '/history']);
 const NO_TITLEBAR_ROUTES = new Set(['/meeting']);
 
 function elapsed(ms: number): string {
@@ -45,17 +46,15 @@ function TitleBar({ onInterview }: { onInterview: boolean }) {
   }, [live]);
 
   return (
-    <header className="flex h-[50px] shrink-0 items-center gap-3 border-b border-surface-border bg-surface-panel px-4">
+    <header className="skillcue-titlebar">
       <div className="flex items-center gap-1.5">
-        <span className="h-3 w-3 rounded-full bg-[#ff5f57]/70" />
-        <span className="h-3 w-3 rounded-full bg-[#febc2e]/70" />
-        <span className="h-3 w-3 rounded-full bg-[#28c840]/70" />
+        <span className="h-3 w-3 rounded-full bg-[#ff5f57]/80" />
+        <span className="h-3 w-3 rounded-full bg-[#febc2e]/80" />
+        <span className="h-3 w-3 rounded-full bg-[#28c840]/80" />
       </div>
 
       <div className="ml-1 flex items-center gap-2">
-        <div className="flex h-6 w-6 items-center justify-center rounded-md bg-accent text-[10px] font-bold text-white">
-          SC
-        </div>
+        <div className="skillcue-logo skillcue-logo--small" aria-hidden />
         <span className="text-sm font-semibold tracking-tight text-ink">SkillCue</span>
         <span className="sc-mono rounded-md border border-surface-border bg-surface-elevated px-1.5 py-0.5 text-[10px] text-ink-faint">
           2.0
@@ -94,7 +93,7 @@ function TitleBar({ onInterview }: { onInterview: boolean }) {
             Focus
           </button>
         )}
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-400">
+        <span className="skillcue-local-pill">
           <svg
             width="13"
             height="13"
@@ -118,6 +117,7 @@ export default function Layout({ children }: { children: ReactNode }) {
   const { backendOnline } = useApp();
   const { pathname } = useLocation();
   const wide = WIDE_ROUTES.has(pathname);
+  const prep = PREP_ROUTES.has(pathname);
   const showTitleBar = !NO_TITLEBAR_ROUTES.has(pathname);
 
   return (
@@ -127,11 +127,11 @@ export default function Layout({ children }: { children: ReactNode }) {
       {showTitleBar && <TitleBar onInterview={pathname === '/interview'} />}
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <Sidebar />
-        <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <main className="skillcue-main flex min-w-0 flex-1 flex-col overflow-hidden">
           {!backendOnline && (
             <div className="flex shrink-0 items-center gap-2 border-b border-amber-900/30 bg-amber-950/20 px-5 py-2 text-sm text-amber-200/90">
               <span className="sc-dot sc-dot--processing animate-pulse" />
-              Подключение к бэкенду… запускается автоматически. Если не поднимается — вручную:{' '}
+              Подключение к backend... Если он не поднялся автоматически, запустите:{' '}
               <code className="rounded-md bg-black/30 px-1.5 py-0.5 text-amber-100">
                 cd apps/api-py; .\run_dev.ps1
               </code>
@@ -139,13 +139,17 @@ export default function Layout({ children }: { children: ReactNode }) {
           )}
           <div
             className={`mx-auto flex min-h-0 w-full flex-1 flex-col ${
-              wide ? 'max-w-[1600px] px-5 py-4' : 'max-w-5xl overflow-y-auto px-8 py-8'
+              prep
+                ? 'max-w-none overflow-hidden p-0'
+                : wide
+                  ? 'max-w-[1600px] px-5 py-4'
+                  : 'max-w-[1280px] overflow-y-auto px-8 py-8'
             }`}
           >
             <Suspense
               fallback={
                 <div className="flex min-h-[40vh] items-center justify-center text-sm text-ink-muted">
-                  Загрузка…
+                  Загрузка...
                 </div>
               }
             >

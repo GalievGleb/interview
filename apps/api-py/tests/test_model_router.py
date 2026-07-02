@@ -24,6 +24,50 @@ def test_pick_auto_fast():
     assert "flash" in model or "mini" in model
 
 
+def test_pick_auto_vacancy_prefers_strong_gpt_over_fast_model():
+    available = {
+        "openai/gpt-4o-mini",
+        "openai/gpt-5.4",
+        "anthropic/claude-sonnet-4",
+    }
+    model = pick_auto_model("vacancy", available)
+    assert model == "openai/gpt-5.4"
+
+
+def test_pick_auto_vacancy_empty_cache_uses_strong_default():
+    assert pick_auto_model("vacancy", set()) == "openai/gpt-5.5"
+
+
+def test_resolve_vacancy_uses_dedicated_setting_when_explicit():
+    prefs = AiPreferencesModel(
+        deep_reasoning_model="openai/gpt-4o-mini",
+        vacancy_review_model="anthropic/claude-sonnet-4",
+        models_cache=[],
+    )
+    model, source = resolve_model(
+        "vacancy",
+        prefs=prefs,
+        available={"openai/gpt-5.4", "anthropic/claude-sonnet-4"},
+    )
+    assert model == "anthropic/claude-sonnet-4"
+    assert source == "setting"
+
+
+def test_resolve_vacancy_ignores_deep_setting_when_vacancy_setting_is_auto():
+    prefs = AiPreferencesModel(
+        deep_reasoning_model="anthropic/claude-sonnet-4",
+        vacancy_review_model="auto",
+        models_cache=[],
+    )
+    model, source = resolve_model(
+        "vacancy",
+        prefs=prefs,
+        available={"openai/gpt-5.4", "anthropic/claude-sonnet-4"},
+    )
+    assert model == "openai/gpt-5.4"
+    assert source == "auto"
+
+
 def test_resolve_auto():
     prefs = AiPreferencesModel(
         default_copilot_model="auto",

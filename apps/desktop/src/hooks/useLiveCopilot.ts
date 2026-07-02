@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api';
+import { shouldQueueIncomingAnswer } from '../lib/liveAnswerQueue';
 import { startLiveSession, LiveSession, SttMode, SttTimings } from '../lib/liveSession';
 import { prepareTranscriptForLlm, PreparedTranscript } from '../lib/prepareTranscriptForLlm';
 import { SttSessionOptions } from '../lib/sttOptions';
@@ -22,7 +23,6 @@ import {
   looksLikeQuestion,
   mergeRawParts,
   normalizeTranscript,
-  questionChanged,
   stripExperienceFooter,
   isGarbageTranscript,
   isNonQuestionFragment,
@@ -75,6 +75,18 @@ interface LiveTimingState {
   llmRequestStartAt: number | null;
   llmFirstTokenAt: number | null;
   llmEndAt: number | null;
+}
+
+interface AnswerRequest {
+  prepared: PreparedTranscript;
+  serverTimings: SttTimings | null;
+  questionFinalAt: number | null;
+}
+
+interface QueuedAnswerRequest {
+  rawMerged: string;
+  serverTimings: SttTimings | null;
+  questionFinalAt: number | null;
 }
 
 function emptyTimingState(): LiveTimingState {
@@ -166,6 +178,21 @@ export function useLiveCopilot() {
   const timingRef = useRef<LiveTimingState>(emptyTimingState());
   const debugRef = useRef<LiveDebugRecorder>(new LiveDebugRecorder());
   const knowledgeMetaRef = useRef<CopilotAnswerPipeline['knowledge'] | null>(null);
+  const queuedAnswerRef = useRef<QueuedAnswerRequest | null>(null);
+  const lastPersistedTranscriptRef = useRef<Record<string, string>>({});
+
+  // Persist final transcript lines so History can show the full dialogue
+  // (including the user's own answers) for post-interview review.
+  const persistTranscriptLine = useCallback((text: string, speaker: Speaker) => {
+    const sid = sessionRef.current;
+    if (!sid) return;
+    if (lastPersistedTranscriptRef.current[speaker] === text) return;
+    lastPersistedTranscriptRef.current[speaker] = text;
+    hasSessionContentRef.current = true;
+    void api.addTranscript(sid, speaker, text).catch(() => {
+      /* non-fatal: history just won't have this line */
+    });
+  }, []);
 
   const patchSttDebug = useCallback((patch: Partial<SttDebugInfo>) => {
     setSttDebug((prev) => ({
@@ -272,7 +299,10 @@ export function useLiveCopilot() {
     [endInterviewSession],
   );
 
-  const runStream = useCallback((prepared: PreparedTranscript) => {
+  const runStream = useCallback((request: AnswerRequest) => {
+    const { prepared } = request;
+    const requestTimings = request.serverTimings;
+    const requestQuestionFinalAt = request.questionFinalAt;
     const q = prepared.resolvedQuestion.trim();
     if (q.length < 3) return;
     streamLockRef.current = true;
@@ -289,9 +319,9 @@ export function useLiveCopilot() {
     // (the cause of the 24009/56622/113737ms bug). Prefer the server's
     // speech-end→final; fall back to a sane client measure, never session-elapsed.
     const exchangeSttLatencyMs = computeExchangeSttLatencyMs(
-      serverTimingsRef.current?.speechEndToFinalMs,
+      requestTimings?.speechEndToFinalMs,
       answerStartedAt,
-      questionFinalAtRef.current,
+      requestQuestionFinalAt,
     );
 
     setSttDebug({
@@ -335,14 +365,14 @@ export function useLiveCopilot() {
       // Real STT is a second or two, so discard an implausible fallback rather
       // than record a misleading number.
       timeToFinalMs:
-        serverTimingsRef.current?.speechEndToFinalMs ??
-        (questionFinalAtRef.current != null
-          ? sanitizeSttLatencyMs(answerStartedAt - questionFinalAtRef.current)
+        requestTimings?.speechEndToFinalMs ??
+        (requestQuestionFinalAt != null
+          ? sanitizeSttLatencyMs(answerStartedAt - requestQuestionFinalAt)
           : undefined),
       finalTranscriptionMs:
-        serverTimingsRef.current?.finalInferenceMs ?? buildTimingDebug(timingRef.current).finalTranscriptionMs,
+        requestTimings?.finalInferenceMs ?? buildTimingDebug(timingRef.current).finalTranscriptionMs,
       timeToFirstPartialMs:
-        serverTimingsRef.current?.firstPartialMs ??
+        requestTimings?.firstPartialMs ??
         buildTimingDebug(timingRef.current).timeToFirstPartialMs,
     });
 
@@ -353,8 +383,24 @@ export function useLiveCopilot() {
     setError('');
     debugRef.current.event('answer_started', {
       text: q,
-      meta: { sttLatencyMs: serverTimingsRef.current?.speechEndToFinalMs },
+      meta: { sttLatencyMs: requestTimings?.speechEndToFinalMs },
     });
+
+    const runQueuedAnswer = () => {
+      const queued = queuedAnswerRef.current;
+      if (!queued) return;
+      queuedAnswerRef.current = null;
+      const nextPrepared = prepareTranscriptForLlm(queued.rawMerged, sessionContextRef.current);
+      const nextQuestion = nextPrepared.resolvedQuestion.trim();
+      if (!nextQuestion || nextQuestion === lastCompletedRef.current) return;
+      setTimeout(() => {
+        runStream({
+          prepared: nextPrepared,
+          serverTimings: queued.serverTimings,
+          questionFinalAt: queued.questionFinalAt,
+        });
+      }, 0);
+    };
 
     const pushHistory = (
       text: string,
@@ -431,9 +477,9 @@ export function useLiveCopilot() {
             exchangeSttLatencyMs,
             llmLatencyMs,
             buildLatencyBreakdown({
-              serverTimings: serverTimingsRef.current,
+              serverTimings: requestTimings,
               answerStartedAt,
-              questionFinalAt: questionFinalAtRef.current,
+              questionFinalAt: requestQuestionFinalAt,
               llmFirstTokenMs: debugSnapshot?.timeToAnswerMs,
               llmLatencyMs,
               speechEndedAt: timingRef.current.speechEndedAt,
@@ -455,6 +501,7 @@ export function useLiveCopilot() {
             resetPreviousTopic: prepared.followUp.resetPreviousTopic,
           });
           pushHistory(text, answerId, pipeline, latency);
+          runQueuedAnswer();
         },
         onError: (msg) => {
           if (gen !== streamGenRef.current) return;
@@ -475,10 +522,12 @@ export function useLiveCopilot() {
             if (knowledgeMetaRef.current) pipeline.knowledge = knowledgeMetaRef.current;
             const latency = buildExchangeLatency(exchangeSttLatencyMs, llmLatencyMs);
             pushHistory(text, undefined, pipeline, latency);
+            runQueuedAnswer();
           } else {
             setStreamText('');
             setCurrentQuestion('');
             setError(msg);
+            runQueuedAnswer();
           }
         },
       },
@@ -604,15 +653,29 @@ export function useLiveCopilot() {
       if (q === lastCompletedRef.current) return;
       if (streamLockRef.current && q === lastQuestionRef.current) return;
 
+      const requestTimings = serverTimingsRef.current ? { ...serverTimingsRef.current } : null;
+      const requestQuestionFinalAt = questionFinalAtRef.current;
+
       if (streamLockRef.current) {
-        if (!questionChanged(lastQuestionRef.current, q)) return;
-        cancelStreamRef.current?.();
-        streamGenRef.current += 1;
-        streamLockRef.current = false;
+        if (!shouldQueueIncomingAnswer(lastQuestionRef.current, q)) return;
+        queuedAnswerRef.current = {
+          rawMerged,
+          serverTimings: requestTimings,
+          questionFinalAt: requestQuestionFinalAt,
+        };
+        syncDebugFromPrepared(prepared, {
+          answerTriggered: false,
+          waitReason: 'Queued: finishing previous answer',
+        });
+        return;
       }
 
       incompleteRetryRef.current = 0;
-      runStream(prepared);
+      runStream({
+        prepared,
+        serverTimings: requestTimings,
+        questionFinalAt: requestQuestionFinalAt,
+      });
     },
     [runStream, syncDebugFromPrepared],
   );
@@ -802,7 +865,9 @@ export function useLiveCopilot() {
       utteranceBufferRef.current = [];
       incompleteRetryRef.current = 0;
       streamLockRef.current = false;
+      queuedAnswerRef.current = null;
       hasSessionContentRef.current = false;
+      lastPersistedTranscriptRef.current = {};
       debugRef.current.start(16000);
       if (finalDebounceRef.current) clearTimeout(finalDebounceRef.current);
       clearSpeculative();
@@ -863,6 +928,7 @@ export function useLiveCopilot() {
               timingRef.current.finalTranscriptionEndAt = performance.now();
               timingRef.current.speechEndedAt = performance.now();
               appendLine(trimmed, true, speaker);
+              persistTranscriptLine(trimmed, speaker);
               debugRef.current.event('final', { text: trimmed, speaker });
               patchSttDebug({
                 interimTranscript: undefined,
@@ -926,9 +992,6 @@ export function useLiveCopilot() {
             onTurnResumed: () => {
               lastFlushSpeakerRef.current = speaker === 'other' ? 'interviewer' : 'me';
               cancelPendingQuestion();
-              cancelStreamRef.current?.();
-              streamGenRef.current += 1;
-              streamLockRef.current = false;
             },
             onError: (msg) => removeStream(source, `${label}: ${msg}`),
             onClose: () => {
@@ -971,7 +1034,7 @@ export function useLiveCopilot() {
         await endInterviewSession();
       }
     },
-    [appendLine, cancelPendingQuestion, clearSpeculative, endInterviewSession, flushQuestion, patchSttDebug, removeStream, scheduleFinalFallback, scheduleSpeechFinal, trySpeculative],
+    [appendLine, cancelPendingQuestion, clearSpeculative, endInterviewSession, flushQuestion, patchSttDebug, persistTranscriptLine, removeStream, scheduleFinalFallback, scheduleSpeechFinal, trySpeculative],
   );
 
   const stop = useCallback(async () => {
@@ -980,6 +1043,7 @@ export function useLiveCopilot() {
     streamGenRef.current += 1;
     cancelStreamRef.current?.();
     streamLockRef.current = false;
+    queuedAnswerRef.current = null;
     setStreaming(false);
     const hadStreams = liveRef.current.length > 0;
     liveRef.current.forEach((e) => e.session.stop());
