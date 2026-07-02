@@ -749,6 +749,8 @@ export async function evaluateAnswer(
           : undefined,
         extractedValidPoints: r.extractedValidPoints?.length ? r.extractedValidPoints : undefined,
         hallucinationGuard: r.hallucinationGuard?.length ? r.hallucinationGuard : undefined,
+        coverageScore: r.coverageScore,
+        normalizedAnswerSummary: r.normalizedAnswerSummary || undefined,
       };
     } catch {
       // Fall through to the heuristic.
@@ -767,8 +769,11 @@ export function evaluateAnswerMock(
   const words = text ? text.split(/\s+/).length : 0;
 
   // Preprocess ASR/noise first — noise is a speech-quality issue, not a tech error.
+  // Then reconstruct distorted technical terms (e.g. "филокит" -> "flaky
+  // tests") so semantic matching runs on the intended meaning, not raw ASR.
   const detectedNoise = detectNoise(text);
-  const cleanText = stripNoise(text, detectedNoise);
+  const strippedText = stripNoise(text, detectedNoise);
+  const cleanText = correctAsrTerms(strippedText);
   const cleanLower = cleanText.toLowerCase();
   const mentioned = question.expectedSignals.filter((s) => signalMatchesAnswer(s, cleanText));
   const missingPoints = question.expectedSignals.filter((s) => !signalMatchesAnswer(s, cleanText));
@@ -959,6 +964,12 @@ export function evaluateAnswerMock(
     detectedNoiseOrAsrErrors: detectedNoise.length ? detectedNoise : undefined,
     extractedValidPoints: extractedValidPoints.length ? extractedValidPoints : undefined,
     hallucinationGuard,
+    coverageScore: question.expectedSignals.length
+      ? clamp(
+          (new Set([...mentioned, ...semanticCovered]).size / question.expectedSignals.length) * 100,
+        )
+      : technicalAccuracyScore,
+    normalizedAnswerSummary: cleanText !== text.replace(/\s+/g, ' ').trim() ? cleanText : undefined,
   };
 }
 
@@ -990,6 +1001,58 @@ function stripNoise(text: string, noise: string[]): string {
     if (cleaned) out = out.split(cleaned).join(' ');
   }
   return out.replace(/\s+/g, ' ').trim();
+}
+
+// ASR/Whisper regularly mangles technical jargon in voice answers. Each entry
+// is a garbled-form regex → canonical term, grouped by area (mirrors the
+// backend prompt's dictionary so online/offline evaluation stay consistent).
+// Narrower than the prompt's dictionary on purpose: a regex can't judge
+// context, so ambiguous everyday words the prompt handles semantically
+// ("схема", "заголовки", "права", bare "ожидания") are left untouched here.
+// JS `\w`/`\b` are ASCII-only, so Cyrillic suffixes use [а-я\w] and word
+// boundaries use lookarounds — same as the semantic-matching regexes above.
+const ASR_TERM_CORRECTIONS: Array<[RegExp, string]> = [
+  // UI automation
+  [/филокит[-а-я\w]*|флаки-?тест[а-я\w]*|флаг[иа]\s+тест[а-я\w]*/gi, 'flaky tests'],
+  [/плейврайт[а-я\w]*|плэйрайт[а-я\w]*|play\s*right/gi, 'Playwright'],
+  [/селениум[а-я\w]*/gi, 'Selenium'],
+  // "обджект" is the ASR transliteration; "объект" the proper spelling — both count.
+  [/пейдж\s?об(?:ъе|дже|же)кт[а-я\w]*|питчпасс[а-я\w]*|пейдж\s+класс[а-я\w]*/gi, 'Page Object'],
+  [/локатор[а-я\w]*|селектор[а-я\w]*/gi, 'locators'],
+  [/явны?е?\s+ожидани[а-я\w]*|ждать\s+элемент[а-я\w]*|ждать\s+состояни[а-я\w]*/gi, 'waits'],
+  [/тайм\s?слип[а-я\w]*|(?<![а-я\w])слип[а-я\w]*/gi, 'sleep'],
+  // Reporting/debug
+  [/ал(?:ю|ь)ур(?:очот)?[а-я\w]*(?:\s+отч[её]т[а-я\w]*)?/gi, 'Allure Report'],
+  [/(?<![а-я\w])(?:див|дифф?)(?![а-я\w])/gi, 'diff'],
+  [/экспектед[а-я\w]*|xpef\w*|икспектед[а-я\w]*/gi, 'expected'],
+  [/экчуал[а-я\w]*|актуальн[а-я\w]*\s+скриншот[а-я\w]*/gi, 'actual'],
+  [/скриншот[а-я\w]*\s+падени[а-я\w]*/gi, 'failure screenshot'],
+  [/трейсбек[а-я\w]*|трейс(?!порт)[а-я\w]*/gi, 'traceback'],
+  [/логирован[а-я\w]*|логиру[а-я\w]*/gi, 'logging'],
+  // Whole-word only: "логика"/"каталог" must not turn into "logs".
+  [/(?<![а-я\w])лог(?:и|ах?|ов|ам|ами)?(?![а-я\w])/gi, 'logs'],
+  [/артефакт[а-я\w]*/gi, 'artifacts'],
+  // API
+  [/пайдентик[а-я\w]*|пидантик[а-я\w]*/gi, 'Pydantic'],
+  // CI/CD
+  [/гитлаб\s+ямл[а-я\w]*|yaml\s+файл[а-я\w]*/gi, '.gitlab-ci.yml'],
+  [/пайплайн[а-я\w]*/gi, 'pipeline'],
+  // Inflections only — "джобс…" (Джобс) must stay untouched.
+  [/(?<![а-я\w])джоб(?:а|у|ы|е|ой|ам|ами|ах)?(?![а-я\w])/gi, 'job'],
+  [/стейдж[а-я\w]*/gi, 'stage'],
+];
+
+/**
+ * Reconstruct distorted technical terms from context — e.g. "филокит-тесты"
+ * → "flaky tests". Only rewrites recognizable jargon; never touches the rest
+ * of the candidate's wording or meaning.
+ */
+function correctAsrTerms(text: string): string {
+  let out = text;
+  for (const [pattern, canonical] of ASR_TERM_CORRECTIONS) {
+    out = out.replace(pattern, canonical);
+  }
+  return out;
 }
 
 function mentionedToolsFrom(text: string): string[] {

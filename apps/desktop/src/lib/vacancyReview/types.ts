@@ -139,6 +139,10 @@ export interface SmokeAnswerEvaluation {
   detectedNoiseOrAsrErrors?: string[];
   /** The valid points recovered from a noisy/rambling answer. */
   extractedValidPoints?: string[];
+  /** % of expected signals covered or partially covered (semantic, not exact-word). */
+  coverageScore?: number;
+  /** The answer with only ASR-distorted terms corrected — meaning unchanged. */
+  normalizedAnswerSummary?: string;
   /** What the stronger answer must NOT invent (metrics, titles, people mgmt…). */
   hallucinationGuard?: string[];
 }

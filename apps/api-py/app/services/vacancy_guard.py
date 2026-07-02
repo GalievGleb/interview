@@ -855,7 +855,9 @@ def harden_vacancy_evaluation(
     except (TypeError, ValueError):
         score = 0
     level_estimate = str(out.get("levelEstimate", "") or "").lower()
-    if score < 70 and level_estimate in {"senior", "lead"}:
+    # Senior/Lead is a real claim about depth — require score>=75 to back it up
+    # (never below 60 in any case), otherwise it's a contradiction.
+    if score < 75 and level_estimate in {"senior", "lead"}:
         out["levelEstimate"] = "middle"
         verdict = str(out.get("verdict", "") or "")
         out["verdict"] = re.sub(

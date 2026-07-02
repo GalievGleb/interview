@@ -80,11 +80,33 @@ VACANCY_EVALUATE_PROMPT = """You are a senior QA Automation interviewer and inte
 
 The candidate often answers by VOICE, so the text may contain ASR errors, random inserts unrelated to the answer, broken phrases, repeats, colloquial speech, and mangled terms.
 
+Do NOT evaluate the raw ASR text directly. Always normalize first, then evaluate the normalized meaning.
+
 STEP 1 — preprocess the answer before scoring:
 - Detect ASR/noise fragments: random websites, ad-like inserts, phrases clearly unrelated to the question, broken bits that ruin the meaning (e.g. "Экспериментальный сайт www.patreon.com", "Ваши вопросы по QA-автоматизации"). List them in detectedNoiseOrAsrErrors. These are NOT the candidate's technical mistakes — treat them as speech/recording quality, and only they lower speechClarityScore.
-- Reconstruct the intended meaning: what the candidate likely meant, which points can be extracted (extractedValidPoints), and what stayed uncovered (missingPoints).
+- Reconstruct distorted technical terms from context (Whisper/ASR regularly mangles jargon). Common Russian ASR distortions and their correct terms:
+  UI automation: "филокит"/"флаки"/"флакитесты"/"флаги тесты" → flaky tests; "плейврайт"/"плэйрайт"/"play right" → Playwright; "селениум" → Selenium; "пейджобджект"/"пейдж объект"/"питчпасс"/"пейдж класс" → Page Object / Page Object Model (when the context is UI-test structure); "локаторы"/"надежные локаторы"/"селекторы" → locators; "явные ожидания"/"ожидания"/"ждать элемент"/"ждать состояние" → waits / explicit waits; "sleep"/"слипы"/"тайм слип" → hard waits / sleep.
+  Reporting/debug: "алюр"/"аллюр"/"альур"/"альурочот"/"алюр отчет" → Allure Report; "див"/"диф"/"дифф" → diff; "экспектед"/"xpef"/"икспектед" → expected; "экчуал"/"актуальный скриншот" → actual; "скриншот падения" → failure screenshot; "трейс"/"трейсбек" → traceback / trace; "логи"/"логирование" → logs / logging; "артефакты" → artifacts.
+  API: "пайдентик"/"пидантик"/"пайдентик модель" → Pydantic; "схема"/"модель ответа"/"валидация полей"/"типы данных" → schema/body validation; "заголовки" → headers; "токен"/"права"/"авторизация" → auth/authz.
+  CI/CD: "гитлаб ямл"/"yaml файл" → .gitlab-ci.yml; "пайплайн" → pipeline; "джоба"/"джоб" → job; "стейдж" → stage; "по расписанию"/"ночью"/"каждую ночь" → scheduled pipeline; "вручную кнопкой" → manual job.
+  Apply this same reconstruct-by-context approach to any other garbled technical term you recognize, not just these examples.
+- Write the corrected text as normalizedAnswerSummary (rewrite ONLY the ASR-distorted terms — never improve, add to, or change the candidate's actual content/meaning).
+- Extract what the candidate actually claimed from normalizedAnswerSummary into extractedValidPoints — this is valid_claims: real technical points, regardless of how garbled the raw audio was.
 
-STEP 2 — score by MEANING, not by speech quality. But if the question is about leadership/project experience and the candidate gave no problem, no responsibility, and no result, the score can be LOW even with correct terminology.
+STEP 2 — semantic_mapping: match extractedValidPoints against the expected signals BY MEANING, not exact words, then score by that mapping. Each expected signal is exactly one of: covered (candidate clearly addressed it) / partially covered (related content present but incomplete, e.g. mentions symptoms/tools for diagnosing flaky tests but not the full diagnostic algorithm) / missing (no related content at all). Put "partially covered" items in weakPoints with a note on what to sharpen — NEVER in missingPoints, and NEVER phrase it as "add X" when X is already partially covered by meaning. Score by MEANING, not by speech quality. But if the question is about leadership/project experience and the candidate gave no problem, no responsibility, and no result, the score can be LOW even with correct terminology.
+
+Worked calibration example (do not copy verbatim, this is a pattern to follow):
+Question: "Как борешься с flaky UI-тестами?" Expected signals: Locators, waits, page objects, flaky-test handling.
+Raw candidate answer: "Для того, чтобы бороться с филокит-тестами, обычно я использую надежные локаторы. Для флага тестов явные ожидания. использовать правильно инструменты логирования. Альурочотов присутствует, ДИВ скриншоты и скриншоты ожидаемые, Xpef, и скриншоты актуальны."
+normalizedAnswerSummary: "Для борьбы с flaky-тестами использую надёжные локаторы, явные ожидания, инструменты логирования, Allure-отчёты, diff-скриншоты, expected и actual скриншоты."
+Correct semantic_mapping: Locators → covered. waits → covered. page objects → missing (candidate never mentioned Page Object). flaky-test handling → partially covered (Allure/logs/diff/expected/actual give failure-analysis tooling, but there's no full diagnostic algorithm — locator vs data vs environment vs real bug).
+Correct scoring for this example: technicalAccuracyScore ≈ 70, coverageScore ≈ 62, specificityScore ≈ 55, structureScore ≈ 45-60, confidenceScore ≈ 75-85, speechClarityScore ≈ 35-50 (the ASR was rough — that penalizes speechClarityScore/structureScore, NOT technicalAccuracyScore), quick score ≈ 62-70.
+This example is WRONG if it produces: technicalAccuracyScore 0 or 25, "добавить Locators" (locators were covered), or "нет конкретных инструментов" (Allure/diff/expected/actual are concrete tools) — the candidate mentioned real, correct technical points, so technicalAccuracyScore can never be near-zero here.
+
+Score calibration by coverage (guideline, not a hard rule — use judgment, but stay in this range):
+- 2 of 4 expected points covered + 1 partially covered → overall score usually 55-70.
+- 3 of 4 expected points covered → overall score usually 65-80.
+- levelEstimate "senior" (or higher) requires overall score 75+; if score is below that, do not call it senior — say "middle" or "middle+" in the verdict instead and explain what's missing for senior. If score is below 60, never call it senior.
 
 Semantic matching rules:
 - Use semantic matching, not exact keyword matching.
@@ -142,6 +164,7 @@ Consistency rules before final JSON:
 Output STRICT JSON ONLY (no markdown, no code fences) with exactly this shape:
 {{
   "score": 0,
+  "coverageScore": 0,
   "technicalContentScore": 0,
   "projectSpecificityScore": 0,
   "leadershipScore": 0,
@@ -155,11 +178,12 @@ Output STRICT JSON ONLY (no markdown, no code fences) with exactly this shape:
   "levelEstimate": "junior|middle|senior|lead",
   "verdict": "one short, honest sentence about level and what's missing",
   "feedback": "1-2 sentences, direct and specific",
+  "normalizedAnswerSummary": "the candidate's answer with ONLY ASR-distorted terms corrected, meaning unchanged",
   "detectedNoiseOrAsrErrors": ["noise/ASR fragment", "..."],
   "extractedValidPoints": ["valid point recovered from the answer", "..."],
   "goodPoints": ["what was genuinely good"],
-  "weakPoints": ["what was weak, vague or imprecise"],
-  "missingPoints": ["what MUST be added"],
+  "weakPoints": ["what was weak, vague, imprecise, or only partially covered"],
+  "missingPoints": ["what is genuinely absent — never something already covered or partially covered"],
   "technicalCorrections": ["a wrong statement -> the correct formulation"],
   "hallucinationGuard": ["what the stronger answer must NOT invent"],
   "betterStructure": ["ordered steps the answer should follow"],
@@ -170,13 +194,16 @@ Output STRICT JSON ONLY (no markdown, no code fences) with exactly this shape:
 }}
 
 Score breakdown (0–100 each; score = overall by meaning):
+- coverageScore: what fraction of the expected signals were covered or partially covered (not exact-word matching — semantic).
 - technicalContentScore: knowledge + relevance of the content.
 - projectSpecificityScore: concrete project detail (domain, task, actions, tools).
 - leadershipScore: how well an ownership/leadership role was shown. For a non-leadership question set it equal to the overall level of ownership shown, or 0 if not applicable.
 - ownershipScore: for project_experience_question, the Candidate role block specifically — technical leadership vs people management, what was actually theirs to decide. Mirror leadershipScore when the two overlap.
-- structureScore: is the answer structured and easy to follow.
-- speechClarityScore: cleanliness of speech/delivery AFTER accounting for ASR noise.
+- structureScore: is the answer structured and easy to follow. ASR noise lowers this and speechClarityScore, never technicalAccuracyScore/technicalContentScore.
+- speechClarityScore: cleanliness of speech/delivery AFTER accounting for ASR noise — this is the ASR-quality dimension. A rough recording can legitimately score low here while the candidate's actual technical content scores well; these two must not be conflated.
 - Also fill the legacy fields for compatibility: technicalAccuracyScore≈technicalContentScore, specificityScore≈projectSpecificityScore, clarityScore≈structureScore, confidenceScore = assured but honest delivery.
+- NEVER output technicalAccuracyScore or technicalContentScore as 0 (or near-0 like 25) when extractedValidPoints contains at least one correct technical point — that is always a scoring error; recalculate before returning.
+- If confidenceScore is high but the answer is genuinely disorganized, do not automatically set structureScore to 100 just because delivery was confident — score structure independently.
 - Do NOT auto-label "Junior". Prefer nuance in verdict, e.g. "по содержанию ближе к middle, по раскрытию лидерства — weak/middle-". If it's a Lead question, you may say "ответ не дотягивает до Lead: не раскрыты стратегия, управление, code review, метрики и результат".
 
 STRICT anti-hallucination rules (most important):

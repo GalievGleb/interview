@@ -4,7 +4,9 @@ from app.services import provider_adapter
 
 
 def test_vacancy_evaluate_removes_unsupported_claims_and_reports_asr_noise(client, monkeypatch):
-    async def fake_complete(messages, provider=None, model=None, max_tokens=800, temperature=0.4):
+    async def fake_complete(
+        messages, provider=None, model=None, max_tokens=800, temperature=0.4, reasoning=None
+    ):
         return json.dumps(
             {
                 "score": 70,
@@ -81,7 +83,9 @@ def test_vacancy_evaluate_removes_unsupported_claims_and_reports_asr_noise(clien
 def test_vacancy_evaluate_prompt_contains_strict_allowed_sources(client, monkeypatch):
     captured = {}
 
-    async def fake_complete(messages, provider=None, model=None, max_tokens=800, temperature=0.4):
+    async def fake_complete(
+        messages, provider=None, model=None, max_tokens=800, temperature=0.4, reasoning=None
+    ):
         captured["prompt"] = messages[-1]["content"]
         return json.dumps(
             {
@@ -139,7 +143,9 @@ def test_vacancy_evaluate_prompt_contains_strict_allowed_sources(client, monkeyp
 
 
 def test_vacancy_evaluate_hardens_semantic_matching_and_consistency(client, monkeypatch):
-    async def fake_complete(messages, provider=None, model=None, max_tokens=800, temperature=0.4):
+    async def fake_complete(
+        messages, provider=None, model=None, max_tokens=800, temperature=0.4, reasoning=None
+    ):
         return json.dumps(
             {
                 "score": 48,
@@ -219,7 +225,9 @@ def test_vacancy_evaluate_hardens_semantic_matching_and_consistency(client, monk
 
 
 def test_vacancy_evaluate_generic_technical_fallback_is_ready_answer(client, monkeypatch):
-    async def fake_complete(messages, provider=None, model=None, max_tokens=800, temperature=0.4):
+    async def fake_complete(
+        messages, provider=None, model=None, max_tokens=800, temperature=0.4, reasoning=None
+    ):
         return json.dumps(
             {
                 "score": 61,
@@ -280,7 +288,9 @@ def test_vacancy_evaluate_generic_technical_fallback_is_ready_answer(client, mon
 
 
 def test_vacancy_evaluate_hardens_behavioral_star_semantics(client, monkeypatch):
-    async def fake_complete(messages, provider=None, model=None, max_tokens=800, temperature=0.4):
+    async def fake_complete(
+        messages, provider=None, model=None, max_tokens=800, temperature=0.4, reasoning=None
+    ):
         return json.dumps(
             {
                 "score": 52,
@@ -375,7 +385,9 @@ def test_vacancy_evaluate_hardens_project_experience_question(client, monkeypatc
     get the behavioral conflict-story opening or any invented specifics.
     """
 
-    async def fake_complete(messages, provider=None, model=None, max_tokens=800, temperature=0.4):
+    async def fake_complete(
+        messages, provider=None, model=None, max_tokens=800, temperature=0.4, reasoning=None
+    ):
         return json.dumps(
             {
                 "score": 20,

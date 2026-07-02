@@ -186,6 +186,9 @@ export default function SmokeInterviewView({
 
             <div className="flex flex-wrap gap-x-4 gap-y-1">
               <Metric label="Точность" value={evaluation.technicalAccuracyScore} />
+              {typeof evaluation.coverageScore === 'number' && (
+                <Metric label="Покрытие темы" value={evaluation.coverageScore} />
+              )}
               <Metric label="Конкретика" value={evaluation.specificityScore} />
               <Metric label="Структура" value={evaluation.clarityScore} />
               <Metric label="Уверенность" value={evaluation.confidenceScore} />
@@ -197,10 +200,20 @@ export default function SmokeInterviewView({
             <p className="prep-sub">{evaluation.feedback}</p>
 
             {evaluation.detectedNoiseOrAsrErrors && evaluation.detectedNoiseOrAsrErrors.length > 0 && (
-              <p className="text-[12px]" style={{ color: 'var(--prep-ink-faint)' }}>
-                🎙 В записи есть шум распознавания речи (не техническая ошибка): «
-                {evaluation.detectedNoiseOrAsrErrors.join(' » · «')}»
-              </p>
+              <div className="text-[12px]" style={{ color: 'var(--prep-ink-faint)' }}>
+                <p>
+                  🎙 В записи есть шум распознавания речи (не техническая ошибка): «
+                  {evaluation.detectedNoiseOrAsrErrors.join(' » · «')}»
+                </p>
+                {evaluation.normalizedAnswerSummary && (
+                  <details className="mt-1">
+                    <summary className="cursor-pointer font-semibold" style={{ color: 'var(--prep-green)' }}>
+                      Как поняли ваш ответ после очистки от шума
+                    </summary>
+                    <p className="mt-1 whitespace-pre-wrap">{evaluation.normalizedAnswerSummary}</p>
+                  </details>
+                )}
+              </div>
             )}
 
             {evaluation.overclaimed && (

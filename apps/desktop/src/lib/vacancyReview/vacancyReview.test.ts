@@ -439,6 +439,64 @@ describe('evaluation + report', () => {
     expect(gitEval.suggestedBetterAnswer).not.toContain('Одна из сложных ситуаций');
   });
 
+  it('normalizes garbled ASR terms before evaluating, without leaking Cyrillic suffixes', () => {
+    const analysis: VacancyAnalysis = {
+      id: 'asr-normalization',
+      vacancyText: 'QA Automation: Playwright, UI tests, Allure.',
+      targetRole: 'QA Automation Engineer',
+      seniorityLevel: 'middle',
+      language: 'ru',
+      extractedRequirements: ['Playwright', 'Allure'],
+      optionalSkills: [],
+      interviewTopics: [
+        {
+          id: 'flaky-ui-asr',
+          title: 'Flaky UI tests',
+          category: 'Testing',
+          importance: 'high',
+          level: 'middle',
+          expectedKnowledge: 'Locators, waits, page objects, flaky-test handling.',
+          expectedAnswerPoints: ['Locators', 'waits', 'page objects', 'flaky-test handling'],
+          sampleQuestions: ['Как борешься с flaky UI-тестами?'],
+          vacancyEvidence: 'Playwright, UI tests',
+        },
+      ],
+      projectQuestions: [],
+      riskAreas: [],
+      hasResume: true,
+      hasLegend: false,
+      resumeText: 'Playwright, Allure, screenshots, logs.',
+      createdAt: Date.now(),
+    };
+    const [question] = buildSmokePlan(analysis);
+
+    // Real Whisper output: "филокит" = flaky, "Альурочотов" = Allure отчётов,
+    // "ДИВ" = diff, "Xpef" = expected.
+    const evaluation = evaluateAnswerMock(
+      question,
+      'Для того, чтобы бороться с филокит-тестами, обычно я использую надежные локаторы. Для флага тестов явные ожидания. использовать правильно инструменты логирования. Альурочотов присутствует, ДИВ скриншоты и скриншоты ожидаемые, Xpef, и скриншоты актуальны.',
+      analysis,
+    );
+
+    const normalized = evaluation.normalizedAnswerSummary ?? '';
+    expect(normalized).toContain('flaky tests');
+    expect(normalized).toContain('locators');
+    expect(normalized).toContain('waits');
+    expect(normalized).toContain('Allure Report');
+    expect(normalized).toContain('diff');
+    expect(normalized).toContain('expected');
+    // Garbled originals are gone…
+    expect(normalized).not.toMatch(/филокит|Альурочот|ДИВ|Xpef/i);
+    // …and JS ASCII-only \w/\b must not leave Cyrillic suffixes on replacements.
+    expect(normalized).not.toMatch(/tests-тестами|locatorsы|waitsя|Reportов/);
+
+    // Evaluation runs on the normalized meaning: locators + waits are covered,
+    // so they are not "missing" and accuracy is never zeroed out.
+    expect(evaluation.missingPoints.join(' ')).not.toMatch(/locators|waits/i);
+    expect(evaluation.technicalAccuracyScore).toBeGreaterThan(0);
+    expect(evaluation.coverageScore ?? 0).toBeGreaterThan(0);
+  });
+
   it('gives a Playwright-vs-Selenium answer, not the flaky-UI answer, for that specific question', () => {
     // Regression test: this topic has TWO distinct sample questions sharing one
     // expectedKnowledge ("...flaky-test handling"), which used to make every

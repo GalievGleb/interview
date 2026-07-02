@@ -771,6 +771,7 @@ export const api = {
   }) =>
     request<{
       score: number;
+      coverageScore?: number;
       technicalContentScore?: number;
       projectSpecificityScore?: number;
       leadershipScore?: number;
@@ -784,6 +785,7 @@ export const api = {
       levelEstimate?: string;
       verdict?: string;
       feedback: string;
+      normalizedAnswerSummary?: string;
       detectedNoiseOrAsrErrors?: string[];
       extractedValidPoints?: string[];
       goodPoints: string[];

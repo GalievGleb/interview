@@ -199,6 +199,10 @@ THINKING_MODEL_MARKERS = (
     "/o3",
     "thinking",
     "reasoner",
+    # GPT-5-family models can default to non-trivial reasoning effort too;
+    # OpenRouter's unified `reasoning` schema handles this uniformly, so
+    # including it here is safe even for models where it's a no-op.
+    "gpt-5",
 )
 
 
@@ -212,6 +216,16 @@ def live_stream_options(model_id: str) -> tuple[int, dict | None]:
     if is_thinking_model(model_id):
         return 1800, {"effort": "minimal", "exclude": True}
     return 750, None
+
+
+def vacancy_eval_options(model_id: str) -> tuple[int, dict | None]:
+    """max_tokens и reasoning для vacancy evaluate — same thinking-model problem as
+    live, but the JSON schema is larger (semantic mapping, corrections, stronger
+    answer), so the token budget is bigger. Vacancy *analyze* is unaffected — it
+    runs once per vacancy and can stay unhurried."""
+    if is_thinking_model(model_id):
+        return 2200, {"effort": "minimal", "exclude": True}
+    return 1100, None
 
 
 async def test_provider(provider: str | None, model: str | None) -> dict:
@@ -356,8 +370,15 @@ async def complete(
     model: str | None = None,
     max_tokens: int = 800,
     temperature: float = 0.4,
+    *,
+    reasoning: dict | None = None,
 ) -> str:
-    """Неблокирующий полный ответ (для JSON-режима интервью)."""
+    """Неблокирующий полный ответ (для JSON-режима интервью).
+
+    `reasoning` mirrors stream_chat's option (e.g. {"effort": "minimal",
+    "exclude": True}) — pass it for latency-sensitive JSON calls so a
+    thinking-capable model doesn't burn the response budget on hidden
+    reasoning tokens (see is_thinking_model / vacancy_eval_options)."""
     provider, base_url, key = _resolve(provider)
     settings = get_settings()
     model = model or settings.default_model
@@ -367,6 +388,8 @@ async def complete(
         "max_tokens": max_tokens,
         "temperature": temperature,
     }
+    if reasoning:
+        payload["reasoning"] = reasoning
     resp = await _post_with_retry(base_url, provider, key, payload)
     if resp.status_code >= 400:
         raise parse_provider_error(resp.status_code, resp.text, provider)

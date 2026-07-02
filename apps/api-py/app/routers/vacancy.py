@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from app.prompts.vacancy import VACANCY_ANALYZE_PROMPT, VACANCY_EVALUATE_PROMPT
 from app.services import model_router, provider_adapter
 from app.services.preferences import load_preferences
+from app.services.provider_adapter import vacancy_eval_options
 from app.services.vacancy_guard import harden_vacancy_evaluation
 
 logger = logging.getLogger("vacancy")
@@ -200,13 +201,19 @@ async def evaluate(payload: EvaluatePayload) -> dict:
         has_resume="true" if payload.hasResume else "false",
         language="Russian" if payload.language == "ru" else "English",
     )
+    # Evaluate runs after every answer the candidate submits — unlike analyze
+    # (once per vacancy), it's actively waited on, so a thinking-capable model
+    # must not burn the response on hidden reasoning tokens (same fix as the
+    # live path's live_stream_options).
+    max_tokens, reasoning = vacancy_eval_options(model)
     try:
         raw = await provider_adapter.complete(
             [{"role": "user", "content": prompt}],
             provider,
             model,
-            max_tokens=600,
+            max_tokens=max_tokens,
             temperature=0.2,
+            reasoning=reasoning,
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("Vacancy evaluate failed: %s", exc)
@@ -234,6 +241,7 @@ async def evaluate(payload: EvaluatePayload) -> dict:
 
     return {
         "score": _score("score"),
+        "coverageScore": _score("coverageScore"),
         "technicalContentScore": _score("technicalContentScore"),
         "projectSpecificityScore": _score("projectSpecificityScore"),
         "leadershipScore": _score("leadershipScore"),
@@ -247,6 +255,7 @@ async def evaluate(payload: EvaluatePayload) -> dict:
         "levelEstimate": level if level in _QUESTION_LEVEL else "",
         "verdict": str(data.get("verdict", "")).strip()[:200],
         "feedback": str(data.get("feedback", "")).strip()[:400],
+        "normalizedAnswerSummary": str(data.get("normalizedAnswerSummary", "")).strip()[:900],
         "detectedNoiseOrAsrErrors": _as_list(data.get("detectedNoiseOrAsrErrors"), 6),
         "extractedValidPoints": _as_list(data.get("extractedValidPoints"), 8),
         "goodPoints": _as_list(data.get("goodPoints"), 6),
