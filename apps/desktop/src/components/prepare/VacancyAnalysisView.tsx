@@ -34,11 +34,12 @@ const IMPORTANCE_LABEL: Record<TopicImportance, string> = {
   low: 'низкая важность',
 };
 
-const MATCH_META: Record<ResumeMatch, { label: string; tone: string }> = {
-  strong: { label: 'Резюме подтверждает', tone: 'prep-tone-green' },
-  partial: { label: 'Смежный опыт', tone: 'prep-tone-amber' },
-  gap: { label: 'Пробел', tone: 'prep-tone-red' },
-};
+/** Render order: gaps first — that is what the interview will drill into. */
+const MATCH_GROUPS: Array<{ match: ResumeMatch; title: string; color: string }> = [
+  { match: 'gap', title: 'Пробелы — спросят строже', color: 'var(--prep-red)' },
+  { match: 'partial', title: 'Смежный опыт', color: 'var(--prep-amber)' },
+  { match: 'strong', title: 'Резюме подтверждает', color: 'var(--prep-green)' },
+];
 
 const EXPECTED_LEVEL_LABEL: Record<Competency['expectedLevel'], string> = {
   basic: 'теория',
@@ -88,32 +89,47 @@ export default function VacancyAnalysisView({ analysis, onStart, onBack, questio
           <p className="prep-faint mt-0.5">
             Что важно для роли и где вы это подтверждаете. Красное и жёлтое спросят строже.
           </p>
-          <div className="mt-3 grid gap-2">
-            {[...analysis.competencies]
-              .sort((a, b) => matchOrder(a.resumeMatch) - matchOrder(b.resumeMatch))
-              .map((c) => {
-                const meta = MATCH_META[c.resumeMatch];
-                return (
-                  <div
-                    key={c.name}
-                    className="prep-card flex flex-wrap items-center gap-x-3 gap-y-1.5 p-3"
+          <div className="mt-3 space-y-4">
+            {MATCH_GROUPS.map((group) => {
+              const items = analysis.competencies!.filter((c) => c.resumeMatch === group.match);
+              if (!items.length) return null;
+              return (
+                <div key={group.match}>
+                  <p
+                    className="text-[11px] font-extrabold uppercase tracking-wider"
+                    style={{ color: group.color }}
                   >
-                    <span className={`prep-chip shrink-0 ${IMPORTANCE_TONE[c.priority]}`}>
-                      {IMPORTANCE_LABEL[c.priority]}
-                    </span>
-                    <span className="min-w-0 flex-1 truncate text-[14px] font-semibold" style={{ color: 'var(--prep-ink)' }}>
-                      {c.name}
-                    </span>
-                    <span className="prep-faint shrink-0">ждут: {EXPECTED_LEVEL_LABEL[c.expectedLevel]}</span>
-                    <span className={`prep-chip shrink-0 ${meta.tone}`}>{meta.label}</span>
-                    {c.note && (
-                      <p className="w-full text-[12.5px]" style={{ color: 'var(--prep-ink-muted)' }}>
-                        {c.note}
-                      </p>
-                    )}
+                    {group.title} · {items.length}
+                  </p>
+                  <div className="mt-2 grid gap-2">
+                    {items.map((c) => (
+                      <div
+                        key={c.name}
+                        className="prep-card flex flex-wrap items-center gap-x-3 gap-y-1.5 p-3"
+                      >
+                        <span className={`prep-chip shrink-0 ${IMPORTANCE_TONE[c.priority]}`}>
+                          {IMPORTANCE_LABEL[c.priority]}
+                        </span>
+                        <span
+                          className="min-w-0 flex-1 truncate text-[14px] font-semibold"
+                          style={{ color: 'var(--prep-ink)' }}
+                        >
+                          {c.name}
+                        </span>
+                        <span className="prep-faint shrink-0">
+                          ждут: {EXPECTED_LEVEL_LABEL[c.expectedLevel]}
+                        </span>
+                        {c.note && (
+                          <p className="w-full text-[12.5px]" style={{ color: 'var(--prep-ink-muted)' }}>
+                            {c.note}
+                          </p>
+                        )}
+                      </div>
+                    ))}
                   </div>
-                );
-              })}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -171,9 +187,4 @@ export default function VacancyAnalysisView({ analysis, onStart, onBack, questio
       </div>
     </div>
   );
-}
-
-/** Show gaps first, then partial matches, then strong. */
-function matchOrder(m: ResumeMatch): number {
-  return m === 'gap' ? 0 : m === 'partial' ? 1 : 2;
 }

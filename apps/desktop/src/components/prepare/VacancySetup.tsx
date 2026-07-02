@@ -51,6 +51,18 @@ export default function VacancySetup({ onAnalyze, analyzing, error }: Props) {
         </p>
       </div>
 
+      {analyzing ? (
+        <div className="prep-card prep-card-pad prep-rise">
+          <h2 className="prep-h2">Разбираю вакансию…</h2>
+          <p className="prep-sub mt-1.5">Обычно это занимает несколько секунд.</p>
+          <div className="prep-analyzing-steps mt-4">
+            <span className="prep-analyzing-step">Читаю требования и стек</span>
+            <span className="prep-analyzing-step">Сверяю с резюме и выделяю темы риска</span>
+            <span className="prep-analyzing-step">Собираю план mock-интервью</span>
+          </div>
+          <div className="prep-shimmer mt-5" aria-hidden="true" />
+        </div>
+      ) : (
       <div className="prep-card prep-card-pad">
         <label className="prep-h2">Текст вакансии</label>
         <textarea
@@ -159,6 +171,7 @@ export default function VacancySetup({ onAnalyze, analyzing, error }: Props) {
           <span className="prep-faint">8-15 вопросов · 20-30 минут mock</span>
         </div>
       </div>
+      )}
     </div>
   );
 }
