@@ -21,6 +21,10 @@ export interface LiveHandlers {
   onUtteranceEnd?: (timings?: SttTimings) => void;
   onTurnResumed?: () => void;
   onSpeechStarted?: () => void;
+  /** Connection dropped — reconnect attempt N of M is scheduled. */
+  onReconnecting?: (attempt: number, maxAttempts: number) => void;
+  /** Connection restored after a reconnect (server sent `ready` again). */
+  onReconnected?: () => void;
   /** Final transcript rejected by the server quality gate (no LLM call). */
   onLowQuality?: (text: string, reason: string) => void;
   onReady?: (info: {
@@ -104,6 +108,7 @@ export async function startLiveSession(
     }
     const delay = Math.min(500 * 2 ** attempts, 5000);
     attempts += 1;
+    handlers.onReconnecting?.(attempts, MAX_RECONNECT);
     reconnectTimer = window.setTimeout(connect, delay);
   };
 
@@ -142,7 +147,9 @@ export async function startLiveSession(
         } else if (evt.type === 'turn_resumed') {
           handlers.onTurnResumed?.();
         } else if (evt.type === 'ready') {
+          const wasReconnect = attempts > 0;
           attempts = 0; // healthy connection — reset the backoff
+          if (wasReconnect) handlers.onReconnected?.();
           handlers.onReady?.({
             engine: evt.engine ?? engine,
             model: evt.model ?? evt.final_model ?? engine,

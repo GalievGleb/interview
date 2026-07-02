@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -7,6 +9,11 @@ from app.db.models import InterviewSession, Transcript
 from app.db.session import get_db
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
+
+
+def _naive_utc_now() -> datetime:
+    # БД хранит наивный UTC — сохраняем формат, избегая deprecated utcnow().
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def _session_is_empty(session: InterviewSession) -> bool:
@@ -50,6 +57,52 @@ def list_sessions(db: Session = Depends(get_db)) -> dict:
             for s in rows
             if _session_has_content(s)
         ]
+    }
+
+
+# Слова, не несущие темы вопроса, — отфильтровываем при подсчёте частых тем.
+_TOPIC_STOPWORDS = {
+    "как", "что", "чем", "почему", "зачем", "какие", "какой", "какая", "когда", "где",
+    "расскажи", "расскажите", "объясни", "объясните", "можно", "нужно", "есть", "было",
+    "быть", "это", "или", "для", "при", "про", "вам", "вас", "она", "оно", "они", "его",
+    "еще", "ещё", "уже", "если", "чтобы", "такое", "работает", "используете", "делали",
+    "the", "and", "you", "your", "how", "what", "why", "when", "where", "does", "did",
+    "with", "for", "are", "was", "have", "has",
+}
+
+
+@router.get("/stats")
+def session_stats(db: Session = Depends(get_db)) -> dict:
+    """Агрегаты по истории для дашборда: счётчики, активность, частые темы вопросов."""
+    rows = db.query(InterviewSession).all()
+    kept = [s for s in rows if _session_has_content(s)]
+    interviews = [s for s in kept if s.mode == "interview"]
+    meetings = [s for s in kept if s.mode == "meeting"]
+    answers = [a for s in interviews for a in s.answers]
+
+    topic_counts: dict[str, int] = {}
+    for a in answers:
+        for word in (a.question or "").lower().replace("?", " ").replace(",", " ").split():
+            token = word.strip(".!:;()«»\"'")
+            if len(token) < 4 or token in _TOPIC_STOPWORDS:
+                continue
+            topic_counts[token] = topic_counts.get(token, 0) + 1
+    top_topics = sorted(topic_counts.items(), key=lambda kv: kv[1], reverse=True)[:8]
+
+    last_session_at = None
+    for s in kept:
+        if last_session_at is None or s.started_at > last_session_at:
+            last_session_at = s.started_at
+
+    return {
+        "interview_sessions": len(interviews),
+        "meeting_sessions": len(meetings),
+        "total_answers": len(answers),
+        "avg_answers_per_session": (
+            round(len(answers) / len(interviews), 1) if interviews else 0
+        ),
+        "last_session_at": last_session_at.isoformat() if last_session_at else None,
+        "top_topics": [{"topic": t, "count": c} for t, c in top_topics if c > 1],
     }
 
 
@@ -128,8 +181,6 @@ class EndPayload(BaseModel):
 
 @router.post("/{session_id}/end")
 def end_session(session_id: str, payload: EndPayload, db: Session = Depends(get_db)) -> dict:
-    from datetime import datetime
-
     s = db.query(InterviewSession).filter(InterviewSession.id == session_id).first()
     if not s:
         raise AppError("Session not found", 404, "not_found")
@@ -138,7 +189,7 @@ def end_session(session_id: str, payload: EndPayload, db: Session = Depends(get_
         db.delete(s)
         db.commit()
         return {"deleted": session_id}
-    s.ended_at = datetime.utcnow()
+    s.ended_at = _naive_utc_now()
     if payload.summary:
         s.summary = payload.summary
     db.commit()

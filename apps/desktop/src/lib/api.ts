@@ -198,6 +198,7 @@ async function fetchWithTimeout(path: string, options: RequestOptions = {}): Pro
         timeoutMs <= REQUEST_TIMEOUT_MS
           ? 'Бэкенд не отвечает — проверьте, что uvicorn запущен на порту 8000'
           : 'Операция заняла слишком много времени — попробуйте ещё раз',
+        { cause: err },
       );
     }
     throw err;
@@ -300,6 +301,15 @@ export interface SessionItem {
   ended_at: string | null;
   answer_count?: number;
   transcript_count?: number;
+}
+
+export interface SessionStats {
+  interview_sessions: number;
+  meeting_sessions: number;
+  total_answers: number;
+  avg_answers_per_session: number;
+  last_session_at: string | null;
+  top_topics: Array<{ topic: string; count: number }>;
 }
 
 export interface SessionDetail extends SessionItem {
@@ -419,6 +429,9 @@ export const api = {
 
   listSessions: () => request<{ sessions: SessionItem[] }>('/sessions'),
 
+  /** Агрегаты по истории для дашборда на главной. */
+  sessionStats: () => request<SessionStats>('/sessions/stats'),
+
   getSession: (id: string) => request<SessionDetail>(`/sessions/${id}`),
 
   deleteSession: async (id: string) => {
@@ -454,13 +467,17 @@ export const api = {
       body: JSON.stringify({ speaker, text, is_final: true }),
     }),
 
-  /** Ленивая генерация варианта ответа для табов «Кратко/Подробно/Английский/Риски». */
-  answerVariant: (question: string, answer: string, variant: AnswerVariantKind) =>
-    request<{ text: string; model?: string; variant: string }>('/chat/answer-variant', {
-      method: 'POST',
-      timeoutMs: LONG_REQUEST_TIMEOUT_MS,
-      body: JSON.stringify({ question, answer, variant }),
-    }),
+  /** Ленивая генерация варианта ответа для табов «Кратко/Подробно/Английский/Риски».
+   *  С answerId вариант кэшируется в БД — при повторном заходе LLM не вызывается. */
+  answerVariant: (question: string, answer: string, variant: AnswerVariantKind, answerId?: string) =>
+    request<{ text: string; model?: string; variant: string; cached?: boolean }>(
+      '/chat/answer-variant',
+      {
+        method: 'POST',
+        timeoutMs: LONG_REQUEST_TIMEOUT_MS,
+        body: JSON.stringify({ question, answer, variant, answer_id: answerId ?? null }),
+      },
+    ),
 
   interview: (
     question: string,
@@ -510,7 +527,7 @@ export const api = {
       }),
     }),
 
-  usage: () => request<{ usage: UsageRow[] }>('/usage'),
+  usage: () => request<{ usage: UsageRow[]; last_30_days?: UsageRow[] }>('/usage'),
 
   deleteAllData: () => request<{ deleted: boolean }>('/data', { method: 'DELETE' }),
 

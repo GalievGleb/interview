@@ -1,3 +1,5 @@
+import { useEffect, useRef } from 'react';
+
 interface ManualQuestionBoxProps {
   value: string;
   onChange: (value: string) => void;
@@ -15,16 +17,32 @@ export default function ManualQuestionBox({
   disabled,
   error,
 }: ManualQuestionBoxProps) {
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Ctrl+K — мгновенный фокус на поле: если STT распознал вопрос криво,
+  // пользователь перебивает его вручную не отрывая рук от клавиатуры.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() === 'k' && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        inputRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   return (
     <div className="border-t border-surface-border bg-surface/20 px-4 py-3">
       <div className="cockpit-command">
         <textarea
+          ref={inputRef}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) onSubmit();
           }}
-          placeholder="Введите вопрос вручную…"
+          placeholder="Введите вопрос вручную… (Ctrl+K — фокус)"
           rows={2}
           className="cockpit-command-input"
         />

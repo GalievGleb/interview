@@ -135,12 +135,14 @@ export default function InterviewPage() {
     streaming,
     suggestLoading,
     error,
+    reconnecting,
     sttDebug,
     sessionId,
     sessionStartedAt,
     updateAnswerEntry,
     setLiveAnswerText,
     downloadDebug,
+    askQuestion,
     start,
     stop,
   } = useLiveCopilot();
@@ -386,10 +388,53 @@ export default function InterviewPage() {
 
   const handleAsk = () => {
     setTab('spoken');
+    // В live-сессии ручной вопрос идёт через live-конвейер (сохраняется в сессию,
+    // учитывает контекст follow-up), а не через отдельный manual-канал.
+    if (active) {
+      askQuestion(question);
+      setQuestion('');
+      return;
+    }
     ask();
   };
 
-  const handleStart = () => {
+  // Pre-flight: перед стартом быстро проверяем бэкенд, LLM-ключ и микрофон,
+  // чтобы о проблеме стало известно ДО первого вопроса интервьюера.
+  const [preflight, setPreflight] = useState<'idle' | 'running'>('idle');
+  const [preflightProblems, setPreflightProblems] = useState<string[]>([]);
+
+  const handleStart = async () => {
+    if (preflight === 'running') return;
+    setPreflight('running');
+    setPreflightProblems([]);
+    const problems: string[] = [];
+
+    const micCheck: Promise<void> = sources.mic
+      ? navigator.mediaDevices
+          .getUserMedia({ audio: true })
+          .then((stream) => stream.getTracks().forEach((t) => t.stop()))
+      : Promise.resolve();
+
+    const [health, provider, mic] = await Promise.allSettled([
+      api.health(),
+      api.testProvider(),
+      micCheck,
+    ]);
+    if (health.status === 'rejected') {
+      problems.push('Бэкенд не отвечает — проверьте, что он запущен (порт 8000).');
+    }
+    if (provider.status === 'rejected' || (provider.status === 'fulfilled' && !provider.value.ok)) {
+      problems.push('LLM-ключ не отвечает — проверьте ключ и модель в Настройках.');
+    }
+    if (mic.status === 'rejected') {
+      problems.push('Нет доступа к микрофону — разрешите доступ в системных настройках.');
+    }
+
+    setPreflight('idle');
+    if (problems.length > 0) {
+      setPreflightProblems(problems);
+      return;
+    }
     void start(sources, sttOptions);
   };
 
@@ -519,6 +564,20 @@ export default function InterviewPage() {
       )}
 
       {error && <InterviewInlineAlert tone="error">{error}</InterviewInlineAlert>}
+
+      {reconnecting && <InterviewInlineAlert tone="warn">{reconnecting}</InterviewInlineAlert>}
+
+      {preflight === 'running' && (
+        <InterviewInlineAlert tone="info">
+          Проверяю готовность: бэкенд, LLM-ключ, микрофон…
+        </InterviewInlineAlert>
+      )}
+
+      {preflightProblems.length > 0 && (
+        <InterviewInlineAlert tone="error">
+          {preflightProblems.join(' ')}
+        </InterviewInlineAlert>
+      )}
 
       <div
         className={`grid min-h-0 flex-1 grid-cols-1 gap-4 ${

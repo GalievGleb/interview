@@ -14,18 +14,20 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "eslint ."
   },
   "dependencies": {
     "@interview/shared": "workspace:*",
+    "electron-updater": "^6.3.9",
     "keytar": "^7.9.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.1.1",
-    "electron-updater": "^6.3.9",
     "ws": "^8.18.0"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/react": "^19.0.7",
     "@types/react-dom": "^19.0.3",
     "@types/ws": "^8.5.14",
@@ -34,9 +36,13 @@
     "concurrently": "^9.1.2",
     "electron": "^33.2.1",
     "electron-builder": "^25.1.8",
+    "eslint": "^10.6.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.7.0",
     "postcss": "^8.5.1",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.7.3",
+    "typescript-eslint": "^8.62.1",
     "vite": "^6.0.7",
     "vite-plugin-electron": "^0.28.8",
     "vitest": "^2.1.8",
@@ -56,16 +62,22 @@
       {
         "from": "../api-py/dist/skillcue-backend",
         "to": "backend",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       },
       {
         "from": "../api-py/dist/models",
         "to": "models",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "win": {
-      "target": ["nsis"],
+      "target": [
+        "nsis"
+      ],
       "icon": "build/icon.ico"
     },
     "nsis": {
@@ -80,7 +92,9 @@
     "protocols": [
       {
         "name": "Skillcue",
-        "schemes": ["interview"]
+        "schemes": [
+          "interview"
+        ]
       }
     ]
   }

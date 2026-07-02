@@ -55,3 +55,32 @@ def test_single_delete_still_works_after_bulk_route_added(client):
     assert res.status_code == 200, res.text
     assert res.json()["deleted"] == sid
     assert client.get("/sessions").json()["sessions"] == []
+
+
+def test_session_stats_counts_and_topics(client, db_session):
+    sid = _create_session_with_transcript(client)
+    db_session.add(
+        models.Answer(session_id=sid, question="Как устроена репликация в PostgreSQL?")
+    )
+    db_session.add(
+        models.Answer(session_id=sid, question="Расскажите про репликация данных")
+    )
+    db_session.commit()
+
+    res = client.get("/sessions/stats")
+    assert res.status_code == 200, res.text
+    data = res.json()
+    assert data["interview_sessions"] == 1
+    assert data["total_answers"] == 2
+    assert data["last_session_at"] is not None
+    # «репликация» встречается дважды — попадает в частые темы.
+    assert any(t["topic"] == "репликация" for t in data["top_topics"])
+
+
+def test_session_stats_empty_db(client):
+    res = client.get("/sessions/stats")
+    assert res.status_code == 200, res.text
+    data = res.json()
+    assert data["interview_sessions"] == 0
+    assert data["total_answers"] == 0
+    assert data["top_topics"] == []

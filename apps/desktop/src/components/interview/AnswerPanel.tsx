@@ -123,7 +123,12 @@ export default function AnswerPanel({
     setVariantLoadingKey(variantKey);
     setVariantError('');
     api
-      .answerVariant(variantTarget.question, variantTarget.spoken, tab as AnswerVariantKind)
+      .answerVariant(
+        variantTarget.question,
+        variantTarget.spoken,
+        tab as AnswerVariantKind,
+        variantTarget.id,
+      )
       .then((res) => {
         if (cancelled) return;
         setVariantCache((prev) => ({ ...prev, [variantKey]: res.text }));

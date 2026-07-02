@@ -1,6 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ReadinessRing from '../components/prepare/ReadinessRing';
+import { api, type SessionStats } from '../lib/api';
 import { pluralRu } from '../lib/pluralRu';
 import { readinessLabelText, readinessTone, topicStatusTone } from '../lib/vacancyReview/readiness';
 import {
@@ -27,18 +28,38 @@ function TrashIcon() {
   );
 }
 
+function readMockStore() {
+  return {
+    sessions: listSessions(),
+    inProgress: latestInProgress(),
+    completed: latestCompleted(),
+  };
+}
+
 export default function HomePage() {
   const navigate = useNavigate();
-  const [refreshKey, setRefreshKey] = useState(0);
-  const sessions = useMemo(() => listSessions(), [refreshKey]);
-  const inProgress = useMemo(() => latestInProgress(), [refreshKey]);
-  const completed = useMemo(() => latestCompleted(), [refreshKey]);
+  const [mockStore, setMockStore] = useState(readMockStore);
+  const { sessions, inProgress, completed } = mockStore;
   const report = completed?.report;
+
+  const [stats, setStats] = useState<SessionStats | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .sessionStats()
+      .then((data) => !cancelled && setStats(data))
+      .catch(() => {
+        /* бэкенд недоступен — просто не показываем блок аналитики */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const removeSession = (id: string, title: string) => {
     if (!window.confirm(`Удалить разбор «${title}»? Действие необратимо.`)) return;
     deleteSession(id);
-    setRefreshKey((k) => k + 1);
+    setMockStore(readMockStore());
   };
 
   const weakest = report
@@ -284,6 +305,52 @@ export default function HomePage() {
                   </div>
                 );
               })}
+            </div>
+          </section>
+        )}
+
+        {stats && stats.interview_sessions + stats.meeting_sessions > 0 && (
+          <section className="mt-5">
+            <div className="prep-section-head">
+              <div>
+                <p className="prep-eyebrow">Аналитика</p>
+                <h2 className="prep-h2 prep-section-title">Ваша активность в live-сессиях</h2>
+              </div>
+              <button
+                type="button"
+                className="prep-btn prep-btn-ghost prep-btn-sm"
+                onClick={() => navigate('/history')}
+              >
+                Открыть историю
+              </button>
+            </div>
+            <div className="prep-status-grid mt-3">
+              <PrepStatusCard
+                label="Live-интервью"
+                title={`${stats.interview_sessions} ${pluralRu(stats.interview_sessions, 'сессия', 'сессии', 'сессий')}`}
+                body={`${stats.total_answers} ${pluralRu(stats.total_answers, 'ответ', 'ответа', 'ответов')} всего`}
+                tone="green"
+              />
+              <PrepStatusCard
+                label="Темп"
+                title={`~${stats.avg_answers_per_session} вопросов за сессию`}
+                body={
+                  stats.last_session_at
+                    ? `Последняя: ${new Date(stats.last_session_at).toLocaleDateString()}`
+                    : 'Ещё не было сессий'
+                }
+                tone="blue"
+              />
+              <PrepStatusCard
+                label="Частые темы"
+                title={
+                  stats.top_topics.length > 0
+                    ? stats.top_topics.slice(0, 3).map((t) => t.topic).join(', ')
+                    : 'Пока мало данных'
+                }
+                body="По вопросам интервьюеров из ваших сессий"
+                tone="violet"
+              />
             </div>
           </section>
         )}

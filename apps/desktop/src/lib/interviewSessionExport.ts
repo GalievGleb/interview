@@ -357,6 +357,44 @@ export function formatInterviewSessionJson(exportData: InterviewSessionExport): 
   return JSON.stringify(exportData, null, 2);
 }
 
+function speakerRu(speaker: string): string {
+  return speaker === 'me' ? 'Вы' : 'Интервьюер';
+}
+
+/** Человекочитаемый Markdown для разбора после собеседования (в отличие от TXT/JSON для AI). */
+export function formatInterviewSessionMd(exportData: InterviewSessionExport): string {
+  const parts: string[] = [`# ${exportData.title || 'Разбор интервью'}`, ''];
+  const started = exportData.startedAt ? new Date(exportData.startedAt).toLocaleString() : null;
+  if (started) parts.push(`**Дата:** ${started}`, '');
+
+  if (exportData.summary) {
+    parts.push('## Итоги', '', exportData.summary, '');
+  }
+
+  if (exportData.exchanges.length > 0) {
+    parts.push('## Вопросы и ответы', '');
+    exportData.exchanges.forEach((item, index) => {
+      parts.push(`### ${index + 1}. ${item.question.resolved}`, '');
+      parts.push(item.answer.spoken, '');
+      if (item.answer.detailed?.trim()) {
+        parts.push('<details><summary>Подробный вариант</summary>', '', item.answer.detailed, '', '</details>', '');
+      }
+      if (item.answer.risk?.trim()) {
+        parts.push(`> Риски: ${item.answer.risk}`, '');
+      }
+    });
+  }
+
+  if (exportData.transcript.length > 0) {
+    parts.push('## Транскрипт', '');
+    for (const line of exportData.transcript) {
+      parts.push(`**${speakerRu(line.speaker)}:** ${line.text}`, '');
+    }
+  }
+
+  return parts.join('\n');
+}
+
 function downloadTextFile(content: string, filename: string, mime: string): void {
   const blob = new Blob([content], { type: mime });
   const url = URL.createObjectURL(blob);
@@ -386,5 +424,13 @@ export function exportInterviewSessionTxt(exportData: InterviewSessionExport): v
     formatInterviewSessionTxt(exportData),
     exportFilename(exportData, 'txt'),
     'text/plain;charset=utf-8',
+  );
+}
+
+export function exportInterviewSessionMd(exportData: InterviewSessionExport): void {
+  downloadTextFile(
+    formatInterviewSessionMd(exportData),
+    exportFilename(exportData, 'md'),
+    'text/markdown;charset=utf-8',
   );
 }

@@ -139,6 +139,7 @@ export function useLiveCopilot() {
   const [streaming, setStreaming] = useState(false);
   const [suggestLoading, setSuggestLoading] = useState(false);
   const [error, setError] = useState('');
+  const [reconnecting, setReconnecting] = useState<string | null>(null);
   const [sttDebug, setSttDebug] = useState<SttDebugInfo | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessionStartedAt, setSessionStartedAt] = useState<number | null>(null);
@@ -680,6 +681,31 @@ export function useLiveCopilot() {
     [runStream, syncDebugFromPrepared],
   );
 
+  /**
+   * Ручной ввод вопроса в live-сессии: если STT распознал криво, пользователь
+   * набирает вопрос сам — он идёт через тот же конвейер, что и финал STT,
+   * минуя качественные гейты (ввод явный, доверяем ему).
+   */
+  const askQuestion = useCallback(
+    (text: string) => {
+      const t = text.trim();
+      if (t.length < 3) return;
+      if (finalDebounceRef.current) {
+        clearTimeout(finalDebounceRef.current);
+        finalDebounceRef.current = null;
+      }
+      finalPartsRef.current = [];
+      cancelStreamRef.current?.();
+      streamLockRef.current = false;
+      queuedAnswerRef.current = null;
+      serverTimingsRef.current = null;
+      questionFinalAtRef.current = performance.now();
+      const prepared = prepareTranscriptForLlm(t, sessionContextRef.current);
+      runStream({ prepared, serverTimings: null, questionFinalAt: questionFinalAtRef.current });
+    },
+    [runStream],
+  );
+
   const clearSpeculative = useCallback(() => {
     if (speculativeTimerRef.current) {
       clearTimeout(speculativeTimerRef.current);
@@ -849,6 +875,7 @@ export function useLiveCopilot() {
       const mode: SttMode = stt.mode ?? 'stable';
       const language = stt.language ?? 'ru';
       setError('');
+      setReconnecting(null);
       setLines([]);
       setAnswerHistory([]);
       setCurrentQuestion('');
@@ -993,7 +1020,22 @@ export function useLiveCopilot() {
               lastFlushSpeakerRef.current = speaker === 'other' ? 'interviewer' : 'me';
               cancelPendingQuestion();
             },
-            onError: (msg) => removeStream(source, `${label}: ${msg}`),
+            onReconnecting: (attempt, maxAttempts) => {
+              setReconnecting(
+                `${label}: соединение потеряно, восстанавливаю… (${attempt}/${maxAttempts})`,
+              );
+              debugRef.current.event('error', {
+                reason: `reconnecting ${attempt}/${maxAttempts}`,
+              });
+            },
+            onReconnected: () => {
+              setReconnecting(null);
+              debugRef.current.event('ready', { meta: { reconnected: true } });
+            },
+            onError: (msg) => {
+              setReconnecting(null);
+              removeStream(source, `${label}: ${msg}`);
+            },
             onClose: () => {
               if (liveRef.current.some((e) => e.source === source)) {
                 removeStream(
@@ -1049,6 +1091,7 @@ export function useLiveCopilot() {
     liveRef.current.forEach((e) => e.session.stop());
     liveRef.current = [];
     setActive(false);
+    setReconnecting(null);
     sessionContextRef.current = createEmptySessionContext();
     if (hadStreams) await endInterviewSession();
   }, [clearSpeculative, endInterviewSession]);
@@ -1108,12 +1151,14 @@ export function useLiveCopilot() {
     streaming,
     suggestLoading,
     error,
+    reconnecting,
     sttDebug,
     sessionId,
     sessionStartedAt,
     updateAnswerEntry,
     setLiveAnswerText,
     downloadDebug,
+    askQuestion,
     start,
     stop,
   };

@@ -104,6 +104,7 @@ class AnswerVariantPayload(BaseModel):
     question: str
     answer: str
     variant: str  # short | detailed | english | risk
+    answer_id: str | None = None  # если задан — вариант кэшируется в БД
     provider: str | None = None
     model: str | None = None
     model_override: str | None = Field(default=None, alias="modelOverride")
@@ -491,12 +492,32 @@ async def interview(payload: InterviewPayload, db: Session = Depends(get_db)) ->
     }
 
 
+# Колонка Answer, в которой живёт каждый вариант, — для кэша между заходами.
+_VARIANT_COLUMNS: dict[str, str] = {
+    "short": "answer_short",
+    "detailed": "answer_detailed",
+    "english": "answer_en",
+    "risk": "risk_note",
+}
+
+
 @router.post("/chat/answer-variant")
 async def answer_variant(payload: AnswerVariantPayload, db: Session = Depends(get_db)) -> dict:
     """Ленивая генерация варианта ответа (short/detailed/english/risk) по клику на таб."""
     instruction = _VARIANT_PROMPTS.get(payload.variant)
     if not instruction:
         raise AppError("variant must be one of: short, detailed, english, risk", 400, "invalid_variant")
+
+    column = _VARIANT_COLUMNS[payload.variant]
+    answer_row = (
+        db.query(Answer).filter(Answer.id == payload.answer_id).first()
+        if payload.answer_id
+        else None
+    )
+    if answer_row is not None:
+        cached = (getattr(answer_row, column) or "").strip()
+        if cached:
+            return {"text": cached, "variant": payload.variant, "cached": True}
 
     provider, model, source = _resolve_chat(
         "fast",
@@ -515,9 +536,12 @@ async def answer_variant(payload: AnswerVariantPayload, db: Session = Depends(ge
         {"role": "user", "content": prompt},
     ]
     text = await provider_adapter.complete(messages, provider, model, max_tokens=600, temperature=0.3)
+    result = text.strip()
+    if answer_row is not None and result:
+        setattr(answer_row, column, result)
     db.add(ApiUsage(provider=provider, kind="chat"))
     db.commit()
-    return {"text": text.strip(), "model": model, "model_source": source, "variant": payload.variant}
+    return {"text": result, "model": model, "model_source": source, "variant": payload.variant}
 
 
 @router.post("/chat/interview/stream")

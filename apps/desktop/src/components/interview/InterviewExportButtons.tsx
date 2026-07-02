@@ -1,6 +1,7 @@
 import type { InterviewSessionExport } from '../../lib/interviewSessionExport';
 import {
   exportInterviewSessionJson,
+  exportInterviewSessionMd,
   exportInterviewSessionTxt,
 } from '../../lib/interviewSessionExport';
 
@@ -40,6 +41,15 @@ export default function InterviewExportButtons({
         title="Скачать TXT для анализа в AI"
       >
         {compact ? 'TXT' : 'Скачать TXT'}
+      </button>
+      <button
+        type="button"
+        className="btn-secondary btn-sm"
+        disabled={!canExport}
+        onClick={() => exportInterviewSessionMd(exportData)}
+        title="Скачать Markdown-разбор для чтения после собеседования"
+      >
+        {compact ? 'MD' : 'Скачать MD'}
       </button>
       {onDownloadDebug && (
         <button

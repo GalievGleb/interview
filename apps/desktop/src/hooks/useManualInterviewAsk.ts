@@ -122,7 +122,7 @@ export function useManualInterviewAsk(options: UseManualInterviewAskOptions) {
         },
       },
     );
-  }, [cancel, options, question]);
+  }, [options, question]);
 
   return {
     question,
