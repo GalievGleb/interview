@@ -3,14 +3,14 @@ import { api, DocumentItem } from '../lib/api';
 
 const KINDS = [
   { value: 'resume', label: 'Резюме' },
-  { value: 'legend', label: 'Легенда' },
+  { value: 'legend', label: 'История опыта' },
   { value: 'vacancy', label: 'Вакансия' },
   { value: 'notes', label: 'Заметки' },
 ];
 
 const KIND_STYLE: Record<string, { label: string; tone: string }> = {
   resume: { label: 'Резюме', tone: 'prep-tone-green' },
-  legend: { label: 'Легенда', tone: 'prep-tone-violet' },
+  legend: { label: 'История опыта', tone: 'prep-tone-violet' },
   vacancy: { label: 'Вакансия', tone: 'prep-tone-blue' },
   notes: { label: 'Заметки', tone: '' },
 };
@@ -68,7 +68,7 @@ function SourcePillar({ icon, label, title, connectedTitle, count, onAdd }: Pill
       <div className="prep-source-head">
         <span className="prep-source-icon">{icon}</span>
         <div className="min-w-0">
-          <p className="prep-eyebrow">{label === 'Resume' ? 'Резюме' : 'Легенда'}</p>
+          <p className="prep-eyebrow">{label === 'Resume' ? 'Резюме' : 'История опыта'}</p>
           <h3 className="text-[15px] font-bold" style={{ color: 'var(--prep-ink)' }}>
             {on ? connectedTitle : title}
           </h3>
@@ -82,12 +82,12 @@ function SourcePillar({ icon, label, title, connectedTitle, count, onAdd }: Pill
         {label === 'Resume' ? (
           <>Реальные факты: роли, стек, проекты. Live-ответы держатся в этих рамках.</>
         ) : (
-          <>Позиционирование и формулировки для спорных мест — чтобы ответы звучали уверенно и связно.</>
+          <>Проекты, спорные места и безопасные формулировки — чтобы ответы звучали уверенно и связно.</>
         )}
       </p>
       <div className="mt-4 flex items-center gap-3">
         <button type="button" className="prep-btn prep-btn-sm" onClick={onAdd}>
-          {on ? 'Добавить ещё' : `Добавить ${label === 'Resume' ? 'резюме' : 'легенду'}`}
+          {on ? 'Добавить ещё' : `Добавить ${label === 'Resume' ? 'резюме' : 'историю опыта'}`}
         </button>
         {on && (
           <span className="prep-faint">
@@ -180,9 +180,9 @@ export default function DocumentsPage() {
       <div className="prep-wrap prep-rise prep-home">
         <section>
           <p className="prep-eyebrow">Источник ответов</p>
-          <h1 className="prep-h1 mt-1">Откуда SkillCue берёт ответы.</h1>
+          <h1 className="prep-h1 mt-1">Факты, на которые SkillCue может опираться.</h1>
           <p className="prep-sub mt-1.5 max-w-2xl">
-            Live-подсказки грунтуются на двух вещах: реальном резюме и вашей легенде опыта.
+            Live-подсказки опираются на две вещи: реальное резюме и историю вашего опыта.
             Чем точнее источник, тем меньше общего AI-текста и больше ответов «от себя».
           </p>
         </section>
@@ -199,8 +199,8 @@ export default function DocumentsPage() {
           <SourcePillar
             icon={<LegendIcon />}
             label="Legend"
-            title="Легенда не подключена"
-            connectedTitle="Легенда подключена"
+            title="История опыта не подключена"
+            connectedTitle="История опыта подключена"
             count={counts.legend ?? 0}
             onAdd={() => focusComposer('legend')}
           />
@@ -209,7 +209,7 @@ export default function DocumentsPage() {
         <section className="prep-doc-grid mt-5">
           <div className="prep-action-card">
             <p className="prep-eyebrow">Добавить контекст</p>
-            <h2 className="prep-h2 prep-card-title">Вставьте резюме, легенду или заметки.</h2>
+            <h2 className="prep-h2 prep-card-title">Вставьте резюме, историю опыта или заметки.</h2>
             <div className="mt-4 grid gap-3 sm:grid-cols-[180px_1fr]">
               <select value={kind} onChange={(e) => setKind(e.target.value)} className="prep-input">
                 {KINDS.map((k) => (
@@ -219,7 +219,7 @@ export default function DocumentsPage() {
                 ))}
               </select>
               <input
-                placeholder="Название, например: QA Automation resume"
+              placeholder="Название, например: QA Automation resume"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 className="prep-input"
@@ -227,7 +227,7 @@ export default function DocumentsPage() {
             </div>
             <textarea
               ref={composerRef}
-              placeholder="Вставьте текст резюме, легенды или заметок..."
+              placeholder="Вставьте текст резюме, истории опыта или заметок…"
               value={text}
               onChange={(e) => setText(e.target.value)}
               rows={7}
@@ -235,7 +235,7 @@ export default function DocumentsPage() {
             />
             <div className="mt-4 flex flex-wrap items-center gap-3">
               <button onClick={addText} disabled={busy || !text.trim()} className="prep-btn">
-                {busy ? 'Добавляю...' : 'Добавить текст'}
+                {busy ? 'Добавляю…' : 'Добавить текст'}
               </button>
               <label className="prep-btn prep-btn-secondary cursor-pointer">
                 Загрузить файл
@@ -264,7 +264,7 @@ export default function DocumentsPage() {
             <div className="prep-rule-list mt-4">
               <span>Инструменты и стек из резюме</span>
               <span>Проекты и зона ответственности</span>
-              <span>Легенда: где формулировать аккуратно</span>
+              <span>История опыта: где формулировать аккуратно</span>
             </div>
           </div>
         </section>
@@ -283,7 +283,7 @@ export default function DocumentsPage() {
               <div className="prep-empty-state">
                 <p className="prep-h2">Источников пока нет</p>
                 <p className="prep-sub mt-1">
-                  Добавьте резюме или легенду, чтобы live-ответы перестали быть общими.
+                  Добавьте резюме или историю опыта, чтобы live-ответы перестали быть общими.
                 </p>
               </div>
             )}

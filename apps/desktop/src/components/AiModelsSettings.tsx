@@ -158,7 +158,7 @@ export default function AiModelsSettings() {
 
   if (loading) {
     return (
-      <div className="card mb-5 p-5 text-sm text-ink-muted">Загрузка AI-моделей...</div>
+      <div className="card mb-5 p-5 text-sm text-ink-muted">Загрузка AI-моделей…</div>
     );
   }
 
@@ -188,7 +188,7 @@ export default function AiModelsSettings() {
               type={showKey ? 'text' : 'password'}
               value={openrouterKey}
               onChange={(e) => setOpenrouterKey(e.target.value)}
-              placeholder={hasKey ? '•••••••• (задан)' : 'sk-or-...'}
+              placeholder={hasKey ? '•••••••• (задан)' : 'sk-or-…'}
               className="field flex-1"
             />
             <button type="button" onClick={() => setShowKey((v) => !v)} className="btn-secondary btn-sm">
@@ -200,10 +200,10 @@ export default function AiModelsSettings() {
 
       <div className="flex flex-wrap items-center gap-2">
         <button onClick={testConnection} disabled={testing || (!hasKey && !openrouterKey)} className="btn-secondary">
-          {testing ? 'Проверяю...' : 'Проверить подключение'}
+          {testing ? 'Проверяю…' : 'Проверить подключение'}
         </button>
         <button onClick={syncModels} disabled={syncing || (!hasKey && !openrouterKey)} className="btn-secondary">
-          {syncing ? 'Синхронизация...' : 'Синхронизировать модели'}
+          {syncing ? 'Синхронизация…' : 'Синхронизировать модели'}
         </button>
         <button type="button" onClick={() => setAdvanced((v) => !v)} className="btn-ghost btn-sm">
           {advanced ? 'Скрыть дополнительно' : 'Дополнительно'}
@@ -263,7 +263,7 @@ export default function AiModelsSettings() {
           </div>
           <ModelSelect
             label="Модель глубокого анализа"
-            description="Для детального анализа, mock feedback, резюме и легенды. Не влияет на live-скорость."
+            description="Для детального анализа, mock feedback, резюме и истории опыта. Не влияет на live-скорость."
             value={deepModel}
             models={models}
             missing={isModelMissing(deepModel, models)}
@@ -275,7 +275,7 @@ export default function AiModelsSettings() {
 
       <div className="flex items-center gap-3 border-t border-surface-border pt-4">
         <button onClick={save} disabled={!dirty || saving} className="btn-primary">
-          {saving ? 'Сохраняю...' : 'Сохранить'}
+          {saving ? 'Сохраняю…' : 'Сохранить'}
         </button>
         {toast && <p className="text-sm text-emerald-400">{toast}</p>}
         {error && <p className="text-sm text-red-400">{error}</p>}

@@ -21,13 +21,12 @@ export default function CommandPalette() {
 
   const commands: Command[] = useMemo(
     () => [
+      { id: 'home', label: 'Открыть пульт подготовки', run: () => navigate('/home') },
+      { id: 'prepare', label: 'Разобрать вакансию', run: () => navigate('/prepare') },
       { id: 'interview', label: 'Перейти: Live-интервью', run: () => navigate('/interview') },
-      { id: 'meeting', label: 'Перейти: Разбор разговора', run: () => navigate('/meeting') },
-      { id: 'documents', label: 'Перейти: Документы', run: () => navigate('/documents') },
+      { id: 'documents', label: 'Открыть резюме и опыт', run: () => navigate('/documents') },
       { id: 'history', label: 'Перейти: История', run: () => navigate('/history') },
-      { id: 'testlab', label: 'Перейти: Тестовая лаборатория', run: () => navigate('/test-lab') },
       { id: 'settings', label: 'Перейти: Настройки', run: () => navigate('/settings') },
-      { id: 'licenses', label: 'Перейти: Лицензии', run: () => navigate('/licenses') },
       {
         id: 'fast',
         label: `Быстрый ответ: ${getFastAnswer() ? 'выключить' : 'включить'}`,
@@ -44,6 +43,11 @@ export default function CommandPalette() {
         run: () => setSpeculative(!isSpeculativeEnabled()),
       },
       { id: 'overlay', label: 'Открыть overlay', hint: 'Ctrl+Shift+H', run: () => void window.electronAPI?.overlay.show() },
+      { id: 'meeting', label: 'Dev: разбор разговора', run: () => navigate('/meeting') },
+      { id: 'testlab', label: 'Dev: тестовая лаборатория', run: () => navigate('/test-lab') },
+      { id: 'benchmark', label: 'Dev: STT-бенчмарк', run: () => navigate('/benchmark') },
+      { id: 'diagnostics', label: 'Dev: диагностика задержек', run: () => navigate('/diagnostics') },
+      { id: 'licenses', label: 'Dev: лицензии', run: () => navigate('/licenses') },
     ],
     [navigate],
   );
@@ -118,7 +122,7 @@ export default function CommandPalette() {
             }
           }}
           placeholder="Команда или экран…"
-          className="w-full border-b border-surface-border bg-transparent px-4 py-3.5 text-[15px] text-ink outline-none placeholder:text-ink-faint"
+          className="w-full border-b border-surface-border bg-transparent px-4 py-3.5 text-[15px] text-ink outline-none placeholder:text-ink-faint focus-visible:ring-2 focus-visible:ring-accent-ring"
         />
         <div className="max-h-80 overflow-y-auto p-1.5">
           {filtered.length === 0 && (

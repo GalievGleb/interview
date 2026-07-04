@@ -7,6 +7,7 @@
  * directly — it goes through these functions.
  */
 import { api } from '../api';
+import { cleanVoiceAnswerTranscriptText } from '../voiceAnswerTranscript';
 import { difficultyForIndex, detectRole, detectSeniority, extractTopics } from './topicExtraction';
 import { readinessLabelFromScore, topicStatusFromScore } from './readiness';
 import type {
@@ -55,7 +56,9 @@ const SPECIFIC_RE =
 // ── Voice-answer preprocessing (ASR/noise) — mock heuristics ──
 const NOISE_URL_RE = /((?:https?:\/\/|www\.)\S+|[a-z0-9-]+\.(?:com|ru|org|net|io|ai)\b\S*)/gi;
 const NOISE_PHRASE_RE =
-  /(patreon|подпис|подпиш|донат|реклам|лайк|колокольчик|наш канал|ваши вопросы по|экспериментальный сайт|в этом видео|это будет в.*видео|www\.)/i;
+  /(patreon|подпис|подпиш|донат|реклам|лайк|колокольчик|наш канал|ваши вопросы по|экспериментальный сайт|в этом видео|это будет в.*видео|www\.|меня\s+не\s+записыва|не\s+записыва(?:ет|лось)|запись\s+не\s+ид[её]т|микрофон\s+не\s+работ|не\s+слышно|всем\s+проблем|в\s*ч[её]м\s+проблем)/i;
+const NOISE_MIC_CHECK_RE = /^(?:раз|м{3,}|э{3,}|е{3,}|m{3,}|[\s,.-])+$/i;
+const NOISE_LONG_FILLER_RE = /(?:^|[\s.,!?;:])(?:м{4,}|э{4,}|е{4,}|m{4,}|uh{3,}|um{3,})(?=$|[\s.,!?;:])/i;
 // Leadership / project questions — where ownership must actually be shown.
 const LEADERSHIP_ROLE_RE = /(моя роль|я отвеч|в моей зоне|я принима|я выбира|я развива|я строил|технически отвеч)/i;
 const LEADERSHIP_TEAM_RE = /(команд|ревью|code review|менторинг|наставн|приоритиз|стратег)/i;
@@ -705,7 +708,7 @@ export async function evaluateAnswer(
   answerText: string,
   analysis: VacancyAnalysis,
 ): Promise<SmokeAnswerEvaluation> {
-  const text = (answerText || '').trim();
+  const text = cleanVoiceAnswerTranscriptText(answerText || '').trim();
   if (text) {
     try {
       const topic = analysis.interviewTopics.find((t) => t.id === question.topicId);
@@ -989,7 +992,11 @@ function detectNoise(text: string): string[] {
   }
   for (const raw of text.split(/[.!?\n•·]+/)) {
     const s = raw.trim();
-    if (s.length > 3 && NOISE_PHRASE_RE.test(s) && !found.some((f) => s.includes(f))) {
+    if (
+      s.length > 3 &&
+      (NOISE_PHRASE_RE.test(s) || NOISE_MIC_CHECK_RE.test(s) || NOISE_LONG_FILLER_RE.test(s)) &&
+      !found.some((f) => s.includes(f))
+    ) {
       found.push(s.length > 80 ? `${s.slice(0, 80)}…` : s);
     }
   }

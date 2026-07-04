@@ -115,9 +115,6 @@ export default function LiveStatusBar(props: LiveStatusBarProps) {
         </span>
 
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          <Metric label="STT" value={secs(sttMs)} />
-          <Metric label="LLM" value={secs(llmMs)} />
-          <Metric label="Всего" value={secs(totalMs)} accent />
           {active ? (
             <button type="button" onClick={onStop} className="btn-danger btn-sm">
               Стоп
@@ -212,7 +209,21 @@ export default function LiveStatusBar(props: LiveStatusBarProps) {
           </>
         )}
 
-        {utilities && <div className="ml-auto flex items-center gap-2">{utilities}</div>}
+        <details className="sc-live-more">
+          <summary>Диагностика</summary>
+          <div className="sc-live-more__panel">
+            <Metric label="STT" value={secs(sttMs)} />
+            <Metric label="LLM" value={secs(llmMs)} />
+            <Metric label="Всего" value={secs(totalMs)} accent />
+          </div>
+        </details>
+
+        {utilities && (
+          <details className="sc-live-more ml-auto">
+            <summary>Ещё</summary>
+            <div className="sc-live-more__panel sc-live-more__panel--stack">{utilities}</div>
+          </details>
+        )}
       </div>
     </div>
   );

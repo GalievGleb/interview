@@ -72,7 +72,7 @@ export default function ModelSelect({
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Поиск по названию, id или провайдеру..."
+                placeholder="Поиск по названию, id или провайдеру…"
                 className="field text-sm"
                 autoFocus
               />

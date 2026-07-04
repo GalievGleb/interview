@@ -91,3 +91,26 @@
   background: rgba(12, 22, 34, 0.92);
   box-shadow: none;
 }
+
+.overlay-cue-card {
+  display: grid;
+  gap: 12px;
+}
+
+.overlay-cue-question {
+  margin: 0;
+  color: rgba(237, 246, 255, 0.55);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.overlay-cue-actions {
+  display: flex;
+  justify-content: flex-end;
+  opacity: 0.72;
+}
+
+.overlay-cue-card:hover .overlay-cue-actions {
+  opacity: 1;
+}

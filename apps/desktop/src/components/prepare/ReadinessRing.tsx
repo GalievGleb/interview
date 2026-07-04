@@ -7,7 +7,7 @@ interface Props {
 
 const TONE_HEX: Record<NonNullable<Props['tone']>, string> = {
   green: '#34c77b',
-  blue: '#8fb6d8',
+  blue: '#5dbdff',
   amber: '#fbbf24',
   red: '#f87171',
 };

@@ -142,23 +142,19 @@ const GROUPS: NavGroup[] = [
   {
     title: 'Подготовка',
     items: [
-      { to: '/home', label: 'Главная', icon: 'home' },
+      { to: '/home', label: 'Пульт', icon: 'home' },
       { to: '/prepare', label: 'Разбор вакансии', icon: 'vacancy' },
     ],
   },
   {
     title: 'Live',
-    items: [
-      { to: '/interview', label: 'Live-интервью', icon: 'interview', live: true },
-      { to: '/test-lab', label: 'Тестовая лаборатория', icon: 'testlab' },
-    ],
+    items: [{ to: '/interview', label: 'Live-интервью', icon: 'interview', live: true }],
   },
   {
-    title: 'Библиотека',
+    title: 'Контекст',
     items: [
-      { to: '/documents', label: 'Резюме и контекст', icon: 'documents' },
+      { to: '/documents', label: 'Резюме и опыт', icon: 'documents' },
       { to: '/history', label: 'История', icon: 'history' },
-      { to: '/meeting', label: 'Разбор разговора', icon: 'meeting' },
     ],
   },
   {
@@ -233,7 +229,7 @@ export default function Sidebar() {
           className="flex w-full items-center gap-2 rounded-xl border border-surface-border bg-surface/70 px-3 py-2 text-left text-sm text-ink-faint shadow-soft transition-colors hover:border-surface-border-strong hover:bg-surface-hover hover:text-ink-muted"
         >
           <Icon name="search" size={15} />
-          <span className="flex-1">Поиск</span>
+          <span className="flex-1">Быстрые действия</span>
           <span className="sc-mono rounded-md border border-surface-border bg-surface-elevated px-1.5 py-0.5 text-[10px] text-ink-faint">
             ⌘K
           </span>
@@ -292,7 +288,7 @@ export default function Sidebar() {
               <span
                 className={`text-[11px] font-normal ${model?.ready ? 'text-emerald-300' : 'text-ink-faint'}`}
               >
-                {model ? (model.ready ? 'Готова' : 'Не загружена') : '...'}
+                {model ? (model.ready ? 'Готова' : 'Не загружена') : '…'}
               </span>
             </span>
             <span className="sc-mono block truncate text-[11px] text-ink-faint">
@@ -308,7 +304,7 @@ export default function Sidebar() {
           tone={backendOnline ? 'success' : 'error'}
         />
         <StatusBadge
-          label={hasAnyKey ? 'API-ключ задан' : 'Нет API-ключа'}
+          label={hasAnyKey ? 'AI-ключ задан' : 'Нет AI-ключа'}
           tone={hasAnyKey ? 'success' : 'warning'}
         />
         {isElectron && (

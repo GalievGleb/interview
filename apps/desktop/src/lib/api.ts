@@ -119,6 +119,7 @@ export function setFastAnswer(on: boolean): void {
 }
 const REQUEST_TIMEOUT_MS = 10_000;
 const LONG_REQUEST_TIMEOUT_MS = 180_000;
+const VACANCY_EVALUATE_TIMEOUT_MS = 15_000;
 
 export interface UsageRow {
   provider: string;
@@ -835,7 +836,7 @@ export const api = {
     }>('/vacancy/evaluate', {
       method: 'POST',
       body: JSON.stringify(body),
-      timeoutMs: LONG_REQUEST_TIMEOUT_MS,
+      timeoutMs: VACANCY_EVALUATE_TIMEOUT_MS,
     }),
 
   // --- Speech-to-text (Local Whisper provider, model manager) ---

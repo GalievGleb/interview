@@ -32,9 +32,16 @@ KNOWN_TOOLS = {
 
 ASR_NOISE_RE = re.compile(
     r"(https?://\S+|www\.\S+|patreon|telegram|подписывай|субтитр|"
-    r"ваши вопросы|лайк[аи]?|канал[аеу]?)",
+    r"ваши вопросы|лайк[аи]?|канал[аеу]?|меня\s+не\s+записыва|"
+    r"не\s+записыва(?:ет|лось)|запись\s+не\s+ид[её]т|микрофон\s+не\s+работ|"
+    r"не\s+слышно|всем\s+проблем|в\s*ч[её]м\s+проблем)",
     re.IGNORECASE,
 )
+ASR_LONG_FILLER_RE = re.compile(
+    r"(?:^|[\s.,!?;:])(?:м{4,}|э{4,}|е{4,}|m{4,}|uh{3,}|um{3,})(?=$|[\s.,!?;:])",
+    re.IGNORECASE,
+)
+ASR_MIC_CHECK_RE = re.compile(r"^(?:раз|м{3,}|э{3,}|е{3,}|m{3,}|[\s,.\-–—])+$", re.IGNORECASE)
 
 BEHAVIORAL_RULES: tuple[tuple[str, re.Pattern[str], re.Pattern[str]], ...] = (
     (
@@ -635,7 +642,36 @@ def detect_asr_noise(candidate_answer: str) -> list[str]:
         start = max(0, match.start() - 40)
         end = min(len(candidate_answer), match.end() + 40)
         noise.append(candidate_answer[start:end].strip(" .,;:"))
+    for chunk in re.split(r"[.!?\n•·]+", candidate_answer or ""):
+        value = chunk.strip()
+        if len(value) < 3:
+            continue
+        if ASR_LONG_FILLER_RE.search(value) or ASR_MIC_CHECK_RE.fullmatch(value):
+            noise.append(value[:80].strip(" .,;:"))
     return _dedupe(noise, 6)
+
+
+def strip_asr_noise_for_evaluation(candidate_answer: str) -> tuple[str, list[str]]:
+    text = re.sub(r"\s+", " ", candidate_answer or "").strip()
+    if not text:
+        return "", []
+
+    noise: list[str] = []
+    chunks = re.split(r"(?<=[.!?])\s+", text)
+    kept: list[str] = []
+    for chunk in chunks:
+        value = chunk.strip()
+        if not value:
+            continue
+        cleaned = ASR_LONG_FILLER_RE.sub(" ", value)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip()
+        if ASR_NOISE_RE.search(value) or ASR_MIC_CHECK_RE.fullmatch(cleaned):
+            noise.append(value[:120].strip(" .,;:"))
+            continue
+        if cleaned:
+            kept.append(cleaned)
+
+    return re.sub(r"\s+", " ", " ".join(kept)).strip(), _dedupe(noise, 6)
 
 
 def _source_corpus(
@@ -746,6 +782,7 @@ def harden_vacancy_evaluation(
     topic: str,
     level: str,
     question: str = "",
+    detected_noise: list[str] | None = None,
 ) -> dict[str, Any]:
     """Make model output obey the grounding contract before returning it."""
     out = dict(data)
@@ -758,7 +795,9 @@ def harden_vacancy_evaluation(
     )
 
     noise = _dedupe(
-        _as_list(out.get("detectedNoiseOrAsrErrors"), 6) + detect_asr_noise(candidate_answer),
+        _as_list(out.get("detectedNoiseOrAsrErrors"), 6)
+        + (detected_noise or [])
+        + detect_asr_noise(candidate_answer),
         6,
     )
     out["detectedNoiseOrAsrErrors"] = noise

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import InterviewExportButtons from '../components/interview/InterviewExportButtons';
 import { api, SessionItem, SessionDetail } from '../lib/api';
 import { buildStoredSessionExport } from '../lib/interviewSessionExport';
@@ -145,6 +146,7 @@ function MockSessionDetail({ session }: { session: SmokeReviewSession }) {
 }
 
 export default function HistoryPage() {
+  const navigate = useNavigate();
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [mockSessions, setMockSessions] = useState<SmokeReviewSession[]>([]);
   const [selected, setSelected] = useState<SessionDetail | null>(null);
@@ -284,7 +286,7 @@ export default function HistoryPage() {
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Найти по названию, дате или режиму..."
+              placeholder="Найти по названию, дате или режиму…"
               className="prep-input w-full"
             />
           </div>
@@ -309,7 +311,7 @@ export default function HistoryPage() {
                 disabled={clearing}
                 className="prep-btn prep-btn-ghost prep-btn-sm"
               >
-                {clearing ? 'Удаляю...' : 'Удалить все'}
+                {clearing ? 'Удаляю…' : 'Удалить все'}
               </button>
             )}
           </div>
@@ -323,13 +325,23 @@ export default function HistoryPage() {
 
         <section className="prep-history-grid">
           <div className="prep-session-list">
-            {loading && <p className="prep-faint">Загрузка...</p>}
+            {loading && <p className="prep-faint">Загрузка…</p>}
             {!loading && filtered.length === 0 && (
               <div className="prep-empty-state">
                 <p className="prep-h2">{rows.length === 0 ? 'Сессий пока нет' : 'Ничего не найдено'}</p>
                 <p className="prep-sub mt-1">
-                  После live-интервью, мока или разбора здесь появятся вопросы, ответы и транскрипт.
+                  Сначала разберите вакансию или запустите live. После этого здесь появятся
+                  вопросы, ответы, оценки и сильные формулировки.
                 </p>
+                {rows.length === 0 && (
+                  <button
+                    type="button"
+                    className="prep-btn prep-btn-sm mt-4"
+                    onClick={() => navigate('/prepare')}
+                  >
+                    Разобрать вакансию
+                  </button>
+                )}
               </div>
             )}
             {filtered.map((row) => {
@@ -393,6 +405,24 @@ export default function HistoryPage() {
               </div>
             )}
             {selectedMock && <MockSessionDetail session={selectedMock} />}
+            {selectedMock && (
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="prep-btn prep-btn-sm"
+                  onClick={() => navigate(`/prepare?session=${selectedMock.id}`)}
+                >
+                  Открыть карту готовности
+                </button>
+                <button
+                  type="button"
+                  className="prep-btn prep-btn-secondary prep-btn-sm"
+                  onClick={() => navigate('/interview')}
+                >
+                  Начать live с этим контекстом
+                </button>
+              </div>
+            )}
             {selected && (
               <div className="space-y-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">

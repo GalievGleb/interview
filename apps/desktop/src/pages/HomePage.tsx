@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ReadinessRing from '../components/prepare/ReadinessRing';
 import { api, type SessionStats } from '../lib/api';
+import { useApp } from '../context/AppContext';
 import { pluralRu } from '../lib/pluralRu';
 import { readinessLabelText, readinessTone, topicStatusTone } from '../lib/vacancyReview/readiness';
 import {
@@ -38,9 +39,11 @@ function readMockStore() {
 
 export default function HomePage() {
   const navigate = useNavigate();
+  const { backendOnline, hasAnyKey, hasStt } = useApp();
   const [mockStore, setMockStore] = useState(readMockStore);
   const { sessions, inProgress, completed } = mockStore;
   const report = completed?.report;
+  const [docCounts, setDocCounts] = useState({ resume: 0, legend: 0 });
 
   const [stats, setStats] = useState<SessionStats | null>(null);
   useEffect(() => {
@@ -50,6 +53,25 @@ export default function HomePage() {
       .then((data) => !cancelled && setStats(data))
       .catch(() => {
         /* бэкенд недоступен — просто не показываем блок аналитики */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .listDocuments()
+      .then((res) => {
+        if (cancelled) return;
+        setDocCounts({
+          resume: res.documents.filter((doc) => doc.kind === 'resume').length,
+          legend: res.documents.filter((doc) => doc.kind === 'legend').length,
+        });
+      })
+      .catch(() => {
+        /* backend may still be starting */
       });
     return () => {
       cancelled = true;
@@ -66,6 +88,27 @@ export default function HomePage() {
     ? [...report.topicScores].sort((a, b) => a.score - b.score).slice(0, 3)
     : [];
 
+  const hasContext = docCounts.resume > 0 || docCounts.legend > 0;
+  const primaryAction = inProgress
+    ? {
+        label: 'Продолжить mock',
+        onClick: () => navigate(`/prepare?session=${inProgress.id}`),
+      }
+    : report && weakest.length > 0
+      ? {
+          label: 'Повторить слабые темы',
+          onClick: () => navigate(`/prepare?session=${completed!.id}&focusTopic=${weakest[0].topicId}`),
+        }
+      : report
+        ? {
+            label: 'Открыть карту готовности',
+            onClick: () => navigate(`/prepare?session=${completed!.id}`),
+          }
+        : {
+            label: 'Разобрать вакансию',
+            onClick: () => navigate('/prepare'),
+          };
+
   const inProgressPct = inProgress?.questions.length
     ? Math.round((inProgress.answers.length / inProgress.questions.length) * 100)
     : 0;
@@ -73,22 +116,35 @@ export default function HomePage() {
   return (
     <div className="prep h-full overflow-y-auto">
       <div className="prep-wrap prep-rise prep-home">
-        <section className="prep-hero-panel">
+        <section className="prep-hero-panel prep-cockpit-panel">
           <div className="prep-hero-copy">
-            <p className="prep-eyebrow">Центр подготовки</p>
-            <h1 className="prep-h1 prep-hero-title">Разберите вакансию до первого звонка.</h1>
+            <p className="prep-eyebrow">Пульт подготовки</p>
+            <h1 className="prep-h1 prep-hero-title">
+              {inProgress
+                ? 'Продолжите тренировку по этой вакансии.'
+                : report
+                  ? 'Вы знаете, где уверенно, а где нужен повтор.'
+                  : 'Начните с вакансии, а не с пустого чата.'}
+            </h1>
             <p className="prep-sub prep-hero-sub">
-              SkillCue показывает вероятные вопросы, слабые темы и короткие ответы, которые
-              звучат как ваш реальный опыт, а не как общий AI-текст.
+              SkillCue ведёт по одному сценарию: разбирает вакансию, задаёт тренировочные
+              вопросы, показывает слабые темы и только потом помогает короткой live-подсказкой.
             </p>
 
             <div className="prep-hero-actions">
-              <button type="button" className="prep-btn" onClick={() => navigate('/prepare')}>
-                Разобрать вакансию
+              <button type="button" className="prep-btn" onClick={primaryAction.onClick}>
+                {primaryAction.label}
               </button>
               <button
                 type="button"
                 className="prep-btn prep-btn-secondary"
+                onClick={() => navigate('/documents')}
+              >
+                Подключить резюме
+              </button>
+              <button
+                type="button"
+                className="prep-btn prep-btn-ghost"
                 onClick={() => navigate('/interview')}
               >
                 Открыть live
@@ -97,30 +153,33 @@ export default function HomePage() {
 
             <div className="prep-flow-line" aria-label="SkillCue workflow">
               <span>Вакансия</span>
-              <span>Разбор</span>
               <span>Mock</span>
+              <span>Карта готовности</span>
               <span>Live-подсказка</span>
             </div>
           </div>
 
-          <div className="prep-hero-demo" aria-label="Live cue preview">
-            <div className="prep-demo-window">
-              <div className="prep-demo-top">
-                <span>Live-интервью</span>
-                <span className="prep-live-pill">Слушаю</span>
-              </div>
-              <div className="prep-demo-question">
-                <span>Вопрос интервьюера</span>
-                <strong>Как вы тестировали API кроме проверки статус-кода 200?</strong>
-              </div>
-              <div className="prep-demo-answer">
-                <span>Подсказка SkillCue</span>
-                <p>
-                  Кроме статус-кода 200 я сверяю тело ответа с Pydantic-моделью: обязательные
-                  поля, типы данных и бизнес-значения. Отдельно проверяю заголовки, права
-                  доступа и негативные сценарии — некорректные payload’ы и граничные значения.
-                </p>
-              </div>
+          <div className="prep-live-readiness" aria-label="Готовность к live-интервью">
+            <div>
+              <p className="prep-eyebrow">Готовность</p>
+              <h2 className="prep-h2 prep-card-title">Перед live должно быть понятно, что уже собрано.</h2>
+            </div>
+            <div className="prep-readiness-list">
+              <ReadinessCheck
+                label="Вакансия"
+                detail={report ? 'разобрана, есть карта тем' : inProgress ? 'mock в процессе' : 'нужно вставить описание роли'}
+                ok={Boolean(report || inProgress)}
+              />
+              <ReadinessCheck
+                label="Резюме / опыт"
+                detail={hasContext ? 'ответы будут держаться в вашем контексте' : 'лучше добавить до live'}
+                ok={hasContext}
+              />
+              <ReadinessCheck
+                label="Речь и AI"
+                detail={backendOnline && hasAnyKey && hasStt ? 'можно запускать live' : 'проверьте ключ, STT и backend'}
+                ok={backendOnline && hasAnyKey && hasStt}
+              />
             </div>
           </div>
         </section>
@@ -137,16 +196,16 @@ export default function HomePage() {
             tone={report ? 'green' : 'amber'}
           />
           <PrepStatusCard
-            label="Резюме и легенда"
+            label="Резюме и опыт"
             title="Контекст ответа"
-            body="SkillCue держит ответы в рамках вашего опыта"
-            tone="blue"
+            body={hasContext ? 'Подключено' : 'Добавьте, чтобы не получать общий AI-текст'}
+            tone={hasContext ? 'green' : 'amber'}
           />
           <PrepStatusCard
             label="Live-подсказки"
             title="Короткая подсказка"
-            body="Answer-first режим для реального созвона"
-            tone="violet"
+            body={hasAnyKey && hasStt ? 'Готово к запуску' : 'Нужны AI-ключ и модель речи'}
+            tone={hasAnyKey && hasStt ? 'green' : 'amber'}
           />
         </section>
 
@@ -419,6 +478,26 @@ function PrepStatusCard({
       <p>{label}</p>
       <strong>{title}</strong>
       <span>{body}</span>
+    </div>
+  );
+}
+
+function ReadinessCheck({
+  label,
+  detail,
+  ok,
+}: {
+  label: string;
+  detail: string;
+  ok: boolean;
+}) {
+  return (
+    <div className={`prep-readiness-check ${ok ? 'is-ok' : 'is-warn'}`}>
+      <span className="prep-readiness-check__dot" />
+      <div className="min-w-0">
+        <strong>{label}</strong>
+        <p>{detail}</p>
+      </div>
     </div>
   );
 }

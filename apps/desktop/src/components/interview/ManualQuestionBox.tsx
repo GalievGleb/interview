@@ -19,11 +19,10 @@ export default function ManualQuestionBox({
 }: ManualQuestionBoxProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  // Ctrl+K — мгновенный фокус на поле: если STT распознал вопрос криво,
-  // пользователь перебивает его вручную не отрывая рук от клавиатуры.
+  // Ctrl+L — мгновенный фокус на поле: Ctrl+K зарезервирован под палитру команд.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key.toLowerCase() === 'k' && (e.metaKey || e.ctrlKey)) {
+      if (e.key.toLowerCase() === 'l' && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
         inputRef.current?.focus();
       }
@@ -42,7 +41,7 @@ export default function ManualQuestionBox({
           onKeyDown={(e) => {
             if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) onSubmit();
           }}
-          placeholder="Введите вопрос вручную… (Ctrl+K — фокус)"
+          placeholder="Введите вопрос вручную… (Ctrl+L — фокус)"
           rows={2}
           className="cockpit-command-input"
         />

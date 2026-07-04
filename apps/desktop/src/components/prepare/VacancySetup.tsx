@@ -67,7 +67,7 @@ export default function VacancySetup({ onAnalyze, analyzing, error }: Props) {
         <label className="prep-h2">Текст вакансии</label>
         <textarea
           className="prep-textarea mt-2"
-          placeholder="Вставьте описание роли: обязанности, требования, стек, формат интервью..."
+          placeholder="Вставьте описание роли: обязанности, требования, стек, формат интервью…"
           value={vacancyText}
           onChange={(e) => setVacancyText(e.target.value)}
         />
@@ -106,7 +106,7 @@ export default function VacancySetup({ onAnalyze, analyzing, error }: Props) {
           style={{ color: 'var(--prep-green)' }}
           onClick={() => setShowContext((v) => !v)}
         >
-          {showContext ? '− Скрыть резюме / легенду' : '+ Добавить резюме / легенду'}
+          {showContext ? '− Скрыть резюме / историю опыта' : '+ Добавить резюме / историю опыта'}
         </button>
 
         {showContext && (
@@ -117,18 +117,18 @@ export default function VacancySetup({ onAnalyze, analyzing, error }: Props) {
               <textarea
                 className="prep-textarea mt-1"
                 style={{ minHeight: 120 }}
-                placeholder="Вставьте резюме или выберите сохранённый документ..."
+                placeholder="Вставьте резюме или выберите сохранённый документ…"
                 value={resumeText}
                 onChange={(e) => setResumeText(e.target.value)}
               />
             </div>
             <div>
-              <label className="prep-faint">Легенда опыта</label>
+              <label className="prep-faint">История опыта</label>
               <SavedDocs docs={docs} onPick={(id) => loadDoc(id, 'legend')} />
               <textarea
                 className="prep-textarea mt-1"
                 style={{ minHeight: 120 }}
-                placeholder="Проекты, зона ответственности, формулировки для спорных мест..."
+                placeholder="Проекты, зона ответственности, формулировки для спорных мест…"
                 value={legendText}
                 onChange={(e) => setLegendText(e.target.value)}
               />
@@ -141,7 +141,7 @@ export default function VacancySetup({ onAnalyze, analyzing, error }: Props) {
             {resumeText.trim() ? 'Резюме подключено' : 'Резюме не подключено'}
           </span>
           <span className={`prep-chip ${legendText.trim() ? 'prep-tone-green' : ''}`}>
-            {legendText.trim() ? 'Легенда подключена' : 'Легенда не подключена'}
+            {legendText.trim() ? 'История опыта подключена' : 'История опыта не подключена'}
           </span>
         </div>
 
@@ -166,7 +166,7 @@ export default function VacancySetup({ onAnalyze, analyzing, error }: Props) {
               })
             }
           >
-            {analyzing ? 'Разбираю...' : 'Разобрать вакансию'}
+            {analyzing ? 'Разбираю…' : 'Разобрать вакансию'}
           </button>
           <span className="prep-faint">8-15 вопросов · 20-30 минут mock</span>
         </div>

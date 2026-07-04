@@ -60,6 +60,11 @@ export default function SmokeInterviewView({
   const answered = Boolean(existing);
   const isLast = currentIndex === questions.length - 1;
   const progress = Math.round(((currentIndex + (answered ? 1 : 0)) / questions.length) * 100);
+  const canEvaluate = text.trim().length >= 2 && !evaluating;
+  const submitCurrentAnswer = () => {
+    const voiceText = voice.stop();
+    onSubmitAnswer(voiceText || text, voice.recording ? 'voice' : 'text');
+  };
 
   return (
     <div className="prep-rise grid gap-5 lg:grid-cols-[1fr_240px]">
@@ -112,18 +117,26 @@ export default function SmokeInterviewView({
           <textarea
             className="prep-textarea mt-3"
             style={{ minHeight: 150 }}
-            placeholder="Ответьте текстом…"
+            placeholder="Ответьте голосом или исправьте текст перед оценкой…"
             value={text}
             onChange={(e) => setText(e.target.value)}
             disabled={answered}
           />
 
-          {!answered && (voice.recording || voice.error) && (
-            <p className="mt-1.5 text-[12.5px]" style={{ color: voice.error ? 'var(--prep-red)' : 'var(--prep-green)' }}>
-              {voice.error
-                ? voice.error
-                : '● Идёт запись — проговорите ответ, затем остановите запись или отправьте.'}
-            </p>
+          {!answered && (
+            <div className={`prep-voice-strip mt-3 ${voice.recording ? 'is-recording' : ''}`}>
+              <span className="prep-voice-dot" />
+              <div className="min-w-0 flex-1">
+                <p>{voice.recording ? 'Идёт запись ответа' : 'Голосовой ответ'}</p>
+                <span>
+                  {voice.error
+                    ? voice.error
+                    : voice.recording
+                      ? 'Говорите как на интервью. После остановки SkillCue оценит очищенный текст.'
+                      : 'Можно ответить голосом или вставить текст вручную.'}
+                </span>
+              </div>
+            </div>
           )}
 
           <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -132,13 +145,14 @@ export default function SmokeInterviewView({
                 <button
                   type="button"
                   className="prep-btn"
-                  disabled={text.trim().length < 2 || evaluating}
-                  onClick={() => {
-                    const voiceText = voice.stop();
-                    onSubmitAnswer(voiceText || text, voice.recording ? 'voice' : 'text');
-                  }}
+                  disabled={voice.recording ? evaluating : !canEvaluate}
+                  onClick={submitCurrentAnswer}
                 >
-                  {evaluating ? 'Оцениваю…' : 'Отправить ответ'}
+                  {evaluating
+                    ? 'Оцениваю…'
+                    : voice.recording
+                      ? 'Остановить и оценить'
+                      : 'Оценить ответ'}
                 </button>
                 <button
                   type="button"
@@ -146,7 +160,7 @@ export default function SmokeInterviewView({
                   onClick={voice.toggle}
                   title="Ответить голосом"
                 >
-                  {voice.recording ? '⏹ Остановить запись' : '🎙 Ответить голосом'}
+                  {voice.recording ? 'Пауза записи' : 'Начать запись голосом'}
                 </button>
                 <button
                   type="button"
@@ -204,6 +218,18 @@ export default function SmokeInterviewView({
                 )}
               </div>
             </div>
+
+            {evaluation.suggestedBetterAnswer && (
+              <div className="prep-strong-answer">
+                <p className="prep-eyebrow">Сильная версия ответа</p>
+                <p className="mt-2 whitespace-pre-wrap">{evaluation.suggestedBetterAnswer}</p>
+                {evaluation.hallucinationGuard && evaluation.hallucinationGuard.length > 0 && (
+                  <p className="mt-2 text-[11.5px]" style={{ color: 'var(--prep-ink-faint)' }}>
+                    Без выдумок: {evaluation.hallucinationGuard.join(' · ')}
+                  </p>
+                )}
+              </div>
+            )}
 
             <div className="flex flex-wrap gap-x-4 gap-y-1">
               <Metric label="Точность" value={evaluation.technicalAccuracyScore} />
@@ -282,18 +308,6 @@ export default function SmokeInterviewView({
                 </ol>
               </details>
             )}
-
-            <details open>
-              <summary className="cursor-pointer text-[12.5px] font-bold" style={{ color: 'var(--prep-green)' }}>
-                Сильная версия ответа
-              </summary>
-              <p className="prep-sub mt-1.5 whitespace-pre-wrap">{evaluation.suggestedBetterAnswer}</p>
-              {evaluation.hallucinationGuard && evaluation.hallucinationGuard.length > 0 && (
-                <p className="mt-2 text-[11.5px]" style={{ color: 'var(--prep-ink-faint)' }}>
-                  Без выдумок: {evaluation.hallucinationGuard.join(' · ')}
-                </p>
-              )}
-            </details>
 
             {evaluation.followUpQuestions && evaluation.followUpQuestions.length > 0 && (
               <FeedbackList

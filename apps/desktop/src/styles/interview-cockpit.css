@@ -159,7 +159,7 @@
 }
 
 .cockpit-tab {
-  @apply rounded-md px-3 py-1.5 text-sm font-medium text-ink-muted transition-all duration-150
+  @apply rounded-md px-3 py-1.5 text-sm font-medium text-ink-muted transition-colors duration-150
     hover:text-ink;
 }
 
@@ -217,6 +217,32 @@
 .cockpit-command-bar {
   @apply flex flex-wrap items-center justify-between gap-2 border-t border-surface-border
     bg-surface-elevated/30 px-3 py-2;
+}
+
+.sc-live-more {
+  @apply relative text-xs text-ink-muted;
+}
+
+.sc-live-more summary {
+  @apply cursor-pointer list-none rounded-lg border border-surface-border bg-surface-elevated/40
+    px-2.5 py-1.5 font-medium transition-colors hover:border-surface-border-strong hover:text-ink;
+}
+
+.sc-live-more summary::-webkit-details-marker {
+  display: none;
+}
+
+.sc-live-more[open] summary {
+  @apply border-accent/30 text-ink;
+}
+
+.sc-live-more__panel {
+  @apply absolute right-0 top-full z-30 mt-2 flex min-w-[260px] flex-wrap items-center gap-2
+    rounded-xl border border-surface-border bg-surface-elevated p-3 shadow-pop;
+}
+
+.sc-live-more__panel--stack {
+  @apply min-w-[320px] justify-end;
 }
 
 .cockpit-status-pill {

@@ -25,4 +25,23 @@ describe('voice answer transcript accumulator', () => {
     expect(visible).toBe('Проверял API через схемы и negative payloads.');
     expect(flushVoiceAnswerTranscript(acc)).toBe('Проверял API через схемы и negative payloads.');
   });
+
+  it('removes mic-check noise and long filler from a recorded answer', () => {
+    const acc = createVoiceAnswerTranscript();
+    const visible = acc.accept(
+      'CI-CD GitLab, Docker, контейнеры, Linux, SQL. Блин, меня не записывает нифига. Всем проблема. Раз, раз, раз, раз-раз-раз. Также для вызова запросов использовал Requests, HTTPX. Ммммммммммммммммммммммммммммммммммммммммммммммммммммм',
+      true,
+    );
+
+    expect(visible).toBe(
+      'CI-CD GitLab, Docker, контейнеры, Linux, SQL. Также для вызова запросов использовал Requests, HTTPX.',
+    );
+    expect(flushVoiceAnswerTranscript(acc)).toBe(visible);
+  });
+
+  it('does not show pure mic-check partials as answer text', () => {
+    const acc = createVoiceAnswerTranscript();
+
+    expect(acc.accept('Раз, раз, раз-раз-раз. Ммммммммммммм', false)).toBe('');
+  });
 });

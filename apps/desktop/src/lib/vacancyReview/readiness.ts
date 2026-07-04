@@ -44,7 +44,7 @@ export function topicStatusTone(status: TopicStatus): 'green' | 'blue' | 'amber'
     case 'strong':
       return 'green';
     case 'medium':
-      return 'blue';
+      return 'amber';
     case 'weak':
       return 'amber';
     case 'critical':
@@ -54,7 +54,7 @@ export function topicStatusTone(status: TopicStatus): 'green' | 'blue' | 'amber'
 
 export function readinessTone(label: ReadinessLabel): 'green' | 'blue' | 'amber' | 'red' {
   if (label === 'strong' || label === 'ready') return 'green';
-  if (label === 'almost_ready') return 'blue';
+  if (label === 'almost_ready') return 'amber';
   if (label === 'weak') return 'amber';
   return 'red';
 }

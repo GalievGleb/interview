@@ -173,14 +173,14 @@ export default function OverlayPage() {
                   ? 'Скачайте локальную модель в Настройках → Распознавание речи'
                   : active
                     ? 'Остановить live-сессию'
-                    : 'Начать live-сессию (захват аудио)'
+                    : 'Начать live-сессию'
               }
               className={`tip btn-sm rounded-l-xl border-y border-l px-3 py-1.5 text-xs font-medium ${
                 active ? 'btn-danger rounded-r-none' : 'btn-secondary rounded-r-none'
               }`}
             >
               <span className={`mr-1.5 inline-block h-2 w-2 rounded-full ${active ? 'animate-pulse bg-red-400' : 'bg-red-500'}`} />
-              {active ? 'Стоп' : 'Захват звука'}
+              {active ? 'Стоп' : 'Начать live'}
             </button>
             <button
               type="button"
@@ -266,7 +266,7 @@ export default function OverlayPage() {
 
           {!active && !displayAnswer && (
             <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-ink-faint">
-              <p>Нажмите «Захват звука», чтобы запустить SkillCue.</p>
+              <p>Нажмите «Начать live», чтобы запустить SkillCue.</p>
               <p className="text-xs">Ctrl+K — горячие клавиши</p>
             </div>
           )}
@@ -276,9 +276,10 @@ export default function OverlayPage() {
           )}
 
           {displayAnswer ? (
-            <div className="cockpit-bento space-y-3">
-              {displayQuestion ? <p className="answer-question">Вопрос: {displayQuestion}</p> : null}
-              <div className="flex justify-end">
+            <div className="cockpit-bento overlay-cue-card">
+              {displayQuestion ? <p className="overlay-cue-question">{displayQuestion}</p> : null}
+              <MarkdownText text={displayAnswer} />
+              <div className="overlay-cue-actions">
                 <AnswerActions
                   answer={displayAnswer}
                   disabled={streaming || suggestLoading}
@@ -286,7 +287,6 @@ export default function OverlayPage() {
                   onRevise={handleRevise}
                 />
               </div>
-              <MarkdownText text={displayAnswer} />
             </div>
           ) : null}
         </div>

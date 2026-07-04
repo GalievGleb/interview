@@ -1,12 +1,14 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import { api } from '../api';
 import { extractTopics, detectRole, detectSeniority } from './topicExtraction';
 import {
   analyzeVacancyMock,
   buildSmokePlan,
+  evaluateAnswer,
   evaluateAnswerMock,
   buildReadinessReport,
 } from './vacancyReviewService';
-import { readinessLabelFromScore, topicStatusFromScore } from './readiness';
+import { readinessLabelFromScore, readinessTone, topicStatusFromScore, topicStatusTone } from './readiness';
 import type { SmokeReviewSession, VacancyAnalysis } from './types';
 
 const QA_VACANCY = `QA Automation Engineer (Middle)
@@ -197,6 +199,28 @@ describe('evaluation + report', () => {
     expect(report.overallScore).toBeLessThanOrEqual(100);
     expect(report.topicScores.length).toBeGreaterThan(0);
     expect(report.topicScores.every((t) => t.questionsAsked > 0)).toBe(true);
+  });
+
+  it('falls back to local evaluation when backend answer review times out', async () => {
+    const analysis = analyzeVacancyMock({ vacancyText: QA_VACANCY, language: 'ru' });
+    const [question] = buildSmokePlan(analysis);
+    const spy = vi
+      .spyOn(api, 'vacancyEvaluate')
+      .mockRejectedValueOnce(new Error('Операция заняла слишком много времени — попробуйте ещё раз'));
+
+    try {
+      const evaluation = await evaluateAnswer(
+        question,
+        'Я использовал pytest, Playwright, HTTPX, GitLab CI, Docker и Allure на проекте.',
+        analysis,
+      );
+
+      expect(spy).toHaveBeenCalledOnce();
+      expect(evaluation.feedback).toBeTruthy();
+      expect(evaluation.suggestedBetterAnswer).toMatch(/^Я |^Кроме|^С flaky|^Для /);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('does not turn tool-choice expected knowledge into filler missing words', () => {
@@ -602,5 +626,10 @@ describe('readiness thresholds', () => {
     expect(readinessLabelFromScore(55)).toBe('almost_ready');
     expect(readinessLabelFromScore(35)).toBe('weak');
     expect(readinessLabelFromScore(10)).toBe('not_ready');
+  });
+
+  it('uses amber, not dull blue, for partial readiness states', () => {
+    expect(readinessTone('almost_ready')).toBe('amber');
+    expect(topicStatusTone('medium')).toBe('amber');
   });
 });

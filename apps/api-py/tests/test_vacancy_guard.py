@@ -142,6 +142,74 @@ def test_vacancy_evaluate_prompt_contains_strict_allowed_sources(client, monkeyp
     assert "INTERVIEW LEGEND" not in prompt
 
 
+def test_vacancy_evaluate_strips_voice_noise_before_prompt(client, monkeypatch):
+    captured = {}
+
+    async def fake_complete(
+        messages, provider=None, model=None, max_tokens=800, temperature=0.4, reasoning=None
+    ):
+        captured["prompt"] = messages[-1]["content"]
+        return json.dumps(
+            {
+                "score": 70,
+                "technicalContentScore": 70,
+                "projectSpecificityScore": 60,
+                "leadershipScore": 40,
+                "structureScore": 70,
+                "speechClarityScore": 45,
+                "technicalAccuracyScore": 70,
+                "specificityScore": 60,
+                "clarityScore": 70,
+                "confidenceScore": 70,
+                "levelEstimate": "middle",
+                "verdict": "Ок.",
+                "feedback": "Ок.",
+                "detectedNoiseOrAsrErrors": [],
+                "extractedValidPoints": [],
+                "goodPoints": [],
+                "weakPoints": [],
+                "missingPoints": [],
+                "technicalCorrections": [],
+                "hallucinationGuard": [],
+                "betterStructure": [],
+                "suggestedBetterAnswer": "Я работал со стеком Python, API, CI/CD, Docker и Allure.",
+                "followUpQuestions": [],
+                "nextTrainingFocus": "",
+                "overclaimed": False,
+            },
+            ensure_ascii=False,
+        )
+
+    monkeypatch.setattr(provider_adapter, "complete", fake_complete)
+
+    res = client.post(
+        "/vacancy/evaluate",
+        json={
+            "question": "С каким стеком ты работал и за что отвечал?",
+            "answer": (
+                "CI-CD GitLab, Docker, контейнеры, Linux, SQL. "
+                "Блин, меня не записывает нифига. Всем проблема. Раз, раз, раз-раз-раз. "
+                "Также для вызова запросов использовал Requests, HTTPX. "
+                "Для отчетов я смотрел Allure отчеты. Ммммммммммммммммммммммммммммммм"
+            ),
+            "topic": "Project experience",
+            "expectedSignals": ["stack", "role", "ownership"],
+            "resumeText": "QA Automation: GitLab CI, Docker, Linux, SQL, Requests, HTTPX, Allure.",
+            "vacancyText": "Project experience, stack, impact, ownership.",
+            "language": "ru",
+            "hasResume": True,
+        },
+    )
+    assert res.status_code == 200, res.text
+    prompt = captured["prompt"]
+    assert "CI-CD GitLab" in prompt
+    assert "Requests, HTTPX" in prompt
+    assert "Allure" in prompt
+    assert "меня не записывает" not in prompt
+    assert "Раз, раз" not in prompt
+    assert "Ммммм" not in prompt
+
+
 def test_vacancy_evaluate_hardens_semantic_matching_and_consistency(client, monkeypatch):
     async def fake_complete(
         messages, provider=None, model=None, max_tokens=800, temperature=0.4, reasoning=None

@@ -17,7 +17,7 @@ from app.prompts.vacancy import VACANCY_ANALYZE_PROMPT, VACANCY_EVALUATE_PROMPT
 from app.services import model_router, provider_adapter
 from app.services.preferences import load_preferences
 from app.services.provider_adapter import vacancy_eval_options
-from app.services.vacancy_guard import harden_vacancy_evaluation
+from app.services.vacancy_guard import harden_vacancy_evaluation, strip_asr_noise_for_evaluation
 
 logger = logging.getLogger("vacancy")
 
@@ -189,6 +189,7 @@ async def analyze(payload: AnalyzePayload) -> dict:
 @router.post("/evaluate")
 async def evaluate(payload: EvaluatePayload) -> dict:
     provider, model = _resolve("vacancy")
+    clean_answer, detected_noise = strip_asr_noise_for_evaluation(payload.answer or "")
     prompt = VACANCY_EVALUATE_PROMPT.format(
         topic=payload.topic or "(unspecified)",
         level=payload.level or "(unspecified)",
@@ -197,7 +198,7 @@ async def evaluate(payload: EvaluatePayload) -> dict:
         resume=(payload.resumeText or "")[:4000] or "(none)",
         vacancy=(payload.vacancyText or "")[:8000] or "(none)",
         question=payload.question[:600],
-        answer=(payload.answer or "(empty)")[:1500],
+        answer=(clean_answer or "(empty)")[:1500],
         has_resume="true" if payload.hasResume else "false",
         language="Russian" if payload.language == "ru" else "English",
     )
@@ -224,11 +225,12 @@ async def evaluate(payload: EvaluatePayload) -> dict:
         data,
         resume_text=payload.resumeText or "",
         vacancy_text=payload.vacancyText or "",
-        candidate_answer=payload.answer or "",
+        candidate_answer=clean_answer or "",
         expected_signals=payload.expectedSignals,
         topic=payload.topic,
         level=payload.level,
         question=payload.question,
+        detected_noise=detected_noise,
     )
 
     def _score(key: str) -> int:

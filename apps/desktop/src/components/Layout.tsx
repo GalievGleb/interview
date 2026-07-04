@@ -131,7 +131,7 @@ export default function Layout({ children }: { children: ReactNode }) {
           {!backendOnline && (
             <div className="flex shrink-0 items-center gap-2 border-b border-amber-900/30 bg-amber-950/20 px-5 py-2 text-sm text-amber-200/90">
               <span className="sc-dot sc-dot--processing animate-pulse" />
-              Подключение к backend... Если он не поднялся автоматически, запустите:{' '}
+              Подключение к backend… Если он не поднялся автоматически, запустите:{' '}
               <code className="rounded-md bg-black/30 px-1.5 py-0.5 text-amber-100">
                 cd apps/api-py; .\run_dev.ps1
               </code>
@@ -149,7 +149,7 @@ export default function Layout({ children }: { children: ReactNode }) {
             <Suspense
               fallback={
                 <div className="flex min-h-[40vh] items-center justify-center text-sm text-ink-muted">
-                  Загрузка...
+                  Загрузка…
                 </div>
               }
             >
