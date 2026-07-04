@@ -231,7 +231,7 @@ export default function Sidebar() {
           <Icon name="search" size={15} />
           <span className="flex-1">Быстрые действия</span>
           <span className="sc-mono rounded-md border border-surface-border bg-surface-elevated px-1.5 py-0.5 text-[10px] text-ink-faint">
-            ⌘K
+            {navigator.platform.toLowerCase().includes('mac') ? '⌘K' : 'Ctrl+K'}
           </span>
         </button>
       </div>

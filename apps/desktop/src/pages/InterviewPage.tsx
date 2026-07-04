@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import AnswerPanel from '../components/interview/AnswerPanel';
 import FastAnswerToggle from '../components/interview/FastAnswerToggle';
 import SpeculativeToggle from '../components/interview/SpeculativeToggle';
@@ -126,6 +127,7 @@ function ReadinessStrip({
 
 export default function InterviewPage() {
   const { hasAnyKey, hasStt } = useApp();
+  const navigate = useNavigate();
   const {
     active,
     lines,
@@ -495,6 +497,13 @@ export default function InterviewPage() {
         canStart={hasAnyKey}
         hasStt={hasStt}
         noSource={noSource}
+        startBlocked={
+          !hasAnyKey
+            ? { label: 'Добавить API-ключ', onFix: () => navigate('/settings?tab=ai') }
+            : !hasStt
+              ? { label: 'Скачать модель речи', onFix: () => navigate('/settings?tab=speech') }
+              : null
+        }
         onToggleSource={toggleSource}
         onModeChange={setMode}
         onLanguageChange={setLanguage}
@@ -537,16 +546,35 @@ export default function InterviewPage() {
         sources={sources}
       />
 
-      {!hasAnyKey && (
-        <InterviewInlineAlert tone="warn">
-          Добавьте API-ключ в Настройках, чтобы включить live-ответы.
-        </InterviewInlineAlert>
-      )}
-
-      {!hasStt && (
-        <InterviewInlineAlert tone="info">
-          Для локального распознавания нужна речевая модель. Откройте Настройки → Распознавание
-          речи, чтобы скачать её. Ручной ввод работает и без неё.
+      {(!hasAnyKey || !hasStt) && !active && (
+        <InterviewInlineAlert tone={hasAnyKey ? 'info' : 'warn'}>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <span>
+              {!hasAnyKey && !hasStt
+                ? 'Для live-режима не хватает API-ключа и речевой модели. Ручной ввод вопросов работает уже сейчас.'
+                : !hasAnyKey
+                  ? 'Для live-ответов не хватает API-ключа.'
+                  : 'Для распознавания голоса нужна речевая модель. Ручной ввод работает и без неё.'}
+            </span>
+            {!hasAnyKey && (
+              <button
+                type="button"
+                className="btn-secondary btn-sm"
+                onClick={() => navigate('/settings?tab=ai')}
+              >
+                Добавить ключ
+              </button>
+            )}
+            {!hasStt && (
+              <button
+                type="button"
+                className="btn-secondary btn-sm"
+                onClick={() => navigate('/settings?tab=speech')}
+              >
+                Скачать модель
+              </button>
+            )}
+          </div>
         </InterviewInlineAlert>
       )}
 

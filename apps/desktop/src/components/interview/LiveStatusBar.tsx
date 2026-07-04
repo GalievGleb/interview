@@ -39,6 +39,8 @@ export interface LiveStatusBarProps {
   canStart: boolean;
   hasStt: boolean;
   noSource: boolean;
+  /** When setup is incomplete, the primary action becomes fixing it. */
+  startBlocked?: { label: string; onFix: () => void } | null;
   onToggleSource: (key: keyof LiveSources) => void;
   onModeChange: (mode: SttMode) => void;
   onLanguageChange: (language: string) => void;
@@ -78,6 +80,7 @@ export default function LiveStatusBar(props: LiveStatusBarProps) {
     canStart,
     hasStt,
     noSource,
+    startBlocked,
     onToggleSource,
     onModeChange,
     onLanguageChange,
@@ -119,12 +122,20 @@ export default function LiveStatusBar(props: LiveStatusBarProps) {
             <button type="button" onClick={onStop} className="btn-danger btn-sm">
               Стоп
             </button>
+          ) : startBlocked ? (
+            <button
+              type="button"
+              onClick={startBlocked.onFix}
+              className="btn-primary btn-sm min-w-[110px]"
+            >
+              {startBlocked.label}
+            </button>
           ) : (
             <button
               type="button"
               onClick={onStart}
               disabled={!canStart || !hasStt || noSource}
-              title={!hasStt ? 'Скачайте локальную речевую модель в Настройках → Распознавание речи' : undefined}
+              title={noSource ? 'Выберите источник звука ниже' : undefined}
               className="btn-primary btn-sm min-w-[110px]"
             >
               Начать live
@@ -187,17 +198,6 @@ export default function LiveStatusBar(props: LiveStatusBarProps) {
               ))}
             </div>
             <select
-              value={audioRate}
-              onChange={(e) => onAudioRateChange(e.target.value as AudioSampleRateMode)}
-              className="select-compact min-w-[140px]"
-            >
-              {(Object.keys(AUDIO_RATE_LABELS) as AudioSampleRateMode[]).map((id) => (
-                <option key={id} value={id}>
-                  {AUDIO_RATE_LABELS[id]}
-                </option>
-              ))}
-            </select>
-            <select
               value={language}
               onChange={(e) => onLanguageChange(e.target.value)}
               className="select-compact min-w-[120px]"
@@ -215,6 +215,21 @@ export default function LiveStatusBar(props: LiveStatusBarProps) {
             <Metric label="STT" value={secs(sttMs)} />
             <Metric label="LLM" value={secs(llmMs)} />
             <Metric label="Всего" value={secs(totalMs)} accent />
+            {/* Инженерная опция — обычному пользователю не нужна в тулбаре. */}
+            {!active && (
+              <select
+                value={audioRate}
+                onChange={(e) => onAudioRateChange(e.target.value as AudioSampleRateMode)}
+                title="Формат аудио для распознавания"
+                className="select-compact min-w-[140px]"
+              >
+                {(Object.keys(AUDIO_RATE_LABELS) as AudioSampleRateMode[]).map((id) => (
+                  <option key={id} value={id}>
+                    {AUDIO_RATE_LABELS[id]}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
         </details>
 

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { api } from '../lib/api';
 import { useApp } from '../context/AppContext';
 import OnboardingSttStep from '../components/OnboardingSttStep';
 
@@ -16,7 +17,7 @@ function Stroke({ d, size = 16 }: { d: string; size?: number }) {
 export default function OnboardingPage() {
   const { completeOnboarding } = useApp();
   const navigate = useNavigate();
-  const [step, setStep] = useState<1 | 2>(1);
+  const [step, setStep] = useState<1 | 2 | 3>(1);
 
   const finish = () => {
     completeOnboarding();
@@ -117,11 +118,102 @@ export default function OnboardingPage() {
               Выбрать речевую модель
             </button>
           </>
-        ) : (
+        ) : step === 2 ? (
           <div className="max-w-xl">
-            <OnboardingSttStep onBack={() => setStep(1)} onContinue={finish} />
+            <OnboardingSttStep onBack={() => setStep(1)} onContinue={() => setStep(3)} />
           </div>
+        ) : (
+          <OnboardingKeyStep onBack={() => setStep(2)} onDone={finish} />
         )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Без AI-ключа live-режим и умная оценка ответов не работают — просим ключ
+ * сразу, а не после того, как пользователь упрётся в красный чеклист.
+ */
+function OnboardingKeyStep({ onBack, onDone }: { onBack: () => void; onDone: () => void }) {
+  const { refreshKeys } = useApp();
+  const [provider, setProvider] = useState<'openrouter' | 'openai'>('openrouter');
+  const [key, setKey] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const save = async () => {
+    if (!key.trim()) return;
+    setSaving(true);
+    setError('');
+    try {
+      await api.saveKeys(
+        provider === 'openrouter'
+          ? { openrouter_api_key: key.trim() }
+          : { openai_api_key: key.trim() },
+      );
+      await refreshKeys();
+      onDone();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Не удалось сохранить ключ');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="max-w-xl">
+      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-accent">AI-ключ</p>
+      <h1 className="text-[32px] font-semibold leading-tight tracking-tight">
+        Подключите AI — это сердце подсказок
+      </h1>
+      <p className="mt-2 text-sm leading-relaxed text-ink-muted">
+        Ключ нужен для live-ответов и умной оценки в mock-интервью. Распознавание речи остаётся
+        локальным. Ключ хранится только на вашем устройстве.
+      </p>
+
+      <div className="sc-card mt-6 p-5">
+        <div className="mb-3 flex gap-2">
+          {(['openrouter', 'openai'] as const).map((p) => (
+            <button
+              key={p}
+              type="button"
+              onClick={() => setProvider(p)}
+              className={`btn-sm ${provider === p ? 'btn-primary' : 'btn-secondary'}`}
+            >
+              {p === 'openrouter' ? 'OpenRouter (рекомендуем)' : 'OpenAI'}
+            </button>
+          ))}
+        </div>
+        <input
+          type="password"
+          value={key}
+          onChange={(e) => setKey(e.target.value)}
+          placeholder={provider === 'openrouter' ? 'sk-or-…' : 'sk-…'}
+          className="field w-full"
+          autoFocus
+        />
+        {error && <p className="mt-2 text-sm text-red-400">{error}</p>}
+        <p className="mt-3 text-xs leading-relaxed text-ink-faint">
+          Ключ OpenRouter даёт доступ сразу ко многим моделям. Получить его можно на
+          openrouter.ai — займёт пару минут. Можно пропустить и добавить позже в Настройках.
+        </p>
+      </div>
+
+      <div className="mt-6 flex flex-wrap items-center gap-3">
+        <button type="button" onClick={onBack} className="btn-secondary">
+          Назад
+        </button>
+        <button
+          type="button"
+          onClick={save}
+          disabled={!key.trim() || saving}
+          className="btn-primary px-8"
+        >
+          {saving ? 'Сохраняю…' : 'Сохранить и начать'}
+        </button>
+        <button type="button" onClick={onDone} className="btn-ghost btn-sm">
+          Пропустить — добавлю позже
+        </button>
       </div>
     </div>
   );

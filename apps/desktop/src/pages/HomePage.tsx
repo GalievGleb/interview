@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import Modal from '../components/Modal';
 import ReadinessRing from '../components/prepare/ReadinessRing';
 import { api, type SessionStats } from '../lib/api';
 import { useApp } from '../context/AppContext';
@@ -78,9 +79,12 @@ export default function HomePage() {
     };
   }, []);
 
-  const removeSession = (id: string, title: string) => {
-    if (!window.confirm(`Удалить разбор «${title}»? Действие необратимо.`)) return;
-    deleteSession(id);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null);
+  const removeSession = (id: string, title: string) => setDeleteTarget({ id, title });
+  const confirmRemove = () => {
+    if (!deleteTarget) return;
+    deleteSession(deleteTarget.id);
+    setDeleteTarget(null);
     setMockStore(readMockStore());
   };
 
@@ -169,46 +173,26 @@ export default function HomePage() {
                 label="Вакансия"
                 detail={report ? 'разобрана, есть карта тем' : inProgress ? 'mock в процессе' : 'нужно вставить описание роли'}
                 ok={Boolean(report || inProgress)}
+                onClick={() => navigate('/prepare')}
               />
               <ReadinessCheck
                 label="Резюме / опыт"
                 detail={hasContext ? 'ответы будут держаться в вашем контексте' : 'лучше добавить до live'}
                 ok={hasContext}
+                onClick={() => navigate('/documents')}
               />
               <ReadinessCheck
                 label="Речь и AI"
                 detail={backendOnline && hasAnyKey && hasStt ? 'можно запускать live' : 'проверьте ключ, STT и backend'}
                 ok={backendOnline && hasAnyKey && hasStt}
+                onClick={() => navigate(hasAnyKey ? '/settings?tab=speech' : '/settings?tab=ai')}
               />
             </div>
           </div>
         </section>
 
-        <section className="prep-status-grid" aria-label="Readiness overview">
-          <PrepStatusCard
-            label="Вакансия"
-            title={report ? completed?.vacancyAnalysis.targetRole || 'Роль разобрана' : 'Нужна вакансия'}
-            body={
-              report
-                ? `Найдено: ${report.topicScores.length} ${pluralRu(report.topicScores.length, 'тема', 'темы', 'тем')}`
-                : 'Начните с описания роли'
-            }
-            tone={report ? 'green' : 'amber'}
-          />
-          <PrepStatusCard
-            label="Резюме и опыт"
-            title="Контекст ответа"
-            body={hasContext ? 'Подключено' : 'Добавьте, чтобы не получать общий AI-текст'}
-            tone={hasContext ? 'green' : 'amber'}
-          />
-          <PrepStatusCard
-            label="Live-подсказки"
-            title="Короткая подсказка"
-            body={hasAnyKey && hasStt ? 'Готово к запуску' : 'Нужны AI-ключ и модель речи'}
-            tone={hasAnyKey && hasStt ? 'green' : 'amber'}
-          />
-        </section>
-
+        {/* Состояние (вакансия/резюме/AI) показывает чеклист «Готовность» в герое —
+            отдельный ряд статус-карточек дублировал его и убран. */}
         <section className="prep-home-grid">
           <div className="prep-action-card">
             {report ? (
@@ -458,6 +442,27 @@ export default function HomePage() {
           </section>
         )}
       </div>
+
+      <Modal
+        open={deleteTarget !== null}
+        onClose={() => setDeleteTarget(null)}
+        title="Удалить разбор?"
+        subtitle={deleteTarget ? `«${deleteTarget.title}» — действие необратимо.` : undefined}
+        footer={
+          <>
+            <button
+              type="button"
+              className="prep-btn-ghost prep-btn-sm"
+              onClick={() => setDeleteTarget(null)}
+            >
+              Отмена
+            </button>
+            <button type="button" className="prep-btn prep-btn-sm" onClick={confirmRemove}>
+              Удалить
+            </button>
+          </>
+        }
+      />
     </div>
   );
 }
@@ -486,19 +491,25 @@ function ReadinessCheck({
   label,
   detail,
   ok,
+  onClick,
 }: {
   label: string;
   detail: string;
   ok: boolean;
+  onClick?: () => void;
 }) {
   return (
-    <div className={`prep-readiness-check ${ok ? 'is-ok' : 'is-warn'}`}>
+    <button
+      type="button"
+      onClick={onClick}
+      className={`prep-readiness-check ${ok ? 'is-ok' : 'is-warn'}`}
+    >
       <span className="prep-readiness-check__dot" />
       <div className="min-w-0">
         <strong>{label}</strong>
         <p>{detail}</p>
       </div>
-    </div>
+    </button>
   );
 }
 
@@ -506,7 +517,7 @@ function EmptyReadiness({ onStart }: { onStart: () => void }) {
   return (
     <div className="prep-empty">
       <p className="prep-faint">Новая подготовка</p>
-      <h2 className="prep-h2 prep-card-title">Начните с вакансии, а не с пустого чата.</h2>
+      <h2 className="prep-h2 prep-card-title">Первый разбор занимает около 15 минут.</h2>
       <p className="prep-sub">
         SkillCue выделит требования, вероятные вопросы и темы риска, чтобы mock-интервью было
         не общим, а под конкретную роль.

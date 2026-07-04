@@ -65,7 +65,7 @@ function TitleBar({ onInterview }: { onInterview: boolean }) {
 
       <div className="flex items-center gap-2 text-[13px] text-ink-muted">
         <span className={`sc-dot ${live ? 'sc-dot--live' : ''}`} />
-        <span>{live ? 'Live session' : 'Idle'}</span>
+        <span>{live ? 'Live-сессия' : 'Ожидание'}</span>
         {live && liveStart != null && (
           <span className="sc-mono text-ink-faint">{elapsed(now - liveStart)}</span>
         )}
@@ -90,7 +90,7 @@ function TitleBar({ onInterview }: { onInterview: boolean }) {
             >
               <path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3" />
             </svg>
-            Focus
+            Фокус
           </button>
         )}
         <span className="skillcue-local-pill">
@@ -106,7 +106,7 @@ function TitleBar({ onInterview }: { onInterview: boolean }) {
           >
             <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
           </svg>
-          Local · Private
+          Локально · Приватно
         </span>
       </div>
     </header>
@@ -131,10 +131,16 @@ export default function Layout({ children }: { children: ReactNode }) {
           {!backendOnline && (
             <div className="flex shrink-0 items-center gap-2 border-b border-amber-900/30 bg-amber-950/20 px-5 py-2 text-sm text-amber-200/90">
               <span className="sc-dot sc-dot--processing animate-pulse" />
-              Подключение к backend… Если он не поднялся автоматически, запустите:{' '}
-              <code className="rounded-md bg-black/30 px-1.5 py-0.5 text-amber-100">
-                cd apps/api-py; .\run_dev.ps1
-              </code>
+              {import.meta.env.DEV ? (
+                <>
+                  Подключение к backend… Если он не поднялся автоматически, запустите:{' '}
+                  <code className="rounded-md bg-black/30 px-1.5 py-0.5 text-amber-100">
+                    cd apps/api-py; .\run_dev.ps1
+                  </code>
+                </>
+              ) : (
+                <>Сервис запускается — обычно это занимает несколько секунд.</>
+              )}
             </div>
           )}
           <div

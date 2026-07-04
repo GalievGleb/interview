@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useApp } from '../context/AppContext';
 import Modal from '../components/Modal';
@@ -22,7 +22,12 @@ const TABS: Array<{ id: SettingsTab; label: string; hint: string }> = [
 export default function SettingsPage() {
   const { keys, refreshKeys } = useApp();
   const navigate = useNavigate();
-  const [tab, setTab] = useState<SettingsTab>('ai');
+  // Deep link: /settings?tab=speech opens the right tab from warnings elsewhere.
+  const [params] = useSearchParams();
+  const requestedTab = params.get('tab') as SettingsTab | null;
+  const [tab, setTab] = useState<SettingsTab>(
+    requestedTab && TABS.some((t) => t.id === requestedTab) ? requestedTab : 'ai',
+  );
   const [openai, setOpenai] = useState('');
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');

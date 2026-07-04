@@ -168,7 +168,11 @@ export default function VacancySetup({ onAnalyze, analyzing, error }: Props) {
           >
             {analyzing ? 'Разбираю…' : 'Разобрать вакансию'}
           </button>
-          <span className="prep-faint">8-15 вопросов · 20-30 минут mock</span>
+          <span className="prep-faint">
+            {canAnalyze || analyzing
+              ? '8-15 вопросов · 20-30 минут mock'
+              : 'Вставьте текст вакансии выше — хотя бы пару предложений о роли и требованиях.'}
+          </span>
         </div>
       </div>
       )}

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { topicStatusFromScore, topicStatusTone } from '../../lib/vacancyReview/readiness';
 import { useVoiceAnswer } from '../../lib/vacancyReview/useVoiceAnswer';
 import type { Difficulty, QuestionLevel, SmokeReviewSession } from '../../lib/vacancyReview/types';
@@ -53,6 +53,18 @@ export default function SmokeInterviewView({
   }, [currentIndex]);
 
   const voice = useVoiceAnswer((t) => setText(t), vacancyAnalysis.language);
+
+  // Оценка появляется НИЖЕ карточки вопроса — доводим пользователя до неё,
+  // иначе на небольшом экране легко не заметить, что ответ уже разобран.
+  const evalRef = useRef<HTMLDivElement | null>(null);
+  const wasEvaluating = useRef(false);
+  const currentEvaluation = existing?.evaluation;
+  useEffect(() => {
+    if (wasEvaluating.current && !evaluating && currentEvaluation) {
+      evalRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    wasEvaluating.current = evaluating;
+  }, [evaluating, currentEvaluation]);
 
   if (!question) return null;
   const topic = vacancyAnalysis.interviewTopics.find((t) => t.id === question.topicId);
@@ -162,16 +174,6 @@ export default function SmokeInterviewView({
                 >
                   {voice.recording ? 'Пауза записи' : 'Начать запись голосом'}
                 </button>
-                <button
-                  type="button"
-                  className="prep-btn-ghost prep-btn-sm"
-                  onClick={() => {
-                    voice.stop();
-                    onSubmitAnswer('', 'text', true);
-                  }}
-                >
-                  Пропустить
-                </button>
               </>
             ) : (
               <>
@@ -187,6 +189,19 @@ export default function SmokeInterviewView({
               </>
             )}
             <span className="flex-1" />
+            {/* Пропуск — не соседняя кнопка с «Оценить», а тихая ссылка справа. */}
+            {!answered && (
+              <button
+                type="button"
+                className="prep-link-btn"
+                onClick={() => {
+                  voice.stop();
+                  onSubmitAnswer('', 'text', true);
+                }}
+              >
+                Пропустить вопрос
+              </button>
+            )}
             {!(answered && isLast) && (
               <button type="button" className="prep-btn-ghost prep-btn-sm" onClick={onFinish}>
                 Завершить досрочно
@@ -196,7 +211,7 @@ export default function SmokeInterviewView({
         </div>
 
         {evaluation && (
-          <div className="prep-card prep-card-pad space-y-3">
+          <div ref={evalRef} className="prep-card prep-card-pad space-y-3">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="prep-h2">Оценка ответа</p>
@@ -334,10 +349,12 @@ export default function SmokeInterviewView({
         <p className="prep-faint">Темы вакансии</p>
         <div className="mt-2 space-y-1.5">
           {vacancyAnalysis.interviewTopics.map((t) => {
+            const planned = questions.filter((q) => q.topicId === t.id).length;
             const asked = session.answers.filter(
               (a) => questions.find((q) => q.id === a.questionId)?.topicId === t.id,
             ).length;
             const active = t.id === question.topicId;
+            const done = planned > 0 && asked >= planned;
             return (
               <div
                 key={t.id}
@@ -347,7 +364,14 @@ export default function SmokeInterviewView({
                 <span className="truncate text-[12.5px]" style={{ color: 'var(--prep-ink-muted)' }}>
                   {t.title}
                 </span>
-                <span className="prep-faint shrink-0">{asked}</span>
+                <span
+                  className="prep-faint shrink-0"
+                  title="Отвечено / запланировано вопросов по теме"
+                  style={done ? { color: 'var(--prep-green)' } : undefined}
+                >
+                  {done ? '✓ ' : ''}
+                  {asked}/{planned}
+                </span>
               </div>
             );
           })}
