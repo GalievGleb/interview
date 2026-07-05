@@ -7,20 +7,25 @@ interface Props {
   report: ReadinessReport;
   analysis: VacancyAnalysis;
   onSave: () => void;
+  onPrint?: () => void;
   onStartLive: () => void;
   onNewReview: () => void;
   onFollowUpRound?: () => void;
   onPracticeTopic?: (topicId: string) => void;
+  /** Скоры прошлых раундов по этой же вакансии (старые → новые), включая текущий. */
+  scoreHistory?: number[];
 }
 
 export default function ReadinessReportView({
   report,
   analysis,
   onSave,
+  onPrint,
   onStartLive,
   onNewReview,
   onFollowUpRound,
   onPracticeTopic,
+  scoreHistory,
 }: Props) {
   const tone = readinessTone(report.status);
   const hasWeak = report.weakAreas.length > 0 || report.criticalGaps.length > 0;
@@ -39,6 +44,26 @@ export default function ReadinessReportView({
                   ? 'Почти готовы — паре тем не хватает более конкретных ответов.'
                   : 'Часть ключевых тем пока не готова. Начните тренировку с критичных пробелов.'}
             </p>
+            {scoreHistory && scoreHistory.length >= 2 && (
+              <p className="prep-faint mt-1.5" title="Общий балл по раундам этой вакансии">
+                Прогресс по этой вакансии:{' '}
+                {scoreHistory.map((s, i) => (
+                  <span key={`${i}-${s}`}>
+                    {i > 0 && ' → '}
+                    <span
+                      style={
+                        i === scoreHistory.length - 1
+                          ? { color: 'var(--prep-green)', fontWeight: 700 }
+                          : undefined
+                      }
+                    >
+                      {s}
+                    </span>
+                  </span>
+                ))}
+                {scoreHistory[scoreHistory.length - 1] > scoreHistory[0] && ' 📈'}
+              </p>
+            )}
             <div className="mt-3 flex flex-wrap justify-center gap-2 sm:justify-start">
               {onFollowUpRound && hasWeak && (
                 <button type="button" className="prep-btn prep-btn-sm" onClick={onFollowUpRound}>
@@ -52,6 +77,11 @@ export default function ReadinessReportView({
               >
                 Начать live-интервью с этим контекстом
               </button>
+              {onPrint && (
+                <button type="button" className="prep-btn-ghost prep-btn-sm" onClick={onPrint}>
+                  Распечатать / PDF
+                </button>
+              )}
               <button type="button" className="prep-btn-ghost prep-btn-sm" onClick={onSave}>
                 Сохранить отчёт
               </button>
@@ -63,10 +93,42 @@ export default function ReadinessReportView({
         </div>
       </div>
 
+      {analysis.analysisSource === 'heuristic' && (
+        <div className="prep-card prep-card-pad prep-topic prep-topic-amber">
+          <p className="prep-sub pl-2">
+            <strong>Отчёт собран без AI</strong> — разбор и оценки посчитаны локальным алгоритмом,
+            проценты ориентировочные. Подключите AI-ключ в настройках и пройдите раунд ещё раз,
+            чтобы получить честную оценку готовности.
+          </p>
+        </div>
+      )}
+
+      {report.narrativeVerdict && (
+        <div className="prep-card prep-card-pad">
+          <p className="prep-eyebrow">Вердикт коуча</p>
+          <p className="prep-sub mt-1.5">{report.narrativeVerdict}</p>
+          {report.interviewerImpression && (
+            <p className="prep-faint mt-2">
+              Как вас видит интервьюер: {report.interviewerImpression}
+            </p>
+          )}
+          {report.focusTopic && (
+            <p className="prep-faint mt-1">
+              Начать стоит с темы: <span className="font-semibold">{report.focusTopic}</span>
+            </p>
+          )}
+        </div>
+      )}
+
       <div className="grid gap-3 sm:grid-cols-3">
         <SummaryCard tone="green" title="Сильные стороны" items={report.strengths} empty="Пока нет уверенных тем" />
         <SummaryCard tone="amber" title="Слабые места" items={report.weakAreas} empty="Слабых мест нет" />
-        <SummaryCard tone="red" title="Критичные пробелы" items={report.criticalGaps} empty="Критичных пробелов нет 🎉" />
+        <SummaryCard
+          tone="red"
+          title="Критичные пробелы"
+          items={report.criticalGaps}
+          empty={report.overallScore >= 50 ? 'Критичных пробелов нет 🎉' : 'Критичных пробелов нет'}
+        />
       </div>
 
       <div>

@@ -8,6 +8,7 @@ import { SubscriptionsModule } from './subscriptions/subscriptions.module';
 import { BillingModule } from './billing/billing.module';
 import { SttModule } from './stt/stt.module';
 import { LlmModule } from './llm/llm.module';
+import { GatewayModule } from './gateway/gateway.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { LlmModule } from './llm/llm.module';
     BillingModule,
     SttModule,
     LlmModule,
+    GatewayModule,
   ],
 })
 export class AppModule {}

@@ -59,12 +59,8 @@ def test_single_delete_still_works_after_bulk_route_added(client):
 
 def test_session_stats_counts_and_topics(client, db_session):
     sid = _create_session_with_transcript(client)
-    db_session.add(
-        models.Answer(session_id=sid, question="Как устроена репликация в PostgreSQL?")
-    )
-    db_session.add(
-        models.Answer(session_id=sid, question="Расскажите про репликация данных")
-    )
+    db_session.add(models.Answer(session_id=sid, question="Как устроена репликация в PostgreSQL?"))
+    db_session.add(models.Answer(session_id=sid, question="Расскажите про репликация данных"))
     db_session.commit()
 
     res = client.get("/sessions/stats")

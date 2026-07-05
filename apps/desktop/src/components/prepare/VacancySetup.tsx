@@ -21,11 +21,36 @@ export default function VacancySetup({ onAnalyze, analyzing, error }: Props) {
     let alive = true;
     api
       .listDocuments()
-      .then((r) => alive && setDocs(r.documents))
+      .then(async (r) => {
+        if (!alive) return;
+        setDocs(r.documents);
+        // Автоподстановка сохранённых документов: последняя вакансия, резюме и
+        // легенда подтягиваются сами (документы отсортированы по свежести) —
+        // пользователь после онбординга сразу жмёт «Разобрать», ничего не вставляя.
+        const latest = (kind: string) => r.documents.find((d) => d.kind === kind);
+        const fills: Array<
+          [{ id: string } | undefined, React.Dispatch<React.SetStateAction<string>>]
+        > = [
+          [latest('vacancy'), setVacancyText],
+          [latest('resume'), setResumeText],
+          [latest('legend'), setLegendText],
+        ];
+        for (const [doc, set] of fills) {
+          if (!doc) continue;
+          try {
+            const full = await api.getDocument(doc.id);
+            // Не затираем текст, который пользователь уже начал вводить.
+            if (alive && full.text.trim()) set((prev) => (prev.trim() ? prev : full.text));
+          } catch {
+            /* backend недоступен — пользователь вставит вручную */
+          }
+        }
+      })
       .catch(() => {});
     return () => {
       alive = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadDoc = async (id: string, into: 'resume' | 'legend') => {

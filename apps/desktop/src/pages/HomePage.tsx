@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Modal from '../components/Modal';
+import OnboardingWizard, { isOnboardingDismissed } from '../components/OnboardingWizard';
 import ReadinessRing from '../components/prepare/ReadinessRing';
 import { api, type SessionStats } from '../lib/api';
 import { useApp } from '../context/AppContext';
@@ -44,7 +45,15 @@ export default function HomePage() {
   const [mockStore, setMockStore] = useState(readMockStore);
   const { sessions, inProgress, completed } = mockStore;
   const report = completed?.report;
-  const [docCounts, setDocCounts] = useState({ resume: 0, legend: 0 });
+  const [docCounts, setDocCounts] = useState({ resume: 0, legend: 0, vacancy: 0 });
+  const [onboardingHidden, setOnboardingHidden] = useState(isOnboardingDismissed);
+
+  // Re-read after the launch reconcile pulls sessions from the backend store.
+  useEffect(() => {
+    const refresh = () => setMockStore(readMockStore());
+    window.addEventListener('skillcue:mock-sessions-synced', refresh);
+    return () => window.removeEventListener('skillcue:mock-sessions-synced', refresh);
+  }, []);
 
   const [stats, setStats] = useState<SessionStats | null>(null);
   useEffect(() => {
@@ -60,24 +69,30 @@ export default function HomePage() {
     };
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
+  const [packReady, setPackReady] = useState<boolean | null>(null);
+  const refreshDocs = useCallback(() => {
     api
       .listDocuments()
       .then((res) => {
-        if (cancelled) return;
         setDocCounts({
           resume: res.documents.filter((doc) => doc.kind === 'resume').length,
           legend: res.documents.filter((doc) => doc.kind === 'legend').length,
+          vacancy: res.documents.filter((doc) => doc.kind === 'vacancy').length,
         });
       })
       .catch(() => {
         /* backend may still be starting */
       });
-    return () => {
-      cancelled = true;
-    };
+    api
+      .profilePackStatus()
+      .then((s) => setPackReady(s.exists))
+      .catch(() => {
+        /* backend may still be starting — чек покажет только наличие документов */
+      });
   }, []);
+  useEffect(() => {
+    refreshDocs();
+  }, [refreshDocs]);
 
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null);
   const removeSession = (id: string, title: string) => setDeleteTarget({ id, title });
@@ -117,9 +132,21 @@ export default function HomePage() {
     ? Math.round((inProgress.answers.length / inProgress.questions.length) * 100)
     : 0;
 
+  // Мастер первого запуска: пока нет ни одной мок-сессии и не хватает документов.
+  const showOnboarding =
+    !onboardingHidden && sessions.length === 0 && (docCounts.resume === 0 || docCounts.vacancy === 0);
+
   return (
     <div className="prep h-full overflow-y-auto">
       <div className="prep-wrap prep-rise prep-home">
+        {showOnboarding && (
+          <OnboardingWizard
+            hasResume={docCounts.resume > 0}
+            hasVacancy={docCounts.vacancy > 0}
+            onDocsChanged={refreshDocs}
+            onDismiss={() => setOnboardingHidden(true)}
+          />
+        )}
         <section className="prep-hero-panel prep-cockpit-panel">
           <div className="prep-hero-copy">
             <p className="prep-eyebrow">Пульт подготовки</p>
@@ -153,6 +180,14 @@ export default function HomePage() {
               >
                 Открыть live
               </button>
+              <button
+                type="button"
+                className="prep-btn prep-btn-ghost"
+                onClick={() => navigate('/demo')}
+                title="Посмотреть сценарий live-подсказки без настройки — 60 секунд"
+              >
+                Демо за 60 секунд
+              </button>
             </div>
 
             <div className="prep-flow-line" aria-label="SkillCue workflow">
@@ -177,7 +212,13 @@ export default function HomePage() {
               />
               <ReadinessCheck
                 label="Резюме / опыт"
-                detail={hasContext ? 'ответы будут держаться в вашем контексте' : 'лучше добавить до live'}
+                detail={
+                  hasContext
+                    ? packReady
+                      ? 'профиль собран — live отвечает вашими фактами'
+                      : 'документы есть, профиль кандидата собирается'
+                    : 'лучше добавить до live'
+                }
                 ok={hasContext}
                 onClick={() => navigate('/documents')}
               />
@@ -207,8 +248,10 @@ export default function HomePage() {
                   <p className="prep-faint">Последний разбор вакансии</p>
                   <h2 className="prep-h2 prep-card-title truncate">{completed?.vacancyAnalysis.targetRole}</h2>
                   <p className="prep-sub mt-2">
-                    {report.topicScores.length}{' '}
-                    {pluralRu(report.topicScores.length, 'тема', 'темы', 'тем')},{' '}
+                    {/* topicScores — только темы, затронутые в mock; общее число тем
+                        берём из разбора, иначе «1 тема» читается как потеря данных. */}
+                    Пройдено тем: {report.topicScores.length} из{' '}
+                    {completed?.vacancyAnalysis.interviewTopics.length ?? report.topicScores.length},{' '}
                     {report.strengths.length}{' '}
                     {pluralRu(report.strengths.length, 'сильная зона', 'сильные зоны', 'сильных зон')},{' '}
                     {report.criticalGaps.length}{' '}
@@ -527,8 +570,10 @@ function EmptyReadiness({ onStart }: { onStart: () => void }) {
         <span>Слабые темы</span>
         <span>План подготовки</span>
       </div>
+      {/* В пустом состоянии герой уже показывает «Разобрать вакансию» — здесь
+          та же цель, но с ожиданием по времени, чтобы не дублировать кнопку. */}
       <button type="button" className="prep-btn prep-btn-sm" onClick={onStart}>
-        Разобрать вакансию
+        Начать первый разбор (~15 мин)
       </button>
     </div>
   );

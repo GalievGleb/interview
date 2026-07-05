@@ -22,6 +22,11 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openrouter_api_key: str = ""
 
+    # Серверный гейтвей SkillCue (apps/api): OpenAI-совместимый прокси, где
+    # Bearer — лицензионный ключ. Если URL задан, у пользователя нет своего
+    # OpenRouter-ключа, но есть валидная лицензия — запросы идут через гейтвей.
+    skillcue_gateway_url: str = ""
+
     embedding_provider: str = "openai"
     embedding_model: str = "text-embedding-3-small"
 

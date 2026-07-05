@@ -4,6 +4,7 @@ import { shouldQueueIncomingAnswer } from '../lib/liveAnswerQueue';
 import { startLiveSession, LiveSession, SttMode, SttTimings } from '../lib/liveSession';
 import { prepareTranscriptForLlm, PreparedTranscript } from '../lib/prepareTranscriptForLlm';
 import { SttSessionOptions } from '../lib/sttOptions';
+import { getWeakTopicTitles } from '../lib/vacancyReview/weakTopics';
 import { isSpeculativeEnabled } from '../lib/speculativePref';
 import { recordSkipped } from '../lib/skippedLog';
 import {
@@ -555,6 +556,8 @@ export function useLiveCopilot() {
         resumeContextLevel: prepared.answerStrategy.resumeContextLevel,
         resumeContextReason: prepared.answerStrategy.resumeContextReason,
         suggestUnclearPrefix: prepared.answerStrategy.suggestUnclearPrefix,
+        // Подготовка ↔ live: слабые темы из последнего mock-отчёта.
+        weakTopics: getWeakTopicTitles(),
         onMeta: (correctionMeta) => {
           setSttDebug((prev) => {
             if (!prev) return prev;
@@ -964,6 +967,14 @@ export function useLiveCopilot() {
                 waitReason: undefined,
               });
 
+              // Собственная речь кандидата (не-триггерный канал) идёт только в
+              // контекст: она не должна ни запускать ответ, ни подмешиваться в
+              // finalParts к вопросу интервьюера (иначе «вопрос» загрязняется).
+              if (speaker !== triggerSpeakerRef.current) {
+                recordUtterance(trimmed, true, speaker);
+                return;
+              }
+
               if (speechFinal) {
                 scheduleSpeechFinal(trimmed, speaker);
               } else if (trimmed.length > 2) {
@@ -1000,6 +1011,10 @@ export function useLiveCopilot() {
               if (speaker === triggerSpeakerRef.current) debugRef.current.audioFrame(buffer);
             },
             onUtteranceEnd: (timings) => {
+              // Только триггерный канал (интервьюер при mic+system) завершает
+              // вопрос — конец собственной реплики кандидата не должен
+              // форсировать flush чужого буфера.
+              if (speaker !== triggerSpeakerRef.current) return;
               lastFlushSpeakerRef.current = speaker === 'other' ? 'interviewer' : 'me';
               if (timings) serverTimingsRef.current = timings;
               flushQuestion();
@@ -1076,7 +1091,7 @@ export function useLiveCopilot() {
         await endInterviewSession();
       }
     },
-    [appendLine, cancelPendingQuestion, clearSpeculative, endInterviewSession, flushQuestion, patchSttDebug, persistTranscriptLine, removeStream, scheduleFinalFallback, scheduleSpeechFinal, trySpeculative],
+    [appendLine, cancelPendingQuestion, clearSpeculative, endInterviewSession, flushQuestion, patchSttDebug, persistTranscriptLine, recordUtterance, removeStream, scheduleFinalFallback, scheduleSpeechFinal, trySpeculative],
   );
 
   const stop = useCallback(async () => {

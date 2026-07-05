@@ -1,0 +1,18 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "desktop-vite",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["-C", "apps/desktop", "exec", "vite"],
+      "port": 5173,
+      "autoPort": true
+    },
+    {
+      "name": "landing-static",
+      "runtimeExecutable": "py",
+      "runtimeArgs": ["-3.12", "-m", "http.server", "4173", "--directory", "landing"],
+      "port": 4173
+    }
+  ]
+}

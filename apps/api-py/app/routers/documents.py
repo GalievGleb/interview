@@ -1,15 +1,18 @@
-from fastapi import APIRouter, Depends, File, Form, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.errors import AppError
 from app.db.models import Document
 from app.db.session import get_db
-from app.services import rag_service
+from app.services import candidate_profile, rag_service
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
 _VALID_KINDS = {"resume", "legend", "vacancy", "company", "notes", "qa"}
+
+# Kinds that feed the candidate profile pack (see services/candidate_profile).
+_PROFILE_KINDS = {"resume", "legend", "vacancy"}
 
 
 class DocumentOut(BaseModel):
@@ -21,6 +24,7 @@ class DocumentOut(BaseModel):
 
 @router.post("/upload", response_model=DocumentOut)
 async def upload(
+    background: BackgroundTasks,
     file: UploadFile = File(...),
     kind: str = Form(...),
     title: str | None = Form(None),
@@ -44,6 +48,8 @@ async def upload(
     db.refresh(doc)
 
     chunks = await rag_service.index_document(db, doc)
+    if kind in _PROFILE_KINDS:
+        background.add_task(candidate_profile.refresh_profile_pack_background)
     return DocumentOut(id=doc.id, kind=doc.kind, title=doc.title, chunks=chunks)
 
 
@@ -54,7 +60,9 @@ class TextPayload(BaseModel):
 
 
 @router.post("/text", response_model=DocumentOut)
-async def upload_text(payload: TextPayload, db: Session = Depends(get_db)) -> DocumentOut:
+async def upload_text(
+    payload: TextPayload, background: BackgroundTasks, db: Session = Depends(get_db)
+) -> DocumentOut:
     if payload.kind not in _VALID_KINDS:
         raise AppError(f"Invalid kind. Use one of {_VALID_KINDS}", 400, "invalid_kind")
     if not payload.text.strip():
@@ -66,7 +74,39 @@ async def upload_text(payload: TextPayload, db: Session = Depends(get_db)) -> Do
     db.refresh(doc)
 
     chunks = await rag_service.index_document(db, doc)
+    if payload.kind in _PROFILE_KINDS:
+        background.add_task(candidate_profile.refresh_profile_pack_background)
     return DocumentOut(id=doc.id, kind=doc.kind, title=doc.title, chunks=chunks)
+
+
+@router.get("/profile-pack/status")
+def profile_pack_status(db: Session = Depends(get_db)) -> dict:
+    """Состояние профиль-пака кандидата (есть ли, не устарел ли)."""
+    return candidate_profile.pack_status(db)
+
+
+@router.post("/profile-pack/refresh")
+async def profile_pack_refresh(db: Session = Depends(get_db)) -> dict:
+    """Пересобрать профиль-пак из текущих документов (ручной триггер)."""
+    return await candidate_profile.refresh_profile_pack(db, force=True)
+
+
+@router.get("/profile-pack")
+def profile_pack_get(db: Session = Depends(get_db)) -> dict:
+    """Содержимое пака для UI — пользователь видит, чем live будет отвечать."""
+    return {"content": candidate_profile.get_pack_content(db), **candidate_profile.pack_status(db)}
+
+
+class ProfilePackPayload(BaseModel):
+    content: str
+
+
+@router.put("/profile-pack")
+def profile_pack_put(payload: ProfilePackPayload, db: Session = Depends(get_db)) -> dict:
+    """Ручная правка пака: правки не затираются фоновой регенерацией."""
+    if len(payload.content.strip()) < 20:
+        raise AppError("Профиль слишком короткий — минимум пара предложений", 400, "pack_too_short")
+    return candidate_profile.save_user_pack(db, payload.content)
 
 
 class SearchPayload(BaseModel):
@@ -101,10 +141,15 @@ def get_document(document_id: str, db: Session = Depends(get_db)) -> dict:
 
 
 @router.delete("/{document_id}")
-def delete_document(document_id: str, db: Session = Depends(get_db)) -> dict:
+def delete_document(
+    document_id: str, background: BackgroundTasks, db: Session = Depends(get_db)
+) -> dict:
     doc = db.query(Document).filter(Document.id == document_id).first()
     if not doc:
         raise AppError("Document not found", 404, "not_found")
+    kind = doc.kind
     db.delete(doc)
     db.commit()
+    if kind in _PROFILE_KINDS:
+        background.add_task(candidate_profile.refresh_profile_pack_background)
     return {"deleted": document_id}

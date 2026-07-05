@@ -23,9 +23,10 @@ from app.prompts.interview_fast import (
 from app.prompts.meeting import INTERVIEW_REVIEW_PROMPT, MEETING_PROMPT
 from app.prompts.system import SYSTEM_PROMPT
 from app.services import model_router, provider_adapter, rag_service, transcript_correction
+from app.services.candidate_profile import get_profile_block
 from app.services.domain_answer_hints import resolve_domain_answer_hints
 from app.services.knowledge_pack import build_injection as build_python_pack_injection
-from app.services.knowledge_pack import is_python_question
+from app.services.knowledge_pack import detect_pack
 from app.services.preferences import load_preferences
 from app.services.question_intent import resolve_answer_strategy
 from app.services.sanitize_live_answer import sanitize_live_answer, trim_spoken_answer
@@ -48,6 +49,8 @@ class ChatPayload(BaseModel):
     message: str
     mode: str = "general"  # general | coding | fast | deep
     context: str | None = None
+    # Язык ответов из настроек: "ru" | "en"; None/пусто — язык сообщения.
+    answer_language: str | None = None
     model_override: str | None = Field(default=None, alias="modelOverride")
     provider: str | None = None
     session_id: str | None = None
@@ -82,10 +85,31 @@ class InterviewPayload(BaseModel):
     # Fast answer: skip the serial LLM transcript-correction pass and ask the
     # provider to route for throughput. On by default for lowest latency.
     fast_answer: bool = True
+    # Слабые темы из последнего mock-отчёта — на них ответ должен быть особенно
+    # конкретным и структурным (кандидату сложнее импровизировать).
+    weak_topics: list[str] | None = None
+    # Язык ответов из настроек: "ru" | "en"; None/пусто — язык вопроса.
+    answer_language: str | None = None
     provider: str | None = None
     model: str | None = None
     model_override: str | None = Field(default=None, alias="modelOverride")
     session_id: str | None = None
+
+    model_config = {"populate_by_name": True}
+
+
+class ScreenAssistPayload(BaseModel):
+    """Vision-подсказка по скриншоту экрана (оверлей, кнопка «Экран»)."""
+
+    image: str  # data URL (data:image/jpeg;base64,...) или голый base64
+    question: str = ""
+    context: str | None = None  # транскрипт разговора, если идёт live
+    mode: str = "general"
+    # Язык ответов из настроек: "ru" | "en"; None/пусто — язык содержимого экрана.
+    answer_language: str | None = None
+    provider: str | None = None
+    model: str | None = None
+    model_override: str | None = Field(default=None, alias="modelOverride")
 
     model_config = {"populate_by_name": True}
 
@@ -105,6 +129,8 @@ class AnswerVariantPayload(BaseModel):
     answer: str
     variant: str  # short | detailed | english | risk
     answer_id: str | None = None  # если задан — вариант кэшируется в БД
+    # Язык ответов из настроек; вариант "english" всегда английский.
+    answer_language: str | None = None
     provider: str | None = None
     model: str | None = None
     model_override: str | None = Field(default=None, alias="modelOverride")
@@ -179,6 +205,56 @@ async def _finalize_question(payload: InterviewPayload) -> tuple[str, str, str, 
     return final, raw, glossary, meta
 
 
+def _chat_usage(provider: str, prompt_text: str = "", completion_text: str = "") -> ApiUsage:
+    """ApiUsage с реальными токенами провайдера (или оценкой по длине текста).
+
+    Без этого карточка «Активность и расходы» вечно показывала $0 — токены
+    просто не записывались.
+    """
+    usage = provider_adapter.pop_last_usage() or {}
+    tokens_in = int(usage.get("prompt_tokens") or 0) or len(prompt_text) // 4
+    tokens_out = int(usage.get("completion_tokens") or 0) or len(completion_text) // 4
+    return ApiUsage(provider=provider, kind="chat", tokens_in=tokens_in, tokens_out=tokens_out)
+
+
+def _ensure_quota(db: Session) -> None:
+    """Серверный токен-гейт перед LLM-вызовом (402 при исчерпании бюджета)."""
+    from app.services import quota
+
+    quota.check_token_quota(db)
+
+
+def _weak_topics_block(weak_topics: list[str] | None) -> str:
+    """Prompt-блок: слабые темы кандидата из mock-отчёта (подготовка ↔ live)."""
+    if not weak_topics:
+        return ""
+    topics = ", ".join(t.strip() for t in weak_topics[:5] if t and t.strip())
+    if not topics:
+        return ""
+    return (
+        "\n\nCANDIDATE'S WEAK TOPICS (from their mock-interview report): "
+        f"{topics}. If the current question touches one of these, make the "
+        "answer extra concrete and structured (short definition -> example -> "
+        "how it's used in practice), avoid advanced tangents the candidate "
+        "cannot back up, and do NOT mention that the topic is weak."
+    )
+
+
+_ANSWER_LANGUAGE_NAMES = {"ru": "Russian (русский)", "en": "English"}
+
+
+def _answer_language_block(lang: str | None) -> str:
+    """Инструкция про язык ответа из настроек; пусто — язык вопроса (по умолчанию)."""
+    name = _ANSWER_LANGUAGE_NAMES.get((lang or "").strip().lower())
+    if not name:
+        return ""
+    return (
+        f"\n\nOUTPUT LANGUAGE: write the answer in {name}, regardless of the "
+        "question's language. Keep established technical terms as commonly "
+        "spoken by engineers (e.g. deploy, pipeline, merge request)."
+    )
+
+
 def _persist_stream_answer(
     db: Session,
     *,
@@ -201,7 +277,7 @@ def _persist_stream_answer(
         model=model,
     )
     db.add(answer)
-    db.add(ApiUsage(provider=provider, kind="chat"))
+    db.add(_chat_usage(provider, question, spoken))
     db.commit()
     db.refresh(answer)
     return answer.id
@@ -216,6 +292,7 @@ async def _interview_event_stream(
     resume: str,
     vacancy: str,
     legend: str = "(нет)",
+    candidate_profile: str = "",
     db: Session | None = None,
 ):
     parts: list[str] = []
@@ -252,6 +329,7 @@ async def _interview_event_stream(
             resume=resume_text,
             vacancy=vacancy or "(нет)",
             legend=legend or "(нет)",
+            candidate_profile=candidate_profile,
             question=final_question,
             raw_question=raw_question,
             glossary_corrected=glossary_corrected,
@@ -268,10 +346,12 @@ async def _interview_event_stream(
         # Python Knowledge Pack: only for pure-Python questions (not QA topics),
         # appended as a small auxiliary reference — never the whole source.
         knowledge_meta: dict = {"knowledgePackUsed": False}
-        if is_python_question(resolved_q):
+        if detect_pack(resolved_q):
             kn_block, knowledge_meta = build_python_pack_injection(resolved_q)
             if kn_block:
                 prompt = f"{prompt}\n\n{kn_block}"
+        prompt += _weak_topics_block(payload.weak_topics)
+        prompt += _answer_language_block(payload.answer_language)
         correction_meta.update(knowledge_meta)
         answer_started_at = time.perf_counter()
         messages = [
@@ -356,6 +436,7 @@ def _resolve_chat(
 @router.post("/chat")
 async def chat(payload: ChatPayload, db: Session = Depends(get_db)):
     """Стриминговый ответ (SSE). Подмешивает RAG-контекст."""
+    _ensure_quota(db)
     provider, model, _ = _resolve_chat(
         payload.mode,
         provider=payload.provider,
@@ -368,7 +449,9 @@ async def chat(payload: ChatPayload, db: Session = Depends(get_db)):
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     if context:
         messages.append({"role": "system", "content": f"User context (retrieved):\n{context}"})
-    messages.append({"role": "user", "content": payload.message})
+    messages.append(
+        {"role": "user", "content": payload.message + _answer_language_block(payload.answer_language)}
+    )
 
     async def event_stream():
         try:
@@ -379,13 +462,14 @@ async def chat(payload: ChatPayload, db: Session = Depends(get_db)):
             msg = getattr(exc, "message", str(exc))
             yield f"data: {json.dumps({'type': 'error', 'message': msg})}\n\n"
 
-    db.add(ApiUsage(provider=provider, kind="chat"))
+    db.add(_chat_usage(provider, payload.message))
     db.commit()
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 @router.post("/chat/interview")
 async def interview(payload: InterviewPayload, db: Session = Depends(get_db)) -> dict:
+    _ensure_quota(db)
     """Возвращает структурированный ответ интервью (short/spoken/detailed/en/risk)."""
     is_fast = payload.mode == "fast"
     provider, model, source = _resolve_chat(
@@ -424,6 +508,7 @@ async def interview(payload: InterviewPayload, db: Session = Depends(get_db)) ->
             resume=resume_text,
             vacancy=vacancy or "(нет)",
             legend=legend or "(нет)",
+            candidate_profile=get_profile_block(db),
             question=final_question,
             raw_question=raw_question,
             glossary_corrected=glossary_corrected,
@@ -437,6 +522,7 @@ async def interview(payload: InterviewPayload, db: Session = Depends(get_db)) ->
             resume_context_reason=strategy["resume_context_reason"],
             domain_hints=resolve_domain_answer_hints(resolved_q),
         )
+        prompt += _weak_topics_block(payload.weak_topics)
         max_tokens = 450
         temperature = 0.3
         notes = ""
@@ -453,13 +539,15 @@ async def interview(payload: InterviewPayload, db: Session = Depends(get_db)) ->
         )
         # Same Python Knowledge Pack as the live path: only for pure-Python
         # questions, appended as a capped auxiliary reference.
-        if is_python_question(payload.question):
+        if detect_pack(payload.question):
             kn_block, _ = build_python_pack_injection(payload.question)
             if kn_block:
                 prompt = f"{prompt}\n\n{kn_block}"
+        prompt += _weak_topics_block(payload.weak_topics)
         max_tokens = 900
         temperature = 0.4
 
+    prompt += _answer_language_block(payload.answer_language)
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": prompt},
@@ -480,7 +568,7 @@ async def interview(payload: InterviewPayload, db: Session = Depends(get_db)) ->
         model=model,
     )
     db.add(answer)
-    db.add(ApiUsage(provider=provider, kind="chat"))
+    db.add(_chat_usage(provider, prompt, raw))
     db.commit()
 
     return {
@@ -503,10 +591,13 @@ _VARIANT_COLUMNS: dict[str, str] = {
 
 @router.post("/chat/answer-variant")
 async def answer_variant(payload: AnswerVariantPayload, db: Session = Depends(get_db)) -> dict:
+    _ensure_quota(db)
     """Ленивая генерация варианта ответа (short/detailed/english/risk) по клику на таб."""
     instruction = _VARIANT_PROMPTS.get(payload.variant)
     if not instruction:
-        raise AppError("variant must be one of: short, detailed, english, risk", 400, "invalid_variant")
+        raise AppError(
+            "variant must be one of: short, detailed, english, risk", 400, "invalid_variant"
+        )
 
     column = _VARIANT_COLUMNS[payload.variant]
     answer_row = (
@@ -531,27 +622,33 @@ async def answer_variant(payload: AnswerVariantPayload, db: Session = Depends(ge
         f"ЗАДАЧА: {instruction}\n"
         "Верни ТОЛЬКО текст результата, без пояснений и меток."
     )
+    if payload.variant != "english":
+        prompt += _answer_language_block(payload.answer_language)
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": prompt},
     ]
-    text = await provider_adapter.complete(messages, provider, model, max_tokens=600, temperature=0.3)
+    text = await provider_adapter.complete(
+        messages, provider, model, max_tokens=600, temperature=0.3
+    )
     result = text.strip()
     if answer_row is not None and result:
         setattr(answer_row, column, result)
-    db.add(ApiUsage(provider=provider, kind="chat"))
+    db.add(_chat_usage(provider, payload.answer, result))
     db.commit()
     return {"text": result, "model": model, "model_source": source, "variant": payload.variant}
 
 
 @router.post("/chat/interview/stream")
-async def interview_stream(payload: InterviewPayload):
+async def interview_stream(payload: InterviewPayload, db: Session = Depends(get_db)):
+    _ensure_quota(db)
     """SSE-стрим live-подсказки — первые токены сразу."""
     db = SessionLocal()
     try:
         resume = _clip(rag_service.get_context_text(db, "resume"), RESUME_CONTEXT_LIMIT)
         vacancy = _clip(rag_service.get_context_text(db, "vacancy"), VACANCY_CONTEXT_LIMIT)
         legend = _clip(rag_service.get_context_text(db, "legend"), LEGEND_CONTEXT_LIMIT)
+        profile_block = get_profile_block(db)
     except Exception:
         db.close()
         raise
@@ -573,6 +670,7 @@ async def interview_stream(payload: InterviewPayload):
                 resume=resume or "(нет)",
                 vacancy=vacancy or "(нет)",
                 legend=legend or "(нет)",
+                candidate_profile=profile_block,
                 db=db,
             ):
                 yield line
@@ -592,6 +690,7 @@ async def interview_stream(payload: InterviewPayload):
 
 @router.post("/chat/meeting-summary")
 async def meeting_summary(payload: MeetingPayload, db: Session = Depends(get_db)) -> dict:
+    _ensure_quota(db)
     provider, model, source = _resolve_chat(
         payload.mode,
         provider=payload.provider,
@@ -605,13 +704,14 @@ async def meeting_summary(payload: MeetingPayload, db: Session = Depends(get_db)
         {"role": "user", "content": prompt},
     ]
     summary = await provider_adapter.complete(messages, provider, model, max_tokens=900)
-    db.add(ApiUsage(provider=provider, kind="chat"))
+    db.add(_chat_usage(provider, prompt, summary))
     db.commit()
     return {"summary": summary, "model": model, "model_source": source}
 
 
 @router.post("/chat/interview-review")
 async def interview_review(payload: MeetingPayload, db: Session = Depends(get_db)) -> dict:
+    _ensure_quota(db)
     """Разбор записи интервью: находит слабые/проблемные ответы кандидата."""
     provider, model, source = _resolve_chat(
         payload.mode,
@@ -626,13 +726,14 @@ async def interview_review(payload: MeetingPayload, db: Session = Depends(get_db
         {"role": "user", "content": prompt},
     ]
     review = await provider_adapter.complete(messages, provider, model, max_tokens=1400)
-    db.add(ApiUsage(provider=provider, kind="chat"))
+    db.add(_chat_usage(provider, prompt, review))
     db.commit()
     return {"review": review, "model": model, "model_source": source}
 
 
 @router.post("/chat/interview-review/stream")
-async def interview_review_stream(payload: MeetingPayload):
+async def interview_review_stream(payload: MeetingPayload, db: Session = Depends(get_db)):
+    _ensure_quota(db)
     """Streaming (SSE) interview review — renders progressively in the UI."""
     provider, model, _ = _resolve_chat(
         payload.mode,
@@ -669,7 +770,8 @@ async def interview_review_stream(payload: MeetingPayload):
 
 
 @router.post("/chat/meeting-summary/stream")
-async def meeting_summary_stream(payload: MeetingPayload):
+async def meeting_summary_stream(payload: MeetingPayload, db: Session = Depends(get_db)):
+    _ensure_quota(db)
     """Streaming (SSE) meeting summary — renders progressively in the UI."""
     provider, model, _ = _resolve_chat(
         payload.mode,
@@ -682,6 +784,79 @@ async def meeting_summary_stream(payload: MeetingPayload):
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": prompt},
     ]
+
+    async def event_stream():
+        try:
+            async for delta in provider_adapter.stream_chat(
+                messages, provider, model, max_tokens=900, temperature=0.3
+            ):
+                yield f"data: {json.dumps({'type': 'chunk', 'text': delta}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'model': model})}\n\n"
+        except Exception as exc:  # noqa: BLE001
+            msg = getattr(exc, "message", str(exc))
+            yield f"data: {json.dumps({'type': 'error', 'message': msg}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+# Скриншот в base64: ~8 МБ достаточно для FullHD JPEG, больше — защита от абьюза.
+MAX_SCREEN_IMAGE_CHARS = 8_000_000
+
+SCREEN_ASSIST_PROMPT = (
+    "Ты — ассистент кандидата на техническом собеседовании. Тебе дают скриншот "
+    "его экрана (задача, код, вопрос теста, документ) и, возможно, транскрипт "
+    "разговора. Разбери, что на экране, и помоги: если это задача/код — дай "
+    "решение и краткое объяснение; если вопрос — готовый ответ от первого лица, "
+    "чтобы сказать вслух. Отвечай на языке содержимого экрана (обычно русский), "
+    "кратко и по делу."
+)
+
+
+@router.post("/chat/screen/stream")
+async def screen_assist_stream(payload: ScreenAssistPayload, db: Session = Depends(get_db)):
+    """Vision: скриншот экрана + вопрос → стриминговая подсказка (SSE)."""
+    _ensure_quota(db)
+    image = payload.image.strip()
+    if not image:
+        raise AppError("Пустой скриншот", 400, "empty_image")
+    if len(image) > MAX_SCREEN_IMAGE_CHARS:
+        raise AppError("Скриншот слишком большой", 413, "image_too_large")
+    if not image.startswith("data:image/"):
+        image = f"data:image/jpeg;base64,{image}"
+
+    provider, model, _ = _resolve_chat(
+        payload.mode,
+        provider=payload.provider,
+        model=payload.model,
+        model_override=payload.model_override,
+    )
+
+    user_text = payload.question.strip() or "Что на экране? Помоги с этим."
+    if payload.context:
+        user_text += f"\n\nТранскрипт разговора (для контекста):\n{_clip(payload.context, 2000)}"
+    user_text += _answer_language_block(payload.answer_language)
+
+    messages: list[dict] = [
+        {"role": "system", "content": SCREEN_ASSIST_PROMPT},
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": user_text},
+                {"type": "image_url", "image_url": {"url": image}},
+            ],
+        },
+    ]
+    # Изображение стоит дорого (~1–1.5k токенов) — фиксируем расход заранее.
+    db.add(_chat_usage(provider, user_text + " " * 4000))
+    db.commit()
 
     async def event_stream():
         try:

@@ -1,9 +1,13 @@
 import { useCallback, useState } from 'react';
 import {
+  MAX_DRILL_DEPTH,
   analyzeVacancy,
+  buildDrillDownQuestion,
   buildFollowUpRound,
   buildReadinessReport,
   buildSmokePlan,
+  drillDepth,
+  enrichReadinessReport,
   evaluateAnswer,
 } from './vacancyReviewService';
 import { saveSession } from './vacancyReviewStore';
@@ -110,6 +114,28 @@ export function useVacancyReview(initial?: SmokeReviewSession | null) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, persist]);
 
+  /**
+   * Дожим: пользователь кликнул на уточняющий вопрос из оценки — вставляем его
+   * следующим вопросом той же темы и сразу переходим к нему. Один дожим на
+   * родительский вопрос и не глубже MAX_DRILL_DEPTH подряд — как живой
+   * интервьюер: уточнил раз-два и отпустил тему.
+   */
+  const askFollowUp = useCallback(
+    (followUpText: string) => {
+      if (!session || !followUpText.trim()) return;
+      const parent = session.questions[session.currentIndex];
+      if (!parent) return;
+      if (session.questions.some((q) => q.parentQuestionId === parent.id)) return;
+      if (drillDepth(parent, session.questions) >= MAX_DRILL_DEPTH) return;
+      const evaluation = session.answers.find((a) => a.questionId === parent.id)?.evaluation;
+      const drill = buildDrillDownQuestion(parent, followUpText.trim(), evaluation);
+      const questions = [...session.questions];
+      questions.splice(session.currentIndex + 1, 0, drill);
+      persist({ ...session, questions, currentIndex: session.currentIndex + 1 });
+    },
+    [session, persist],
+  );
+
   const finish = useCallback(() => {
     if (!session) return;
     const completed: SmokeReviewSession = {
@@ -117,9 +143,18 @@ export function useVacancyReview(initial?: SmokeReviewSession | null) {
       status: 'completed',
       completedAt: Date.now(),
     };
-    completed.report = buildReadinessReport(completed);
+    const report = buildReadinessReport(completed);
+    completed.report = report;
     persist(completed);
     setPhase('report');
+    // Детерминированный отчёт уже на экране; LLM-вердикт коуча подтягивается
+    // асинхронно. Состояние обновляем только если пользователь ещё в этой сессии.
+    void enrichReadinessReport(completed, report).then((enriched) => {
+      if (enriched === report) return;
+      const next = { ...completed, report: enriched };
+      saveSession(next);
+      setSession((cur) => (cur && cur.id === completed.id ? next : cur));
+    });
   }, [session, persist]);
 
   const restart = useCallback(() => {
@@ -159,6 +194,7 @@ export function useVacancyReview(initial?: SmokeReviewSession | null) {
     startInterview,
     submitAnswer,
     goNext,
+    askFollowUp,
     finish,
     restart,
     startFollowUpRound,

@@ -1,4 +1,5 @@
 import asyncio
+import contextvars
 import json
 import logging
 import os
@@ -102,6 +103,35 @@ def parse_provider_error(status: int, body: str, provider: str = "openrouter") -
     return AppError(f"Ошибка провайдера: {body[:200]}", status, "provider_error")
 
 
+# Гейтвей-фолбэк: кэш лицензии на минуту, чтобы не ходить в SQLite на каждый запрос.
+_gateway_cache: dict = {"at": 0.0, "key": ""}
+
+
+def _gateway_license_key() -> str:
+    """Валидный лицензионный ключ из AppMeta (или ''), с минутным кэшем."""
+    import time
+
+    now = time.monotonic()
+    if now - _gateway_cache["at"] < 60:
+        return _gateway_cache["key"]
+    key = ""
+    try:
+        from app.db.models import AppMeta
+        from app.db.session import SessionLocal
+        from app.services.license import verify_license_key
+
+        with SessionLocal() as db:
+            row = db.get(AppMeta, "license_key")
+            stored = (row.value if row else "").strip()
+        if stored and verify_license_key(stored):
+            key = stored
+    except Exception:  # noqa: BLE001 — фолбэк не должен ломать основной путь
+        key = ""
+    _gateway_cache["at"] = now
+    _gateway_cache["key"] = key
+    return key
+
+
 def _resolve(provider: str | None) -> tuple[str, str, str]:
     settings = get_settings()
     provider = provider or settings.default_provider
@@ -111,6 +141,12 @@ def _resolve(provider: str | None) -> tuple[str, str, str]:
     if cfg.get("keyless"):
         return provider, _base_url(provider), ""
     key = secrets.get_secret(cfg["key_name"])
+    if not key and provider == "openrouter" and settings.skillcue_gateway_url:
+        # Покупательский путь: свой OpenRouter-ключ не нужен — валидная лицензия
+        # открывает серверный гейтвей SkillCue (тот же OpenAI-совместимый API).
+        license_key = _gateway_license_key()
+        if license_key:
+            return provider, settings.skillcue_gateway_url.rstrip("/"), license_key
     if not key:
         raise AppError(
             f"API key for {provider} is not set. Add it in Settings.",
@@ -128,6 +164,21 @@ def _headers(provider: str, key: str) -> dict[str, str]:
         headers["HTTP-Referer"] = "https://localhost"
         headers["X-Title"] = "Interview Copilot"
     return headers
+
+
+# Token usage последнего LLM-вызова в ЭТОМ асинхронном контексте (contextvar —
+# безопасно при параллельных запросах). Роутеры забирают через pop_last_usage()
+# сразу после вызова, чтобы записать реальные токены в ApiUsage.
+_last_usage: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
+    "llm_last_usage", default=None
+)
+
+
+def pop_last_usage() -> dict | None:
+    """Usage последнего complete()/stream_chat() в текущем контексте (и сброс)."""
+    usage = _last_usage.get()
+    _last_usage.set(None)
+    return usage
 
 
 # --- transient-failure retry (hot path) ---
@@ -290,6 +341,10 @@ async def _one_stream_attempt(
                     chunk = json.loads(data)
                 except json.JSONDecodeError:
                     continue
+                # OpenRouter шлёт usage в финальном чанке; OpenAI — при
+                # stream_options.include_usage. Записываем для ApiUsage.
+                if isinstance(chunk.get("usage"), dict):
+                    _last_usage.set(chunk["usage"])
                 if chunk.get("error"):
                     err = chunk["error"]
                     msg = err.get("message") if isinstance(err, dict) else str(err)
@@ -345,6 +400,9 @@ async def stream_chat(
     # lowest time-to-first-token (fast-answer mode only).
     if route_fast and provider == "openrouter":
         payload["provider"] = {"sort": "throughput"}
+    # OpenAI отдаёт usage в стриме только по явному запросу (OpenRouter — сам).
+    if provider == "openai":
+        payload["stream_options"] = {"include_usage": True}
 
     client = get_client()
     url = f"{base_url}/chat/completions"
@@ -394,6 +452,8 @@ async def complete(
     if resp.status_code >= 400:
         raise parse_provider_error(resp.status_code, resp.text, provider)
     data = resp.json()
+    if isinstance(data.get("usage"), dict):
+        _last_usage.set(data["usage"])
     return data["choices"][0]["message"]["content"]
 
 

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- TODO: после покупки домена заменить ВАШ-ДОМЕН на реальный адрес.
+     При добавлении SEO-страниц (банки вопросов по ролям, см. docs/gtm/04-seo-content.md)
+     добавлять каждую страницу отдельным <url> блоком. -->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://ВАШ-ДОМЕН/</loc>
+    <lastmod>2026-07-05</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+</urlset>

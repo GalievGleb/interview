@@ -681,11 +681,13 @@ def _source_corpus(
     candidate_answer: str,
     expected_signals: list[str],
     topic: str,
+    legend_text: str = "",
 ) -> str:
     return _norm(
         "\n".join(
             [
                 resume_text or "",
+                legend_text or "",
                 vacancy_text or "",
                 candidate_answer or "",
                 topic or "",
@@ -783,15 +785,19 @@ def harden_vacancy_evaluation(
     level: str,
     question: str = "",
     detected_noise: list[str] | None = None,
+    legend_text: str = "",
 ) -> dict[str, Any]:
     """Make model output obey the grounding contract before returning it."""
     out = dict(data)
+    # The legend is part of the grounding corpus: tools/roles the candidate's
+    # agreed self-presentation commits to must not be stripped as "unsupported".
     source = _source_corpus(
         resume_text=resume_text,
         vacancy_text=vacancy_text,
         candidate_answer=candidate_answer,
         expected_signals=expected_signals,
         topic=topic,
+        legend_text=legend_text,
     )
 
     noise = _dedupe(

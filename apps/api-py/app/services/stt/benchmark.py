@@ -6,8 +6,8 @@ Deliberately separate from voice regression:
   * It compares Whisper **raw** vs Whisper **corrected** (deterministic glossary)
     plus latency, keyword match, intent match, and an error type.
 
-Deepgram was removed, so there is a single engine (local Whisper); the structure
-still supports adding another engine later without changing call sites.
+Works with any registry provider (local Whisper, Deepgram Nova-3, Yandex
+SpeechKit) — which is what lets the benchmark compare engines on the same clips.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from pathlib import Path
 from app.config import BASE_DIR
 
 from . import glossary
-from .whisper_local_provider import WhisperLocalProvider
+from .base import BaseTranscriptionProvider
 
 logger = logging.getLogger("stt.benchmark")
 
@@ -198,7 +198,7 @@ def score_case(case: dict, raw_transcript: str, latency_ms: int) -> dict:
 
 
 # --- running (needs a provider) ------------------------------------------
-async def run_case(case: dict, provider: WhisperLocalProvider) -> dict:
+async def run_case(case: dict, provider: BaseTranscriptionProvider) -> dict:
     audio_path = resolve_audio_path(case["audioFile"])
     if not audio_path.is_file():
         return {
@@ -215,7 +215,7 @@ async def run_case(case: dict, provider: WhisperLocalProvider) -> dict:
     return scored
 
 
-def _aggregate(cases: list[dict], provider: WhisperLocalProvider) -> dict:
+def _aggregate(cases: list[dict], provider: BaseTranscriptionProvider) -> dict:
     scored = [c for c in cases if "raw" in c]
     n = len(scored) or 1
 
@@ -255,7 +255,7 @@ def _aggregate(cases: list[dict], provider: WhisperLocalProvider) -> dict:
     }
 
 
-async def run_all(provider: WhisperLocalProvider) -> dict:
+async def run_all(provider: BaseTranscriptionProvider) -> dict:
     cases = load_cases()
     results = [await run_case(c, provider) for c in cases]
     return _aggregate(results, provider)

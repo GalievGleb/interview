@@ -246,6 +246,7 @@ export default function AnswerPanel({
                     {!isEditing && (
                       <AnswerActions
                         answer={item.spoken}
+                        question={item.question}
                         disabled={isGenerating}
                         revising={revising}
                         onRevise={

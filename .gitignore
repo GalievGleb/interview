@@ -27,3 +27,15 @@ tests/voice/results/voice-regression-*.json
 
 # STT benchmark reports (generated locally)
 tests/stt-benchmark/results/stt-benchmark-*.json
+.license_signing_key
+
+# Lead bot (секреты и данные лидов)
+tools/leadbot/config.json
+tools/leadbot/leads.jsonl
+tools/leadbot/state.json
+
+# Deploy secrets (apps/api/deploy)
+.admin_secret
+
+# Graphify knowledge-graph caches (regenerate with: graphify update .)
+graphify-out/

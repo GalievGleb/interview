@@ -1,12 +1,28 @@
 export interface ElectronAPI {
   getApiUrl: () => Promise<string>;
+  getApiToken?: () => Promise<string>;
+  getVersion?: () => Promise<string>;
+  getAutoLaunch?: () => Promise<boolean>;
+  setAutoLaunch?: (enable: boolean) => Promise<void>;
   openExternal: (url: string) => Promise<void>;
+  quit?: () => Promise<void>;
+  /** Собирает zip с логами и системной информацией, показывает его в проводнике. */
+  collectDiagnostics?: (extra: Array<{ name: string; content: string }>) => Promise<string>;
+  keybinds?: {
+    get: () => Promise<KeybindsInfo>;
+    setToggleOverlay: (accelerator: string) => Promise<KeybindSetResult>;
+  };
+  onBackendStatus?: (cb: (status: BackendStatus) => void) => () => void;
   overlay: {
     toggle: () => Promise<void>;
     show: () => Promise<void>;
     hide: () => Promise<void>;
-    openSettings?: () => Promise<void>;
+    openApp?: () => Promise<void>;
+    captureScreen?: () => Promise<string>;
+    openSettings?: (section?: string) => Promise<void>;
     setContentProtection: (enable: boolean) => Promise<void>;
+    move?: (dx: number, dy: number) => Promise<void>;
+    setFocusable?: (focusable: boolean) => Promise<void>;
   };
   window: {
     setSkipTaskbar: (skip: boolean) => Promise<void>;
@@ -15,7 +31,31 @@ export interface ElectronAPI {
   updater?: {
     onStatus: (cb: (status: UpdaterStatus) => void) => () => void;
     install: () => Promise<void>;
+    check?: () => Promise<UpdateCheckResult>;
   };
+}
+
+export interface KeybindsInfo {
+  toggleOverlay: string;
+  defaultToggleOverlay: string;
+}
+
+export interface KeybindSetResult {
+  ok: boolean;
+  shortcut: string;
+  error?: string;
+}
+
+export interface BackendStatus {
+  state: 'ok' | 'restarting' | 'failed';
+  attempt?: number;
+  max?: number;
+}
+
+export interface UpdateCheckResult {
+  state: 'available' | 'none' | 'error';
+  version?: string;
+  message?: string;
 }
 
 export interface UpdaterStatus {

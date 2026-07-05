@@ -3,11 +3,14 @@ import { useNavigate } from 'react-router-dom';
 import { getFastAnswer, setFastAnswer } from '../lib/api';
 import { answerChimeEnabled, setAnswerChime } from '../lib/notifySound';
 import { isSpeculativeEnabled, setSpeculative } from '../lib/speculativePref';
+import { getLang, setLang } from '../lib/i18n';
 
 interface Command {
   id: string;
   label: string;
   hint?: string;
+  /** Инструменты разработчика — скрыты из общего списка, ищутся по «dev». */
+  dev?: boolean;
   run: () => void;
 }
 
@@ -39,22 +42,30 @@ export default function CommandPalette() {
       },
       {
         id: 'speculative',
-        label: `Спекулятивный ответ (по partial): ${isSpeculativeEnabled() ? 'выключить' : 'включить'}`,
+        label: `Начинать ответ, не дожидаясь конца вопроса: ${isSpeculativeEnabled() ? 'выключить' : 'включить'}`,
         run: () => setSpeculative(!isSpeculativeEnabled()),
       },
+      {
+        id: 'lang',
+        label: `Язык интерфейса: ${getLang() === 'ru' ? 'English' : 'Русский'}`,
+        run: () => setLang(getLang() === 'ru' ? 'en' : 'ru'),
+      },
       { id: 'overlay', label: 'Открыть overlay', hint: 'Ctrl+Shift+H', run: () => void window.electronAPI?.overlay.show() },
-      { id: 'meeting', label: 'Dev: разбор разговора', run: () => navigate('/meeting') },
-      { id: 'testlab', label: 'Dev: тестовая лаборатория', run: () => navigate('/test-lab') },
-      { id: 'benchmark', label: 'Dev: STT-бенчмарк', run: () => navigate('/benchmark') },
-      { id: 'diagnostics', label: 'Dev: диагностика задержек', run: () => navigate('/diagnostics') },
-      { id: 'licenses', label: 'Dev: лицензии', run: () => navigate('/licenses') },
+      { id: 'meeting', label: 'Dev: разбор разговора', dev: true, run: () => navigate('/meeting') },
+      { id: 'testlab', label: 'Dev: тестовая лаборатория', dev: true, run: () => navigate('/test-lab') },
+      { id: 'benchmark', label: 'Dev: STT-бенчмарк', dev: true, run: () => navigate('/benchmark') },
+      { id: 'diagnostics', label: 'Dev: диагностика задержек', dev: true, run: () => navigate('/diagnostics') },
+      { id: 'licenses', label: 'Dev: лицензии', dev: true, run: () => navigate('/licenses') },
     ],
     [navigate],
   );
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return q ? commands.filter((c) => c.label.toLowerCase().includes(q)) : commands;
+    // Dev-инструменты не засоряют общий список — появляются, когда пользователь
+    // явно набирает «dev».
+    const base = q.startsWith('dev') ? commands : commands.filter((c) => !c.dev);
+    return q ? base.filter((c) => c.label.toLowerCase().includes(q)) : base;
   }, [commands, query]);
 
   useEffect(() => {

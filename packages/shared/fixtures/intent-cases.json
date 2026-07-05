@@ -6,5 +6,16 @@
   { "question": "В чём разница PUT и PATCH?", "intent": "technical_comparison" },
   { "question": "Что такое декоратор?", "intent": "technical_definition" },
   { "question": "Как ты настраивал Docker?", "intent": "practical_usage" },
-  { "question": "Какие ошибки бывают в Page Object Model?", "intent": "technical_list" }
+  { "question": "Какие ошибки бывают в Page Object Model?", "intent": "technical_list" },
+
+  { "question": "Tell me about yourself", "intent": "experience" },
+  { "question": "Walk me through your background", "intent": "experience" },
+  { "question": "What is a decorator in Python?", "intent": "technical_definition" },
+  { "question": "What does idempotency mean?", "intent": "technical_definition" },
+  { "question": "What is the difference between PUT and PATCH?", "intent": "technical_comparison" },
+  { "question": "What types of testing do you know?", "intent": "technical_list" },
+  { "question": "How did you set up Docker on your project?", "intent": "practical_usage" },
+  { "question": "Have you ever worked with Kubernetes?", "intent": "practical_usage" },
+  { "question": "Why did you leave your last job?", "intent": "behavioral" },
+  { "question": "What are your strengths and weaknesses?", "intent": "behavioral" }
 ]

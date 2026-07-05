@@ -135,3 +135,31 @@ def test_ollama_complete_targets_local_server(monkeypatch):
     assert "11434" in captured["url"]
     assert "Authorization" not in captured["headers"]
     assert captured["json"]["model"] == "llama3.1"
+
+
+# --- token usage capture ----------------------------------------------------
+def test_complete_captures_usage(monkeypatch):
+    client = _Client(
+        [
+            _Resp(
+                200,
+                {
+                    "choices": [{"message": {"content": "hi"}}],
+                    "usage": {"prompt_tokens": 120, "completion_tokens": 45},
+                },
+            )
+        ]
+    )
+    _patch_common(monkeypatch, client)
+
+    async def run():
+        # pop — в той же корутине, как это делают роутеры (contextvar per-task).
+        out = await provider_adapter.complete(
+            [{"role": "user", "content": "q"}], model="gpt-4o-mini"
+        )
+        return out, provider_adapter.pop_last_usage(), provider_adapter.pop_last_usage()
+
+    out, usage, again = asyncio.run(run())
+    assert out == "hi"
+    assert usage == {"prompt_tokens": 120, "completion_tokens": 45}
+    assert again is None  # pop очищает

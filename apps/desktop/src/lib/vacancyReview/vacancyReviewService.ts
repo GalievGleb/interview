@@ -170,6 +170,7 @@ export async function analyzeVacancy(input: VacancyReviewInput): Promise<Vacancy
         riskAreas: r.riskAreas ?? [],
         hasResume: Boolean(input.resumeText),
         hasLegend: Boolean(input.legendText),
+        analysisSource: 'ai',
         resumeText: input.resumeText?.slice(0, RESUME_CAP),
         legendText: input.legendText?.slice(0, LEGEND_CAP),
         createdAt: Date.now(),
@@ -225,7 +226,7 @@ export function analyzeVacancyMock(input: VacancyReviewInput): VacancyAnalysis {
   if (!input.resumeText)
     riskAreas.push('Резюме не подключено — ответы не будут опираться на ваш реальный опыт.');
   if (!input.legendText)
-    riskAreas.push('Легенда не подключена — связки в ответах могут звучать обобщённо.');
+    riskAreas.push('История опыта не подключена — связки в ответах могут звучать обобщённо.');
   const highTopics = topics.filter((t) => t.importance === 'high');
   if (highTopics.length) {
     riskAreas.push(`Темы с высоким весом: ${highTopics.map((t) => t.title).join(', ')}.`);
@@ -256,6 +257,7 @@ export function analyzeVacancyMock(input: VacancyReviewInput): VacancyAnalysis {
     riskAreas,
     hasResume: Boolean(input.resumeText),
     hasLegend: Boolean(input.legendText),
+    analysisSource: 'heuristic',
     resumeText: input.resumeText?.slice(0, RESUME_CAP),
     legendText: input.legendText?.slice(0, LEGEND_CAP),
     createdAt: Date.now(),
@@ -439,6 +441,50 @@ function questionFromTopic(
     expectedAnswerPoints: topic.expectedAnswerPoints,
     relatedVacancyTopics: topic.relatedVacancyTopics,
     relatedResumeEvidence: topic.relatedResumeEvidence,
+  };
+}
+
+/** Максимум дожимов подряд: вопрос → дожим → дожим, дальше интервьюер отпускает. */
+export const MAX_DRILL_DEPTH = 2;
+
+/** Глубина цепочки дожимов над вопросом (0 — обычный вопрос плана). */
+export function drillDepth(question: SmokeQuestion, questions: SmokeQuestion[]): number {
+  let depth = 0;
+  let cur: SmokeQuestion | undefined = question;
+  while (cur?.parentQuestionId && depth <= questions.length) {
+    depth += 1;
+    const parentId: string = cur.parentQuestionId;
+    cur = questions.find((q) => q.id === parentId);
+  }
+  return depth;
+}
+
+/**
+ * Дожим интервьюера: превращает уточняющий вопрос из оценки в полноценный
+ * SmokeQuestion той же темы. Сигналы — то, чего не хватило в родительском
+ * ответе (missingPoints), поэтому оценка дожима проверяет именно пробел.
+ */
+export function buildDrillDownQuestion(
+  parent: SmokeQuestion,
+  followUpText: string,
+  evaluation?: SmokeAnswerEvaluation,
+): SmokeQuestion {
+  const missing = (evaluation?.missingPoints ?? []).filter(Boolean).slice(0, 5);
+  return {
+    id: uid(),
+    topicId: parent.topicId,
+    question: followUpText,
+    difficulty: 'hard',
+    expectedSignals: missing.length ? missing : parent.expectedSignals,
+    redFlags: parent.redFlags,
+    level: parent.level,
+    whyAsked:
+      'Интервьюер дожимает после вашего прошлого ответа — проверяет глубину, а не заученную формулировку.',
+    expectedAnswerPoints: missing.length ? missing : undefined,
+    relatedVacancyTopics: parent.relatedVacancyTopics,
+    relatedResumeEvidence: parent.relatedResumeEvidence,
+    isFollowUp: true,
+    parentQuestionId: parent.id,
   };
 }
 
@@ -757,6 +803,7 @@ export async function evaluateAnswer(
         hallucinationGuard: r.hallucinationGuard?.length ? r.hallucinationGuard : undefined,
         coverageScore: r.coverageScore,
         normalizedAnswerSummary: r.normalizedAnswerSummary || undefined,
+        evaluationSource: 'ai',
       };
     } catch {
       // Fall through to the heuristic.
@@ -976,6 +1023,7 @@ export function evaluateAnswerMock(
         )
       : technicalAccuracyScore,
     normalizedAnswerSummary: cleanText !== text.replace(/\s+/g, ' ').trim() ? cleanText : undefined,
+    evaluationSource: 'heuristic',
   };
 }
 
@@ -1211,9 +1259,57 @@ function buildBridgeAnswer(
   return base;
 }
 
+/**
+ * Enrich a deterministic report with the LLM coach narrative (/vacancy/report).
+ * Scores stay client-computed; the model adds verdict + a sharper practice plan.
+ * Returns the original report untouched if the backend/model is unavailable.
+ */
+export async function enrichReadinessReport(
+  session: SmokeReviewSession,
+  report: ReadinessReport,
+): Promise<ReadinessReport> {
+  if (!report.topicScores.length) return report;
+  const analysis = session.vacancyAnalysis;
+  try {
+    const weakAnswers = session.questions
+      .map((q) => {
+        const ev = session.answers.find((a) => a.questionId === q.id)?.evaluation;
+        if (!ev || ev.score >= 60) return null;
+        return { question: q.question, missing: ev.missingPoints.slice(0, 4), score: ev.score };
+      })
+      .filter((w): w is NonNullable<typeof w> => w !== null)
+      .slice(0, 6);
+    const r = await api.vacancyReport({
+      targetRole: analysis.targetRole,
+      seniorityLevel: analysis.seniorityLevel,
+      overallScore: report.overallScore,
+      topics: report.topicScores.map((t) => ({
+        title: t.title,
+        score: t.score,
+        status: t.status,
+        missingPoints: t.missingPoints,
+      })),
+      weakAnswers,
+      resumeText: analysis.resumeText,
+      legendText: analysis.legendText,
+      vacancyText: analysis.vacancyText,
+      language: analysis.language,
+    });
+    if (!r.verdict) return report;
+    return {
+      ...report,
+      narrativeVerdict: r.verdict,
+      interviewerImpression: r.interviewerImpression || undefined,
+      focusTopic: r.focusTopic || undefined,
+      nextPracticePlan: r.nextPracticePlan?.length ? r.nextPracticePlan : report.nextPracticePlan,
+    };
+  } catch {
+    return report; // офлайн/ошибка модели — детерминированный отчёт уже на экране
+  }
+}
+
 /** Aggregate answered questions into a readiness report. (LLM seam optional) */
 export function buildReadinessReport(session: SmokeReviewSession): ReadinessReport {
-  // TODO(real-ai): optionally POST /vacancy/report for richer narrative.
   const analysis = session.vacancyAnalysis;
   const byTopic = new Map<string, SmokeAnswerEvaluation[]>();
   for (const q of session.questions) {

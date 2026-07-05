@@ -114,11 +114,13 @@ function TitleBar({ onInterview }: { onInterview: boolean }) {
 }
 
 export default function Layout({ children }: { children: ReactNode }) {
-  const { backendOnline } = useApp();
+  const { backendOnline, backendStatus } = useApp();
   const { pathname } = useLocation();
   const wide = WIDE_ROUTES.has(pathname);
   const prep = PREP_ROUTES.has(pathname);
   const showTitleBar = !NO_TITLEBAR_ROUTES.has(pathname);
+  const restarting = backendStatus?.state === 'restarting';
+  const restartFailed = backendStatus?.state === 'failed' && !backendOnline;
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-surface text-ink">
@@ -128,20 +130,33 @@ export default function Layout({ children }: { children: ReactNode }) {
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <Sidebar />
         <main className="skillcue-main flex min-w-0 flex-1 flex-col overflow-hidden">
-          {!backendOnline && (
-            <div className="flex shrink-0 items-center gap-2 border-b border-amber-900/30 bg-amber-950/20 px-5 py-2 text-sm text-amber-200/90">
-              <span className="sc-dot sc-dot--processing animate-pulse" />
-              {import.meta.env.DEV ? (
-                <>
-                  Подключение к backend… Если он не поднялся автоматически, запустите:{' '}
-                  <code className="rounded-md bg-black/30 px-1.5 py-0.5 text-amber-100">
-                    cd apps/api-py; .\run_dev.ps1
-                  </code>
-                </>
-              ) : (
-                <>Сервис запускается — обычно это занимает несколько секунд.</>
-              )}
+          {restartFailed ? (
+            <div className="flex shrink-0 items-center gap-2 border-b border-red-900/40 bg-red-950/20 px-5 py-2 text-sm text-red-200/90">
+              <span className="sc-dot sc-dot--error" />
+              Сервис не смог перезапуститься. Перезапустите приложение; если повторится —
+              соберите отчёт в «Настройки → Сообщить о проблеме».
             </div>
+          ) : (
+            !backendOnline && (
+              <div className="flex shrink-0 items-center gap-2 border-b border-amber-900/30 bg-amber-950/20 px-5 py-2 text-sm text-amber-200/90">
+                <span className="sc-dot sc-dot--processing animate-pulse" />
+                {restarting ? (
+                  <>
+                    Сервис перезапускается (попытка {backendStatus?.attempt ?? 1} из{' '}
+                    {backendStatus?.max ?? 3})…
+                  </>
+                ) : import.meta.env.DEV ? (
+                  <>
+                    Подключение к backend… Если он не поднялся автоматически, запустите:{' '}
+                    <code className="rounded-md bg-black/30 px-1.5 py-0.5 text-amber-100">
+                      cd apps/api-py; .\run_dev.ps1
+                    </code>
+                  </>
+                ) : (
+                  <>Сервис запускается — обычно это занимает несколько секунд.</>
+                )}
+              </div>
+            )
           )}
           <div
             className={`mx-auto flex min-h-0 w-full flex-1 flex-col ${

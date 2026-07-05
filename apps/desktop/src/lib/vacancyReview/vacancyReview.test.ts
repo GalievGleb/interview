@@ -2,8 +2,11 @@ import { describe, it, expect, vi } from 'vitest';
 import { api } from '../api';
 import { extractTopics, detectRole, detectSeniority } from './topicExtraction';
 import {
+  MAX_DRILL_DEPTH,
   analyzeVacancyMock,
+  buildDrillDownQuestion,
   buildSmokePlan,
+  drillDepth,
   evaluateAnswer,
   evaluateAnswerMock,
   buildReadinessReport,
@@ -612,6 +615,84 @@ describe('evaluation + report', () => {
 
     expect(evaluation.suggestedBetterAnswer).toContain('Самый показательный проект');
     expect(evaluation.suggestedBetterAnswer).not.toContain('Одна из сложных ситуаций');
+  });
+});
+
+describe('interviewer drill-down (дожим)', () => {
+  it('builds a follow-up question on the same topic with missing points as signals', () => {
+    const analysis = analyzeVacancyMock({
+      vacancyText: QA_VACANCY,
+      language: 'ru',
+      resumeText: 'Python, Playwright, Docker, GitLab CI на проекте',
+    });
+    const [parent] = buildSmokePlan(analysis);
+    const evaluation = evaluateAnswerMock(parent, 'Ну, использовал какие-то инструменты.', analysis);
+
+    const drill = buildDrillDownQuestion(parent, 'А как именно вы запускали это в CI?', evaluation);
+
+    expect(drill.id).not.toBe(parent.id);
+    expect(drill.topicId).toBe(parent.topicId);
+    expect(drill.isFollowUp).toBe(true);
+    expect(drill.parentQuestionId).toBe(parent.id);
+    expect(drill.question).toBe('А как именно вы запускали это в CI?');
+    // Дожим проверяет именно пробел: сигналы — то, чего не хватило в ответе.
+    if (evaluation.missingPoints.length) {
+      expect(drill.expectedSignals).toEqual(evaluation.missingPoints.slice(0, 5));
+    } else {
+      expect(drill.expectedSignals).toEqual(parent.expectedSignals);
+    }
+  });
+
+  it('falls back to parent signals when the evaluation has no missing points', () => {
+    const analysis = analyzeVacancyMock({ vacancyText: QA_VACANCY, language: 'ru' });
+    const [parent] = buildSmokePlan(analysis);
+    const drill = buildDrillDownQuestion(parent, 'Уточните пример.', undefined);
+    expect(drill.expectedSignals).toEqual(parent.expectedSignals);
+    expect(drill.expectedAnswerPoints).toBeUndefined();
+  });
+
+  it('caps drill chains at MAX_DRILL_DEPTH like a real interviewer', () => {
+    const analysis = analyzeVacancyMock({ vacancyText: QA_VACANCY, language: 'ru' });
+    const [root] = buildSmokePlan(analysis);
+    const d1 = buildDrillDownQuestion(root, 'А подробнее?');
+    const d2 = buildDrillDownQuestion(d1, 'А ещё подробнее?');
+    const questions = [root, d1, d2];
+
+    expect(drillDepth(root, questions)).toBe(0);
+    expect(drillDepth(d1, questions)).toBe(1);
+    expect(drillDepth(d2, questions)).toBe(2);
+    // На d2 дожим уже недоступен: глубина достигла потолка.
+    expect(drillDepth(d2, questions)).toBeGreaterThanOrEqual(MAX_DRILL_DEPTH);
+  });
+
+  it('drill-down answers aggregate into the same topic in the report', () => {
+    const analysis = analyzeVacancyMock({ vacancyText: QA_VACANCY, language: 'ru' });
+    const questions = buildSmokePlan(analysis).slice(0, 1);
+    const [parent] = questions;
+    const parentEval = evaluateAnswerMock(parent, 'Использовал pytest на проекте.', analysis);
+    const drill = buildDrillDownQuestion(parent, 'А как именно?', parentEval);
+    const withDrill = [...questions, drill];
+    const session: SmokeReviewSession = {
+      id: 's-drill',
+      vacancyAnalysisId: analysis.id,
+      vacancyAnalysis: analysis,
+      status: 'in_progress',
+      questions: withDrill,
+      currentIndex: 1,
+      startedAt: Date.now(),
+      answers: withDrill.map((q) => ({
+        questionId: q.id,
+        text: 'pytest, Playwright, Docker и Allure на проекте',
+        source: 'text' as const,
+        skipped: false,
+        evaluation: evaluateAnswerMock(q, 'pytest Playwright Docker Allure на проекте', analysis),
+        answeredAt: Date.now(),
+      })),
+    };
+    const report = buildReadinessReport(session);
+    const topicScore = report.topicScores.find((t) => t.topicId === parent.topicId);
+    expect(topicScore).toBeDefined();
+    expect(topicScore!.questionsAsked).toBe(2); // родитель + дожим в одной теме
   });
 });
 

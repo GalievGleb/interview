@@ -165,7 +165,7 @@ export default function OnboardingSttStep({ onBack, onContinue }: OnboardingSttS
           </button>
         )}
         <p className="mt-2 text-xs text-ink-faint">
-          Скачать или изменить модель можно позже в Настройках → Распознавание речи.
+          Скачать или изменить модель можно позже в Настройках → «Речь и звук».
         </p>
       </div>
 

@@ -40,7 +40,7 @@ export default function LiveCopilot({ compact = false, canStart = true }: Props)
           <button
             onClick={() => void start(sources)}
             disabled={!canStart || !hasStt || noSource}
-            title={!hasStt ? 'Скачайте локальную модель в Настройках → Распознавание речи' : ''}
+            title={!hasStt ? 'Скачайте локальную модель в Настройках → «Речь и звук»' : ''}
             className="btn-primary btn-sm"
           >
             Старт live

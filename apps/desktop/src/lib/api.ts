@@ -4,6 +4,7 @@ import {
   ChatMode,
   NormalizedModel,
 } from './aiModels';
+import { answerLanguageParam } from './answerLanguage';
 
 export type WhisperQualityId = 'fast' | 'balanced' | 'quality' | 'max';
 export type SttDeviceId = 'auto' | 'cpu' | 'gpu';
@@ -27,11 +28,14 @@ export interface SttDeviceInfo {
   recommendedDevice: 'cpu' | 'gpu';
 }
 
+export type SttEngineId = 'whisper' | 'deepgram' | 'speechkit';
+
 export interface SttSettingsDto {
   local_model: WhisperQualityId;
   partial_model: WhisperQualityId;
   final_model: WhisperQualityId;
   device: SttDeviceId;
+  engine: SttEngineId;
 }
 
 export interface SttDiagnostics {
@@ -109,6 +113,21 @@ export interface SttBenchmarkReport {
 
 const API_URL = (import.meta.env.VITE_API_URL as string) ?? 'http://127.0.0.1:8000';
 
+// Локальная аутентификация: Electron выдаёт per-run токен, бэкенд без него
+// отвечает 401 (защита от чужих локальных процессов и drive-by запросов).
+let apiTokenPromise: Promise<string> | null = null;
+export function getApiToken(): Promise<string> {
+  if (!apiTokenPromise) {
+    apiTokenPromise = window.electronAPI?.getApiToken?.().catch(() => '') ?? Promise.resolve('');
+  }
+  return apiTokenPromise;
+}
+
+async function authHeaders(): Promise<Record<string, string>> {
+  const token = await getApiToken();
+  return token ? { 'X-SkillCue-Token': token } : {};
+}
+
 const FAST_ANSWER_KEY = 'fast-answer';
 /** Fast answer mode (default on): skip the serial LLM correction + throughput routing. */
 export function getFastAnswer(): boolean {
@@ -120,6 +139,18 @@ export function setFastAnswer(on: boolean): void {
 const REQUEST_TIMEOUT_MS = 10_000;
 const LONG_REQUEST_TIMEOUT_MS = 180_000;
 const VACANCY_EVALUATE_TIMEOUT_MS = 15_000;
+
+export interface LicenseStatusDto {
+  status: 'trial' | 'active' | 'expired';
+  plan: 'trial' | 'basic' | 'max';
+  licensed_to: string | null;
+  live_allowed: boolean;
+  /** null для активной лицензии; для trial — остаток live-секунд. */
+  live_seconds_left: number | null;
+  tokens_used_month: number;
+  tokens_budget_month: number;
+  tokens_left_month: number;
+}
 
 export interface UsageRow {
   provider: string;
@@ -143,7 +174,7 @@ function sseChatStream(path: string, body: unknown, handlers: SseHandlers): () =
     try {
       const resp = await fetch(`${API_URL}${path}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
         body: JSON.stringify(body),
         signal: controller.signal,
       });
@@ -267,11 +298,15 @@ export interface StreamInterviewOpts {
   onMeta?: (meta: StreamInterviewCorrectionMeta) => void;
   onFirstChunk?: () => void;
   fastAnswer?: boolean;
+  /** Слабые темы из mock-отчёта — ответы на них делаются особенно конкретными. */
+  weakTopics?: string[];
 }
 
 export interface KeysStatus {
   openai: boolean;
   openrouter: boolean;
+  deepgram: boolean;
+  yandex: boolean;
   default_provider: string;
   default_model: string;
 }
@@ -330,7 +365,11 @@ export interface SessionDetail extends SessionItem {
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { timeoutMs, ...fetchOptions } = options;
   const resp = await fetchWithTimeout(path, {
-    headers: { 'Content-Type': 'application/json', ...(fetchOptions.headers ?? {}) },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(await authHeaders()),
+      ...(fetchOptions.headers ?? {}),
+    },
     timeoutMs,
     ...fetchOptions,
   });
@@ -357,6 +396,8 @@ export const api = {
   saveKeys: (keys: {
     openai_api_key?: string;
     openrouter_api_key?: string;
+    deepgram_api_key?: string;
+    yandex_api_key?: string;
   }) =>
     request<KeysStatus>('/settings/keys', {
       method: 'POST',
@@ -411,7 +452,11 @@ export const api = {
     form.append('file', file);
     form.append('kind', kind);
     if (title) form.append('title', title);
-    const resp = await fetch(`${API_URL}/documents/upload`, { method: 'POST', body: form });
+    const resp = await fetch(`${API_URL}/documents/upload`, {
+      method: 'POST',
+      headers: await authHeaders(),
+      body: form,
+    });
     if (!resp.ok) {
       const data = await resp.json().catch(() => null);
       throw new Error(data?.error?.message ?? `Ошибка ${resp.status}`);
@@ -476,7 +521,13 @@ export const api = {
       {
         method: 'POST',
         timeoutMs: LONG_REQUEST_TIMEOUT_MS,
-        body: JSON.stringify({ question, answer, variant, answer_id: answerId ?? null }),
+        body: JSON.stringify({
+          question,
+          answer,
+          variant,
+          answer_id: answerId ?? null,
+          answer_language: answerLanguageParam(),
+        }),
       },
     ),
 
@@ -493,6 +544,7 @@ export const api = {
         mode: opts.mode ?? 'fast',
         provider: opts.provider,
         model: opts.model,
+        answer_language: answerLanguageParam(),
       }),
       signal: opts.signal,
     }),
@@ -530,6 +582,71 @@ export const api = {
 
   usage: () => request<{ usage: UsageRow[]; last_30_days?: UsageRow[] }>('/usage'),
 
+  // --- License (15-мин live-trial / тарифы / токен-бюджет) ---
+  licenseStatus: () => request<LicenseStatusDto>('/license/status'),
+
+  activateLicense: (key: string) =>
+    request<LicenseStatusDto>('/license/activate', {
+      method: 'POST',
+      body: JSON.stringify({ key }),
+    }),
+
+  // --- Answer feedback (👍/👎 → quality tuning material) ---
+  recordFeedback: (f: {
+    verdict: 'up' | 'down';
+    question?: string;
+    answer?: string;
+    raw_transcript?: string | null;
+    source?: 'live' | 'manual';
+  }) => request<{ recorded: string }>('/feedback', { method: 'POST', body: JSON.stringify(f) }),
+
+  // --- Latency telemetry (p50/p95 trend vs budgets) ---
+  recordLatency: (t: {
+    stt_ms: number | null;
+    llm_first_ms: number | null;
+    llm_total_ms: number | null;
+    total_ms: number | null;
+  }) => request<{ recorded: string }>('/latency', { method: 'POST', body: JSON.stringify(t) }),
+
+  latencySummary: () =>
+    request<{
+      count: number;
+      budgets_ms: Record<string, number>;
+      stages: Record<
+        string,
+        { p50: number; p95: number; n: number; budget: number | null; within_budget: boolean | null } | null
+      >;
+    }>('/latency/summary'),
+
+  // --- Mock-interview (Vacancy Review) durable session store ---
+  listMockSessions: () =>
+    request<{
+      sessions: Array<{
+        id: string;
+        status: string;
+        startedAt: number;
+        updatedAt: number;
+        payload: Record<string, unknown>;
+      }>;
+    }>('/mock-sessions'),
+
+  upsertMockSession: (s: {
+    id: string;
+    status: string;
+    startedAt: number;
+    updatedAt: number;
+    payload: Record<string, unknown>;
+  }) =>
+    request<{ saved: string }>(`/mock-sessions/${encodeURIComponent(s.id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(s),
+    }),
+
+  deleteMockSessionRemote: (id: string) =>
+    request<{ deleted: string }>(`/mock-sessions/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }),
+
   deleteAllData: () => request<{ deleted: boolean }>('/data', { method: 'DELETE' }),
 
   /** Live-подсказка со стримингом (SSE). Возвращает функцию отмены. */
@@ -556,7 +673,7 @@ export const api = {
       try {
         const resp = await fetch(`${API_URL}/chat/interview/stream`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
           body: JSON.stringify({
             question: question,
             raw_question: opts.rawQuestion ?? question,
@@ -580,7 +697,9 @@ export const api = {
             is_follow_up: opts.isFollowUp ?? null,
             follow_up_reason: opts.followUpReason ?? null,
             current_canonical_topic: opts.currentCanonicalTopic ?? null,
+            weak_topics: opts.weakTopics?.length ? opts.weakTopics : null,
             session_id: opts.sessionId,
+            answer_language: answerLanguageParam(),
             mode: 'fast',
             // Fast answer: skip the serial LLM correction pass + throughput
             // routing. Default on; toggled via localStorage('fast-answer').
@@ -678,13 +797,14 @@ export const api = {
       try {
         const resp = await fetch(`${API_URL}/chat`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
           body: JSON.stringify({
             message,
             mode: opts.mode ?? 'general',
             context: opts.context,
             provider: opts.provider,
             modelOverride: opts.model,
+            answer_language: answerLanguageParam(),
           }),
           signal: controller.signal,
         });
@@ -732,6 +852,26 @@ export const api = {
     return sseChatStream(
       '/chat/interview-review/stream',
       { transcript, mode: 'deep', provider: opts.provider, model: opts.model },
+      handlers,
+    );
+  },
+
+  /** Vision-подсказка по скриншоту экрана (SSE). Returns a cancel function. */
+  streamScreenAssist(
+    image: string,
+    question: string,
+    handlers: SseHandlers,
+    opts: { context?: string; mode?: string } = {},
+  ): () => void {
+    return sseChatStream(
+      '/chat/screen/stream',
+      {
+        image,
+        question,
+        context: opts.context,
+        mode: opts.mode ?? 'general',
+        answer_language: answerLanguageParam(),
+      },
       handlers,
     );
   },
@@ -839,6 +979,66 @@ export const api = {
       timeoutMs: VACANCY_EVALUATE_TIMEOUT_MS,
     }),
 
+  vacancyReport: (body: {
+    targetRole?: string;
+    seniorityLevel?: string;
+    overallScore: number;
+    topics: Array<{ title: string; score: number; status?: string; missingPoints?: string[] }>;
+    weakAnswers?: Array<{ question: string; missing?: string[]; score?: number }>;
+    resumeText?: string;
+    legendText?: string;
+    vacancyText?: string;
+    language: string;
+  }) =>
+    request<{
+      verdict: string;
+      interviewerImpression?: string;
+      nextPracticePlan: string[];
+      focusTopic?: string;
+      model?: string;
+    }>('/vacancy/report', {
+      method: 'POST',
+      body: JSON.stringify(body),
+      timeoutMs: LONG_REQUEST_TIMEOUT_MS,
+    }),
+
+  /** Профиль-пак кандидата: статус кэша (для чеклиста готовности). */
+  profilePackStatus: () =>
+    request<{
+      exists: boolean;
+      stale: boolean;
+      userEdited?: boolean;
+      hasResume: boolean;
+      hasLegend: boolean;
+      hasVacancy: boolean;
+      generatedAt?: number | null;
+      model?: string | null;
+    }>('/documents/profile-pack/status'),
+
+  /** Содержимое пака — пользователь видит и правит, чем live будет отвечать. */
+  profilePackGet: () =>
+    request<{
+      content: string;
+      exists: boolean;
+      stale: boolean;
+      userEdited?: boolean;
+      generatedAt?: number | null;
+      model?: string | null;
+    }>('/documents/profile-pack'),
+
+  profilePackSave: (content: string) =>
+    request<{ exists: boolean; userEdited?: boolean }>('/documents/profile-pack', {
+      method: 'PUT',
+      body: JSON.stringify({ content }),
+    }),
+
+  /** Пересобрать профиль-пак из текущих документов (ручной триггер). */
+  profilePackRefresh: () =>
+    request<{ exists: boolean; stale: boolean }>('/documents/profile-pack/refresh', {
+      method: 'POST',
+      timeoutMs: LONG_REQUEST_TIMEOUT_MS,
+    }),
+
   // --- Speech-to-text (Local Whisper provider, model manager) ---
   sttProviders: () => request<SttProviderDiagnostics>('/stt/providers'),
 
@@ -876,16 +1076,19 @@ export const api = {
   sttBenchmarkCases: () =>
     request<{ cases: SttBenchmarkCase[]; root: string }>('/stt/benchmark/cases'),
 
-  sttBenchmarkRunCase: (caseId: string) =>
-    request<SttBenchmarkCaseResult>(`/stt/benchmark/run/${encodeURIComponent(caseId)}`, {
-      method: 'POST',
-      timeoutMs: LONG_REQUEST_TIMEOUT_MS,
-    }),
+  sttBenchmarkRunCase: (caseId: string, engine: SttEngineId = 'whisper') =>
+    request<SttBenchmarkCaseResult>(
+      `/stt/benchmark/run/${encodeURIComponent(caseId)}?engine=${engine}`,
+      {
+        method: 'POST',
+        timeoutMs: LONG_REQUEST_TIMEOUT_MS,
+      },
+    ),
 
-  sttBenchmarkRunAll: (save = true) =>
+  sttBenchmarkRunAll: (save = true, engine: SttEngineId = 'whisper') =>
     request<SttBenchmarkReport>('/stt/benchmark/run', {
       method: 'POST',
-      body: JSON.stringify({ save }),
+      body: JSON.stringify({ save, engine }),
       timeoutMs: LONG_REQUEST_TIMEOUT_MS,
     }),
 

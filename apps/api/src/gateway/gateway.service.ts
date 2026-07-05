@@ -1,0 +1,167 @@
+/**
+ * OpenAI-совместимый гейтвей SkillCue.
+ *
+ * Десктоп ходит сюда вместо OpenRouter: Bearer-токен — лицензионный ключ
+ * (Ed25519, проверка офлайн), апстрим-ключ OpenRouter живёт только на сервере.
+ * Расход токенов копится в Redis помесячно на анонимный id ключа; при
+ * исчерпании бюджета тарифа — 402 в формате ошибки OpenAI, десктоп показывает
+ * сообщение как есть.
+ */
+import { HttpException, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import { RedisService } from '../redis/redis.service';
+import { VerifiedLicense, verifyLicenseKey } from './license.util';
+
+const OPENROUTER_BASE = process.env.GATEWAY_UPSTREAM_BASE ?? 'https://openrouter.ai/api/v1';
+const MODELS_CACHE_KEY = 'gw:models';
+const MODELS_CACHE_TTL_S = 600;
+// Ключ расхода живёт ~45 дней: текущий месяц + запас на чтение статистики.
+const USAGE_TTL_S = 45 * 24 * 3600;
+const RATE_LIMIT_PER_MIN = 60;
+
+function monthStamp(): string {
+  const d = new Date();
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+@Injectable()
+export class GatewayService {
+  private readonly logger = new Logger('Gateway');
+
+  constructor(private readonly redis: RedisService) {}
+
+  private upstreamKey(): string {
+    const key = process.env.OPENROUTER_API_KEY ?? '';
+    if (!key) {
+      throw new HttpException(
+        { error: { message: 'Gateway is not configured (no upstream key)', code: 'gateway_unconfigured' } },
+        503,
+      );
+    }
+    return key;
+  }
+
+  /** Bearer <SKILLCUE-...> → проверенная лицензия, иначе 401. */
+  authorize(authHeader: string | undefined): VerifiedLicense {
+    const token = (authHeader ?? '').replace(/^Bearer\s+/i, '').trim();
+    const license = verifyLicenseKey(token);
+    if (!license) {
+      throw new UnauthorizedException({
+        error: {
+          message: 'Невалидный или истёкший лицензионный ключ SkillCue.',
+          code: 'invalid_license',
+        },
+      });
+    }
+    return license;
+  }
+
+  private usageKey(licenseId: string): string {
+    return `gw:tok:${licenseId}:${monthStamp()}`;
+  }
+
+  async usedTokens(licenseId: string): Promise<number> {
+    const raw = await this.redis.getClient().get(this.usageKey(licenseId));
+    return raw ? parseInt(raw, 10) || 0 : 0;
+  }
+
+  async assertQuota(license: VerifiedLicense): Promise<void> {
+    const okRate = await this.redis.checkRateLimit(
+      `gw:rate:${license.id}:${Math.floor(Date.now() / 60_000)}`,
+      RATE_LIMIT_PER_MIN,
+      90,
+    );
+    if (!okRate) {
+      throw new HttpException(
+        { error: { message: 'Слишком много запросов — подождите минуту.', code: 'rate_limited' } },
+        429,
+      );
+    }
+    const used = await this.usedTokens(license.id);
+    if (used >= license.budget) {
+      throw new HttpException(
+        {
+          error: {
+            message:
+              'Месячный лимит токенов тарифа исчерпан. Лимит обновится 1-го числа; ' +
+              'нужен больший объём — свяжитесь с поддержкой.',
+            code: 'token_quota_exceeded',
+          },
+        },
+        402,
+      );
+    }
+  }
+
+  async recordUsage(licenseId: string, tokens: number): Promise<void> {
+    if (tokens <= 0) return;
+    const client = this.redis.getClient();
+    const key = this.usageKey(licenseId);
+    const total = await client.incrby(key, Math.ceil(tokens));
+    if (total === Math.ceil(tokens)) {
+      await client.expire(key, USAGE_TTL_S);
+    }
+  }
+
+  async usageInfo(license: VerifiedLicense) {
+    const used = await this.usedTokens(license.id);
+    return {
+      plan: license.payload.plan ?? 'max',
+      month: monthStamp(),
+      tokensUsed: used,
+      tokensBudget: license.budget,
+      tokensLeft: Math.max(0, license.budget - used),
+    };
+  }
+
+  /** GET /v1/models — прокси с кэшем: каталог одинаков для всех ключей. */
+  async models(): Promise<unknown> {
+    const cached = await this.redis.getClient().get(MODELS_CACHE_KEY);
+    if (cached) return JSON.parse(cached);
+    const resp = await fetch(`${OPENROUTER_BASE}/models`, {
+      headers: { Authorization: `Bearer ${this.upstreamKey()}` },
+    });
+    if (!resp.ok) {
+      throw new HttpException(
+        { error: { message: `Upstream /models failed: ${resp.status}`, code: 'upstream_error' } },
+        502,
+      );
+    }
+    const data = await resp.json();
+    await this.redis
+      .getClient()
+      .set(MODELS_CACHE_KEY, JSON.stringify(data), 'EX', MODELS_CACHE_TTL_S);
+    return data;
+  }
+
+  /**
+   * POST /v1/chat/completions. Возвращает upstream-Response; стрим пробрасывает
+   * контроллер, а мы считаем токены: точно — из usage-чанка (просим его через
+   * stream_options), грубо — по символам, если провайдер usage не прислал.
+   */
+  async chatCompletions(license: VerifiedLicense, body: Record<string, unknown>) {
+    await this.assertQuota(license);
+
+    const upstreamBody: Record<string, unknown> = { ...body };
+    if (upstreamBody.stream) {
+      upstreamBody.stream_options = { include_usage: true, ...(body.stream_options as object) };
+    }
+
+    const resp = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${this.upstreamKey()}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://skillcue.app',
+        'X-Title': 'SkillCue',
+      },
+      body: JSON.stringify(upstreamBody),
+    });
+    return resp;
+  }
+
+  /** Оценка расхода по символам — фолбэк, когда usage-чанк не пришёл. */
+  estimateTokens(body: Record<string, unknown>, completionChars: number): number {
+    const promptChars = JSON.stringify(body.messages ?? '').length;
+    return Math.ceil(promptChars / 4) + Math.ceil(completionChars / 4);
+  }
+}

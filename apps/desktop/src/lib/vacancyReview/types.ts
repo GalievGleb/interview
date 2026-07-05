@@ -77,6 +77,11 @@ export interface VacancyAnalysis {
   hasResume: boolean;
   hasLegend: boolean;
   /**
+   * Where the analysis came from: the full AI pipeline or the local heuristic
+   * fallback (no key / backend down). Absent on old saved analyses = unknown.
+   */
+  analysisSource?: 'ai' | 'heuristic';
+  /**
    * Denormalized grounding text, kept so evaluation can adapt the stronger
    * answer to the candidate's real experience. Trimmed to keep storage sane.
    */
@@ -92,6 +97,9 @@ export interface SmokeQuestion extends QuestionMeta {
   difficulty: Difficulty;
   expectedSignals: string[];
   redFlags: string[];
+  /** Дожим: вопрос, которым интервьюер «докапывается» после оценки ответа. */
+  isFollowUp?: boolean;
+  parentQuestionId?: string;
 }
 
 export interface SmokeAnswerEvaluation {
@@ -145,6 +153,11 @@ export interface SmokeAnswerEvaluation {
   normalizedAnswerSummary?: string;
   /** What the stronger answer must NOT invent (metrics, titles, people mgmt…). */
   hallucinationGuard?: string[];
+  /**
+   * Where the evaluation came from: the full AI pipeline or the local
+   * heuristic fallback. Absent on old saved sessions = unknown.
+   */
+  evaluationSource?: 'ai' | 'heuristic';
 }
 
 export interface SmokeAnswer {
@@ -192,6 +205,10 @@ export interface ReadinessReport {
   criticalGaps: string[];
   nextPracticePlan: string[];
   generatedAt: number;
+  /** LLM-нарратив коуча (/vacancy/report); отсутствует при офлайн-фолбэке. */
+  narrativeVerdict?: string;
+  interviewerImpression?: string;
+  focusTopic?: string;
 }
 
 export interface VacancyReviewInput {

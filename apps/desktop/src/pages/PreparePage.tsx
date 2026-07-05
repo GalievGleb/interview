@@ -4,8 +4,9 @@ import VacancySetup from '../components/prepare/VacancySetup';
 import VacancyAnalysisView from '../components/prepare/VacancyAnalysisView';
 import SmokeInterviewView from '../components/prepare/SmokeInterviewView';
 import ReadinessReportView from '../components/prepare/ReadinessReportView';
+import { printReadinessReport } from '../lib/vacancyReview/reportPrint';
 import { useVacancyReview } from '../lib/vacancyReview/useVacancyReview';
-import { getSession } from '../lib/vacancyReview/vacancyReviewStore';
+import { getSession, listSessions } from '../lib/vacancyReview/vacancyReviewStore';
 
 export default function PreparePage() {
   const navigate = useNavigate();
@@ -64,6 +65,7 @@ export default function PreparePage() {
             onSubmitAnswer={review.submitAnswer}
             onNext={review.goNext}
             onFinish={review.finish}
+            onAskFollowUp={review.askFollowUp}
           />
         )}
 
@@ -72,10 +74,15 @@ export default function PreparePage() {
             report={session.report}
             analysis={session.vacancyAnalysis}
             onSave={downloadReport}
+            onPrint={() => printReadinessReport(session.vacancyAnalysis, session.report!)}
             onStartLive={() => navigate('/interview')}
             onNewReview={review.restart}
             onFollowUpRound={() => review.startFollowUpRound()}
             onPracticeTopic={review.startFollowUpRound}
+            scoreHistory={listSessions()
+              .filter((s) => s.vacancyAnalysisId === session.vacancyAnalysisId && s.report)
+              .sort((a, b) => a.startedAt - b.startedAt)
+              .map((s) => s.report!.overallScore)}
           />
         )}
       </div>

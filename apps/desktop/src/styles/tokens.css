@@ -27,4 +27,43 @@
   --sc-accent-practice: #8fb6d8;
   --sc-accent-live: #34d399;
   --sc-accent-review: #a78bfa;
+
+  /* RGB-триплеты для Tailwind (rgb(var(--twc-*) / <alpha>)) — тёмная тема.
+     Значения = тем же hex'ам, что были захардкожены в tailwind.config.js. */
+  --twc-surface: 7 16 29; /* #07101d */
+  --twc-surface-panel: 11 20 34; /* #0b1422 */
+  --twc-surface-light: 16 28 45; /* #101c2d */
+  --twc-surface-card: 17 31 49; /* #111f31 */
+  --twc-surface-hover: 23 40 61; /* #17283d */
+  --twc-surface-elevated: 26 44 68; /* #1a2c44 */
+  --twc-surface-border: 36 54 79; /* #24364f */
+  --twc-surface-border-strong: 52 80 111; /* #34506f */
+  --twc-accent: 52 199 123; /* #34c77b */
+  --twc-accent-hover: 88 220 150; /* #58dc96 */
+  --twc-ink: 237 246 255; /* #edf6ff */
+  --twc-ink-muted: 169 184 203; /* #a9b8cb */
+  --twc-ink-faint: 115 132 155; /* #73849b */
+}
+
+/* Светлая тема — тот же навы-характер, но на светлых поверхностях.
+   Бренд-зелёный темнее ради контраста на белом. */
+:root[data-theme='light'] {
+  --sc-brand: #1f9d5f;
+  --sc-brand-hover: #178a52;
+  --sc-brand-soft: rgba(31, 157, 95, 0.12);
+  --sc-brand-ring: rgba(31, 157, 95, 0.3);
+
+  --twc-surface: 238 243 249; /* #eef3f9 */
+  --twc-surface-panel: 247 250 253; /* #f7fafd */
+  --twc-surface-light: 255 255 255;
+  --twc-surface-card: 255 255 255;
+  --twc-surface-hover: 227 236 246; /* #e3ecf6 */
+  --twc-surface-elevated: 255 255 255;
+  --twc-surface-border: 211 223 236; /* #d3dfec */
+  --twc-surface-border-strong: 182 200 220; /* #b6c8dc */
+  --twc-accent: 31 157 95; /* #1f9d5f */
+  --twc-accent-hover: 23 138 82; /* #178a52 */
+  --twc-ink: 22 40 60; /* #16283c */
+  --twc-ink-muted: 74 93 116; /* #4a5d74 */
+  --twc-ink-faint: 118 136 157; /* #76889d */
 }

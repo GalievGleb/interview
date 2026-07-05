@@ -126,7 +126,9 @@ function ReadinessStrip({
 }
 
 export default function InterviewPage() {
-  const { hasAnyKey, hasStt } = useApp();
+  const { hasAnyKey, hasStt, license } = useApp();
+  // Гейт live: тариф basic и сгоревший trial не стартуют live (сервер дублирует).
+  const licenseOk = !license || license.live_allowed;
   const navigate = useNavigate();
   const {
     active,
@@ -477,6 +479,17 @@ export default function InterviewPage() {
     } catch {
       /* storage unavailable */
     }
+    // Also record into the backend latency telemetry (p50/p95 trend + budgets).
+    void api
+      .recordLatency({
+        stt_ms: dbg.timeToFinalMs != null ? Math.round(dbg.timeToFinalMs) : null,
+        llm_first_ms: dbg.llmFirstTokenMs != null ? Math.round(dbg.llmFirstTokenMs) : null,
+        llm_total_ms: dbg.llmTotalMs != null ? Math.round(dbg.llmTotalMs) : null,
+        total_ms: Math.round(dbg.totalEndToEndMs),
+      })
+      .catch(() => {
+        /* telemetry is best-effort */
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dbg?.totalEndToEndMs]);
 
@@ -494,7 +507,7 @@ export default function InterviewPage() {
         mode={mode}
         language={language}
         audioRate={audioRate}
-        canStart={hasAnyKey}
+        canStart={hasAnyKey && licenseOk}
         hasStt={hasStt}
         noSource={noSource}
         startBlocked={
@@ -588,6 +601,14 @@ export default function InterviewPage() {
       {isElectron && sources.mic && !sources.system && (
         <InterviewInlineAlert tone="warn">
           Включите системный звук — ответы строятся по вопросам интервьюера, а не по вашему микрофону.
+        </InterviewInlineAlert>
+      )}
+
+      {!licenseOk && (
+        <InterviewInlineAlert tone="warn">
+          {license?.plan === 'basic'
+            ? 'Тариф basic не включает live-режим и оверлей — обновитесь до max в «Настройках».'
+            : 'Пробные 15 минут live закончились. Активируйте лицензию в «Настройках» — подготовка и история продолжают работать.'}
         </InterviewInlineAlert>
       )}
 

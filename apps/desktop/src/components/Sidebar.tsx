@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
+import { useI18n, type I18nKey } from '../lib/i18n';
 import { WHISPER_MODEL_CARDS } from '@interview/shared';
 import { api } from '../lib/api';
 import { useApp } from '../context/AppContext';
@@ -135,32 +136,32 @@ function Icon({ name, size = 17 }: { name: IconName; size?: number }) {
   }
 }
 
-type NavItem = { to: string; label: string; icon: IconName; live?: boolean };
-type NavGroup = { title: string; items: NavItem[] };
+type NavItem = { to: string; label: I18nKey; icon: IconName; live?: boolean };
+type NavGroup = { title: I18nKey; items: NavItem[] };
 
 const GROUPS: NavGroup[] = [
   {
-    title: 'Подготовка',
+    title: 'nav.group.prep',
     items: [
-      { to: '/home', label: 'Пульт', icon: 'home' },
-      { to: '/prepare', label: 'Разбор вакансии', icon: 'vacancy' },
+      { to: '/home', label: 'nav.home', icon: 'home' },
+      { to: '/prepare', label: 'nav.prepare', icon: 'vacancy' },
     ],
   },
   {
-    title: 'Live',
-    items: [{ to: '/interview', label: 'Live-интервью', icon: 'interview', live: true }],
+    title: 'nav.group.live',
+    items: [{ to: '/interview', label: 'nav.interview', icon: 'interview', live: true }],
   },
   {
-    title: 'Контекст',
+    title: 'nav.group.context',
     items: [
-      { to: '/documents', label: 'Резюме и опыт', icon: 'documents' },
-      { to: '/history', label: 'История', icon: 'history' },
+      { to: '/documents', label: 'nav.documents', icon: 'documents' },
+      { to: '/history', label: 'nav.history', icon: 'history' },
     ],
   },
   {
     // Benchmark/Диагностика — инструменты разработчика, доступны из Настроек.
-    title: 'Система',
-    items: [{ to: '/settings', label: 'Настройки', icon: 'settings' }],
+    title: 'nav.group.system',
+    items: [{ to: '/settings', label: 'nav.settings', icon: 'settings' }],
   },
 ];
 
@@ -181,6 +182,7 @@ function useSessionLive(): boolean {
 
 export default function Sidebar() {
   const { backendOnline, hasAnyKey } = useApp();
+  const { t } = useI18n();
   const navigate = useNavigate();
   const sessionLive = useSessionLive();
   const [undetected, setUndetected] = useState(false);
@@ -240,7 +242,7 @@ export default function Sidebar() {
         {GROUPS.map((group) => (
           <div key={group.title} className="mb-3">
             <p className="px-3 pb-1 pt-2 text-[10px] font-bold uppercase tracking-[0.08em] text-ink-faint">
-              {group.title}
+              {t(group.title)}
             </p>
             <div className="space-y-1">
               {group.items.map((item) => (
@@ -256,7 +258,7 @@ export default function Sidebar() {
                       <span className={isActive ? 'text-accent' : 'text-ink-faint'}>
                         <Icon name={item.icon} />
                       </span>
-                      <span className="flex-1 truncate">{item.label}</span>
+                      <span className="flex-1 truncate">{t(item.label)}</span>
                       {item.live && sessionLive && (
                         <span className="sc-ping" aria-label="session live">
                           <span className="sc-ping__halo bg-emerald-400" />
@@ -303,10 +305,18 @@ export default function Sidebar() {
           label={`Backend ${backendOnline ? 'в сети' : 'не в сети'}`}
           tone={backendOnline ? 'success' : 'error'}
         />
-        <StatusBadge
-          label={hasAnyKey ? 'AI-ключ задан' : 'Нет AI-ключа'}
-          tone={hasAnyKey ? 'success' : 'warning'}
-        />
+        {hasAnyKey ? (
+          <StatusBadge label="AI-ключ задан" tone="success" />
+        ) : (
+          <button
+            type="button"
+            className="block w-full text-left transition-opacity hover:opacity-80"
+            onClick={() => navigate('/settings?tab=ai')}
+            title="AI-ключ не настроен — открыть настройки"
+          >
+            <StatusBadge label="Нет AI-ключа — настроить" tone="warning" />
+          </button>
+        )}
         {isElectron && (
           <div className="flex gap-1.5 pt-1">
             <button

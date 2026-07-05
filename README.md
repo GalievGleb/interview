@@ -2,6 +2,8 @@
 
 Desktop AI-ассистент для интервью: **локальный** STT (on-device Whisper) + подсказки по резюме.
 
+> 📈 **Go-to-Market:** план продаж, SEO и запуска — в [docs/gtm/README.md](docs/gtm/README.md) (стратегия, pre-launch чеклист, воронка, каналы, скрипты продаж, roadmap на 90 дней).
+
 > **Требования:** Node ≥ 20, **Python ≥ 3.11** (код использует `datetime.UTC`; на 3.10 не запустится), `pnpm`.
 >
 > **Архитектура бэкендов:** приложение работает с локальным `apps/api-py` (FastAPI). Каталог `apps/api` (NestJS, биллинг) пока **не подключён** к десктопу — см. [ADR 0001](docs/adr/0001-backend-architecture.md).

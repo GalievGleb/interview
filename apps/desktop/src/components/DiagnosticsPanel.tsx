@@ -38,6 +38,7 @@ export default function DiagnosticsPanel() {
   const [mic, setMic] = useState<MicStatus | null>(null);
   const [timings, setTimings] = useState<LastTimings | null>(readTimings);
   const [skipped, setSkipped] = useState<SkippedEntry[]>(readSkipped);
+  const [trend, setTrend] = useState<Awaited<ReturnType<typeof api.latencySummary>> | null>(null);
   const [error, setError] = useState('');
 
   const refresh = () => {
@@ -47,6 +48,12 @@ export default function DiagnosticsPanel() {
       .sttDiagnostics()
       .then(setDiag)
       .catch((e) => setError(e instanceof Error ? e.message : 'Нет данных'));
+    api
+      .latencySummary()
+      .then(setTrend)
+      .catch(() => {
+        /* trend is optional */
+      });
   };
 
   useEffect(() => {
@@ -214,6 +221,45 @@ export default function DiagnosticsPanel() {
           />
         </div>
       </div>
+
+      {trend && trend.count > 0 && (
+        <div className="sc-card p-5">
+          <div className="mb-3 flex items-center justify-between">
+            <h4 className="text-sm font-semibold text-ink">Латентность — тренд и бюджет</h4>
+            <span className="sc-mono text-[11px] text-ink-faint">по {trend.count} ответам</span>
+          </div>
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+            {(
+              [
+                ['stt_ms', 'Транскрипт'],
+                ['llm_first_ms', 'Первый токен'],
+                ['llm_total_ms', 'LLM полностью'],
+                ['total_ms', 'Всего'],
+              ] as const
+            ).map(([key, label]) => {
+              const s = trend.stages[key];
+              if (!s) return null;
+              const over = s.within_budget === false;
+              return (
+                <div key={key}>
+                  <p className="flex items-center gap-1.5 text-[11px] text-ink-faint">
+                    <span className={`sc-dot ${over ? 'sc-dot--warning' : 'sc-dot--success'}`} />
+                    {label}
+                  </p>
+                  <p className="sc-mono mt-1 text-lg font-semibold text-ink">
+                    {(s.p50 / 1000).toFixed(2)}s
+                    <span className="ml-1 text-[11px] font-normal text-ink-faint">p50</span>
+                  </p>
+                  <p className={`sc-mono text-[11px] ${over ? 'text-amber-300' : 'text-ink-faint'}`}>
+                    p95 {(s.p95 / 1000).toFixed(2)}s
+                    {s.budget ? ` / бюджет ${(s.budget / 1000).toFixed(1)}s` : ''}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {skipped.length > 0 && (
         <div className="sc-card p-5">

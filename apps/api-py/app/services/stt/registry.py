@@ -1,9 +1,9 @@
 """Provider registry + default selection.
 
-The product runs **on-device Whisper only**. Deepgram has been removed; there is
-no cloud STT provider and no Ollama in the live path. The registry stays as a
-small seam so a future optional provider could be added without touching call
-sites.
+Локальный Whisper — движок по умолчанию (приватно, бесплатно). Опционально
+подключаются облачные стриминговые движки: Deepgram Nova-3 и Яндекс SpeechKit v3
+(быстрее и точнее на слабом железе, нужен API-ключ). Выбор — в настройках STT
+(``engine``), live-сокет диспетчеризует раннер по нему.
 """
 
 from __future__ import annotations
@@ -64,15 +64,38 @@ def reset_cached_providers() -> None:
     clear_model_cache()
 
 
+def _cloud_providers() -> list[TranscriptionProvider]:
+    from .deepgram_stream import DeepgramProvider
+    from .speechkit_stream import SpeechKitProvider
+
+    return [DeepgramProvider(), SpeechKitProvider()]
+
+
 def get_provider(provider_id: str) -> TranscriptionProvider:
+    for provider in _cloud_providers():
+        if provider.id == provider_id:
+            return provider
     return build_whisper_provider(role="final")
 
 
 def all_providers() -> list[TranscriptionProvider]:
-    return [build_whisper_provider(role="final")]
+    return [build_whisper_provider(role="final"), *_cloud_providers()]
+
+
+# engine из настроек → id провайдера в реестре.
+ENGINE_PROVIDER_IDS = {
+    "deepgram": "deepgram-nova3",
+    "speechkit": "yandex-speechkit-v3",
+}
 
 
 def resolve_default_provider() -> TranscriptionProvider:
+    st = load_stt_settings()
+    wanted = ENGINE_PROVIDER_IDS.get(st.engine)
+    if wanted:
+        for provider in _cloud_providers():
+            if provider.id == wanted:
+                return provider
     return build_whisper_provider(role="final")
 
 
@@ -82,6 +105,7 @@ def diagnostics() -> dict:
     default = resolve_default_provider()
     return {
         "default": default.id,
+        "engine": st.engine,
         "localModel": st.final_model,
         "partialModel": st.partial_model,
         "finalModel": st.final_model,

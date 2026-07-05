@@ -12,7 +12,8 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5173,
+    // PORT задаёт превью-тулинг; Electron-dev и ручной запуск живут на 5173.
+    port: Number(process.env.PORT) || 5173,
     strictPort: true,
   },
   build: {

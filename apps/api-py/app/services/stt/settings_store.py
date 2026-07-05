@@ -17,6 +17,9 @@ STT_SETTINGS_PATH = DATA_DIR / "stt_settings.json"
 
 VALID_MODELS = {"fast", "balanced", "quality", "max"}
 VALID_DEVICES = {"auto", "cpu", "gpu"}
+# Live-движок: локальный Whisper (приватно, бесплатно) или облачный стриминг
+# (Deepgram Nova-3 / Яндекс SpeechKit v3 — быстрее, нужен API-ключ).
+VALID_ENGINES = {"whisper", "deepgram", "speechkit"}
 
 
 class SttSettings(BaseModel):
@@ -24,6 +27,7 @@ class SttSettings(BaseModel):
     partial_model: str = "fast"
     final_model: str = "balanced"
     device: str = "auto"
+    engine: str = "whisper"
 
     def sanitized(self) -> SttSettings:
         s = get_settings()
@@ -39,6 +43,7 @@ class SttSettings(BaseModel):
             partial_model=partial,
             final_model=final,
             device=self.device if self.device in VALID_DEVICES else s.stt_device,
+            engine=self.engine if self.engine in VALID_ENGINES else "whisper",
         )
 
 

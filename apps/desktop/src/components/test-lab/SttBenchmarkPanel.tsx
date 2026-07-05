@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { api, type SttBenchmarkCaseResult, type SttBenchmarkReport } from '../../lib/api';
+import {
+  api,
+  type SttBenchmarkCaseResult,
+  type SttBenchmarkReport,
+  type SttEngineId,
+} from '../../lib/api';
 
 function pct(value: number | undefined): string {
   if (value == null) return '—';
@@ -44,6 +49,7 @@ export default function SttBenchmarkPanel() {
   const [error, setError] = useState('');
   const [reports, setReports] = useState<Array<{ filename: string; modifiedAt: string }>>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [engine, setEngine] = useState<SttEngineId>('whisper');
 
   const loadReports = useCallback(async () => {
     try {
@@ -62,7 +68,7 @@ export default function SttBenchmarkPanel() {
     setRunning(true);
     setError('');
     try {
-      const rep = await api.sttBenchmarkRunAll(true);
+      const rep = await api.sttBenchmarkRunAll(true, engine);
       setReport(rep);
       await loadReports();
     } catch (err) {
@@ -70,7 +76,7 @@ export default function SttBenchmarkPanel() {
     } finally {
       setRunning(false);
     }
-  }, [loadReports]);
+  }, [loadReports, engine]);
 
   const openReport = useCallback(async (filename: string) => {
     if (!filename) return;
@@ -101,6 +107,16 @@ export default function SttBenchmarkPanel() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
+        <select
+          className="select-compact"
+          value={engine}
+          onChange={(e) => setEngine(e.target.value as SttEngineId)}
+          title="Движок распознавания: сравните на одних и тех же записях"
+        >
+          <option value="whisper">Local Whisper</option>
+          <option value="deepgram">Deepgram Nova-3</option>
+          <option value="speechkit">Яндекс SpeechKit</option>
+        </select>
         {reports.length > 0 && (
           <select
             className="select-compact min-w-[220px]"

@@ -22,13 +22,15 @@ binaries: list = []
 hiddenimports: list = []
 
 # Python Knowledge Pack runtime data (parsed records; NOT the raw source md).
-_pack_rel = os.path.join("app", "knowledge", "packs", "python_interview_questions")
-for _fn in ("index.json", "answers.json", "metadata.json", "curated.json"):
-    _src = os.path.join(_pack_rel, _fn)
-    if os.path.exists(_src):
-        datas.append((_src, _pack_rel))
+_packs_root = os.path.join("app", "knowledge", "packs")
+for _pack in os.listdir(_packs_root) if os.path.isdir(_packs_root) else []:
+    _pack_rel = os.path.join(_packs_root, _pack)
+    for _fn in ("index.json", "answers.json", "metadata.json", "curated.json"):
+        _src = os.path.join(_pack_rel, _fn)
+        if os.path.exists(_src):
+            datas.append((_src, _pack_rel))
 
-for pkg in ("faster_whisper", "ctranslate2", "tokenizers", "onnxruntime", "av", "huggingface_hub"):
+for pkg in ("faster_whisper", "ctranslate2", "tokenizers", "onnxruntime", "av", "huggingface_hub", "cryptography", "cffi"):
     try:
         pkg_datas, pkg_binaries, pkg_hidden = collect_all(pkg)
         datas += pkg_datas

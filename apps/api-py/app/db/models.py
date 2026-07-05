@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import (
     Boolean,
@@ -18,7 +18,7 @@ def _uuid() -> str:
 
 def _now() -> datetime:
     # Наивный UTC — как и раньше хранился в БД, но без deprecated utcnow().
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 class Base(DeclarativeBase):
@@ -123,3 +123,55 @@ class ApiUsage(Base):
     tokens_out: Mapped[int] = mapped_column(Integer, default=0)
     stt_seconds: Mapped[int] = mapped_column(Integer, default=0)
     ts: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+class MockSession(Base):
+    """Vacancy Smoke Review session — durable home for what used to live only
+    in the renderer's localStorage. Payload is the full frontend session JSON
+    (schema evolves on the frontend; the backend only keys/sorts it)."""
+
+    __tablename__ = "mock_sessions"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    status: Mapped[str] = mapped_column(String, default="in_progress")
+    started_at: Mapped[int] = mapped_column(Integer, default=0)  # epoch ms
+    updated_at: Mapped[int] = mapped_column(Integer, default=0)  # epoch ms
+    payload: Mapped[str] = mapped_column(Text, default="{}")
+
+
+class AnswerLatency(Base):
+    """Per-answer pipeline timings — powers the p50/p95 latency trend and the
+    latency budget check on the Diagnostics screen."""
+
+    __tablename__ = "answer_latency"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    stt_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    llm_first_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    llm_total_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    total_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    ts: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+class AnswerFeedback(Base):
+    """User's 👍/👎 on a generated answer — the raw material for prompt and
+    glossary tuning (downvotes carry the question + answer for later review)."""
+
+    __tablename__ = "answer_feedback"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    verdict: Mapped[str] = mapped_column(String)  # up | down
+    question: Mapped[str] = mapped_column(Text, default="")
+    answer: Mapped[str] = mapped_column(Text, default="")
+    raw_transcript: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source: Mapped[str] = mapped_column(String, default="live")  # live | manual
+    ts: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+class AppMeta(Base):
+    """Small key-value store for app-level facts (first run, license key…)."""
+
+    __tablename__ = "app_meta"
+
+    key: Mapped[str] = mapped_column(String, primary_key=True)
+    value: Mapped[str] = mapped_column(Text, default="")

@@ -32,18 +32,33 @@ jobs:
           pip install -r requirements.txt -r requirements-whisper.txt pyinstaller
           pyinstaller skillcue-backend.spec
           test -f dist/skillcue-backend/skillcue-backend.exe
-      - name: Smoke-test frozen backend (/health)
+      - name: Smoke-test frozen backend (health + auth + core endpoints)
         working-directory: apps/api-py
         env:
           SKILLCUE_PORT: '8123'
+          SKILLCUE_API_TOKEN: 'ci-smoke-token'
         run: |
           ./dist/skillcue-backend/skillcue-backend.exe &
           pid=$!
           ok=0
-          for _ in $(seq 1 30); do
+          for _ in $(seq 1 60); do
             if curl -fsS "http://127.0.0.1:8123/health" >/dev/null; then ok=1; echo "frozen backend healthy"; break; fi
             sleep 1
           done
+          # Токен-барьер должен пережить заморозку: без заголовка — 401.
+          if [ "$ok" = "1" ]; then
+            code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:8123/stt/providers")
+            if [ "$code" = "401" ]; then echo "auth barrier OK (401 without token)"; else echo "expected 401 without token, got $code"; ok=0; fi
+          fi
+          if [ "$ok" = "1" ]; then
+            for path in /stt/providers /license/status; do
+              if curl -fsS -H "X-SkillCue-Token: $SKILLCUE_API_TOKEN" "http://127.0.0.1:8123$path" >/dev/null; then
+                echo "$path OK"
+              else
+                echo "$path failed with token"; ok=0; break
+              fi
+            done
+          fi
           kill "$pid" 2>/dev/null || true
           test "$ok" = "1"
 

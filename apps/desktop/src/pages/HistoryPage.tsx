@@ -176,6 +176,13 @@ export default function HistoryPage() {
     void loadSessions();
   }, [loadSessions]);
 
+  // Re-read after the launch reconcile pulls mock sessions from the backend.
+  useEffect(() => {
+    const refresh = () => setMockSessions(listMockSessions());
+    window.addEventListener('skillcue:mock-sessions-synced', refresh);
+    return () => window.removeEventListener('skillcue:mock-sessions-synced', refresh);
+  }, []);
+
   const open = async (id: string) => {
     try {
       const detail = await api.getSession(id);

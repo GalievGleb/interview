@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import func
@@ -44,7 +44,7 @@ def _usage_rows(db: Session, since: datetime | None = None) -> list[dict]:
 @router.get("/usage")
 def usage(db: Session = Depends(get_db)) -> dict:
     # БД хранит наивные UTC-датывремена — сравниваем с таким же наивным UTC.
-    since = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=30)
+    since = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=30)
     return {
         "usage": _usage_rows(db),
         "last_30_days": _usage_rows(db, since=since),

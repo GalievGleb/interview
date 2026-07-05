@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { topicStatusFromScore, topicStatusTone } from '../../lib/vacancyReview/readiness';
 import { useVoiceAnswer } from '../../lib/vacancyReview/useVoiceAnswer';
+import { MAX_DRILL_DEPTH, drillDepth } from '../../lib/vacancyReview/vacancyReviewService';
 import type { Difficulty, QuestionLevel, SmokeReviewSession } from '../../lib/vacancyReview/types';
 
 /** Same thresholds as the readiness map, so scores read identically everywhere. */
@@ -14,6 +15,8 @@ interface Props {
   onSubmitAnswer: (text: string, source: 'voice' | 'text', skipped?: boolean) => void;
   onNext: () => void;
   onFinish: () => void;
+  /** Дожим: вставить уточняющий вопрос интервьюера следующим и перейти к нему. */
+  onAskFollowUp?: (text: string) => void;
 }
 
 const DIFF_TONE: Record<Difficulty, string> = {
@@ -41,6 +44,7 @@ export default function SmokeInterviewView({
   onSubmitAnswer,
   onNext,
   onFinish,
+  onAskFollowUp,
 }: Props) {
   const { questions, currentIndex, vacancyAnalysis } = session;
   const question = questions[currentIndex];
@@ -53,6 +57,18 @@ export default function SmokeInterviewView({
   }, [currentIndex]);
 
   const voice = useVoiceAnswer((t) => setText(t), vacancyAnalysis.language);
+
+  // Таймер ответа: лёгкое давление времени, как на реальном интервью.
+  // Стартует при показе вопроса, замирает после оценки.
+  const [elapsedS, setElapsedS] = useState(0);
+  useEffect(() => {
+    setElapsedS(0);
+    if (existing) return;
+    const startedAt = Date.now();
+    const t = setInterval(() => setElapsedS(Math.floor((Date.now() - startedAt) / 1000)), 1000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentIndex, Boolean(existing)]);
 
   // Оценка появляется НИЖЕ карточки вопроса — доводим пользователя до неё,
   // иначе на небольшом экране легко не заметить, что ответ уже разобран.
@@ -71,6 +87,12 @@ export default function SmokeInterviewView({
   const evaluation = existing?.evaluation;
   const answered = Boolean(existing);
   const isLast = currentIndex === questions.length - 1;
+  // Дожим доступен, пока по этому вопросу не дожимали и цепочка не упёрлась в
+  // потолок (вопрос → дожим → дожим, как у живого интервьюера).
+  const canDrill =
+    Boolean(onAskFollowUp) &&
+    !questions.some((q) => q.parentQuestionId === question.id) &&
+    drillDepth(question, questions) < MAX_DRILL_DEPTH;
   const progress = Math.round(((currentIndex + (answered ? 1 : 0)) / questions.length) * 100);
   const canEvaluate = text.trim().length >= 2 && !evaluating;
   const submitCurrentAnswer = () => {
@@ -85,8 +107,18 @@ export default function SmokeInterviewView({
           <div className="flex items-center justify-between gap-2">
             <p className="prep-faint">
               Вопрос {currentIndex + 1} из {questions.length}
+              {!answered && elapsedS >= 5 && (
+                <span
+                  title="Время на этот ответ. На реальном интервью 2–3 минуты — норма."
+                  style={elapsedS >= 180 ? { color: 'var(--prep-amber)' } : undefined}
+                >
+                  {' '}
+                  · ⏱ {Math.floor(elapsedS / 60)}:{String(elapsedS % 60).padStart(2, '0')}
+                </span>
+              )}
             </p>
             <div className="flex gap-1.5">
+              {question.isFollowUp && <span className="prep-chip prep-tone-amber">Дожим</span>}
               <span className="prep-chip prep-tone-violet">{topic?.title}</span>
               {question.level && (
                 <span className="prep-chip prep-tone-blue">{LEVEL_LABEL[question.level]}</span>
@@ -102,9 +134,12 @@ export default function SmokeInterviewView({
         </div>
 
         <div className="prep-card prep-card-pad">
-          <p className="text-[17px] font-semibold leading-snug" style={{ color: 'var(--prep-ink)' }}>
-            {question.question}
-          </p>
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-[17px] font-semibold leading-snug" style={{ color: 'var(--prep-ink)' }}>
+              {question.question}
+            </p>
+            <SpeakButton text={question.question} lang={vacancyAnalysis.language} />
+          </div>
 
           {question.whyAsked && (
             <p className="prep-faint mt-2">Зачем спрашивают: {question.whyAsked}</p>
@@ -212,6 +247,15 @@ export default function SmokeInterviewView({
 
         {evaluation && (
           <div ref={evalRef} className="prep-card prep-card-pad space-y-3">
+            {evaluation.evaluationSource === 'heuristic' && (
+              <p
+                className="rounded-md px-3 py-2 text-[12.5px] font-semibold"
+                style={{ background: 'color-mix(in srgb, var(--prep-amber) 14%, transparent)', color: 'var(--prep-amber)' }}
+              >
+                ⚠ Приблизительная локальная оценка — AI не подключён. Проценты ориентировочные,
+                полноценный разбор появится после подключения ключа в настройках.
+              </p>
+            )}
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="prep-h2">Оценка ответа</p>
@@ -234,7 +278,9 @@ export default function SmokeInterviewView({
               </div>
             </div>
 
-            {evaluation.suggestedBetterAnswer && (
+            {/* Эвристическая «сильная версия» — шаблон, не привязанный к вопросу;
+                без AI она вводит в заблуждение, поэтому показываем только AI-версию. */}
+            {evaluation.suggestedBetterAnswer && evaluation.evaluationSource !== 'heuristic' && (
               <div className="prep-strong-answer">
                 <p className="prep-eyebrow">Сильная версия ответа</p>
                 <p className="mt-2 whitespace-pre-wrap">{evaluation.suggestedBetterAnswer}</p>
@@ -325,12 +371,39 @@ export default function SmokeInterviewView({
             )}
 
             {evaluation.followUpQuestions && evaluation.followUpQuestions.length > 0 && (
-              <FeedbackList
-                label="Чем докопается интервьюер"
-                items={evaluation.followUpQuestions}
-                color="var(--prep-ink-muted)"
-                mark="?"
-              />
+              <div>
+                <p
+                  className="text-[12px] font-bold uppercase tracking-wide"
+                  style={{ color: 'var(--prep-ink-faint)' }}
+                >
+                  Чем докопается интервьюер
+                </p>
+                <ul className="mt-1 space-y-1">
+                  {evaluation.followUpQuestions.map((fq) => (
+                    <li key={fq} className="prep-sub flex items-start gap-2">
+                      <span className="shrink-0 font-bold" style={{ color: 'var(--prep-ink-muted)' }}>
+                        ?
+                      </span>
+                      <span className="min-w-0 flex-1">{fq}</span>
+                      {canDrill && onAskFollowUp && (
+                        <button
+                          type="button"
+                          className="prep-link-btn shrink-0"
+                          onClick={() => onAskFollowUp(fq)}
+                          title="Ответить на этот дожим прямо сейчас"
+                        >
+                          Ответить →
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+                {canDrill && onAskFollowUp && (
+                  <p className="prep-faint mt-1.5">
+                    Кликните «Ответить» — дожим станет следующим вопросом и попадёт в отчёт по этой же теме.
+                  </p>
+                )}
+              </div>
             )}
 
             {evaluation.nextTrainingFocus && (
@@ -378,6 +451,49 @@ export default function SmokeInterviewView({
         </div>
       </aside>
     </div>
+  );
+}
+
+/**
+ * Озвучка вопроса системным голосом (Web Speech API) — тренировка на слух,
+ * как на реальном интервью. Кнопка прячется, если синтез речи недоступен.
+ */
+function SpeakButton({ text, lang }: { text: string; lang: 'ru' | 'en' }) {
+  const [speaking, setSpeaking] = useState(false);
+
+  useEffect(() => {
+    // Смена вопроса или уход со страницы — обрываем озвучку.
+    return () => window.speechSynthesis?.cancel();
+  }, [text]);
+
+  if (typeof window === 'undefined' || !('speechSynthesis' in window)) return null;
+
+  const toggle = () => {
+    const synth = window.speechSynthesis;
+    if (speaking) {
+      synth.cancel();
+      setSpeaking(false);
+      return;
+    }
+    synth.cancel();
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.lang = lang === 'ru' ? 'ru-RU' : 'en-US';
+    utter.rate = 1;
+    utter.onend = () => setSpeaking(false);
+    utter.onerror = () => setSpeaking(false);
+    setSpeaking(true);
+    synth.speak(utter);
+  };
+
+  return (
+    <button
+      type="button"
+      className="prep-btn-ghost prep-btn-sm shrink-0"
+      onClick={toggle}
+      title={speaking ? 'Остановить озвучку' : 'Озвучить вопрос — как будто его задал интервьюер'}
+    >
+      {speaking ? '■ Стоп' : '🔊 Озвучить'}
+    </button>
   );
 }
 

@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
@@ -13,7 +13,7 @@ router = APIRouter(prefix="/sessions", tags=["sessions"])
 
 def _naive_utc_now() -> datetime:
     # БД хранит наивный UTC — сохраняем формат, избегая deprecated utcnow().
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 def _session_is_empty(session: InterviewSession) -> bool:
@@ -62,12 +62,62 @@ def list_sessions(db: Session = Depends(get_db)) -> dict:
 
 # Слова, не несущие темы вопроса, — отфильтровываем при подсчёте частых тем.
 _TOPIC_STOPWORDS = {
-    "как", "что", "чем", "почему", "зачем", "какие", "какой", "какая", "когда", "где",
-    "расскажи", "расскажите", "объясни", "объясните", "можно", "нужно", "есть", "было",
-    "быть", "это", "или", "для", "при", "про", "вам", "вас", "она", "оно", "они", "его",
-    "еще", "ещё", "уже", "если", "чтобы", "такое", "работает", "используете", "делали",
-    "the", "and", "you", "your", "how", "what", "why", "when", "where", "does", "did",
-    "with", "for", "are", "was", "have", "has",
+    "как",
+    "что",
+    "чем",
+    "почему",
+    "зачем",
+    "какие",
+    "какой",
+    "какая",
+    "когда",
+    "где",
+    "расскажи",
+    "расскажите",
+    "объясни",
+    "объясните",
+    "можно",
+    "нужно",
+    "есть",
+    "было",
+    "быть",
+    "это",
+    "или",
+    "для",
+    "при",
+    "про",
+    "вам",
+    "вас",
+    "она",
+    "оно",
+    "они",
+    "его",
+    "еще",
+    "ещё",
+    "уже",
+    "если",
+    "чтобы",
+    "такое",
+    "работает",
+    "используете",
+    "делали",
+    "the",
+    "and",
+    "you",
+    "your",
+    "how",
+    "what",
+    "why",
+    "when",
+    "where",
+    "does",
+    "did",
+    "with",
+    "for",
+    "are",
+    "was",
+    "have",
+    "has",
 }
 
 
@@ -98,9 +148,7 @@ def session_stats(db: Session = Depends(get_db)) -> dict:
         "interview_sessions": len(interviews),
         "meeting_sessions": len(meetings),
         "total_answers": len(answers),
-        "avg_answers_per_session": (
-            round(len(answers) / len(interviews), 1) if interviews else 0
-        ),
+        "avg_answers_per_session": (round(len(answers) / len(interviews), 1) if interviews else 0),
         "last_session_at": last_session_at.isoformat() if last_session_at else None,
         "top_topics": [{"topic": t, "count": c} for t, c in top_topics if c > 1],
     }

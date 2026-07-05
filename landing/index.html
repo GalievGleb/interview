@@ -9,6 +9,26 @@
   <meta property="og:title" content="SkillCue - подготовка и live-подсказки для интервью" />
   <meta property="og:description" content="От вакансии до короткой подсказки на live-интервью: разбор, тренировка, карта готовности и overlay." />
   <meta property="og:type" content="website" />
+  <!-- TODO после покупки домена: вписать домен и раскомментировать -->
+  <!-- <link rel="canonical" href="https://ВАШ-ДОМЕН/" /> -->
+  <!-- <meta property="og:url" content="https://ВАШ-ДОМЕН/" /> -->
+  <!-- TODO: сделать картинку 1200x630 (скрин разбора вакансии) и положить рядом как og.png -->
+  <!-- <meta property="og:image" content="https://ВАШ-ДОМЕН/og.png" /> -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "SkillCue",
+    "operatingSystem": "Windows",
+    "applicationCategory": "BusinessApplication",
+    "description": "SkillCue разбирает вакансию, показывает вероятные вопросы и риски, тренирует ответы и даёт короткую live-подсказку во время интервью. Распознавание речи работает локально.",
+    "offers": [
+      { "@type": "Offer", "name": "Старт", "price": "0", "priceCurrency": "RUB" },
+      { "@type": "Offer", "name": "Базовый", "price": "1490", "priceCurrency": "RUB" },
+      { "@type": "Offer", "name": "Максимум", "price": "2990", "priceCurrency": "RUB" }
+    ]
+  }
+  </script>
   <style>
     :root {
       --bg: #05070b;
@@ -394,6 +414,39 @@
       color: #eaf3ff;
     }
 
+    .msg { margin-bottom: 14px; }
+    .msg .bubble { margin-bottom: 0; }
+
+    .msg-label {
+      display: block;
+      margin-bottom: 4px;
+      color: rgba(126,179,255,.72);
+      font-size: 10px;
+      font-weight: 850;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
+    .msg.me .msg-label {
+      text-align: right;
+      color: rgba(126,231,164,.78);
+    }
+
+    .typing {
+      display: inline-block;
+      margin-left: 2px;
+      color: #92f3ad;
+      animation: cue-blink 1s step-end infinite;
+    }
+
+    @keyframes cue-blink {
+      50% { opacity: 0; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .typing { animation: none; }
+    }
+
     .cue-panel {
       padding: 22px;
       background:
@@ -506,7 +559,7 @@
       display: flex;
       min-height: 100%;
       flex-direction: column;
-      justify-content: space-between;
+      justify-content: center;
       gap: 22px;
     }
 
@@ -708,95 +761,109 @@
     }
 
     .timeline {
-      position: relative;
       display: grid;
-      gap: 38px;
-      max-width: 900px;
+      gap: 16px;
+      max-width: 1020px;
       margin: 0 auto;
     }
 
-    .timeline::before {
-      content: "";
-      position: absolute;
-      left: 50%;
-      top: 18px;
-      bottom: 18px;
-      width: 1px;
-      background: linear-gradient(180deg, transparent, rgba(244,247,251,.18), transparent);
-    }
-
+    /* Шаг — одна карточка: номер, текст и живой фрагмент интерфейса в один ряд.
+       Никаких зигзагов и общей вертикальной линии — нечему разъезжаться. */
     .step {
-      position: relative;
       display: grid;
-      grid-template-columns: minmax(0, 1fr) 44px minmax(0, 1fr);
-      gap: 22px;
+      grid-template-columns: 52px minmax(0, 1fr) minmax(0, 400px);
+      gap: 26px;
       align-items: center;
-    }
-
-    .step:nth-child(even) .step-copy {
-      grid-column: 3;
-    }
-
-    .step:nth-child(even) .step-visual {
-      grid-column: 1;
-      grid-row: 1;
+      padding: 26px 28px;
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      background: linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.025));
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.07);
     }
 
     .step-dot {
-      grid-column: 2;
       display: grid;
       place-items: center;
-      width: 34px;
-      height: 34px;
-      margin: 0 auto;
-      border: 1px solid var(--line-strong);
+      width: 52px;
+      height: 52px;
+      border: 1px solid rgba(70,211,125,.34);
       border-radius: 50%;
-      background: #0a101a;
+      background: rgba(70,211,125,.1);
       color: var(--green-2);
-      font-size: 12px;
-      font-weight: 920;
-      box-shadow: 0 0 0 7px rgba(70,211,125,.06);
+      font-family: var(--display);
+      font-size: 17px;
+      font-weight: 900;
+      box-shadow: 0 0 0 8px rgba(70,211,125,.05);
     }
 
     .step-copy h3 {
-      margin-bottom: 8px;
-      font-size: 24px;
-      letter-spacing: -.04em;
+      margin: 0 0 8px;
+      font-family: var(--display);
+      font-size: clamp(22px, 2.6vw, 30px);
+      letter-spacing: -.045em;
     }
 
     .step-copy p {
       margin: 0;
-      color: rgba(244,247,251,.75);
-      font-size: 14px;
-      line-height: 1.6;
+      color: rgba(244,247,251,.82);
+      font-size: 15.5px;
+      line-height: 1.55;
     }
 
     .step-visual {
-      min-height: 154px;
-      padding: 18px;
+      padding: 16px;
       border: 1px solid var(--line);
-      border-radius: 22px;
-      background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.032));
-      box-shadow: var(--shadow-soft), inset 0 1px 0 rgba(255,255,255,.07);
+      border-radius: 18px;
+      background: rgba(4, 10, 18, .55);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.05);
     }
 
-    .mini-lines {
-      display: grid;
-      gap: 10px;
+    .step-visual .risk-row:last-child {
+      margin-bottom: 0;
     }
 
-    .mini-line {
-      height: 10px;
+    /* Шаг 01: текст вакансии с подсвеченными находками — видно, ЧТО именно
+       разбор вытаскивает, вместо абстрактных полосок-скелетона. */
+    .scan-text {
+      margin: 0 0 12px;
+      color: rgba(244,247,251,.62);
+      font-size: 13px;
+      line-height: 1.65;
+    }
+
+    .scan-text mark {
+      padding: 1px 5px;
+      border-radius: 6px;
+      background: rgba(70,211,125,.16);
+      color: #9df3ba;
+      font-weight: 760;
+    }
+
+    .scan-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .scan-tag {
+      padding: 6px 11px;
+      border: 1px solid rgba(70,211,125,.3);
       border-radius: 999px;
-      background: rgba(126,179,255,.28);
+      background: rgba(70,211,125,.1);
+      color: var(--green-2);
+      font-size: 11.5px;
+      font-weight: 870;
     }
 
-    .mini-line.green { background: rgba(70,211,125,.5); }
-    .mini-line.yellow { background: rgba(255,214,109,.55); }
-    .mini-line.short { width: 58%; }
+    .scan-tag.warn {
+      border-color: rgba(255,214,109,.3);
+      background: rgba(255,214,109,.1);
+      color: var(--yellow);
+    }
 
     .risk-row {
       display: flex;
+      align-items: center;
       justify-content: space-between;
       gap: 12px;
       margin-bottom: 9px;
@@ -810,6 +877,21 @@
 
     .risk-row strong {
       color: var(--yellow);
+      white-space: nowrap;
+    }
+
+    /* Вес темы: «спросят точно» — синий (инфо), «важно» — жёлтый, «риск» — красный. */
+    .risk-row strong.hot { color: var(--blue); }
+    .risk-row strong.bad { color: var(--danger); }
+
+    .progress-label {
+      display: block;
+      margin-bottom: 10px;
+      color: rgba(244,247,251,.66);
+      font-size: 11.5px;
+      font-weight: 870;
+      letter-spacing: .07em;
+      text-transform: uppercase;
     }
 
     .progress-card strong {
@@ -847,6 +929,56 @@
       line-height: 1.45;
     }
 
+    /* Полоски готовности внутри белой панели снапшота — компактнее, чем в приложении. */
+    .result-example .skills-board {
+      gap: 10px;
+    }
+
+    .result-example .skill-row {
+      padding: 12px 14px;
+      box-shadow: none;
+    }
+
+    /* Мини-фрагменты интерфейса внутри карточек «Фокус». */
+    .feature-art {
+      display: grid;
+      gap: 8px;
+      margin: 14px 0 12px;
+    }
+
+    .feature-art .risk-row {
+      margin-bottom: 0;
+    }
+
+    .verdict {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 13px;
+      background: rgba(255,255,255,.05);
+      color: rgba(244,247,251,.83);
+      font-size: 12px;
+      font-weight: 830;
+    }
+
+    .verdict::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      flex-shrink: 0;
+      border-radius: 50%;
+      background: var(--green);
+    }
+
+    .verdict.warn::before { background: var(--yellow); }
+    .verdict.bad::before { background: var(--danger); }
+
+    .pricing-assure {
+      max-width: 760px;
+    }
+
     .feature-grid,
     .pricing-grid {
       display: grid;
@@ -864,9 +996,79 @@
     }
 
     .feature-card {
-      min-height: 184px;
-      padding: 22px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      padding: 0;
+      border-color: var(--line-strong);
       transition: transform .16s ease, border-color .16s ease, background .16s ease;
+    }
+
+    /* «Три экрана SkillCue» — буквально: мини-окно приложения сверху,
+       объяснение снизу. У каждого экрана свой цвет, чтобы не сливались. */
+    .fc-screen {
+      position: relative;
+      flex: none;
+      padding: 14px 16px 18px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(3, 8, 15, .78);
+    }
+
+    .fc-dots {
+      display: flex;
+      gap: 5px;
+      margin-bottom: 12px;
+    }
+
+    .fc-dots i {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: rgba(244,247,251,.16);
+    }
+
+    .fc-screen .risk-row {
+      margin-bottom: 0;
+      background: rgba(255,255,255,.07);
+    }
+
+    .fc-screen .risk-row + .risk-row,
+    .fc-screen .verdict + .verdict {
+      margin-top: 8px;
+    }
+
+    .fc-body {
+      display: flex;
+      flex: 1;
+      flex-direction: column;
+      padding: 18px 22px 22px;
+    }
+
+    .feature-card.fc-blue { border-color: rgba(126,179,255,.32); }
+    .feature-card.fc-blue:hover { border-color: rgba(126,179,255,.55); }
+    .feature-card.fc-blue small { color: var(--blue); }
+    .fc-blue .fc-screen {
+      background:
+        radial-gradient(240px 130px at 85% 0%, rgba(126,179,255,.17), transparent 66%),
+        rgba(3, 8, 15, .78);
+    }
+
+    .feature-card.fc-violet { border-color: rgba(163,145,255,.32); }
+    .feature-card.fc-violet:hover { border-color: rgba(163,145,255,.55); }
+    .feature-card.fc-violet small { color: var(--violet); }
+    .fc-violet .fc-screen {
+      background:
+        radial-gradient(240px 130px at 85% 0%, rgba(163,145,255,.16), transparent 66%),
+        rgba(3, 8, 15, .78);
+    }
+
+    .feature-card.fc-green { border-color: rgba(70,211,125,.36); }
+    .feature-card.fc-green:hover { border-color: rgba(126,231,164,.6); }
+    .feature-card.fc-green small { color: var(--green-2); }
+    .fc-green .fc-screen {
+      background:
+        radial-gradient(240px 130px at 85% 0%, rgba(70,211,125,.17), transparent 66%),
+        rgba(3, 8, 15, .78);
     }
 
     .feature-card.primary-feature {
@@ -1025,13 +1227,26 @@
       text-align: center;
     }
 
+    /* Финал: тёмная панель с самым сильным свечением на странице — зелёная
+       кнопка здесь главный источник света, ничто с ней не спорит. */
     .final-box {
-      padding: 44px 22px;
-      border: 1px solid rgba(70,211,125,.18);
+      padding: 56px 26px;
+      border: 1px solid rgba(70,211,125,.34);
       border-radius: var(--radius-xl);
       background:
-        radial-gradient(500px 220px at 50% 0%, rgba(70,211,125,.13), transparent 62%),
-        rgba(255,255,255,.045);
+        radial-gradient(640px 300px at 50% -12%, rgba(70,211,125,.2), transparent 62%),
+        radial-gradient(520px 260px at 8% 100%, rgba(126,179,255,.1), transparent 60%),
+        rgba(255,255,255,.05);
+      box-shadow:
+        0 40px 120px rgba(0,0,0,.4),
+        0 0 90px rgba(70,211,125,.12),
+        inset 0 1px 0 rgba(255,255,255,.09);
+    }
+
+    .final-box .pricing-note a {
+      color: var(--green-2);
+      font-weight: 850;
+      text-decoration: underline;
     }
 
     .final h2 {
@@ -1049,6 +1264,24 @@
       color: rgba(244,247,251,.44);
       font-size: 12px;
       text-align: center;
+    }
+
+    .footer a {
+      color: rgba(244,247,251,.64);
+      text-decoration: none;
+    }
+
+    .footer a:hover {
+      color: rgba(244,247,251,.9);
+    }
+
+    .pricing-note {
+      margin: 18px auto 0;
+      max-width: 560px;
+      text-align: center;
+      color: rgba(244,247,251,.56);
+      font-size: 13px;
+      line-height: 1.5;
     }
 
     .micro-proof {
@@ -1087,30 +1320,20 @@
         grid-template-columns: 1fr;
       }
 
-      .timeline::before {
-        left: 17px;
-      }
-
-      .step,
-      .step:nth-child(even) {
+      .step {
         grid-template-columns: 44px minmax(0, 1fr);
+        gap: 18px;
+        padding: 20px;
       }
 
       .step-dot {
-        grid-column: 1;
-        grid-row: 1;
+        width: 44px;
+        height: 44px;
+        font-size: 15px;
       }
 
-      .step-copy,
-      .step:nth-child(even) .step-copy,
-      .step-visual,
-      .step:nth-child(even) .step-visual {
-        grid-column: 2;
-      }
-
-      .step-visual,
-      .step:nth-child(even) .step-visual {
-        grid-row: auto;
+      .step-visual {
+        grid-column: 1 / -1;
       }
     }
 
@@ -1232,9 +1455,151 @@
       }
     }
 
+    /* Акцентное слово в заголовках — тот же приём, что в hero, чтобы энергия
+       первого экрана не обрывалась после скролла. */
+    .section-head h2 span,
+    .final h2 span {
+      color: var(--green-2);
+    }
+
+    .result-copy h2 span {
+      color: #0f8f4e;
+    }
+
+    /* Прогрессия шагов в цветах приложения: разбор=инфо, риски=warn,
+       готовность=оценка, live=бренд. Последовательность видна без чтения. */
+    .step:nth-child(1) .step-dot {
+      border-color: rgba(126,179,255,.4);
+      background: rgba(126,179,255,.12);
+      color: var(--blue);
+      box-shadow: 0 0 0 8px rgba(126,179,255,.05);
+    }
+
+    .step:nth-child(2) .step-dot {
+      border-color: rgba(255,214,109,.4);
+      background: rgba(255,214,109,.12);
+      color: var(--yellow);
+      box-shadow: 0 0 0 8px rgba(255,214,109,.05);
+    }
+
+    .step:nth-child(3) .step-dot {
+      border-color: rgba(163,145,255,.42);
+      background: rgba(163,145,255,.13);
+      color: var(--violet);
+      box-shadow: 0 0 0 8px rgba(163,145,255,.05);
+    }
+
+    .price-card.highlight {
+      position: relative;
+    }
+
+    .price-card.highlight::before {
+      content: "Выбирают чаще";
+      position: absolute;
+      top: -12px;
+      right: 18px;
+      padding: 5px 12px;
+      border-radius: 999px;
+      background: linear-gradient(180deg, #65df91, #34c96f);
+      color: #06140d;
+      font-size: 11px;
+      font-weight: 900;
+      letter-spacing: .04em;
+      box-shadow: 0 10px 26px rgba(70,211,125,.3);
+    }
+
+    /* Скролл-ритм: карточки всплывают, полоски готовности наливаются.
+       Работает только при поддержке IntersectionObserver (класс .js). */
+    .js [data-reveal] {
+      opacity: 0;
+      transform: translateY(16px);
+      transition: opacity .55s ease, transform .55s ease;
+      transition-delay: var(--reveal-delay, 0s);
+    }
+
+    .js [data-reveal].in-view {
+      opacity: 1;
+      transform: none;
+    }
+
+    /* Аварийный режим: рендер не отдаёт кадры → показываем всё без анимаций. */
+    .reveal-off [data-reveal] {
+      opacity: 1 !important;
+      transform: none !important;
+      transition: none !important;
+    }
+
+    .reveal-off .skill-track > span,
+    .reveal-off .progress-track > span {
+      transition: none !important;
+    }
+
+    .js .skill-track > span,
+    .js .progress-track > span {
+      transition: width .9s cubic-bezier(.22, .8, .36, 1) .15s;
+    }
+
+    /* Прожектор под курсором: карточка подсвечивается там, где мышь.
+       Только для точных указателей — на тач-устройствах эффекта нет. */
+    @media (hover: hover) and (pointer: fine) {
+      .step,
+      .feature-card,
+      .price-card,
+      .hero-demo {
+        position: relative;
+      }
+
+      .step::after,
+      .feature-card::after,
+      .price-card::after,
+      .hero-demo::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        background: radial-gradient(
+          260px circle at var(--mx, 50%) var(--my, 50%),
+          rgba(126,231,164,.12),
+          transparent 65%
+        );
+        opacity: 0;
+        transition: opacity .25s ease;
+        pointer-events: none;
+      }
+
+      .step:hover::after,
+      .feature-card:hover::after,
+      .price-card:hover::after,
+      .hero-demo:hover::after {
+        opacity: 1;
+      }
+
+      .step:hover,
+      .price-card:hover {
+        border-color: rgba(126,231,164,.26);
+      }
+
+      /* Наклон демо-окна за мышью: быстрый transform отдельно от reveal-перехода. */
+      .js .hero-demo[data-reveal].in-view {
+        transition: transform .16s ease-out, opacity .55s ease;
+        will-change: transform;
+      }
+    }
+
     @media (prefers-reduced-motion: reduce) {
       html {
         scroll-behavior: auto;
+      }
+
+      .js [data-reveal] {
+        opacity: 1;
+        transform: none;
+        transition: none;
+      }
+
+      .js .skill-track > span,
+      .js .progress-track > span {
+        transition: none;
       }
     }
   </style>
@@ -1250,7 +1615,7 @@
       <a href="#how">Как работает</a>
       <a href="#features">Возможности</a>
       <a href="#pricing">Тарифы</a>
-      <a href="#faq">FAQ</a>
+      <a href="#download">Скачать</a>
     </nav>
     <div class="actions">
       <a class="btn btn-ghost" href="#snapshot">Пример</a>
@@ -1262,13 +1627,13 @@
     <section class="hero wrap" id="top">
       <div class="eyebrow"><span class="pulse"></span> Разбор вакансии + live-подсказка</div>
       <h1>Готовься по вакансии.<br class="mobile-break"> Отвечай <span>уверенно</span>.</h1>
-      <p class="hero-copy">Загрузите вакансию — SkillCue покажет вероятные вопросы, риски по навыкам и короткие подсказки, которые можно использовать на собеседовании.</p>
+      <p class="hero-copy">Вставьте текст вакансии — SkillCue покажет, о чём будут спрашивать, где вы можете поплыть и что на это отвечать.</p>
       <div class="hero-actions">
         <a class="btn btn-primary" href="#pricing">Разобрать вакансию бесплатно</a>
         <a class="btn" href="#snapshot">Посмотреть пример разбора</a>
       </div>
 
-      <div class="hero-demo" id="hero-demo" aria-label="Демо live-подсказки SkillCue">
+      <div class="hero-demo" id="hero-demo" aria-label="Демо live-подсказки SkillCue" data-reveal>
         <div class="demo-top">
           <span class="traffic"><i></i><i></i><i></i></span>
           <span>Live-подсказка SkillCue</span>
@@ -1276,16 +1641,28 @@
         </div>
         <div class="demo-grid">
           <div class="call-panel">
-            <div class="bubble">Расскажите про ваш опыт с API-тестами.</div>
-            <div class="bubble blue">Работал с pytest, HTTPX и Allure.</div>
-            <div class="bubble">А если кроме проверки 200?</div>
-            <div class="bubble blue">Сейчас отвечу структурно.</div>
+            <div class="msg">
+              <span class="msg-label">Интервьюер</span>
+              <div class="bubble">Расскажите про ваш опыт с API-тестами.</div>
+            </div>
+            <div class="msg me">
+              <span class="msg-label">Вы</span>
+              <div class="bubble blue">В основном pytest и HTTPX, отчёты собираю в Allure.</div>
+            </div>
+            <div class="msg">
+              <span class="msg-label">Интервьюер</span>
+              <div class="bubble">А что проверяли кроме статус-кода 200?</div>
+            </div>
+            <div class="msg me">
+              <span class="msg-label">Вы — по подсказке справа</span>
+              <div class="bubble blue">Кроме кода я проверяю сам контракт ответа: поля, типы, схему…<span class="typing">▍</span></div>
+            </div>
           </div>
           <div class="cue-panel">
             <div class="cue-question">Что проверяли в API-тестах кроме статус-кода 200?</div>
             <div class="cue-answer">
-              <span>Короткая подсказка</span>
-              <p>Скажите про контракт ответа: поля, типы, схему. Потом auth/roles, негативные payload, пустые и граничные значения. Из инструментов: pytest + HTTPX/Requests, Allure-отчёты, request/response в логах.</p>
+              <span>Подсказка — сказать вслух</span>
+              <p>Кроме кода я проверяю сам контракт ответа: поля, типы, схему. Дальше — авторизацию и роли, негативные и граничные случаи: пустые поля, лишние параметры, невалидные значения. Гоняю это в pytest с HTTPX, отчёты в Allure, а request и response пишу в логи — так падение разбирается за минуты.</p>
             </div>
             <div class="cue-meta">
               <span class="meta-pill strong">Вакансия учтена</span>
@@ -1299,42 +1676,36 @@
 
     <section class="result-snapshot wrap" id="snapshot">
       <div class="paper-panel result-panel">
-        <div class="result-copy">
+        <div class="result-copy" data-reveal>
           <div>
             <span class="section-label">Через 60 секунд после загрузки вакансии</span>
-            <h2>Вы видите, где можете посыпаться.</h2>
-            <p>SkillCue не просто “генерирует ответы”. Он превращает вакансию в вероятные вопросы, риски по навыкам и короткий план подготовки.</p>
-          </div>
-          <div class="result-proof" aria-label="Что показывает SkillCue после разбора вакансии">
-            <div class="result-proof-card">
-              <strong>12</strong>
-              <span>вероятных вопросов по роли</span>
-            </div>
-            <div class="result-proof-card">
-              <strong>5</strong>
-              <span>тем, где ответ может звучать слабо</span>
-            </div>
-            <div class="result-proof-card">
-              <strong>78%</strong>
-              <span>готовность по ключевым навыкам</span>
-            </div>
-            <div class="result-proof-card">
-              <strong>25 мин</strong>
-              <span>план тренировки перед созвоном</span>
-            </div>
+            <h2>Вы видите, где можете <span>посыпаться</span>.</h2>
+            <p>По каждому навыку видно: здесь вы уверены, а вот это стоит повторить до звонка.</p>
           </div>
         </div>
 
-        <div class="result-example" aria-label="Пример разбора вакансии">
+        <div class="result-example" aria-label="Готовность к вакансии по навыкам" data-reveal style="--reveal-delay: .1s">
           <div class="result-example-head">
-            <span>Пример разбора вакансии</span>
-            <span>QA / API / CI/CD</span>
+            <span>Готовность к вакансии</span>
+            <span>QA · API · CI/CD</span>
           </div>
-          <div class="result-list">
-            <div class="result-item"><i></i><span>Что проверяли в API кроме 200?</span><em>высокий шанс</em></div>
-            <div class="result-item"><i></i><span>Как вы разделяли smoke и regression в CI/CD?</span><em>высокий шанс</em></div>
-            <div class="result-item"><i></i><span>Что делали с нестабильными автотестами?</span><em>риск</em></div>
-            <div class="result-item"><i></i><span>Где вы реально настраивали pipeline, а где поддерживали?</span><em>проверка опыта</em></div>
+          <div class="skills-board">
+            <div class="skill-row">
+              <div class="skill-row-head"><span>API-тестирование</span><span>82%</span></div>
+              <div class="skill-track"><span style="width: 82%"></span></div>
+            </div>
+            <div class="skill-row warn">
+              <div class="skill-row-head"><span>Клиент-серверная архитектура</span><span>64%</span></div>
+              <div class="skill-track"><span style="width: 64%"></span></div>
+            </div>
+            <div class="skill-row warn">
+              <div class="skill-row-head"><span>CI/CD и Docker</span><span>61%</span></div>
+              <div class="skill-track"><span style="width: 61%"></span></div>
+            </div>
+            <div class="skill-row risk">
+              <div class="skill-row-head"><span>Нестабильные автотесты</span><span>45%</span></div>
+              <div class="skill-track"><span style="width: 45%"></span></div>
+            </div>
           </div>
         </div>
       </div>
@@ -1342,122 +1713,106 @@
 
     <section class="section wrap" id="how">
       <div class="section-head">
-        <h2>От вакансии до ответа на собеседовании.</h2>
-        <p>SkillCue не заменяет подготовку — он показывает, что готовить в первую очередь и какие ответы нужно докрутить.</p>
+        <h2>От вакансии до <span>ответа</span> на собеседовании.</h2>
+        <p>Четыре шага: от текста вакансии до готовой фразы на созвоне.</p>
       </div>
 
       <div class="timeline">
-        <article class="step">
-          <div class="step-copy">
-            <span class="section-label">01</span>
-            <h3>Разбор вакансии</h3>
-            <p>Вы вставляете описание роли. SkillCue выделяет стек, требования и темы, по которым вас могут проверить глубже.</p>
-          </div>
+        <article class="step" data-reveal>
           <div class="step-dot">01</div>
+          <div class="step-copy">
+            <h3>Разбор вакансии</h3>
+            <p>Вставили описание роли — получили стек и темы, по которым будут копать.</p>
+          </div>
           <div class="step-visual">
-            <div class="mini-lines">
-              <div class="mini-line"></div>
-              <div class="mini-line green"></div>
-              <div class="mini-line short"></div>
-              <div class="mini-line yellow"></div>
+            <p class="scan-text">Ищем QA Automation Engineer: <mark>API-тестирование</mark>, <mark>pytest</mark>, <mark>CI/CD</mark>, поддержка <mark>нестабильных автотестов</mark>, Allure…</p>
+            <div class="scan-tags">
+              <span class="scan-tag">12 вероятных вопросов</span>
+              <span class="scan-tag warn">5 рисков</span>
             </div>
           </div>
         </article>
 
-        <article class="step">
-          <div class="step-copy">
-            <span class="section-label">02</span>
-            <h3>Риски и вопросы</h3>
-            <p>Видите не абстрактные темы, а конкретные вопросы: API кроме 200, CI/CD, нестабильные тесты, зона ответственности.</p>
-          </div>
+        <article class="step" data-reveal>
           <div class="step-dot">02</div>
+          <div class="step-copy">
+            <h3>Темы и риски</h3>
+            <p>Видно, что спросят точно — и на чём кандидаты обычно валятся.</p>
+          </div>
           <div class="step-visual">
-            <div class="risk-row"><span>API кроме 200</span><strong>важно</strong></div>
-            <div class="risk-row"><span>CI/CD pipeline</span><strong>важно</strong></div>
-            <div class="risk-row"><span>Зона ответственности</span><strong>риск</strong></div>
+            <div class="risk-row"><span>Клиент-серверная архитектура</span><strong class="hot">спросят точно</strong></div>
+            <div class="risk-row"><span>Поведенческие вопросы</span><strong>часто спрашивают</strong></div>
+            <div class="risk-row"><span>Нестабильные автотесты</span><strong class="bad">здесь валятся</strong></div>
           </div>
         </article>
 
-        <article class="step">
-          <div class="step-copy">
-            <span class="section-label">03</span>
-            <h3>Готовность по навыкам</h3>
-            <p>Понимаете, где звучите уверенно, а где интервьюер может быстро увидеть пробел.</p>
-          </div>
+        <article class="step" data-reveal>
           <div class="step-dot">03</div>
+          <div class="step-copy">
+            <h3>Готовность по навыкам</h3>
+            <p>После тренировки по каждой теме — честный процент: готовы или лучше повторить.</p>
+          </div>
           <div class="step-visual progress-card">
+            <span class="progress-label">API-тестирование — готовность</span>
             <strong>78%</strong>
             <div class="progress-track"><span></span></div>
           </div>
         </article>
 
-        <article class="step">
-          <div class="step-copy">
-            <span class="section-label">04</span>
-            <h3>Live-подсказка</h3>
-            <p>На созвоне остаётся компактная подсказка: 2-4 строки, без лишнего интерфейса и длинной лекции.</p>
-          </div>
+        <article class="step" data-reveal>
           <div class="step-dot">04</div>
+          <div class="step-copy">
+            <h3>Live-подсказка</h3>
+            <p>На созвоне — 2–4 строки, которые можно сказать вслух.</p>
+          </div>
           <div class="step-visual">
-            <div class="live-mini">stages/jobs, Docker, Allure, artifacts, logs. Привяжите ответ к своему проекту.</div>
+            <div class="live-mini">В пайплайне у нас стейджи build → test → report: гоняем smoke на каждый merge, Allure-отчёт уходит артефактом…<span class="typing">▍</span></div>
           </div>
         </article>
-      </div>
-    </section>
-
-    <section class="skills-section wrap" id="skills">
-      <div class="paper-panel skills-panel">
-        <div class="skills-copy">
-          <span class="section-label">Карта готовности</span>
-          <h2>Процент — не для красоты. Он показывает, что повторить.</h2>
-          <p>После тренировки SkillCue раскладывает ответы по навыкам: где уже можно говорить уверенно, а где нужен пример, инструмент или конкретика из вашего опыта.</p>
-        </div>
-        <div class="skills-board" aria-label="Пример готовности по навыкам">
-          <div class="skill-row">
-            <div class="skill-row-head"><span>Рассказ об опыте</span><span>86%</span></div>
-            <div class="skill-track"><span style="width: 86%"></span></div>
-          </div>
-          <div class="skill-row">
-            <div class="skill-row-head"><span>API-тестирование</span><span>78%</span></div>
-            <div class="skill-track"><span style="width: 78%"></span></div>
-          </div>
-          <div class="skill-row warn">
-            <div class="skill-row-head"><span>CI/CD и Docker</span><span>61%</span></div>
-            <div class="skill-track"><span style="width: 61%"></span></div>
-          </div>
-          <div class="skill-row risk">
-            <div class="skill-row-head"><span>Проектные кейсы и ответственность</span><span>52%</span></div>
-            <div class="skill-track"><span style="width: 52%"></span></div>
-          </div>
-        </div>
       </div>
     </section>
 
     <section class="section wrap" id="features">
       <div class="section-head">
-        <h2>Фокус на том, что спросят именно вас.</h2>
-        <p>Вместо общего AI-чата — три вещи, которые помогают перед реальным интервью: план, тренировка и короткая подсказка.</p>
+        <h2>Фокус на том, что спросят <span>именно вас</span>.</h2>
+        <p>Так выглядят три главных экрана SkillCue: вопросы, тренировка и подсказка на звонке.</p>
       </div>
       <div class="feature-grid">
-        <article class="feature-card primary-feature">
-          <small>Подготовка</small>
-          <h3>Вакансия становится планом</h3>
-          <p>SkillCue вытаскивает требования и превращает их в список вероятных вопросов.</p>
-          <ul>
-            <li>вероятные вопросы</li>
-            <li>риски по навыкам</li>
-            <li>готовность по темам</li>
-          </ul>
+        <article class="feature-card fc-blue" data-reveal>
+          <div class="fc-screen">
+            <span class="fc-dots"><i></i><i></i><i></i></span>
+            <div class="risk-row"><span>Расскажите про самый сложный баг</span><strong class="hot">спросят точно</strong></div>
+            <div class="risk-row"><span>Как тестируете без требований?</span><strong>часто спрашивают</strong></div>
+          </div>
+          <div class="fc-body">
+            <small>Подготовка</small>
+            <h3>Вакансия → вопросы</h3>
+            <p>Вопросы под вашу вакансию — и какие прозвучат почти наверняка.</p>
+          </div>
         </article>
-        <article class="feature-card">
-          <small>Тренировка</small>
-          <h3>Ответы проверяются заранее</h3>
-          <p>Вы отвечаете на вопросы и видите, где не хватает конкретики, примера или связи с опытом.</p>
+        <article class="feature-card fc-violet" data-reveal style="--reveal-delay: .08s">
+          <div class="fc-screen">
+            <span class="fc-dots"><i></i><i></i><i></i></span>
+            <div class="verdict ok">Конкретика — есть</div>
+            <div class="verdict warn">Пример — добавить</div>
+            <div class="verdict bad">Цифры — нет</div>
+          </div>
+          <div class="fc-body">
+            <small>Тренировка</small>
+            <h3>Ответ проверен до звонка</h3>
+            <p>SkillCue разбирает ваш ответ и говорит, чего в нём не хватает.</p>
+          </div>
         </article>
-        <article class="feature-card">
-          <small>Live</small>
-          <h3>Overlay не мешает говорить</h3>
-          <p>Во время звонка появляется короткая подсказка, а не длинная лекция или новый чат.</p>
+        <article class="feature-card fc-green" data-reveal style="--reveal-delay: .16s">
+          <div class="fc-screen">
+            <span class="fc-dots"><i></i><i></i><i></i></span>
+            <div class="live-mini">Кроме кода я проверяю контракт ответа: поля, типы, схему…<span class="typing">▍</span></div>
+          </div>
+          <div class="fc-body">
+            <small>Live</small>
+            <h3>2–4 строки на созвоне</h3>
+            <p>Пара строк в нужный момент — просто скажите их своими словами.</p>
+          </div>
         </article>
       </div>
     </section>
@@ -1465,91 +1820,146 @@
     <section class="section wrap pricing" id="pricing">
       <div class="section-head">
         <h2>Тарифы</h2>
-        <p>Начните с бесплатного разбора. Платные режимы нужны, когда готовитесь системно или хотите live-подсказку во время звонка.</p>
+        <p>Начните бесплатно. «Базовый» — чтобы готовиться, «Максимум» — чтобы получать подсказки прямо на звонке.</p>
       </div>
       <div class="pricing-grid">
-        <article class="price-card">
-          <small>Free</small>
-          <h3>Проверить одну роль</h3>
-          <div class="price">0 <span>руб.</span></div>
+        <article class="price-card" data-reveal>
+          <small>Старт</small>
+          <h3>Попробовать бесплатно</h3>
+          <div class="price">0 <span>руб. — без карты</span></div>
           <ul>
-            <li>1 разбор вакансии</li>
-            <li>Вероятные вопросы и риски</li>
-            <li>Пример короткой подсказки</li>
+            <li>Разбор вакансии и mock-интервью</li>
+            <li>Карта готовности и слабые темы</li>
+            <li>15 минут live-подсказок на пробу</li>
           </ul>
-          <a class="btn" href="#snapshot">Начать бесплатно</a>
+          <a class="btn" href="https://github.com/GalievGleb/ScillCue/releases/latest">Скачать для Windows</a>
         </article>
-        <article class="price-card highlight">
-          <small>Pro</small>
-          <h3>Готовиться к собеседованию</h3>
-          <div class="price">999 <span>руб./мес</span></div>
+        <article class="price-card" data-reveal style="--reveal-delay: .08s">
+          <small>Базовый</small>
+          <h3>Подготовка</h3>
+          <div class="price">1 490 <span>руб./мес</span></div>
           <ul>
-            <li>До 10 разборов вакансий</li>
-            <li>Тренировки по слабым темам</li>
-            <li>Полные карты готовности</li>
-            <li>План повторения перед звонком</li>
+            <li>Мок-собеседования с разбором</li>
+            <li>Анализ вакансий и слабых тем</li>
+            <li>База знаний и тренировка ответов</li>
           </ul>
-          <a class="btn btn-primary" href="#snapshot">Готовиться к собеседованию</a>
+          <a class="btn" href="https://github.com/GalievGleb/ScillCue/releases/latest">Выбрать «Базовый»</a>
         </article>
-        <article class="price-card">
-          <small>Live</small>
-          <h3>Live-собеседование</h3>
-          <div class="price">1999 <span>руб./мес</span></div>
+        <article class="price-card highlight" data-reveal style="--reveal-delay: .16s">
+          <small>Максимум</small>
+          <h3>Всё включено</h3>
+          <div class="price">2 990 <span>руб./мес</span></div>
           <ul>
-            <li>Desktop overlay</li>
-            <li>Контекст вакансии и резюме</li>
-            <li>История вопросов</li>
-            <li>Отчёт после звонка</li>
+            <li>Всё из «Базового»</li>
+            <li>Live-подсказки во время собеседования</li>
+            <li>Оверлей поверх Zoom/Meet + скрытность</li>
+            <li>Анализ экрана (скриншот → подсказка)</li>
           </ul>
-          <a class="btn" href="#hero-demo">Открыть live-подсказку</a>
+          <a class="btn btn-primary" href="https://github.com/GalievGleb/ScillCue/releases/latest">Выбрать «Максимум»</a>
         </article>
+      </div>
+      <div class="micro-proof pricing-assure" aria-label="Главные гарантии">
+        <span>Скрыт от записи экрана и демонстрации в Zoom/Meet</span>
+        <span>Речь распознаётся локально — Whisper на вашем устройстве</span>
+        <span>Старт без карты</span>
       </div>
     </section>
 
-    <section class="section wrap" id="faq">
-      <div class="section-head">
-        <h2>FAQ</h2>
-        <p>Коротко закрываем вопросы, которые появляются перед первым запуском.</p>
-      </div>
-      <div class="faq-list">
-        <article class="faq-item">
-          <h3>Это только для IT?</h3>
-          <p>Нет. Сейчас демо показывает QA/IT, но SkillCue работает от вакансии и вашего опыта, поэтому подходит для разных ролей.</p>
-        </article>
-        <article class="faq-item">
-          <h3>Что я получу после загрузки вакансии?</h3>
-          <p>Вероятные вопросы, риски по темам, процент готовности и план тренировки перед интервью.</p>
-        </article>
-        <article class="faq-item">
-          <h3>Можно без live-режима?</h3>
-          <p>Да. Разбор вакансии и тренировка полезны сами по себе, особенно перед очным интервью.</p>
-        </article>
-        <article class="faq-item">
-          <h3>Ответы не будут общими?</h3>
-          <p>Если добавить резюме и пару фактов о проектах, подсказки становятся личнее. SkillCue не должен выдумывать опыт.</p>
-        </article>
-        <article class="faq-item">
-          <h3>Что загрузить сначала?</h3>
-          <p>Начните с вакансии. Потом добавьте резюме и короткую легенду опыта, чтобы ответы звучали как ваши.</p>
-        </article>
-      </div>
-    </section>
-
-    <section class="final wrap">
-      <div class="final-box">
-        <h2>Загрузите вакансию — SkillCue покажет риски, вероятные вопросы и готовность по навыкам.</h2>
-        <a class="btn btn-primary" href="#pricing">Разобрать вакансию бесплатно</a>
+    <section class="final wrap" id="download">
+      <div class="final-box" data-reveal>
+        <h2>Скачайте SkillCue — <span>бесплатный старт</span>, карта не нужна.</h2>
+        <a class="btn btn-primary" href="https://github.com/GalievGleb/ScillCue/releases/latest">Скачать для Windows</a>
         <div class="micro-proof">
           <span>вероятные вопросы</span>
           <span>готовность по навыкам</span>
           <span>live-подсказка</span>
         </div>
+        <p class="pricing-note">Не готовы ставить приложение? Пришлите вакансию в <a href="https://t.me/SkillCue_support_bot">Telegram</a> — бесплатно вернём вероятные вопросы и риски.</p>
       </div>
     </section>
   </main>
 
   <footer class="footer">
-    <div class="wrap">© 2026 SkillCue. Подготовка и live-подсказки для интервью.</div>
+    <div class="wrap">
+      © 2026 SkillCue. Подготовка и live-подсказки для интервью. ·
+      <a href="mailto:cloudeagentproject1@gmail.com">Поддержка</a> ·
+      <a href="https://t.me/SkillCue_support_bot">Telegram</a>
+    </div>
   </footer>
+
+  <script>
+    // Скролл-ритм: карточки всплывают, полоски готовности наливаются до своих
+    // процентов. Прогрессивное улучшение: без IntersectionObserver страница
+    // остаётся полностью статичной и видимой.
+    (function () {
+      if (!('IntersectionObserver' in window)) return;
+      document.documentElement.classList.add('js');
+      var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+      if (!reduce) {
+        document.querySelectorAll('.skill-track > span, .progress-track > span').forEach(function (el) {
+          el.dataset.targetWidth = el.style.width || getComputedStyle(el).width;
+          el.style.width = '0px';
+        });
+      }
+
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+          if (!entry.isIntersecting) return;
+          entry.target.classList.add('in-view');
+          entry.target.querySelectorAll('[data-target-width]').forEach(function (el) {
+            el.style.width = el.dataset.targetWidth;
+          });
+          io.unobserve(entry.target);
+        });
+      }, { threshold: 0.2, rootMargin: '0px 0px -40px 0px' });
+
+      document.querySelectorAll('[data-reveal]').forEach(function (el) { io.observe(el); });
+
+      // Страховка: если observer молчит (экзотический webview, стоящий рендер),
+      // через 1.8с показываем всё как есть — страница не может остаться пустой.
+      setTimeout(function () {
+        if (document.querySelector('[data-reveal].in-view')) return;
+        document.documentElement.classList.add('reveal-off');
+        document.querySelectorAll('[data-reveal]').forEach(function (el) {
+          el.classList.add('in-view');
+        });
+        document.querySelectorAll('[data-target-width]').forEach(function (el) {
+          el.style.width = el.dataset.targetWidth;
+        });
+      }, 1800);
+    })();
+
+    // Мышь: прожектор на карточках + наклон демо-окна. Только точный указатель.
+    (function () {
+      if (!window.matchMedia('(hover: hover) and (pointer: fine)').matches) return;
+
+      document.querySelectorAll('.step, .feature-card, .price-card, .hero-demo').forEach(function (card) {
+        card.addEventListener('pointermove', function (e) {
+          var r = card.getBoundingClientRect();
+          card.style.setProperty('--mx', (e.clientX - r.left) + 'px');
+          card.style.setProperty('--my', (e.clientY - r.top) + 'px');
+        });
+      });
+
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+      var demo = document.querySelector('.hero-demo');
+      if (!demo) return;
+      demo.addEventListener('pointermove', function (e) {
+        var r = demo.getBoundingClientRect();
+        var rx = ((e.clientY - r.top) / r.height - 0.5) * -3.5;
+        var ry = ((e.clientX - r.left) / r.width - 0.5) * 4.5;
+        demo.style.transform =
+          'perspective(1100px) rotateX(' + rx.toFixed(2) + 'deg) rotateY(' + ry.toFixed(2) + 'deg)';
+      });
+      demo.addEventListener('pointerleave', function () {
+        demo.style.transform = '';
+      });
+    })();
+  </script>
+
+  <!-- Яндекс.Метрика: после регистрации счётчика на metrika.yandex.ru
+       вставьте сюда код счётчика (вебвизор включить). Инструкция: docs/gtm/00-start-here.md -->
+
 </body>
 </html>

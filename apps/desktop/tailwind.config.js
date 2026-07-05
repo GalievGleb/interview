@@ -3,27 +3,29 @@ export default {
   content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   theme: {
     extend: {
+      // Цвета живут в CSS-переменных (tokens.css) — так работает светлая тема.
+      // Триплеты сохраняют поддержку прозрачности (bg-surface-light/70 и т.п.).
       colors: {
         surface: {
-          DEFAULT: '#07101d',
-          panel: '#0b1422',
-          light: '#101c2d',
-          card: '#111f31',
-          hover: '#17283d',
-          elevated: '#1a2c44',
-          border: '#24364f',
-          'border-strong': '#34506f',
+          DEFAULT: 'rgb(var(--twc-surface) / <alpha-value>)',
+          panel: 'rgb(var(--twc-surface-panel) / <alpha-value>)',
+          light: 'rgb(var(--twc-surface-light) / <alpha-value>)',
+          card: 'rgb(var(--twc-surface-card) / <alpha-value>)',
+          hover: 'rgb(var(--twc-surface-hover) / <alpha-value>)',
+          elevated: 'rgb(var(--twc-surface-elevated) / <alpha-value>)',
+          border: 'rgb(var(--twc-surface-border) / <alpha-value>)',
+          'border-strong': 'rgb(var(--twc-surface-border-strong) / <alpha-value>)',
         },
         accent: {
-          DEFAULT: '#34c77b',
-          hover: '#58dc96',
-          soft: 'rgba(52,199,123,0.15)',
-          ring: 'rgba(52,199,123,0.34)',
+          DEFAULT: 'rgb(var(--twc-accent) / <alpha-value>)',
+          hover: 'rgb(var(--twc-accent-hover) / <alpha-value>)',
+          soft: 'var(--accent-soft)',
+          ring: 'var(--accent-ring)',
         },
         ink: {
-          DEFAULT: '#edf6ff',
-          muted: '#a9b8cb',
-          faint: '#73849b',
+          DEFAULT: 'rgb(var(--twc-ink) / <alpha-value>)',
+          muted: 'rgb(var(--twc-ink-muted) / <alpha-value>)',
+          faint: 'rgb(var(--twc-ink-faint) / <alpha-value>)',
         },
       },
       fontFamily: {

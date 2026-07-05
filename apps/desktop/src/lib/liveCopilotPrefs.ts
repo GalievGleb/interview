@@ -2,7 +2,10 @@ import type { LiveSources } from '../hooks/useLiveCopilot';
 import type { SttMode } from './liveSession';
 import type { AudioSampleRateMode, SttEngine, SttSessionOptions } from './sttOptions';
 
-const STORAGE_KEY = 'copilot-live-prefs';
+/** Экспорт для cross-window синхронизации (настройки ⇄ оверлей ⇄ Live). */
+export const LIVE_COPILOT_PREFS_KEY = 'copilot-live-prefs';
+
+const STORAGE_KEY = LIVE_COPILOT_PREFS_KEY;
 
 const STT_ENGINES: SttEngine[] = ['nova3-multi', 'flux-multi', 'nova2-ru-legacy'];
 const AUDIO_RATES: AudioSampleRateMode[] = ['16k', '48k-native'];

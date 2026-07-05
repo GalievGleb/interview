@@ -17,6 +17,10 @@ from app.db.session import init_db
 from app.routers import (
     chat,
     documents,
+    feedback,
+    latency,
+    license,
+    mock_sessions,
     providers,
     sessions,
     stt,
@@ -50,10 +54,33 @@ app.add_middleware(
 app.add_exception_handler(AppError, app_error_handler)  # type: ignore[arg-type]
 app.add_exception_handler(Exception, unhandled_error_handler)
 
+
+@app.middleware("http")
+async def _require_local_token(request, call_next):
+    """Отсекает чужие локальные процессы/сайты от API (см. core/local_auth)."""
+    from fastapi.responses import JSONResponse
+
+    from app.core import local_auth
+
+    if (
+        local_auth.enabled()
+        and request.url.path not in local_auth.PUBLIC_PATHS
+        and not local_auth.token_ok(request.headers.get(local_auth.HEADER_NAME))
+    ):
+        return JSONResponse(
+            {"error": {"message": "unauthorized", "code": "bad_local_token"}}, status_code=401
+        )
+    return await call_next(request)
+
+
 app.include_router(providers.router)
 app.include_router(chat.router)
 app.include_router(documents.router)
 app.include_router(sessions.router)
+app.include_router(mock_sessions.router)
+app.include_router(latency.router)
+app.include_router(feedback.router)
+app.include_router(license.router)
 app.include_router(usage.router)
 app.include_router(settings_router.router)
 app.include_router(stt.router)

@@ -99,6 +99,106 @@ function SourcePillar({ icon, label, title, connectedTitle, count, onAdd }: Pill
   );
 }
 
+/**
+ * Профиль кандидата — то, что ИИ «знает» о пользователе и чем live отвечает.
+ * Пользователь видит содержимое, может поправить (правки не затираются фоновой
+ * генерацией) или пересобрать заново из документов.
+ */
+function ProfilePackCard({ reloadKey }: { reloadKey: number }) {
+  const [content, setContent] = useState('');
+  const [status, setStatus] = useState<{ exists: boolean; stale: boolean; userEdited?: boolean } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState('');
+
+  const load = async () => {
+    try {
+      const r = await api.profilePackGet();
+      setContent(r.content);
+      setStatus({ exists: r.exists, stale: r.stale, userEdited: r.userEdited });
+    } catch {
+      /* backend недоступен — карточка покажет пустое состояние */
+    }
+  };
+
+  useEffect(() => {
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reloadKey]);
+
+  const save = async () => {
+    setBusy(true);
+    setNote('');
+    try {
+      await api.profilePackSave(content);
+      await load();
+      setNote('Сохранено. Live теперь отвечает по вашей версии профиля.');
+    } catch (e) {
+      setNote(e instanceof Error ? e.message : 'Не удалось сохранить.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const rebuild = async () => {
+    setBusy(true);
+    setNote('');
+    try {
+      await api.profilePackRefresh();
+      await load();
+      setNote('Профиль пересобран из документов.');
+    } catch (e) {
+      setNote(e instanceof Error ? e.message : 'Не удалось пересобрать — проверьте AI-ключ.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const chip = !status?.exists
+    ? { text: 'не собран', tone: '' }
+    : status.userEdited
+      ? { text: 'ваша редакция', tone: 'prep-tone-violet' }
+      : status.stale
+        ? { text: 'устарел — документы менялись', tone: 'prep-tone-amber' }
+        : { text: 'актуален', tone: 'prep-tone-green' };
+
+  return (
+    <section className="prep-action-card mt-5">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="prep-eyebrow">Профиль кандидата</p>
+          <h2 className="prep-h2 prep-card-title">Что ИИ знает о вас — проверьте до собеседования.</h2>
+        </div>
+        <span className={`prep-chip shrink-0 ${chip.tone}`}>{chip.text}</span>
+      </div>
+      <p className="prep-sub mt-2">
+        Этими фактами live-подсказки отвечают на вопросы про ваш опыт. Профиль собирается из
+        резюме и истории опыта автоматически; если ИИ что-то понял не так — поправьте прямо здесь.
+      </p>
+      <textarea
+        className="prep-textarea mt-3"
+        rows={content ? 10 : 4}
+        placeholder="Профиль ещё не собран. Добавьте резюме ниже — он соберётся сам, или нажмите «Пересобрать»."
+        value={content}
+        onChange={(e) => setContent(e.target.value)}
+      />
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          className="prep-btn prep-btn-sm"
+          disabled={busy || content.trim().length < 20}
+          onClick={() => void save()}
+        >
+          {busy ? 'Секунду…' : 'Сохранить правки'}
+        </button>
+        <button type="button" className="prep-btn-ghost prep-btn-sm" disabled={busy} onClick={() => void rebuild()}>
+          Пересобрать из документов
+        </button>
+        {note && <span className="prep-faint">{note}</span>}
+      </div>
+    </section>
+  );
+}
+
 export default function DocumentsPage() {
   const [docs, setDocs] = useState<DocumentItem[]>([]);
   const [kind, setKind] = useState('resume');
@@ -268,6 +368,8 @@ export default function DocumentsPage() {
             </div>
           </div>
         </section>
+
+        <ProfilePackCard reloadKey={docs.length} />
 
         <section>
           <div className="prep-section-head">

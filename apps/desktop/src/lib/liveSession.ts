@@ -1,4 +1,4 @@
-import { api } from './api';
+import { api, getApiToken } from './api';
 import { startCapture, AudioCapture, AudioSource } from './audioCapture';
 import {
   AudioSampleRateMode,
@@ -70,6 +70,9 @@ export async function startLiveSession(
   if (opts.mode) params.set('mode', opts.mode);
   params.set('engine', engine);
   params.set('sample_rate', String(sampleRate));
+  // Локальная аутентификация: браузерный WebSocket не умеет заголовки.
+  const apiToken = await getApiToken();
+  if (apiToken) params.set('token', apiToken);
 
   const wsUrl = `${toWsUrl(api.apiUrl)}/stt/stream?${params.toString()}`;
 

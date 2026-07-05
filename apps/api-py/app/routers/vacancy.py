@@ -10,10 +10,15 @@ import json
 import logging
 import re
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from app.prompts.vacancy import VACANCY_ANALYZE_PROMPT, VACANCY_EVALUATE_PROMPT
+from app.db.session import get_db
+from app.prompts.vacancy import (
+    VACANCY_ANALYZE_PROMPT,
+    VACANCY_EVALUATE_PROMPT,
+    VACANCY_REPORT_PROMPT,
+)
 from app.services import model_router, provider_adapter
 from app.services.preferences import load_preferences
 from app.services.provider_adapter import vacancy_eval_options
@@ -22,6 +27,14 @@ from app.services.vacancy_guard import harden_vacancy_evaluation, strip_asr_nois
 logger = logging.getLogger("vacancy")
 
 router = APIRouter(prefix="/vacancy", tags=["vacancy"])
+
+
+def _ensure_vacancy_quota(db) -> None:
+    """Mock-оценки тоже тратят токены — общий месячный бюджет тарифа."""
+    from app.services import quota
+
+    quota.check_token_quota(db)
+
 
 _SENIORITY = {"intern", "junior", "middle", "senior", "lead", "unknown"}
 _IMPORTANCE = {"high", "medium", "low"}
@@ -85,6 +98,31 @@ class AnalyzePayload(BaseModel):
     legendText: str | None = None
 
 
+class ReportTopicPayload(BaseModel):
+    title: str
+    score: int = 0
+    status: str = ""
+    missingPoints: list[str] = []
+
+
+class ReportWeakAnswerPayload(BaseModel):
+    question: str
+    missing: list[str] = []
+    score: int = 0
+
+
+class ReportPayload(BaseModel):
+    targetRole: str = ""
+    seniorityLevel: str = "unknown"
+    overallScore: int = 0
+    topics: list[ReportTopicPayload] = []
+    weakAnswers: list[ReportWeakAnswerPayload] = []
+    resumeText: str | None = None
+    legendText: str | None = None
+    vacancyText: str | None = None
+    language: str = "ru"
+
+
 class EvaluatePayload(BaseModel):
     question: str
     answer: str
@@ -100,7 +138,8 @@ class EvaluatePayload(BaseModel):
 
 
 @router.post("/analyze")
-async def analyze(payload: AnalyzePayload) -> dict:
+async def analyze(payload: AnalyzePayload, db=Depends(get_db)) -> dict:
+    _ensure_vacancy_quota(db)
     text = (payload.vacancyText or "").strip()
     if len(text) < 20:
         raise HTTPException(status_code=400, detail="Vacancy text is too short")
@@ -186,8 +225,67 @@ async def analyze(payload: AnalyzePayload) -> dict:
     }
 
 
+@router.post("/report")
+async def report(payload: ReportPayload, db=Depends(get_db)) -> dict:
+    """Закрывающий нарратив mock-отчёта: вердикт + приоритетный план тренировки.
+
+    Скоринг остаётся детерминированным на клиенте; модель пишет только «человеческую»
+    часть — как коуч после прогона. Клиент молча откатывается на локальный план.
+    """
+    _ensure_vacancy_quota(db)
+    if not payload.topics:
+        raise HTTPException(status_code=400, detail="No topic results to summarize")
+
+    provider, model = _resolve("vacancy")
+    topics_text = "\n".join(
+        f"- {t.title}: {t.score}/100 ({t.status or 'n/a'})"
+        + (f"; не хватило: {', '.join(t.missingPoints[:4])}" if t.missingPoints else "")
+        for t in payload.topics[:12]
+    )
+    weak_text = (
+        "\n".join(
+            f"- «{w.question[:160]}» ({w.score}/100)"
+            + (f" → {', '.join(w.missing[:4])}" if w.missing else "")
+            for w in payload.weakAnswers[:6]
+        )
+        or "(none)"
+    )
+    prompt = VACANCY_REPORT_PROMPT.format(
+        target_role=(payload.targetRole or "Technical role")[:80],
+        seniority=payload.seniorityLevel or "unknown",
+        overall_score=max(0, min(100, payload.overallScore)),
+        topics=topics_text,
+        weak_answers=weak_text,
+        resume=(payload.resumeText or "")[:4000] or "(none)",
+        legend=(payload.legendText or "")[:2000] or "(none)",
+        vacancy=(payload.vacancyText or "")[:6000] or "(none)",
+        language="Russian" if payload.language == "ru" else "English",
+    )
+    try:
+        raw = await provider_adapter.complete(
+            [{"role": "user", "content": prompt}],
+            provider,
+            model,
+            max_tokens=700,
+            temperature=0.3,
+        )
+    except Exception as exc:  # noqa: BLE001 — surface as 502 so desktop falls back
+        logger.warning("Vacancy report failed: %s", exc)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    data = _parse_json(raw)
+    return {
+        "verdict": str(data.get("verdict", "")).strip()[:900],
+        "interviewerImpression": str(data.get("interviewerImpression", "")).strip()[:400],
+        "nextPracticePlan": _as_list(data.get("nextPracticePlan"), 6),
+        "focusTopic": str(data.get("focusTopic", "")).strip()[:80],
+        "model": model,
+    }
+
+
 @router.post("/evaluate")
-async def evaluate(payload: EvaluatePayload) -> dict:
+async def evaluate(payload: EvaluatePayload, db=Depends(get_db)) -> dict:
+    _ensure_vacancy_quota(db)
     provider, model = _resolve("vacancy")
     clean_answer, detected_noise = strip_asr_noise_for_evaluation(payload.answer or "")
     prompt = VACANCY_EVALUATE_PROMPT.format(
@@ -197,6 +295,7 @@ async def evaluate(payload: EvaluatePayload) -> dict:
         resume_evidence=", ".join(payload.relatedResumeEvidence) or "(none)",
         resume=(payload.resumeText or "")[:4000] or "(none)",
         vacancy=(payload.vacancyText or "")[:8000] or "(none)",
+        legend=(payload.legendText or "")[:2000] or "(none)",
         question=payload.question[:600],
         answer=(clean_answer or "(empty)")[:1500],
         has_resume="true" if payload.hasResume else "false",
@@ -231,6 +330,7 @@ async def evaluate(payload: EvaluatePayload) -> dict:
         level=payload.level,
         question=payload.question,
         detected_noise=detected_noise,
+        legend_text=payload.legendText or "",
     )
 
     def _score(key: str) -> int:

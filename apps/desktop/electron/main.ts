@@ -13,11 +13,18 @@ import {
 import path from 'path';
 import fs from 'fs';
 import http from 'http';
+import os from 'os';
+import crypto from 'crypto';
 import { spawn, type ChildProcess } from 'child_process';
 import { autoUpdater } from 'electron-updater';
 
 const API_URL = process.env.API_URL ?? 'http://127.0.0.1:8000';
 const isDev = !app.isPackaged;
+
+// Случайный токен на запуск: бэкенд принимает запросы только с ним, чтобы
+// другие локальные процессы/сайты не могли дёргать API (и жечь LLM-токены).
+// Активен только когда бэкенд запущён нами (env уходит в spawn).
+const API_TOKEN = crypto.randomBytes(24).toString('hex');
 
 // SkillCue mark (indigo rounded square) — used for the tray + window icon so
 // neither is blank. A full multi-res .ico for the installer is a separate asset.
@@ -29,6 +36,43 @@ let mainWindow: BrowserWindow | null = null;
 let overlayWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let backendProcess: ChildProcess | null = null;
+let backendLogStream: fs.WriteStream | null = null;
+let backendRestartAttempts = 0;
+let backendRestartTimer: NodeJS.Timeout | null = null;
+let quitting = false;
+
+// Живой процесс не перезапускаем бесконечно: 3 попытки, дальше баннер «не в сети».
+const MAX_BACKEND_RESTARTS = 3;
+
+function sendToWindows(channel: string, payload: unknown): void {
+  for (const win of [mainWindow, overlayWindow]) {
+    if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
+  }
+}
+
+function backendLogPath(): string {
+  return path.join(app.getPath('userData'), 'backend.log');
+}
+
+/** Пишем stdout/stderr бэкенда в файл — основа диагностического отчёта. */
+function logBackend(line: string): void {
+  const trimmed = line.trim();
+  if (!trimmed) return;
+  try {
+    if (!backendLogStream) {
+      // Простая ротация: старый лог > 5 МБ уезжает в backend.old.log.
+      const p = backendLogPath();
+      if (fs.existsSync(p) && fs.statSync(p).size > 5 * 1024 * 1024) {
+        fs.renameSync(p, p.replace(/\.log$/, '.old.log'));
+      }
+      backendLogStream = fs.createWriteStream(p, { flags: 'a' });
+    }
+    backendLogStream.write(`[${new Date().toISOString()}] ${trimmed}\n`);
+  } catch {
+    /* лог — best-effort, не роняем приложение */
+  }
+  console.log('[backend]', trimmed);
+}
 
 /** Resolve `${API_URL}/health` → true if the backend is already reachable. */
 function pingBackendHealth(): Promise<boolean> {
@@ -79,6 +123,7 @@ async function ensureBackend(): Promise<void> {
       ...process.env,
       PYTHONPATH: '.',
       SKILLCUE_PORT: new URL(API_URL).port || '8000',
+      SKILLCUE_API_TOKEN: API_TOKEN,
     };
     if (app.isPackaged) {
       // Use the bundled, pre-downloaded Whisper cache so the first run is offline.
@@ -92,19 +137,55 @@ async function ensureBackend(): Promise<void> {
       // packaged binary is a direct path and must NOT go through a shell.
       shell: !app.isPackaged && process.platform === 'win32',
     });
-    backendProcess.stdout?.on('data', (d) => console.log('[backend]', String(d).trim()));
-    backendProcess.stderr?.on('data', (d) => console.log('[backend]', String(d).trim()));
+    backendProcess.stdout?.on('data', (d) => logBackend(String(d)));
+    backendProcess.stderr?.on('data', (d) => logBackend(String(d)));
     backendProcess.on('exit', (code) => {
-      console.warn('[backend] process exited:', code);
+      logBackend(`process exited with code ${code}`);
       backendProcess = null;
+      scheduleBackendRestart();
     });
     backendProcess.on('error', (err) => {
-      console.warn('[backend] failed to launch:', err.message);
+      logBackend(`failed to launch: ${err.message}`);
       backendProcess = null;
+      scheduleBackendRestart();
     });
+    void confirmBackendUp();
   } catch (err) {
     console.warn('[backend] could not start:', err);
   }
+}
+
+/** После запуска ждём health (модель Whisper грузится не мгновенно) и
+ *  сообщаем renderer'у «ок» — счётчик рестартов обнуляется. */
+async function confirmBackendUp(): Promise<void> {
+  for (let i = 0; i < 40; i += 1) {
+    if (quitting) return;
+    if (await pingBackendHealth()) {
+      backendRestartAttempts = 0;
+      sendToWindows('backend:status', { state: 'ok' });
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+}
+
+/** Бэкенд умер посреди работы: рестарт с нарастающей паузой, максимум 3 раза. */
+function scheduleBackendRestart(): void {
+  if (quitting || backendRestartTimer) return;
+  if (backendRestartAttempts >= MAX_BACKEND_RESTARTS) {
+    sendToWindows('backend:status', { state: 'failed' });
+    return;
+  }
+  backendRestartAttempts += 1;
+  sendToWindows('backend:status', {
+    state: 'restarting',
+    attempt: backendRestartAttempts,
+    max: MAX_BACKEND_RESTARTS,
+  });
+  backendRestartTimer = setTimeout(() => {
+    backendRestartTimer = null;
+    void ensureBackend();
+  }, 1000 * backendRestartAttempts);
 }
 
 function stopBackend(): void {
@@ -126,10 +207,11 @@ function getPreloadPath(): string {
   return path.join(__dirname, 'preload.js');
 }
 
-/** Only allow opening https links in the OS browser. */
+/** Only allow https links (OS browser) and mailto (mail client). */
 function safeOpenExternal(url: string): void {
   try {
-    if (new URL(url).protocol === 'https:') {
+    const protocol = new URL(url).protocol;
+    if (protocol === 'https:' || protocol === 'mailto:') {
       void shell.openExternal(url);
       return;
     }
@@ -229,7 +311,8 @@ function hideOverlay(): void {
 
 function createOverlayWindow(): BrowserWindow {
   const win = new BrowserWindow({
-    width: 1400,
+    // Компактный плавающий ассистент: пилл + командная панель + ответ.
+    width: 680,
     height: 780,
     frame: false,
     transparent: true,
@@ -257,7 +340,101 @@ function createOverlayWindow(): BrowserWindow {
 
 function registerIpc(): void {
   ipcMain.handle('app:getApiUrl', () => API_URL);
+  ipcMain.handle('app:getApiToken', () => API_TOKEN);
   ipcMain.handle('app:openExternal', (_e, url: string) => safeOpenExternal(url));
+  // «Выйти из SkillCue» в настройках — то же, что «Выход» в трее.
+  ipcMain.handle('app:quit', () => app.quit());
+
+  ipcMain.handle('keybinds:get', () => ({
+    toggleOverlay: toggleOverlayShortcut,
+    defaultToggleOverlay: DEFAULT_TOGGLE_SHORTCUT,
+  }));
+
+  ipcMain.handle('keybinds:setToggleOverlay', (_e, acc: string) => {
+    const next = typeof acc === 'string' && acc.trim() ? acc.trim() : DEFAULT_TOGGLE_SHORTCUT;
+    if (next === toggleOverlayShortcut) return { ok: true, shortcut: toggleOverlayShortcut };
+    globalShortcut.unregister(toggleOverlayShortcut);
+    if (!registerToggleShortcut(next)) {
+      // Откат: сочетание занято системой или другим приложением.
+      registerToggleShortcut(toggleOverlayShortcut);
+      return {
+        ok: false,
+        shortcut: toggleOverlayShortcut,
+        error: 'Сочетание занято другим приложением',
+      };
+    }
+    toggleOverlayShortcut = next;
+    saveMainSetting('toggleOverlayShortcut', next);
+    return { ok: true, shortcut: next };
+  });
+
+  // «Сообщить о проблеме»: system info + хвост лога бэкенда + файлы от
+  // renderer'а (prefs, тайминги) → zip во временной папке → показать в проводнике.
+  ipcMain.handle(
+    'app:collectDiagnostics',
+    async (_e, extra: Array<{ name: string; content: string }> = []) => {
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const dir = path.join(app.getPath('temp'), `skillcue-report-${stamp}`);
+      fs.mkdirSync(dir, { recursive: true });
+
+      const online = await pingBackendHealth();
+      const info = [
+        `SkillCue ${app.getVersion()} (${app.isPackaged ? 'packaged' : 'dev'})`,
+        `Electron ${process.versions.electron} / Chrome ${process.versions.chrome} / Node ${process.versions.node}`,
+        `OS: ${process.platform} ${os.release()} ${os.arch()}`,
+        `RAM: ${Math.round(os.totalmem() / 1024 ** 3)} GB`,
+        `Backend online: ${online}`,
+        `Backend managed by app: ${backendProcess !== null}`,
+        `Restart attempts: ${backendRestartAttempts}`,
+        `Date: ${new Date().toISOString()}`,
+      ].join('\n');
+      fs.writeFileSync(path.join(dir, 'system-info.txt'), info, 'utf8');
+
+      try {
+        const logP = backendLogPath();
+        if (fs.existsSync(logP)) {
+          // Хвост в 512 КБ достаточен и не тащит недельную историю.
+          const size = fs.statSync(logP).size;
+          const start = Math.max(0, size - 512 * 1024);
+          const buf = Buffer.alloc(size - start);
+          const fd = fs.openSync(logP, 'r');
+          fs.readSync(fd, buf, 0, buf.length, start);
+          fs.closeSync(fd);
+          fs.writeFileSync(path.join(dir, 'backend.log'), buf);
+        }
+      } catch {
+        /* лог не собрался — отчёт всё равно полезен */
+      }
+
+      for (const file of extra.slice(0, 10)) {
+        if (typeof file?.name !== 'string' || typeof file?.content !== 'string') continue;
+        const safe = file.name.replace(/[^a-z0-9._-]/gi, '_').slice(0, 64) || 'extra.txt';
+        try {
+          fs.writeFileSync(path.join(dir, safe), file.content.slice(0, 2_000_000), 'utf8');
+        } catch {
+          /* ignore */
+        }
+      }
+
+      let target = dir;
+      if (process.platform === 'win32') {
+        const zip = `${dir}.zip`;
+        const zipped = await new Promise<boolean>((resolve) => {
+          const ps = spawn('powershell', [
+            '-NoProfile',
+            '-NonInteractive',
+            '-Command',
+            `Compress-Archive -Path "${dir}\\*" -DestinationPath "${zip}" -Force`,
+          ]);
+          ps.on('exit', (code) => resolve(code === 0));
+          ps.on('error', () => resolve(false));
+        });
+        if (zipped) target = zip;
+      }
+      shell.showItemInFolder(target);
+      return target;
+    },
+  );
 
   ipcMain.handle('overlay:toggle', () => {
     if (!overlayWindow) return;
@@ -268,12 +445,37 @@ function registerIpc(): void {
   ipcMain.handle('overlay:show', () => overlayWindow?.show());
   ipcMain.handle('overlay:hide', () => hideOverlay());
 
-  ipcMain.handle('overlay:openSettings', () => {
+  ipcMain.handle('overlay:captureScreen', async () => {
+    // Скриншот основного экрана для vision-подсказки («Экран» в оверлее).
+    // JPEG 70% на ~1600px — читаемо для модели и в разы легче PNG.
+    try {
+      const sources = await desktopCapturer.getSources({
+        types: ['screen'],
+        thumbnailSize: { width: 1600, height: 1000 },
+      });
+      const primary = sources[0];
+      if (!primary) return '';
+      return `data:image/jpeg;base64,${primary.thumbnail.toJPEG(70).toString('base64')}`;
+    } catch (err) {
+      console.warn('[overlay] screen capture failed:', err);
+      return '';
+    }
+  });
+
+  ipcMain.handle('overlay:openApp', () => {
+    // Клик по логотипу в пилле: поднять главное окно, оверлей не трогаем.
+    if (!mainWindow) return;
+    mainWindow.show();
+    mainWindow.focus();
+  });
+
+  ipcMain.handle('overlay:openSettings', (_e, section?: string) => {
     if (!mainWindow) return;
     overlayWindow?.hide();
     mainWindow.show();
     mainWindow.focus();
-    mainWindow.webContents.send('app:navigate', '/settings');
+    const safe = section && /^[a-z-]+$/.test(section) ? `?tab=${section}` : '';
+    mainWindow.webContents.send('app:navigate', `/settings${safe}`);
   });
 
   ipcMain.handle('overlay:setContentProtection', (_e, enable: boolean) => {
@@ -281,19 +483,108 @@ function registerIpc(): void {
     mainWindow?.setContentProtection(enable);
   });
 
+  ipcMain.handle('overlay:move', (_e, dx: number, dy: number) => {
+    // Перемещение окна оверлея с клавиатуры (Ctrl+стрелки), как «Move Cluely».
+    if (!overlayWindow) return;
+    const [x, y] = overlayWindow.getPosition();
+    overlayWindow.setPosition(Math.round(x + dx), Math.round(y + dy));
+  });
+
+  ipcMain.handle('overlay:setFocusable', (_e, focusable: boolean) => {
+    // «Не забирать фокус»: оверлей не становится активным окном, фокус
+    // остаётся в приложении под ним. Внимание: при false ввод в поле
+    // оверлея недоступен, поэтому включается осознанно из меню.
+    overlayWindow?.setFocusable(focusable);
+  });
+
   ipcMain.handle('window:setSkipTaskbar', (_e, skip: boolean) => {
     mainWindow?.setSkipTaskbar(skip);
   });
+
+  ipcMain.handle('app:getVersion', () => app.getVersion());
+
+  ipcMain.handle('updater:check', async () => {
+    // Ручная проверка из настроек. В dev автообновление не настроено.
+    if (isDev) return { state: 'none' as const, message: 'dev-режим: обновления недоступны' };
+    try {
+      const result = await autoUpdater.checkForUpdates();
+      const version = result?.updateInfo?.version;
+      if (version && version !== app.getVersion()) {
+        return { state: 'available' as const, version };
+      }
+      return { state: 'none' as const };
+    } catch (err) {
+      return { state: 'error' as const, message: String(err instanceof Error ? err.message : err) };
+    }
+  });
+
+  ipcMain.handle('app:getAutoLaunch', () => app.getLoginItemSettings().openAtLogin);
+  ipcMain.handle('app:setAutoLaunch', (_e, enable: boolean) => {
+    app.setLoginItemSettings({ openAtLogin: enable });
+  });
+}
+
+/* ---- Настройки main-процесса (нужны до готовности renderer'а) ---- */
+
+const DEFAULT_TOGGLE_SHORTCUT = 'CommandOrControl+Shift+H';
+let toggleOverlayShortcut = DEFAULT_TOGGLE_SHORTCUT;
+
+function mainSettingsPath(): string {
+  return path.join(app.getPath('userData'), 'main-settings.json');
+}
+
+function loadMainSettings(): Record<string, unknown> {
+  try {
+    return JSON.parse(fs.readFileSync(mainSettingsPath(), 'utf8')) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
+function saveMainSetting(key: string, value: unknown): void {
+  try {
+    fs.writeFileSync(
+      mainSettingsPath(),
+      JSON.stringify({ ...loadMainSettings(), [key]: value }, null, 2),
+    );
+  } catch {
+    /* best-effort */
+  }
+}
+
+function toggleOverlay(): void {
+  if (!overlayWindow) return;
+  if (overlayWindow.isVisible()) hideOverlay();
+  else overlayWindow.show();
+}
+
+function registerToggleShortcut(acc: string): boolean {
+  try {
+    return globalShortcut.register(acc, toggleOverlay);
+  } catch {
+    return false;
+  }
 }
 
 function registerShortcuts(): void {
-  globalShortcut.register('CommandOrControl+Shift+H', () => {
-    if (!overlayWindow) return;
-    if (overlayWindow.isVisible()) hideOverlay();
-    else overlayWindow.show();
-  });
+  const stored = loadMainSettings().toggleOverlayShortcut;
+  if (typeof stored === 'string' && stored.trim() && registerToggleShortcut(stored.trim())) {
+    toggleOverlayShortcut = stored.trim();
+  } else {
+    registerToggleShortcut(DEFAULT_TOGGLE_SHORTCUT);
+    toggleOverlayShortcut = DEFAULT_TOGGLE_SHORTCUT;
+  }
 
-  globalShortcut.register('Escape', () => hideOverlay());
+  // Escape прячет оверлей, но глобальный хук живёт ТОЛЬКО пока оверлей виден —
+  // постоянная регистрация отбирала Esc у всех остальных приложений системы.
+  overlayWindow?.on('show', () => {
+    try {
+      globalShortcut.register('Escape', () => hideOverlay());
+    } catch {
+      /* занято другим приложением — не критично */
+    }
+  });
+  overlayWindow?.on('hide', () => globalShortcut.unregister('Escape'));
 }
 
 function createTray(): void {
@@ -356,7 +647,15 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
+app.on('before-quit', () => {
+  // Плановый выход: 'exit' убитого бэкенда не должен запускать рестарт.
+  quitting = true;
+  if (backendRestartTimer) clearTimeout(backendRestartTimer);
+});
+
 app.on('will-quit', () => {
+  quitting = true;
   globalShortcut.unregisterAll();
   stopBackend();
+  backendLogStream?.end();
 });

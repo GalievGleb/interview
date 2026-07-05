@@ -105,9 +105,12 @@ def test_curated_overrides_lead_and_are_marked_verified():
 
 
 def test_curated_entries_are_say_aloud_length():
-    for entry in kp._load_curated():
-        words = len(entry["answer"].split())
-        assert 20 <= words <= 95, f"{entry['id']}: {words} words"
+    # Both curated packs must stay in the say-aloud budget (SQL entries may run
+    # slightly longer: enumerations like JOIN types need a few extra words).
+    for pack_dir, cap in ((kp.PACK_DIR, 95), (kp.SQL_PACK_DIR, 130)):
+        for entry in kp._load_curated_for(pack_dir):
+            words = len(entry["answer"].split())
+            assert 20 <= words <= cap, f"{pack_dir.name}/{entry['id']}: {words} words"
 
 
 def test_community_only_when_no_curated_match():

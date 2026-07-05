@@ -27,9 +27,14 @@ class AnswerStrategy(TypedDict):
     suggest_unclear_prefix: bool
 
 
+# Каждый интент матчится по русским И английским формулировкам — движок ответов
+# один, а собеседования бывают на обоих языках.
 _BEHAVIORAL_RE = re.compile(
     r"(?:почему\s+(?:уш\w*|уход|хот\w*\s+(?:работать|сменить|уйти))|конфликт|"
-    r"сильн\w+\s+сторон|слаб\w+\s+сторон|мотивац|куда\s+видишь\s+себя)",
+    r"сильн\w+\s+сторон|слаб\w+\s+сторон|мотивац|куда\s+видишь\s+себя|"
+    r"why\s+(?:did\s+you\s+leave|do\s+you\s+want)|conflict|"
+    r"strengths?\s+and\s+weakness|greatest\s+(?:strength|weakness)|"
+    r"where\s+do\s+you\s+see\s+yourself|motivat)",
     re.IGNORECASE | re.UNICODE,
 )
 _EXPERIENCE_RE = re.compile(
@@ -37,27 +42,38 @@ _EXPERIENCE_RE = re.compile(
     r"опыт\s+(?:автоматизац|работ|тестир)|на\s+каких\s+проектах|"
     r"чем\s+занимал\w*\s+на\s+(?:проект|работ)|расскаж\w*\s+о\s+(?:сво\w+\s+)?(?:работ|карьер|проект)|"
     # HR / biographical — bio questions get resume context so the answer can pivot.
-    r"расскаж\w*\s+(?:о\s+себе|про\s+себя)|подработк|про\s+подработк)",
+    r"расскаж\w*\s+(?:о\s+себе|про\s+себя)|подработк|про\s+подработк|"
+    r"tell\s+(?:me|us)\s+about\s+(?:yourself|your\s+(?:experience|background|career|projects?))|"
+    r"walk\s+me\s+through\s+your|your\s+(?:experience|background)\s+with|"
+    r"what\s+projects\s+have\s+you)",
     re.IGNORECASE | re.UNICODE,
 )
 _PRACTICAL_RE = re.compile(
     r"(?:как\s+ты\s+(?:применял\w*|использовал\w*|настраивал\w*|проверял\w*|запускал\w*|"
     r"работал\w*|делал\w*|писал\w*)|ты\s+сам\w*\s+(?:настраивал\w*|делал\w*|писал\w*|"
     r"использовал\w*)|сам\s+настраивал\w*|как\s+вы\s+(?:применял\w*|использовал\w*|настраивал\w*)|"
-    r"в\s+работ\w*|на\s+проект\w*)",
+    r"в\s+работ\w*|на\s+проект\w*|"
+    r"how\s+(?:did|do|have)\s+you\s+(?:use|apply|set\s*up|configure|implement|test|work)|"
+    r"have\s+you\s+(?:ever\s+)?(?:used|worked\s+with|built|set\s*up)|in\s+your\s+work|"
+    r"on\s+your\s+project)",
     re.IGNORECASE | re.UNICODE,
 )
 _COMPARISON_RE = re.compile(
-    r"(?:чем\s+.+\s+отлича|разниц\w*|в\s+ч(?:е|ё)м\s+разниц|\bvs\.?\b|против\s+)",
+    r"(?:чем\s+.+\s+отлича|разниц\w*|в\s+ч(?:е|ё)м\s+разниц|\bvs\.?\b|против\s+|"
+    r"difference\s+between|how\s+(?:is|does)\s+.+\s+differ|compare\s+|versus\s+)",
     re.IGNORECASE | re.UNICODE,
 )
 _LIST_RE = re.compile(
     r"(?:какие\s+(?:бывают\s+)?|перечисли|назови|какие\s+\w+\s+ты\s+знаешь|"
-    r"какие\s+тип\w+|какие\s+вид\w+|какие\s+ошибк\w+|основные\s+\w+\s+(?:групп|тип|вид)|список\s+)",
+    r"какие\s+тип\w+|какие\s+вид\w+|какие\s+ошибк\w+|основные\s+\w+\s+(?:групп|тип|вид)|список\s+|"
+    r"what\s+(?:kinds?|types?)\s+of|list\s+(?:the|all|some)|name\s+(?:the|all|some)|"
+    r"which\s+\w+\s+do\s+you\s+know|what\s+are\s+the\s+(?:main|different|common))",
     re.IGNORECASE | re.UNICODE,
 )
 _DEFINITION_RE = re.compile(
-    r"(?:что\s+такое|что\s+значит|что\s+это\s+за|объясни(?:те)?|расскаж\w*\s+что\s+такое|определени\w*)",
+    r"(?:что\s+такое|что\s+значит|что\s+это\s+за|объясни(?:те)?|расскаж\w*\s+что\s+такое|определени\w*|"
+    r"what\s+is\s+(?:a|an|the)?\s*\w|what\s+does\s+\w+\s+mean|explain\s+|define\s+|"
+    r"can\s+you\s+describe\s+what)",
     re.IGNORECASE | re.UNICODE,
 )
 

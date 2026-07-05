@@ -9,10 +9,43 @@ import {
   api,
   type SttDeviceId,
   type SttDeviceInfo,
+  type SttEngineId,
   type SttModelStatus,
   type SttSettingsDto,
   type WhisperQualityId,
 } from '../lib/api';
+
+const ENGINES: Array<{
+  id: SttEngineId;
+  label: string;
+  tagline: string;
+  privacy: string;
+  keyField?: 'deepgram_api_key' | 'yandex_api_key';
+  keyPlaceholder?: string;
+}> = [
+  {
+    id: 'whisper',
+    label: 'Local Whisper',
+    tagline: 'Приватно и бесплатно: аудио не покидает устройство. Задержка зависит от железа.',
+    privacy: 'Звук обрабатывается локально.',
+  },
+  {
+    id: 'deepgram',
+    label: 'Deepgram Nova-3',
+    tagline: 'Самый быстрый: слова на экране через ~300 мс. ~0.66₽/мин, нужен API-ключ.',
+    privacy: 'Аудио уходит в облако Deepgram (США).',
+    keyField: 'deepgram_api_key',
+    keyPlaceholder: 'Deepgram API key',
+  },
+  {
+    id: 'speechkit',
+    label: 'Яндекс SpeechKit v3',
+    tagline: 'Лучшее распознавание русского. ~0.65₽/мин, оплата в рублях, нужен API-ключ.',
+    privacy: 'Аудио уходит в Яндекс Cloud (Россия).',
+    keyField: 'yandex_api_key',
+    keyPlaceholder: 'API-ключ сервисного аккаунта Яндекс Cloud',
+  },
+];
 
 const QUALITIES: WhisperQualityId[] = ['fast', 'balanced', 'quality', 'max'];
 
@@ -72,6 +105,9 @@ export default function SpeechRecognitionSettings() {
   const [busy, setBusy] = useState<WhisperQualityId | null>(null);
   const [error, setError] = useState('');
   const [note, setNote] = useState('');
+  const [cloudKeys, setCloudKeys] = useState({ deepgram: false, yandex: false });
+  const [keyDraft, setKeyDraft] = useState('');
+  const [savingKey, setSavingKey] = useState(false);
 
   const refreshStatuses = useCallback(async () => {
     const entries = await Promise.all(
@@ -91,6 +127,10 @@ export default function SpeechRecognitionSettings() {
         setWhisperReason(whisper?.reason ?? '');
         await refreshStatuses();
         api.sttDevice().then((d) => alive && setDevice(d)).catch(() => undefined);
+        api
+          .getKeys()
+          .then((k) => alive && setCloudKeys({ deepgram: k.deepgram, yandex: k.yandex }))
+          .catch(() => undefined);
       } catch (err) {
         if (alive) setError(err instanceof Error ? err.message : 'Не удалось загрузить настройки STT');
       }
@@ -184,19 +224,111 @@ export default function SpeechRecognitionSettings() {
     { id: 'gpu', label: 'GPU' },
   ];
 
+  const engine = settings.engine ?? 'whisper';
+  const activeEngine = ENGINES.find((e) => e.id === engine) ?? ENGINES[0];
+  const engineKeySaved =
+    engine === 'deepgram' ? cloudKeys.deepgram : engine === 'speechkit' ? cloudKeys.yandex : true;
+
+  const saveCloudKey = async () => {
+    if (!activeEngine.keyField || !keyDraft.trim()) return;
+    setSavingKey(true);
+    setError('');
+    try {
+      const status = await api.saveKeys({ [activeEngine.keyField]: keyDraft.trim() });
+      setCloudKeys({ deepgram: status.deepgram, yandex: status.yandex });
+      setKeyDraft('');
+      setNote('Ключ сохранён. Live-распознавание переключится со следующей сессии.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Не удалось сохранить ключ');
+    } finally {
+      setSavingKey(false);
+    }
+  };
+
   return (
     <div className="mb-5 space-y-4">
       <div>
         <h3 className="text-sm font-semibold text-ink">Распознавание речи (STT)</h3>
         <p className="mt-0.5 text-sm text-ink-muted">
-          Local Whisper транскрибирует аудио на вашем устройстве — звук не уходит в облако.
+          Движок live-транскрипции: локальный (приватно) или облачный (быстрее и точнее).
         </p>
       </div>
 
-      <div className="cockpit-alert cockpit-alert-info">
-        <span>Распознавание: Local Whisper — аудио распознаётся локально и не отправляется в облако.</span>
+      {/* Engine selector */}
+      <div className="space-y-2.5">
+        {ENGINES.map((e) => {
+          const selected = engine === e.id;
+          const keySaved = e.id === 'deepgram' ? cloudKeys.deepgram : e.id === 'speechkit' ? cloudKeys.yandex : true;
+          return (
+            <div
+              key={e.id}
+              onClick={() => void patchSettings({ engine: e.id })}
+              className={`sc-model-card ${selected ? 'sc-model-card--selected' : ''}`}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="font-medium text-ink">{e.label}</p>
+                    {e.id === 'whisper' && <span className="sc-badge sc-badge--accent">Приватно</span>}
+                    {e.keyField && (
+                      <span className={`sc-badge ${keySaved ? 'sc-badge--accent' : ''}`}>
+                        {keySaved ? 'Ключ сохранён' : 'Нужен ключ'}
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-1 text-sm text-ink-muted">{e.tagline}</p>
+                  <p className="mt-0.5 text-xs text-ink-faint">{e.privacy}</p>
+                </div>
+                <Radio selected={selected} />
+              </div>
+            </div>
+          );
+        })}
       </div>
 
+      {/* Cloud engine API key */}
+      {activeEngine.keyField && (
+        <div className="sc-card p-5">
+          <p className="text-sm font-medium text-ink">
+            API-ключ · {activeEngine.label}
+            {engineKeySaved && <span className="ml-2 text-xs text-emerald-400">сохранён</span>}
+          </p>
+          <div className="mt-2 flex flex-wrap items-center gap-2" onClick={(ev) => ev.stopPropagation()}>
+            <input
+              type="password"
+              className="input-compact min-w-[260px] flex-1"
+              placeholder={activeEngine.keyPlaceholder}
+              value={keyDraft}
+              onChange={(ev) => setKeyDraft(ev.target.value)}
+            />
+            <button
+              type="button"
+              className="btn-primary btn-sm"
+              disabled={savingKey || !keyDraft.trim()}
+              onClick={() => void saveCloudKey()}
+            >
+              {savingKey ? 'Сохраняю…' : engineKeySaved ? 'Заменить ключ' : 'Сохранить ключ'}
+            </button>
+          </div>
+          {!engineKeySaved && (
+            <p className="mt-2 text-xs text-amber-300">
+              Без ключа live-сессия покажет ошибку и подскажет вернуться на Local Whisper.
+            </p>
+          )}
+        </div>
+      )}
+
+      <div className="cockpit-alert cockpit-alert-info">
+        <span>
+          {engine === 'whisper'
+            ? 'Распознавание: Local Whisper — аудио распознаётся локально и не отправляется в облако.'
+            : `Распознавание: ${activeEngine.label}. ${activeEngine.privacy}`}
+        </span>
+      </div>
+
+      {/* Whisper-специфичные секции не нужны, когда выбран облачный движок. */}
+      {engine === 'whisper' && (
+      <>
       {/* Live streaming models */}
       <div className="sc-card p-5">
         <p className="mb-3 text-sm font-semibold text-ink">Потоковые модели</p>
@@ -351,6 +483,8 @@ export default function SpeechRecognitionSettings() {
           </button>
         </div>
       </div>
+      </>
+      )}
 
       {/* Validation */}
       <div className="sc-card flex flex-wrap items-center gap-2 p-5">
@@ -364,11 +498,13 @@ export default function SpeechRecognitionSettings() {
       </div>
 
       {/* Privacy note */}
-      <div className="cockpit-alert cockpit-alert-warn">
-        <span>
-          {STT_PRIVACY_LOCAL} {STT_RESOURCE_USAGE_LOCAL}
-        </span>
-      </div>
+      {engine === 'whisper' && (
+        <div className="cockpit-alert cockpit-alert-warn">
+          <span>
+            {STT_PRIVACY_LOCAL} {STT_RESOURCE_USAGE_LOCAL}
+          </span>
+        </div>
+      )}
 
       {note && <p className="text-xs text-emerald-400">{note}</p>}
       {error && <p className="text-sm text-red-400">{error}</p>}

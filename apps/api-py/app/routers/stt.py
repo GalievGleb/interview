@@ -1,4 +1,6 @@
+import asyncio
 import logging
+import time
 
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
@@ -19,6 +21,9 @@ logger = logging.getLogger("stt")
 router = APIRouter(prefix="/stt", tags=["stt"])
 
 ALLOWED_SAMPLE_RATES = {16000, 44100, 48000}
+
+# Сколько live-сокетов открыто сейчас (mic+system = 2 на одну сессию).
+_active_live_streams = 0
 
 
 @router.get("/providers")
@@ -140,6 +145,7 @@ class SttSettingsPayload(BaseModel):
     partial_model: str | None = None
     final_model: str | None = None
     device: str | None = None
+    engine: str | None = None  # whisper | deepgram | speechkit
 
 
 @router.get("/settings")
@@ -154,6 +160,7 @@ def save_stt_settings_endpoint(payload: SttSettingsPayload) -> dict:
         partial_model=payload.partial_model,
         final_model=payload.final_model,
         device=payload.device,
+        engine=payload.engine,
     )
     # Model/device may have changed — drop cached providers and loaded models so
     # the next transcription reloads with the new configuration.
@@ -163,14 +170,26 @@ def save_stt_settings_endpoint(payload: SttSettingsPayload) -> dict:
 
 @router.websocket("/stream")
 async def stt_stream(ws: WebSocket) -> None:
-    """Live transcription over WebSocket — now backed by on-device Whisper.
+    """Live transcription over WebSocket.
 
-    The message protocol is unchanged from the previous cloud engine, so the
-    desktop live path works without modification. ``engine``/``mode`` query
-    params are accepted for backwards compatibility but ignored (the local
-    model is chosen in Speech-Recognition settings).
+    Движок выбирается в настройках STT (``engine``): локальный Whisper (по
+    умолчанию), Deepgram Nova-3 или Яндекс SpeechKit v3. Протокол сообщений
+    одинаковый для всех движков, десктоп ничего не знает о разнице. Query-параметр
+    ``engine`` может переопределить настройку на одну сессию (Test Lab).
     """
     await ws.accept()
+
+    # Локальная аутентификация: WebSocket не умеет заголовки из браузера,
+    # поэтому токен приходит query-параметром (см. core/local_auth).
+    from app.core import local_auth
+
+    if local_auth.enabled() and not local_auth.token_ok(
+        ws.query_params.get(local_auth.WS_QUERY_PARAM)
+    ):
+        await ws.send_json({"type": "error", "message": "unauthorized"})
+        await ws.close()
+        return
+
     settings = get_settings()
 
     if not settings.stt_enabled:
@@ -186,17 +205,87 @@ async def stt_stream(ws: WebSocket) -> None:
     if sample_rate not in ALLOWED_SAMPLE_RATES:
         sample_rate = 16000
 
-    try:
-        await whisper_stream.run_whisper_stream(
-            ws,
-            language=language,
-            sample_rate=sample_rate,
+    # --- Монетизация: live по тарифу; trial — 15 минут суммарно (сервер). ---
+    from app.db.session import SessionLocal
+    from app.services import quota
+
+    with SessionLocal() as _db:
+        ent = quota.current_entitlements(_db)
+    if not ent["live_allowed"]:
+        reason = (
+            "Тариф basic не включает live-режим — обновитесь до max."
+            if ent["plan"] == "basic"
+            else "Пробные 15 минут live закончились. Активируйте лицензию в Настройках."
         )
+        await ws.send_json({"type": "error", "message": reason})
+        await ws.close()
+        return
+
+    # mic+system открывают два сокета — минуты копит только первый (primary),
+    # иначе trial сгорал бы вдвое быстрее реального времени.
+    global _active_live_streams
+    is_primary = _active_live_streams == 0
+    _active_live_streams += 1
+    started_at = time.monotonic()
+
+    # Trial-сессия не может пережить остаток минут — режем и посреди сессии.
+    watchdog: asyncio.Task | None = None
+    live_left = ent["live_seconds_left"]
+    if live_left is not None:
+
+        async def _cut_off() -> None:
+            await asyncio.sleep(max(5, int(live_left)))
+            try:
+                await ws.send_json(
+                    {"type": "error", "message": "Пробные 15 минут live закончились."}
+                )
+                await ws.close()
+            except Exception:  # noqa: BLE001
+                pass
+
+        watchdog = asyncio.create_task(_cut_off())
+
+    # Диспетчеризация движка: настройка STT либо query-переопределение на сессию.
+    from app.services.stt.settings_store import VALID_ENGINES
+
+    engine = ws.query_params.get("engine") or load_stt_settings().engine
+    if engine not in VALID_ENGINES:
+        engine = "whisper"
+
+    try:
+        if engine == "deepgram":
+            from app.services.stt import deepgram_stream
+
+            await deepgram_stream.run_deepgram_stream(
+                ws, language=language, sample_rate=sample_rate
+            )
+        elif engine == "speechkit":
+            from app.services.stt import speechkit_stream
+
+            await speechkit_stream.run_speechkit_stream(
+                ws, language=language, sample_rate=sample_rate
+            )
+        else:
+            await whisper_stream.run_whisper_stream(
+                ws,
+                language=language,
+                sample_rate=sample_rate,
+            )
     except WebSocketDisconnect:
         pass
     except Exception:  # noqa: BLE001
         logger.exception("STT stream error")
     finally:
+        if watchdog is not None:
+            watchdog.cancel()
+        _active_live_streams = max(0, _active_live_streams - 1)
+        # Минуты trial копятся на сервере — фронт их не контролирует.
+        if is_primary and live_left is not None:
+            try:
+                with SessionLocal() as _db:
+                    quota.add_live_seconds(_db, time.monotonic() - started_at)
+            except Exception:  # noqa: BLE001
+                logger.exception("failed to record trial live seconds")
         try:
             await ws.close()
         except Exception:  # noqa: BLE001

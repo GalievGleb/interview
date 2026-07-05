@@ -96,3 +96,138 @@ def test_meeting_summary_stream_emits_chunks_then_done(client, monkeypatch):
     assert "chunk" in types
     assert types[-1] == "done"
     assert "".join(e["text"] for e in events if e["type"] == "chunk") == "Summary: решения приняты."
+
+
+def test_screen_assist_stream_builds_multimodal_message(client, monkeypatch):
+    captured: dict = {}
+
+    async def fake_stream(messages, provider=None, model=None, max_tokens=800, temperature=0.4):
+        captured["messages"] = messages
+        yield "На экране задача по SQL."
+
+    monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
+
+    res = client.post(
+        "/chat/screen/stream",
+        json={
+            "image": "data:image/jpeg;base64,QUJD",
+            "question": "Помоги решить",
+            "context": "Интервьюер: реши задачу",
+        },
+    )
+    assert res.status_code == 200, res.text
+    events = [
+        json.loads(line[len("data: ") :])
+        for line in res.text.splitlines()
+        if line.startswith("data: ")
+    ]
+    assert any(e["type"] == "chunk" for e in events)
+
+    user = captured["messages"][-1]
+    parts = user["content"]
+    kinds = {p["type"] for p in parts}
+    assert kinds == {"text", "image_url"}
+    text_part = next(p for p in parts if p["type"] == "text")["text"]
+    assert "Помоги решить" in text_part
+    assert "реши задачу" in text_part  # транскрипт подмешан
+    img = next(p for p in parts if p["type"] == "image_url")["image_url"]["url"]
+    assert img.startswith("data:image/jpeg;base64,")
+
+
+def test_screen_assist_rejects_empty_and_huge_images(client, monkeypatch):
+    async def fake_stream(*a, **k):
+        yield "x"
+
+    monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
+    assert client.post("/chat/screen/stream", json={"image": ""}).status_code == 400
+    huge = "A" * 8_000_001
+    assert client.post("/chat/screen/stream", json={"image": huge}).status_code == 413
+
+
+def test_chat_injects_answer_language_block(client, monkeypatch):
+    captured: dict = {}
+
+    async def fake_stream(messages, provider=None, model=None, **kw):
+        captured["messages"] = messages
+        yield "ok"
+
+    monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
+
+    res = client.post("/chat", json={"message": "Привет", "answer_language": "en"})
+    assert res.status_code == 200, res.text
+    user_msg = captured["messages"][-1]["content"]
+    assert "OUTPUT LANGUAGE" in user_msg
+    assert "English" in user_msg
+
+    # Без настройки блок не добавляется — модель отвечает на языке вопроса.
+    res = client.post("/chat", json={"message": "Привет"})
+    assert res.status_code == 200, res.text
+    assert "OUTPUT LANGUAGE" not in captured["messages"][-1]["content"]
+
+
+def test_interview_stream_injects_answer_language_block(client, monkeypatch):
+    captured: dict = {}
+
+    async def fake_stream(messages, provider=None, model=None, **kw):
+        captured["messages"] = messages
+        yield "Готовый ответ."
+
+    monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
+    # Стрим-endpoint открывает собственный SessionLocal (живёт дольше запроса) —
+    # в тестах он должен указывать на in-memory БД, а не на файл разработчика.
+    from conftest import TestingSessionLocal
+
+    from app.routers import chat as chat_router
+
+    monkeypatch.setattr(chat_router, "SessionLocal", TestingSessionLocal)
+
+    res = client.post(
+        "/chat/interview/stream",
+        json={"question": "Что такое REST?", "answer_language": "en"},
+    )
+    assert res.status_code == 200, res.text
+    user_msg = captured["messages"][-1]["content"]
+    assert "OUTPUT LANGUAGE" in user_msg
+    assert "English" in user_msg
+
+
+def test_screen_assist_injects_answer_language_block(client, monkeypatch):
+    captured: dict = {}
+
+    async def fake_stream(messages, provider=None, model=None, **kw):
+        captured["messages"] = messages
+        yield "ok"
+
+    monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
+
+    res = client.post(
+        "/chat/screen/stream",
+        json={"image": "data:image/jpeg;base64,QUJD", "answer_language": "ru"},
+    )
+    assert res.status_code == 200, res.text
+    text_part = next(
+        p for p in captured["messages"][-1]["content"] if p["type"] == "text"
+    )["text"]
+    assert "OUTPUT LANGUAGE" in text_part
+    assert "Russian" in text_part
+
+
+def test_answer_variant_language_block_skips_english_variant(client, monkeypatch):
+    captured: dict = {}
+
+    async def fake_complete(messages, provider=None, model=None, **kw):
+        captured["messages"] = messages
+        return "вариант"
+
+    monkeypatch.setattr(provider_adapter, "complete", fake_complete)
+
+    base = {"question": "Q", "answer": "A", "answer_language": "ru"}
+
+    res = client.post("/chat/answer-variant", json={**base, "variant": "short"})
+    assert res.status_code == 200, res.text
+    assert "OUTPUT LANGUAGE" in captured["messages"][-1]["content"]
+
+    # Вариант "english" всегда английский — настройка не должна его ломать.
+    res = client.post("/chat/answer-variant", json={**base, "variant": "english"})
+    assert res.status_code == 200, res.text
+    assert "OUTPUT LANGUAGE" not in captured["messages"][-1]["content"]

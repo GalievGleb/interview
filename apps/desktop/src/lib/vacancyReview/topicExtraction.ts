@@ -217,7 +217,7 @@ export function detectSeniority(text: string, role: string): SeniorityLevel {
   if (years) {
     const n = parseInt(years[1], 10);
     if (n >= 5) return 'senior';
-    if (n >= 3) return 'middle';
+    if (n >= 2) return 'middle';
     if (n >= 1) return 'junior';
   }
   return 'unknown';

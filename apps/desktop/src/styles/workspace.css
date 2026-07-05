@@ -93,6 +93,40 @@
   --dur-slow: 0.3s;
 }
 
+/* Светлая тема: перекрываем поверхности/текст/акцент — статусы, спикеры,
+   типографика и motion общие для обеих тем. Tailwind-цвета переключаются
+   RGB-триплетами в tokens.css. */
+:root[data-theme='light'] {
+  --surface-app: #eef3f9;
+  --surface-panel: #f7fafd;
+  --surface-card: #ffffff;
+  --surface-hover: #e3ecf6;
+  --surface-elevated: #ffffff;
+  --surface-border: #d3dfec;
+  --surface-border-strong: #b6c8dc;
+
+  --accent: #1f9d5f;
+  --accent-text: #0f7a44;
+  --accent-soft: rgba(31, 157, 95, 0.12);
+  --accent-soft-hover: rgba(31, 157, 95, 0.2);
+  --accent-border: rgba(31, 157, 95, 0.44);
+  --accent-ring: rgba(31, 157, 95, 0.3);
+  --tint-accent-border: rgba(31, 157, 95, 0.28);
+  --tint-accent-bg: rgba(31, 157, 95, 0.08);
+
+  --text-strong: #16283c;
+  --text-body: #16283c;
+  --text-muted: #4a5d74;
+  --text-faint: #76889d;
+  --graphite-600: #76889d;
+
+  --tint-success-text: #0f7a44;
+  --speaker-you: #6d4fd0;
+
+  --shadow-soft: 0 1px 2px rgba(15, 35, 60, 0.1);
+  --shadow-card: 0 1px 2px rgba(15, 35, 60, 0.08), 0 18px 44px -24px rgba(15, 35, 60, 0.22);
+}
+
 /* ============================ KEYFRAMES ============================ */
 @keyframes sc-fade-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes sc-scale-in {

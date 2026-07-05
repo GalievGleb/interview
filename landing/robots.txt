@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+
+# TODO: после покупки домена заменить на реальный адрес
+Sitemap: https://ВАШ-ДОМЕН/sitemap.xml

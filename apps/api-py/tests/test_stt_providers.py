@@ -68,20 +68,25 @@ def test_whisper_is_local_and_default_id():
     assert w.get_privacy_description() == PRIVACY_LOCAL
 
 
-def test_no_cloud_provider_exists():
-    # Deepgram removed: the registry exposes only the local engine.
-    ids = {p.id for p in registry.all_providers()}
-    assert ids == {"whisper-local"}
-    assert not hasattr(registry, "build_deepgram_provider")
+def test_registry_exposes_local_plus_optional_cloud():
+    # Local Whisper — обязателен и первый; облачные (Deepgram/SpeechKit) —
+    # опциональные, без ключа помечаются unavailable, но в реестре видны.
+    providers = registry.all_providers()
+    ids = [p.id for p in providers]
+    assert ids[0] == "whisper-local"
+    assert set(ids) == {"whisper-local", "deepgram-nova3", "yandex-speechkit-v3"}
 
 
-def test_any_provider_id_resolves_to_whisper():
+def test_unknown_provider_id_resolves_to_whisper():
     assert registry.get_provider("???").id == "whisper-local"
-    assert registry.get_provider("deepgram").id == "whisper-local"
+    assert registry.get_provider("deepgram-nova3").id == "deepgram-nova3"
 
 
-def test_default_provider_is_always_local():
-    assert registry.resolve_default_provider().mode is ProviderMode.LOCAL
+def test_default_provider_is_local_unless_engine_switched():
+    from app.services.stt.settings_store import load_stt_settings
+
+    if load_stt_settings().engine == "whisper":
+        assert registry.resolve_default_provider().mode is ProviderMode.LOCAL
 
 
 # --- cached provider (Test Lab / batch reuse) ----------------------------
@@ -160,7 +165,10 @@ def test_hallucination_filter_keeps_real_questions():
 def test_diagnostics_shape():
     diag = registry.diagnostics()
     assert diag["default"] == "whisper-local"
+    assert diag["engine"] in {"whisper", "deepgram", "speechkit"}
     assert "allowCloudFallback" not in diag
-    assert [p["mode"] for p in diag["providers"]] == ["local"]
+    modes = [p["mode"] for p in diag["providers"]]
+    assert modes[0] == "local"  # локальный движок всегда первый
+    assert set(modes) == {"local", "cloud"}
     # Every provider explains its privacy posture.
     assert all(p["privacyDescription"] for p in diag["providers"])

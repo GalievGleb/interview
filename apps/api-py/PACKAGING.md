@@ -31,6 +31,12 @@ placeholder dir → app falls back to the "Backend offline" banner).
   offending package) and rebuild.
 - Whisper **model files** are downloaded at runtime into the user cache; they are
   not bundled, so the first run still needs network (or a pre-downloaded model).
+- **Облачный STT (опционально):** Deepgram Nova-3 работает на базовом `websockets`
+  и попадает в сборку всегда. Яндекс SpeechKit v3 требует `grpcio` + `yandexcloud`
+  (`pip install -r requirements-stt-cloud.txt` в build-окружении ДО pyinstaller) —
+  без них движок в реестре помечается unavailable с подсказкой, всё остальное
+  работает. Если frozen-бинарь не находит `yandex.cloud.ai.stt.v3`, добавьте
+  `collect_submodules("yandex.cloud.ai.stt.v3")` в hiddenimports.
 - macOS/Linux: same flow; the binary is `skillcue-backend` (no `.exe`).
 
 ## Offline first-run (bundle a Whisper model)
@@ -55,6 +61,39 @@ installer, downloads on first run).
 (electron-builder picks up `build/icon.ico` automatically; also referenced via
 `build.win.icon`). Regenerate with `python apps/desktop/build/make_icon.py`.
 
+## Code signing (Windows)
+
+Без подписи SmartScreen пугает пользователей «неизвестным издателем» — для
+платного продукта это блокер. electron-builder подписывает автоматически, если
+заданы переменные окружения при сборке/в CI:
+
+```bash
+CSC_LINK=file:///path/to/certificate.pfx   # или base64: CSC_LINK=data:...;base64,...
+CSC_KEY_PASSWORD=***
+```
+
+Сертификат (OV/EV Code Signing) покупается у CA (Sectigo, DigiCert…). В GitHub
+Actions — положить в секреты `CSC_LINK`/`CSC_KEY_PASSWORD`; release.yml подхватит
+их без изменений (electron-builder читает env сам).
+
+## Licensing (trial + ключи)
+
+- 14-дневный trial с первого запуска (`app_meta.first_run_at` в SQLite);
+  статус — `GET /license/status`, активация — `POST /license/activate`.
+- Ключ — Ed25519-подписанный payload (`SKILLCUE-<b64url(json)>.<b64url(sig)>`),
+  проверка оффлайн по публичному ключу в `app/services/license.py`.
+- Выпуск ключей: `python tools/generate_license_key.py buyer@mail.com [--days 365]`.
+  Приватный ключ — `apps/api-py/.license_signing_key` (в .gitignore, хранить в
+  надёжном месте!). Новая пара: `--new-keypair` (обновить PUBLIC_KEY_HEX).
+- Подключение продаж: готовый webhook-сервер `tools/license_webhook.py` —
+  деплой на любой хост: `LEMONSQUEEZY_WEBHOOK_SECRET=… LICENSE_SIGNING_KEY=<hex>
+  uvicorn tools.license_webhook:app --port 8100`; в LemonSqueezy указать URL
+  `/webhook/lemonsqueezy` и событие `order_created`. Ключ уходит покупателю по
+  SMTP (`SMTP_HOST/PORT/USER/PASSWORD/FROM`) и всегда дублируется в лог.
+  `LICENSE_DAYS=365` — подписочные ключи. UI приложения менять не нужно.
+- Гейтинг мягкий: после trial блокируется только live-режим; подготовка,
+  история и разбор разговоров продолжают работать.
+
 ## Manual live tests (can't run in CI / this dev box)
 
 **Local LLM (Ollama)** — the request shaping is unit-tested, but the actual call
@@ -67,6 +106,9 @@ ollama serve & ollama pull llama3.1
 # Override host if needed: OLLAMA_BASE_URL=http://host:11434/v1
 ```
 
-**Frozen backend / installer** — CI smoke-boots the exe (`/health`); for a full
-check install the NSIS output from a release build and confirm the app starts the
-backend itself (no "Backend offline" banner) and live transcription works.
+**Frozen backend / installer** — CI smoke-boots the exe (`/health` + токен-барьер +
+`/stt/providers` + `/license/status`); локально то же самое делает
+`scripts/smoke-packaged.ps1` (после `pyinstaller skillcue-backend.spec`; флаг
+`-Dev` гоняет те же проверки против dev-python без сборки). Для полного чека
+поставьте NSIS-инсталлер из release-сборки и убедитесь, что приложение само
+поднимает бэкенд (нет баннера "Backend offline") и live-транскрипция работает.

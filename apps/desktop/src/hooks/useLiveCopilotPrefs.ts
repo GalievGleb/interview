@@ -1,6 +1,7 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { LiveSources } from './useLiveCopilot';
 import {
+  LIVE_COPILOT_PREFS_KEY,
   loadLiveCopilotPrefs,
   prefsToSttOptions,
   saveLiveCopilotPrefs,
@@ -24,6 +25,16 @@ export function useLiveCopilotPrefs(): {
   setAudioRate: (rate: AudioSampleRateMode) => void;
 } {
   const [prefs, setPrefsState] = useState<LiveCopilotPrefs>(loadLiveCopilotPrefs);
+
+  // Настройки меняются и в другом окне (Settings в главном, hook в оверлее) —
+  // storage-событие подтягивает свежие prefs без перезапуска окна.
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === LIVE_COPILOT_PREFS_KEY) setPrefsState(loadLiveCopilotPrefs());
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
 
   const commit = useCallback((updater: LiveCopilotPrefs | ((prev: LiveCopilotPrefs) => LiveCopilotPrefs)) => {
     setPrefsState((prev) => {

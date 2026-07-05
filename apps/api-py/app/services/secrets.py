@@ -6,7 +6,13 @@ logger = logging.getLogger("secrets")
 
 SERVICE_NAME = "interview-copilot"
 
-_VALID_KEYS = {"openai_api_key", "openrouter_api_key"}
+_VALID_KEYS = {
+    "openai_api_key",
+    "openrouter_api_key",
+    # Облачные STT-движки (см. services/stt/deepgram_stream, speechkit_stream).
+    "deepgram_api_key",
+    "yandex_api_key",
+}
 
 # Кэш в памяти на случай, если OS keyring недоступен (headless/CI).
 _memory_store: dict[str, str] = {}

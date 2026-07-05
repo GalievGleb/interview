@@ -14,11 +14,13 @@ import time
 from functools import lru_cache
 from pathlib import Path
 
-PACK_DIR = (
-    Path(__file__).resolve().parent.parent / "knowledge" / "packs" / "python_interview_questions"
-)
+_PACKS_ROOT = Path(__file__).resolve().parent.parent / "knowledge" / "packs"
 
+PACK_DIR = _PACKS_ROOT / "python_interview_questions"
 PACK_NAME = "python_interview_questions"
+
+SQL_PACK_DIR = _PACKS_ROOT / "sql_interview_questions"
+SQL_PACK_NAME = "sql_interview_questions"
 
 # Topics that belong to QA Automation — for these we use the QA context / domain
 # hints, NOT the Python developer pack.
@@ -41,6 +43,20 @@ _PY_SIGNAL_RE = re.compile(
     re.IGNORECASE | re.UNICODE,
 )
 
+# Signals that the question is about SQL / databases. Ambiguous words like
+# «индекс» or «запрос» only count with a database context nearby.
+_SQL_SIGNAL_RE = re.compile(
+    r"\bsql\b|\bjoin\b|джойн|джоин|субд|баз\w{0,3}\s+данн|\bselect\b|селект|"
+    r"group\s+by|having|order\s+by|primary\s+key|foreign\s+key|первичн\w+\s+ключ|"
+    r"внешн\w+\s+ключ|транзакци|\bacid\b|нормализаци|подзапрос|subquery|"
+    r"union|truncate|\bdistinct\b|агрегатн|оконн\w+\s+функц|window\s+function|"
+    r"уровн\w+\s+изоляц|isolation\s+level|индекс\w*\s+в\s+(?:баз|таблиц|субд)|"
+    r"индекс\w*\s+(?:базы|таблицы)|postgres|postgresql|mysql|\bnosql\b|"
+    r"дубликат\w*\s+в\s+таблиц|coalesce|\bnull\b.{0,20}(?:sql|баз|таблиц)|"
+    r"(?:sql|баз\w{0,3}|таблиц\w{0,3}).{0,20}\bnull\b",
+    re.IGNORECASE | re.UNICODE,
+)
+
 _WORD_RE = re.compile(r"[a-zа-яё_]{3,}|__\w+__", re.IGNORECASE | re.UNICODE)
 _PRIORITY_WEIGHT = {"high_for_aqa": 2.0, "medium": 1.0, "low_rare_python_developer": 0.3}
 
@@ -60,29 +76,29 @@ def _load() -> tuple[list[dict], dict[str, dict], dict]:
     return index, answers, metadata
 
 
-@lru_cache(maxsize=1)
-def _load_curated() -> list[dict]:
+@lru_cache(maxsize=8)
+def _load_curated_for(pack_dir: Path) -> tuple[dict, ...]:
     """Verified, Skillcue-normalized answers that OUTRANK the community source."""
     try:
-        data = json.loads((PACK_DIR / "curated.json").read_text(encoding="utf-8"))
+        data = json.loads((pack_dir / "curated.json").read_text(encoding="utf-8"))
     except FileNotFoundError:
-        return []
-    return data.get("entries", [])
+        return ()
+    return tuple(data.get("entries", []))
 
 
-def _match_curated(question: str) -> dict | None:
-    """Best curated entry for the question (keyword overlap), or None."""
+def _match_curated(question: str, pack_dir: Path = PACK_DIR, limit: int = 1) -> list[dict]:
+    """Best curated entries for the question (keyword overlap), best first."""
     qwords = set(_WORD_RE.findall(question.lower()))
     if not qwords:
-        return None
-    best: tuple[int, dict] | None = None
-    for entry in _load_curated():
+        return []
+    scored: list[tuple[int, int, dict]] = []
+    for i, entry in enumerate(_load_curated_for(pack_dir)):
         overlap = len(qwords & {k.lower() for k in entry.get("keywords", [])})
-        # Curated keywords are distinctive, so a single strong match is enough;
-        # the best-overlap entry wins when several match.
-        if overlap >= 1 and (best is None or overlap > best[0]):
-            best = (overlap, entry)
-    return best[1] if best else None
+        # Curated keywords are distinctive, so a single strong match is enough.
+        if overlap >= 1:
+            scored.append((overlap, -i, entry))
+    scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    return [entry for _, _, entry in scored[:limit]]
 
 
 def is_python_question(question: str) -> bool:
@@ -94,6 +110,26 @@ def is_python_question(question: str) -> bool:
     if _QA_TOPIC_RE.search(q):
         return False
     return bool(_PY_SIGNAL_RE.search(q))
+
+
+def is_sql_question(question: str) -> bool:
+    """True for SQL/database questions. Python signals win on overlap (e.g.
+    «запрос к базе через словарь» is a Python question about data structures)."""
+    q = (question or "").strip()
+    if not q:
+        return False
+    if is_python_question(q):
+        return False
+    return bool(_SQL_SIGNAL_RE.search(q))
+
+
+def detect_pack(question: str) -> str | None:
+    """Which knowledge pack (if any) should back this question."""
+    if is_python_question(question):
+        return "python"
+    if is_sql_question(question):
+        return "sql"
+    return None
 
 
 def _estimate_tokens(text: str) -> int:
@@ -132,13 +168,53 @@ def _format_record(rec: dict) -> str:
     return f"Q: {rec['question']}\nA: {answer}"
 
 
+def _empty_metrics(retrieval_ms: int) -> dict:
+    return {
+        "knowledgePackUsed": False,
+        "knowledgePackName": None,
+        "knowledgeSource": "none",
+        "knowledgeRetrievalMs": retrieval_ms,
+        "retrievedItemsCount": 0,
+        "injectedContextTokens": 0,
+    }
+
+
+def _build_sql_injection(question: str) -> tuple[str, dict]:
+    """SQL pack is curated-only: up to two verified entries, no community layer."""
+    started = time.perf_counter()
+    entries = _match_curated(question, pack_dir=SQL_PACK_DIR, limit=2)
+    retrieval_ms = int((time.perf_counter() - started) * 1000)
+    if not entries:
+        return "", _empty_metrics(retrieval_ms)
+
+    body = "\n\n".join(f"Q: {e['question']}\nA: {e['answer']}" for e in entries)
+    block_text = (
+        "SQL KNOWLEDGE PACK (verified reference — normalize to the Skillcue "
+        "say-aloud format, do NOT copy verbatim; the candidate is a QA engineer, "
+        "so keep the QA angle when it fits):\n" + body
+    )
+    return block_text, {
+        "knowledgePackUsed": True,
+        "knowledgePackName": SQL_PACK_NAME,
+        "knowledgeSource": "curated",
+        "knowledgeRetrievalMs": retrieval_ms,
+        "retrievedItemsCount": len(entries),
+        "injectedContextTokens": _estimate_tokens(block_text),
+    }
+
+
 def build_injection(question: str, top_k: int = 3) -> tuple[str, dict]:
     """Retrieve + format a capped reference block plus retrieval metrics.
 
-    Returns (block_text, metrics). block_text is '' when nothing relevant.
+    Routes to the pack detected for the question. Returns (block_text, metrics);
+    block_text is '' when nothing relevant.
     """
+    if detect_pack(question) == "sql":
+        return _build_sql_injection(question)
+
     started = time.perf_counter()
-    curated = _match_curated(question)
+    matched = _match_curated(question)
+    curated = matched[0] if matched else None
     # A curated hit is authoritative; fill any remaining slots with community
     # records (skipping a near-duplicate of the curated topic).
     community = retrieve(question, top_k=top_k if not curated else top_k - 1)
@@ -165,14 +241,7 @@ def build_injection(question: str, top_k: int = 3) -> tuple[str, dict]:
         source = "curated+community" if curated else "community"
 
     if not blocks:
-        return "", {
-            "knowledgePackUsed": False,
-            "knowledgePackName": None,
-            "knowledgeSource": "none",
-            "knowledgeRetrievalMs": retrieval_ms,
-            "retrievedItemsCount": 0,
-            "injectedContextTokens": 0,
-        }
+        return "", _empty_metrics(retrieval_ms)
 
     body = "\n\n".join(blocks)
     trust = "The first Q/A is VERIFIED — prefer it. " if source.startswith("curated") else ""
