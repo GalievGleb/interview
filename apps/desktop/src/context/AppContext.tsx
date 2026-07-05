@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from 'react';
-import { api, KeysStatus } from '../lib/api';
+import { api, KeysStatus, type SttEngineId } from '../lib/api';
 import { syncMockSessionsFromBackend } from '../lib/vacancyReview/vacancyReviewStore';
 import type { BackendStatus } from '../types/electron';
 
@@ -13,6 +13,8 @@ interface AppContextValue {
   backendStatus: BackendStatus | null;
   hasAnyKey: boolean;
   hasStt: boolean;
+  /** Активный движок распознавания — определяет, уходит ли аудио в облако. */
+  sttEngine: SttEngineId;
   onboardingDone: boolean;
   /** null пока не загрузили; expired → live-режим мягко блокируется. */
   license: LicenseInfo | null;
@@ -34,6 +36,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const [sttReady, setSttReady] = useState(false);
+  const [sttEngine, setSttEngine] = useState<SttEngineId>('whisper');
   const [license, setLicense] = useState<LicenseInfo | null>(null);
   const [backendStatus, setBackendStatus] = useState<BackendStatus | null>(null);
 
@@ -64,6 +67,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setSttReady(!!whisper && whisper.available && whisper.reason === 'ready');
     } catch {
       setSttReady(false);
+    }
+    // Active engine drives the privacy pill (local Whisper vs cloud STT).
+    try {
+      setSttEngine((await api.getSttSettings()).engine);
+    } catch {
+      /* backend offline — keep the last known engine */
     }
   }, []);
 
@@ -108,6 +117,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         backendStatus,
         hasAnyKey,
         hasStt,
+        sttEngine,
         onboardingDone,
         license,
         completeOnboarding,

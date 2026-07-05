@@ -17,7 +17,14 @@ function elapsed(ms: number): string {
   return `${hh}:${mm}:${ss}`;
 }
 
+const CLOUD_STT_LABEL: Record<string, string> = {
+  speechkit: 'Облако · Яндекс',
+  deepgram: 'Облако · Deepgram',
+};
+
 function TitleBar({ onInterview }: { onInterview: boolean }) {
+  const { sttEngine } = useApp();
+  const cloudLabel = CLOUD_STT_LABEL[sttEngine];
   const [live, setLive] = useState(false);
   const [liveStart, setLiveStart] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -93,21 +100,45 @@ function TitleBar({ onInterview }: { onInterview: boolean }) {
             Фокус
           </button>
         )}
-        <span className="skillcue-local-pill">
-          <svg
-            width="13"
-            height="13"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.75"
-            strokeLinecap="round"
-            strokeLinejoin="round"
+        {cloudLabel ? (
+          <span
+            className="skillcue-local-pill skillcue-local-pill--cloud"
+            title="Аудио распознаётся в облаке провайдера — не на устройстве."
           >
-            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-          </svg>
-          Локально · Приватно
-        </span>
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.75"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M17.5 19a4.5 4.5 0 0 0 0-9 6 6 0 0 0-11.6 1.5A4 4 0 0 0 6.5 19z" />
+            </svg>
+            {cloudLabel}
+          </span>
+        ) : (
+          <span
+            className="skillcue-local-pill"
+            title="Распознавание речи работает на вашем устройстве."
+          >
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.75"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+            </svg>
+            Локально · Приватно
+          </span>
+        )}
       </div>
     </header>
   );

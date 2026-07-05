@@ -39,6 +39,24 @@ for pkg in ("faster_whisper", "ctranslate2", "tokenizers", "onnxruntime", "av", 
     except Exception:  # noqa: BLE001 — a missing optional package shouldn't abort the build
         pass
 
+# Optional cloud STT (Яндекс SpeechKit v3 = gRPC + generated proto stubs from
+# yandexcloud, Deepgram = websockets already covered). Bundled only if
+# requirements-stt-cloud.txt was installed on the build machine; guarded so a
+# Whisper-only build still succeeds. The stubs are imported dynamically
+# (`from yandex.cloud.ai.stt.v3 import stt_pb2`), so submodules are collected.
+for pkg in ("grpc", "google.protobuf", "yandexcloud"):
+    try:
+        pkg_datas, pkg_binaries, pkg_hidden = collect_all(pkg)
+        datas += pkg_datas
+        binaries += pkg_binaries
+        hiddenimports += pkg_hidden
+    except Exception:  # noqa: BLE001
+        pass
+try:
+    hiddenimports += collect_submodules("yandex")
+except Exception:  # noqa: BLE001
+    pass
+
 hiddenimports += collect_submodules("uvicorn")
 hiddenimports += collect_submodules("app")
 hiddenimports += ["app.main"]
