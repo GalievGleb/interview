@@ -21,6 +21,7 @@ import {
   type UtteranceSpeaker,
 } from '@interview/shared';
 import {
+  collapseRepeatedChars,
   looksLikeQuestion,
   mergeRawParts,
   normalizeTranscript,
@@ -839,7 +840,10 @@ export function useLiveCopilot() {
     [flushQuestion, pushFinalPart, recordUtterance],
   );
 
-  const appendLine = useCallback((text: string, isFinal: boolean, speaker: Speaker) => {
+  const appendLine = useCallback((rawText: string, isFinal: boolean, speaker: Speaker) => {
+    // Схлопываем повторы букв («Уууу…») ещё до показа — иначе галлюцинация
+    // Whisper висит в транскрипте и оверлее как длинная простыня.
+    const text = collapseRepeatedChars(rawText);
     const normalized = normalizeTranscript(text);
     const showNorm = normalized !== text.trim();
     setLines((prev) => {

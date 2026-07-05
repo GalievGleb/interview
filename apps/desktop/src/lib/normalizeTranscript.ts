@@ -53,6 +53,16 @@ const FUZZY: { re: RegExp; to: string }[] = [
   { re: /какие\s+бывают\s+принцип[\p{L}\p{N}]*/giu, to: 'какие бывают принципы автоматизации' },
 ];
 
+/**
+ * Whisper hallucinates long runs of a single letter on noise/silence/music
+ * ("Уууууу…", "ааааа"). No natural word has 3+ of the same letter in a row,
+ * so collapse such runs to two. Letters only — never touch digits ("1000") or
+ * punctuation ("...").
+ */
+export function collapseRepeatedChars(text: string): string {
+  return text.replace(/(\p{L})\1{2,}/gu, '$1$1');
+}
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -85,7 +95,7 @@ export function stripExperienceFooter(text: string): string {
 }
 
 export function normalizeTranscript(rawText: string): string {
-  let result = rawText.trim();
+  let result = collapseRepeatedChars(rawText.trim());
   for (const { re, to } of compiled) {
     result = result.replace(re, to);
   }
@@ -198,7 +208,9 @@ function isRepetitionLoop(tokens: string[]): boolean {
 export function isGarbageTranscript(text: string): boolean {
   const t = text.trim();
   if (!t) return true;
-  if (countMeaningfulWords(t) < 3) return true;
+  // A run of 6+ of the same letter is never real speech — pure Whisper artifact.
+  if (/(\p{L})\1{5,}/u.test(t)) return true;
+  if (countMeaningfulWords(collapseRepeatedChars(t)) < 3) return true;
   const tokens = t
     .toLowerCase()
     .replace(/[^\p{L}\p{N}\s]/gu, ' ')

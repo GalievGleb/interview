@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useApp } from '../../context/AppContext';
 import { topicStatusFromScore, topicStatusTone } from '../../lib/vacancyReview/readiness';
 import { useVoiceAnswer } from '../../lib/vacancyReview/useVoiceAnswer';
 import { MAX_DRILL_DEPTH, drillDepth } from '../../lib/vacancyReview/vacancyReviewService';
@@ -46,6 +47,7 @@ export default function SmokeInterviewView({
   onFinish,
   onAskFollowUp,
 }: Props) {
+  const { hasAnyKey, backendOnline } = useApp();
   const { questions, currentIndex, vacancyAnalysis } = session;
   const question = questions[currentIndex];
   const existing = session.answers.find((a) => a.questionId === question?.id);
@@ -252,8 +254,13 @@ export default function SmokeInterviewView({
                 className="rounded-md px-3 py-2 text-[12.5px] font-semibold"
                 style={{ background: 'color-mix(in srgb, var(--prep-amber) 14%, transparent)', color: 'var(--prep-amber)' }}
               >
-                ⚠ Приблизительная локальная оценка — AI не подключён. Проценты ориентировочные,
-                полноценный разбор появится после подключения ключа в настройках.
+                {/* Причина падения важна: без ключа — одно, с ключом (значит,
+                    сам вызов не удался) — другое. Не утверждаем «нет ключа», если он есть. */}
+                {!backendOnline
+                  ? '⚠ Локальная оценка — сервис ещё запускается. Проценты ориентировочные, полноценный разбор появится, когда backend поднимется.'
+                  : !hasAnyKey
+                    ? '⚠ Локальная оценка — AI не подключён. Проценты ориентировочные, полноценный разбор появится после подключения ключа в Настройках.'
+                    : '⚠ Локальная оценка — не удалось получить разбор от AI. Проверьте, что для разбора выбрана рабочая модель в Настройках → AI-модели.'}
               </p>
             )}
             <div className="flex items-start justify-between gap-3">

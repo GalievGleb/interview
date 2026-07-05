@@ -1,10 +1,30 @@
 import { describe, it, expect } from 'vitest';
 import {
+  collapseRepeatedChars,
   isGarbageTranscript,
   isNonQuestionFragment,
   looksLikeQuestion,
   normalizeTranscript,
 } from './normalizeTranscript';
+
+describe('collapseRepeatedChars', () => {
+  it('collapses long single-letter runs to two (Whisper hallucination)', () => {
+    expect(collapseRepeatedChars('ууууууу')).toBe('уу');
+    expect(collapseRepeatedChars('ааааа')).toBe('аа');
+    // Runs are per-identical-char, so a capital lead stays separate ("Ууу").
+    expect(collapseRepeatedChars('Ууууу')).toBe('Ууу');
+    expect(collapseRepeatedChars('нормально ааааа да')).toBe('нормально аа да');
+  });
+
+  it('never corrupts digits or punctuation', () => {
+    expect(collapseRepeatedChars('2000000')).toBe('2000000');
+    expect(collapseRepeatedChars('цена 1000 рублей')).toBe('цена 1000 рублей');
+  });
+
+  it('leaves legitimate double letters alone', () => {
+    expect(collapseRepeatedChars('ссора и программа')).toBe('ссора и программа');
+  });
+});
 
 describe('quality gate — non-question fragments', () => {
   it('does NOT treat «как-то/как бы…» filler as a question', () => {
@@ -74,6 +94,11 @@ describe('isGarbageTranscript', () => {
 
   it('flags a single repeated word', () => {
     expect(isGarbageTranscript('буду буду буду буду')).toBe(true);
+  });
+
+  it('flags a long single-letter Whisper run ("Уууу…")', () => {
+    expect(isGarbageTranscript('Уууууууууууууу')).toBe(true);
+    expect(isGarbageTranscript('ааааааааа что там')).toBe(true);
   });
 
   it('flags Whisper repetition-loop hallucinations on music/noise', () => {

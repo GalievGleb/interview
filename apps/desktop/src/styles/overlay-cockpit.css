@@ -9,12 +9,9 @@
   background: transparent;
 }
 
-/* Undetectability: пунктирная обводка + лёгкое сжатие, как в референсе, когда
-   оверлей «невидим» для скринов/записи. */
-.ovl-root--stealth {
-  transform: scale(0.965);
-  transform-origin: top center;
-}
+/* Undetectability: пунктирная обводка, когда оверлей «невидим» для скринов.
+   Раньше здесь был transform: scale(0.965) — дробный масштаб размывал весь
+   текст и иконки внутри окна; убран ради чёткости. */
 .ovl-root--stealth .ovl-card,
 .ovl-root--stealth .ovl-pill {
   border-style: dashed;
@@ -42,13 +39,10 @@
   @apply overlay-no-drag flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold text-ink;
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  transition:
-    background 0.15s ease,
-    transform 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: background 0.15s ease;
 }
 .ovl-pill-btn:hover {
   background: rgba(255, 255, 255, 0.16);
-  transform: scale(1.07);
 }
 
 .ovl-rec {
@@ -106,13 +100,10 @@
 
 .ovl-action {
   @apply flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12.5px] font-semibold text-ink;
-  transition:
-    background 0.15s ease,
-    transform 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: background 0.15s ease;
 }
 .ovl-action:hover {
   background: rgba(255, 255, 255, 0.12);
-  transform: scale(1.05);
 }
 .ovl-action:disabled {
   opacity: 0.45;
@@ -241,21 +232,19 @@
 
 /* ---------- «Скрыть» с дропдауном ---------- */
 .ovl-hide-group {
-  @apply relative flex items-center;
+  @apply relative flex items-center gap-1;
 }
+/* Раньше у каретки был margin-right: -6px (наезжал на кнопку) + hover scale —
+   вместе это читалось как «иконки друг на друга заходят». Теперь ровный gap. */
 .ovl-hide-caret {
   @apply flex h-8 w-6 items-center justify-center rounded-full text-ink-faint;
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  margin-right: -6px;
-  transition:
-    background 0.15s ease,
-    transform 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: background 0.15s ease;
 }
 .ovl-hide-caret:hover {
   background: rgba(255, 255, 255, 0.16);
   color: var(--text);
-  transform: scale(1.08);
 }
 .ovl-hide-menu {
   width: 15rem;
@@ -343,7 +332,26 @@
   transform: scale(1.04);
 }
 
-/* Мгновенный тултип (наследует .tip из index.css) — поверх панелей */
+/* Мгновенный тултип (наследует .tip из index.css) — поверх панелей.
+   В index.css у тултипа whitespace-nowrap: длинные подсказки («Горячие клавиши,
+   скрытность, источник звука, настройки») уезжали за край окна и обрезались.
+   В оверлее разрешаем перенос и ограничиваем ширину, чтобы весь текст был виден. */
 .ovl-root .tip::after {
   z-index: 80;
+  white-space: normal;
+  width: max-content;
+  max-width: 220px;
+  line-height: 1.35;
+  text-align: center;
+}
+/* Кнопки нижней панели: тултип вниз упирался бы в край окна — показываем вверх. */
+.ovl-bar .tip::after {
+  top: auto;
+  bottom: 100%;
+  margin-top: 0;
+  margin-bottom: 0.5rem;
+}
+.ovl-bar .tip:hover::after,
+.ovl-bar .tip:focus-visible::after {
+  transform: translate(-50%, 0);
 }

@@ -72,11 +72,11 @@ export default function VacancyAnalysisView({ analysis, onStart, onBack, questio
 
       {analysis.analysisSource === 'heuristic' && (
         <div className="prep-card prep-card-pad prep-topic prep-topic-amber">
-          <p className="prep-h2 pl-2">Упрощённый разбор — AI не подключён</p>
+          <p className="prep-h2 pl-2">Упрощённый локальный разбор</p>
           <p className="prep-sub mt-1.5 pl-2">
-            Не удалось получить AI-разбор (нет ключа или нет соединения), поэтому темы выделены
-            локальным алгоритмом: они точны по списку, но без глубины — уровень, важность и
-            пробелы оценены приблизительно.
+            Не удалось получить AI-разбор (нет ключа, нет соединения или модель разбора
+            недоступна), поэтому темы выделены локальным алгоритмом: они точны по списку, но без
+            глубины — уровень, важность и пробелы оценены приблизительно.
           </p>
           <div className="mt-2.5 pl-2">
             <Link to="/settings?tab=ai" className="prep-btn prep-btn-sm inline-block">
