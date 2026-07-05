@@ -58,12 +58,8 @@ def test_deepgram_ws_url_maps_language():
 
 
 def test_parse_deepgram_events():
-    assert parse_deepgram_event(json.dumps({"type": "SpeechStarted"})) == {
-        "type": "speech_started"
-    }
-    assert parse_deepgram_event(json.dumps({"type": "UtteranceEnd"})) == {
-        "type": "utterance_end"
-    }
+    assert parse_deepgram_event(json.dumps({"type": "SpeechStarted"})) == {"type": "speech_started"}
+    assert parse_deepgram_event(json.dumps({"type": "UtteranceEnd"})) == {"type": "utterance_end"}
 
     interim = json.dumps(
         {
@@ -106,4 +102,7 @@ def test_speechkit_language_codes():
 
     assert _language_codes("ru") == ["ru-RU"]
     assert _language_codes("en") == ["en-US"]
-    assert _language_codes("multi") == []
+    # Авто/multi отдаёт обе локали в WHITELIST — литерала "auto" в API v3 нет,
+    # раньше сюда уходил [] -> ["auto"] и авто-режим был сломан.
+    assert _language_codes("multi") == ["ru-RU", "en-US"]
+    assert _language_codes("") == ["ru-RU", "en-US"]

@@ -33,10 +33,7 @@ logger = logging.getLogger("stt.speechkit")
 SPEECHKIT_ENDPOINT = "stt.api.cloud.yandex.net:443"
 # Жёсткий лимит сессии — 5 минут; переподключаемся заранее в паузе между фразами.
 SESSION_RECONNECT_S = 240
-DEPS_HINT = (
-    "Для Яндекс SpeechKit установите зависимости: "
-    "pip install -r requirements-stt-cloud.txt"
-)
+DEPS_HINT = "Для Яндекс SpeechKit установите зависимости: pip install -r requirements-stt-cloud.txt"
 
 
 def api_key() -> str:
@@ -44,13 +41,18 @@ def api_key() -> str:
 
 
 def _language_codes(language: str) -> list[str]:
-    """Наш код языка → whitelist SpeechKit. Пустой список = авто-определение."""
+    """Наш код языка → whitelist SpeechKit v3.
+
+    Для авто/multi отдаём обе поддерживаемые локали: SpeechKit сам выбирает
+    язык из WHITELIST. Литерала "auto" в API v3 нет — раньше сюда уходил
+    ["auto"], и авто-режим («Авто (ru+en)») по сути был сломан.
+    """
     lang = (language or "").lower()
     if lang.startswith("ru"):
         return ["ru-RU"]
     if lang.startswith("en"):
         return ["en-US"]
-    return []
+    return ["ru-RU", "en-US"]
 
 
 def _import_grpc():
@@ -65,7 +67,7 @@ def build_session_options(stt_pb2, *, language: str, sample_rate: int):
     lang_codes = _language_codes(language)
     restriction = stt_pb2.LanguageRestrictionOptions(
         restriction_type=stt_pb2.LanguageRestrictionOptions.WHITELIST,
-        language_code=lang_codes or ["auto"],
+        language_code=lang_codes,
     )
     return stt_pb2.StreamingOptions(
         recognition_model=stt_pb2.RecognitionModelOptions(
@@ -233,9 +235,7 @@ async def run_speechkit_stream(
                 yield stt_pb2.StreamingRequest(chunk=stt_pb2.AudioChunk(data=data))
             session_over.set()
 
-        call = stub.RecognizeStreaming(
-            requests(), metadata=(("authorization", f"Api-Key {key}"),)
-        )
+        call = stub.RecognizeStreaming(requests(), metadata=(("authorization", f"Api-Key {key}"),))
         try:
             async for resp in call:
                 event = resp.WhichOneof("Event")
@@ -273,17 +273,13 @@ async def run_speechkit_stream(
 
     try:
         while True:
-            channel = grpc.aio.secure_channel(
-                SPEECHKIT_ENDPOINT, grpc.ssl_channel_credentials()
-            )
+            channel = grpc.aio.secure_channel(SPEECHKIT_ENDPOINT, grpc.ssl_channel_credentials())
             try:
                 outcome = await one_session(channel)
             except Exception as exc:  # noqa: BLE001 — сеть/ключ: сообщаем и выходим
                 logger.warning("SpeechKit session failed: %s", exc)
                 try:
-                    await client_ws.send_json(
-                        {"type": "error", "message": f"SpeechKit: {exc}"}
-                    )
+                    await client_ws.send_json({"type": "error", "message": f"SpeechKit: {exc}"})
                 except Exception:  # noqa: BLE001
                     pass
                 break
