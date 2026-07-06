@@ -35,7 +35,9 @@ def test_pick_auto_vacancy_prefers_strong_gpt_over_fast_model():
 
 
 def test_pick_auto_vacancy_empty_cache_uses_strong_default():
-    assert pick_auto_model("vacancy", set()) == "openai/gpt-5.5"
+    # gpt-4o (не gpt-5.5): дефолт разбора должен быть из моделей, разрешённых
+    # гейтвеем (gpt-5.5 в блоклисте ради экономики) — иначе разбор упрётся в 403.
+    assert pick_auto_model("vacancy", set()) == "openai/gpt-4o"
 
 
 def test_resolve_vacancy_uses_dedicated_setting_when_explicit():

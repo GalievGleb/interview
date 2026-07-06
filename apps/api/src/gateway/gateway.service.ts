@@ -28,17 +28,22 @@ function monthStamp(): string {
 // модель и разорить владельца. GATEWAY_ALLOWED_MODELS (через запятую) ограничивает
 // список; пусто — разрешены все (обратная совместимость). Матч по префиксу, чтобы
 // "openai/gpt-4o-mini" покрывал версии.
-function allowedModels(): string[] {
-  return (process.env.GATEWAY_ALLOWED_MODELS ?? '')
+function envModels(name: string): string[] {
+  return (process.env[name] ?? '')
     .split(',')
     .map((m) => m.trim().toLowerCase())
     .filter(Boolean);
 }
 
+// Политика моделей: блоклист (GATEWAY_BLOCKED_MODELS) удобен для «запретить пару
+// дорогих», allowlist (GATEWAY_ALLOWED_MODELS) — для «разрешить только эти».
+// Блок имеет приоритет. Оба по префиксу. Пусто = без ограничения.
 function isModelAllowed(model: string): boolean {
-  const allow = allowedModels();
-  if (allow.length === 0) return true;
   const m = (model || '').toLowerCase();
+  const blocked = envModels('GATEWAY_BLOCKED_MODELS');
+  if (blocked.some((b) => m === b || m.startsWith(b))) return false;
+  const allow = envModels('GATEWAY_ALLOWED_MODELS');
+  if (allow.length === 0) return true;
   return allow.some((a) => m === a || m.startsWith(a));
 }
 

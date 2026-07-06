@@ -5,7 +5,11 @@ from __future__ import annotations
 from app.services.preferences import AiPreferencesModel, load_preferences
 
 AUTO = "auto"
-VACANCY_DEFAULT_MODEL = "openai/gpt-5.5"
+# gpt-4o (не gpt-5.5): разбор вакансии — структурированный JSON-анализ, где gpt-5.5
+# избыточен, а стоит в ~2.5× дороже. Ключевое для экономики гейтвея: gpt-5.5
+# заблокирован в GATEWAY_BLOCKED_MODELS (защита от разорения на дорогих моделях),
+# поэтому дефолт должен быть из разрешённых, иначе разбор у покупателей упрётся в 403.
+VACANCY_DEFAULT_MODEL = "openai/gpt-4o"
 
 MODE_SETTING: dict[str, str] = {
     "general": "default_copilot_model",
