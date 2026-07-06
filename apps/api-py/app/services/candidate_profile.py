@@ -12,10 +12,12 @@ manual refresh endpoint.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
 import time
+import weakref
 
 from sqlalchemy.orm import Session
 
@@ -128,14 +130,44 @@ def save_user_pack(db: Session, content: str) -> dict:
     return pack_status(db)
 
 
+# Загрузка резюме и легенды подряд рождает два фоновых пересбора. Без
+# сериализации они оба зовут LLM (двойной расход токенов), а при «неудачном»
+# порядке коммитов пак остаётся без легенды с не совпадающим хэшем. Лок
+# сериализует: второй пересбор, дождавшись, перечитает источники/хэш и либо
+# пропустит LLM (стало избыточно), либо догенерирует уже полный пак.
+#
+# Лок ленивый и привязан к текущему event loop: в проде loop один (всегда тот же
+# лок), а тесты с asyncio.run() создают новый loop на вызов — общий модульный
+# Lock ловил бы RuntimeError «bound to a different loop».
+_refresh_locks: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
+
+
+def _get_refresh_lock() -> asyncio.Lock:
+    loop = asyncio.get_running_loop()
+    lock = _refresh_locks.get(loop)
+    if lock is None:
+        lock = asyncio.Lock()
+        _refresh_locks[loop] = lock
+    return lock
+
+
 async def refresh_profile_pack(db: Session, *, force: bool = False) -> dict:
     """Generate the pack from current documents and cache it in AppMeta.
 
     Returns pack_status() afterwards. Raises AppError from quota/provider when
     called from the endpoint; background callers should catch and log.
     """
+    async with _get_refresh_lock():
+        return await _refresh_profile_pack_locked(db, force=force)
+
+
+async def _refresh_profile_pack_locked(db: Session, *, force: bool) -> dict:
     from app.services import quota
 
+    # Читаем источники и кэш ПОСЛЕ захвата лока: если параллельный пересбор уже
+    # закоммитил актуальный пак, свежий SELECT это увидит и мы пропустим лишний
+    # LLM-вызов. expire_all сбрасывает возможный снапшот сессии.
+    db.expire_all()
     resume, legend, vacancy = _source_texts(db)
     cached = _load_cached(db)
     # Ручные правки пользователя — источник истины: фоновая регенерация их не

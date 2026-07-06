@@ -140,3 +140,56 @@ def test_live_system_prompt_is_depersonalized():
     """The system prompt must not carry any concrete candidate's biography."""
     for marker in ("Сбер", "ГЕОМИКС", "600", "QA Automation Engineer (Python)"):
         assert marker not in LIVE_SYSTEM_PROMPT
+
+
+def test_concurrent_refresh_serialized_to_one_llm_call(monkeypatch):
+    """Резюме+легенда, добавленные подряд, рождают два фоновых пересбора. Лок
+    обязан сериализовать их: ровно ОДИН LLM-вызов (второй видит свежий пак и
+    пропускает), а итоговый пак — полный (с легендой), а не затёртый гонкой."""
+    import types
+
+    from conftest import TestingSessionLocal
+
+    from app.services import model_router, provider_adapter, quota
+
+    seed = TestingSessionLocal()
+    seed.add(Document(kind="resume", title="r", raw_text="Python developer, 5 лет"))
+    seed.add(Document(kind="legend", title="l", raw_text="Легенда: проект Феникс"))
+    seed.commit()
+    seed.close()
+
+    calls = {"n": 0}
+
+    async def fake_complete(messages, provider=None, model=None, **kw):
+        calls["n"] += 1
+        await asyncio.sleep(0.05)  # окно, чтобы второй пересбор успел войти в лок
+        return "CANDIDATE PROFILE:\n- Python developer\n- проект Феникс"
+
+    monkeypatch.setattr(provider_adapter, "complete", fake_complete)
+    monkeypatch.setattr(provider_adapter, "pop_last_usage", lambda: {})
+    monkeypatch.setattr(model_router, "resolve_model", lambda *a, **k: ("m", "test"))
+    monkeypatch.setattr(
+        candidate_profile,
+        "load_preferences",
+        lambda: types.SimpleNamespace(models_cache=[], provider="openrouter"),
+    )
+    monkeypatch.setattr(quota, "check_token_quota", lambda db: None)
+
+    async def run_two():
+        s1, s2 = TestingSessionLocal(), TestingSessionLocal()
+        try:
+            await asyncio.gather(
+                candidate_profile.refresh_profile_pack(s1),
+                candidate_profile.refresh_profile_pack(s2),
+            )
+        finally:
+            s1.close()
+            s2.close()
+
+    asyncio.run(run_two())
+
+    assert calls["n"] == 1, "лок должен был дедупнуть второй пересбор"
+    check = TestingSessionLocal()
+    block = candidate_profile.get_profile_block(check)
+    check.close()
+    assert "проект Феникс" in block  # пак полный, легенда не потеряна
