@@ -20,8 +20,12 @@ async function bootstrap() {
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
   app.enableCors({ origin: '*' }); // ключ — в Authorization, cookies не используются
   const port = Number(process.env.GATEWAY_PORT ?? 8787);
-  await app.listen(port, '0.0.0.0');
-  console.log(`SkillCue gateway listening on :${port}`);
+  // Слушаем ТОЛЬКО localhost: наружу гейтвей смотрит через nginx (домен + TLS),
+  // прямой публичный порт 8787 не нужен и был бы лишней поверхностью атаки.
+  // Переопределяется GATEWAY_HOST (напр. 0.0.0.0 для теста без nginx).
+  const host = process.env.GATEWAY_HOST ?? '127.0.0.1';
+  await app.listen(port, host);
+  console.log(`SkillCue gateway listening on ${host}:${port}`);
 }
 
 void bootstrap();

@@ -1,46 +1,94 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- TODO: после покупки домена заменить ВАШ-ДОМЕН на реальный адрес. -->
+<!-- TODO: после покупки домена заменить skill-cue.ru на реальный адрес. -->
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
-    <loc>https://ВАШ-ДОМЕН/</loc>
+    <loc>https://skill-cue.ru/</loc>
     <lastmod>2026-07-06</lastmod>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
   </url>
   <url>
-    <loc>https://ВАШ-ДОМЕН/voprosy/</loc>
+    <loc>https://skill-cue.ru/voprosy/</loc>
     <lastmod>2026-07-06</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.9</priority>
   </url>
   <url>
-    <loc>https://ВАШ-ДОМЕН/voprosy/qa-manual.html</loc>
+    <loc>https://skill-cue.ru/voprosy/qa-manual.html</loc>
     <lastmod>2026-07-06</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://ВАШ-ДОМЕН/voprosy/qa-avtomatizator.html</loc>
+    <loc>https://skill-cue.ru/voprosy/qa-avtomatizator.html</loc>
     <lastmod>2026-07-06</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://ВАШ-ДОМЕН/voprosy/frontend.html</loc>
+    <loc>https://skill-cue.ru/voprosy/frontend.html</loc>
     <lastmod>2026-07-06</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://ВАШ-ДОМЕН/voprosy/python.html</loc>
+    <loc>https://skill-cue.ru/voprosy/python.html</loc>
     <lastmod>2026-07-06</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://ВАШ-ДОМЕН/voprosy/sistemnyj-analitik.html</loc>
+    <loc>https://skill-cue.ru/voprosy/sistemnyj-analitik.html</loc>
     <lastmod>2026-07-06</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://skill-cue.ru/voprosy/java.html</loc>
+    <lastmod>2026-07-06</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://skill-cue.ru/voprosy/devops.html</loc>
+    <lastmod>2026-07-06</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://skill-cue.ru/voprosy/product-manager.html</loc>
+    <lastmod>2026-07-06</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://skill-cue.ru/voprosy/1c-razrabotchik.html</loc>
+    <lastmod>2026-07-06</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://skill-cue.ru/voprosy/data-science.html</loc>
+    <lastmod>2026-07-06</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://skill-cue.ru/kak-podgotovitsya-za-3-dnya.html</loc>
+    <lastmod>2026-07-06</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://skill-cue.ru/rasskazhite-o-sebe.html</loc>
+    <lastmod>2026-07-06</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://skill-cue.ru/skillcue-vs-chatgpt.html</loc>
+    <lastmod>2026-07-06</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
   </url>
 </urlset>
