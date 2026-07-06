@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Вопросы на собеседовании DevOps-инженера в 2026 — с разбором ответов</title>
+  <meta name="description" content="16 вопросов с собеседований DevOps: Docker, Kubernetes, CI/CD, Terraform, Linux, мониторинг, инциденты — и что хотят услышать интервьюеры. Бесплатный разбор вашей вакансии." />
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      { "@type": "Question", "name": "Чем образ Docker отличается от контейнера?", "acceptedAnswer": { "@type": "Answer", "text": "Образ — неизменяемый шаблон из слоёв; контейнер — запущенный экземпляр образа с изменяемым слоем поверх. Хотят: понимание слоёв, кэша сборки и зачем multi-stage build." } },
+      { "@type": "Question", "name": "Что такое Pod, Deployment и Service в Kubernetes?", "acceptedAnswer": { "@type": "Answer", "text": "Pod — минимальная единица (1+ контейнеров с общей сетью); Deployment — управляет репликами и обновлениями подов; Service — стабильная точка доступа с балансировкой. База, которую нужно рассказывать без пауз." } },
+      { "@type": "Question", "name": "Как устроен ваш CI/CD-пайплайн?", "acceptedAnswer": { "@type": "Answer", "text": "Стадии: сборка → тесты → линт/сканирование → образ → деплой (staging → prod), стратегия релизов (rolling/blue-green/canary), откат. Хотят конкретный пайплайн из вашего опыта, а не теорию." } },
+      { "@type": "Question", "name": "Зачем нужен Terraform, если есть Ansible?", "acceptedAnswer": { "@type": "Answer", "text": "Terraform — декларативное создание инфраструктуры (state, план изменений); Ansible — конфигурация уже созданных машин. Часто вместе: Terraform поднимает, Ansible настраивает." } },
+      { "@type": "Question", "name": "Прод упал в 3 часа ночи. Ваши первые действия?", "acceptedAnswer": { "@type": "Answer", "text": "Оценить масштаб (мониторинг/алерты) → восстановить сервис быстрейшим путём (откат последнего изменения) → потом искать корневую причину → постмортем без поиска виноватых. Хотят: сначала восстановление, потом расследование." } },
+      { "@type": "Question", "name": "Чем SLO отличается от SLA?", "acceptedAnswer": { "@type": "Answer", "text": "SLI — измеряемая метрика (доступность, латентность); SLO — внутренняя цель по метрике; SLA — внешнее обязательство с последствиями. Плюс: error budget и зачем он релизам." } }
+    ]
+  }
+  </script>
+  <style>
+    :root { --green: #1f8a4d; --ink: #16202e; --muted: #5b6878; --line: #e4e9ef; }
+    * { box-sizing: border-box; }
+    body { max-width: 860px; margin: 0 auto; padding: 28px 20px 64px; font-family: Inter, system-ui, sans-serif; color: var(--ink); line-height: 1.65; }
+    a { color: var(--green); }
+    .top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 28px; font-weight: 700; }
+    .top a.home { color: var(--ink); text-decoration: none; font-size: 18px; }
+    h1 { font-size: 28px; line-height: 1.25; letter-spacing: -.02em; }
+    h2 { font-size: 20px; margin-top: 34px; border-bottom: 1px solid var(--line); padding-bottom: 8px; }
+    .q { margin-top: 18px; }
+    .q strong { display: block; }
+    .q p { margin: 6px 0 0; color: #33404f; }
+    .q p em { color: var(--muted); font-style: normal; font-size: 14px; }
+    .cta { background: #f0f7f2; border: 1px solid #cfe6d7; border-radius: 16px; padding: 20px 22px; margin-top: 36px; }
+    .cta a.btn { display: inline-block; background: var(--green); color: #fff; padding: 11px 20px; border-radius: 10px; text-decoration: none; font-weight: 700; margin-top: 10px; }
+    .related { margin-top: 30px; color: var(--muted); }
+    footer { margin-top: 44px; color: var(--muted); font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="top"><a class="home" href="../index.html">← SkillCue</a><a href="./index.html">Все роли</a></div>
+
+  <h1>Вопросы на собеседовании DevOps-инженера: 16 вопросов с разбором</h1>
+  <p>DevOps-интервью проверяет четыре слоя: контейнеры и оркестрация, CI/CD и IaC, Linux и
+  сети, эксплуатация (мониторинг, инциденты). Ниже — то, что спрашивают почти всегда, и
+  <em>что за каждым вопросом стоит</em>.</p>
+
+  <h2>Docker и Kubernetes</h2>
+  <div class="q"><strong>1. Образ vs контейнер; зачем multi-stage build?</strong>
+    <p>Образ — слои-шаблон, контейнер — запущенный экземпляр; multi-stage режет размер и не тащит сборочные зависимости в прод. <em>Уточнят про кэш слоёв: почему COPY кода — последним.</em></p></div>
+  <div class="q"><strong>2. Pod / Deployment / Service — что есть что?</strong>
+    <p>Pod — минимальная единица; Deployment — реплики и rolling-обновления; Service — стабильный доступ. <em>База — без пауз; дальше копнут в Ingress и probes.</em></p></div>
+  <div class="q"><strong>3. Liveness vs readiness probe?</strong>
+    <p>Liveness — «жив ли» (перезапуск), readiness — «готов ли принимать трафик» (вывод из балансировки). <em>Классика: чем грозит liveness вместо readiness при долгом старте.</em></p></div>
+  <div class="q"><strong>4. Как контейнер получает лимиты ресурсов и что бывает при их превышении?</strong>
+    <p>requests/limits; по памяти — OOMKill, по CPU — троттлинг. <em>Хотят реальный опыт: как ловили OOMKilled и что сделали.</em></p></div>
+
+  <h2>CI/CD и IaC</h2>
+  <div class="q"><strong>5. Опишите ваш CI/CD-пайплайн от коммита до прода.</strong>
+    <p>Сборка → тесты → сканирование → образ → staging → prod; стратегия (rolling/canary), откат. <em>Конкретика своего пайплайна ценнее теории.</em></p></div>
+  <div class="q"><strong>6. Terraform vs Ansible?</strong>
+    <p>Создание инфраструктуры (декларативно, state) vs конфигурация машин; часто вместе. <em>Уточнят про state: где храните, как лочите.</em></p></div>
+  <div class="q"><strong>7. Как храните секреты?</strong>
+    <p>Vault/SOPS/секреты CI, а не в git; ротация, минимальные права. <em>Ответ «в .env в репе» — конец интервью :)</em></p></div>
+  <div class="q"><strong>8. Blue-green vs canary деплой?</strong>
+    <p>Два окружения с переключением vs постепенный перевод трафика с метриками. <em>Критерий выбора: стоимость дублирования vs скорость обнаружения проблем.</em></p></div>
+
+  <h2>Linux и сети</h2>
+  <div class="q"><strong>9. Сервер тормозит. Как ищете причину?</strong>
+    <p>top/htop → CPU vs память vs I/O (iostat) vs сеть; журнал systemd, dmesg (OOM). <em>Хотят системный порядок диагностики, не список команд.</em></p></div>
+  <div class="q"><strong>10. Что происходит при обращении к сайту: DNS → LB → сервис?</strong>
+    <p>Резолв, TCP/TLS, балансировщик/reverse proxy, апстрим. <em>Плюс: где в цепочке смотреть 502 vs 504.</em></p></div>
+  <div class="q"><strong>11. Зачем reverse proxy (nginx) перед приложением?</strong>
+    <p>TLS-терминация, балансировка, лимиты, статика, буферизация. <em>Достаточно 3–4 причин с пониманием.</em></p></div>
+
+  <h2>Эксплуатация</h2>
+  <div class="q"><strong>12. Как устроен ваш мониторинг? Метрики vs логи vs трейсы.</strong>
+    <p>Prometheus/Grafana + алерты по симптомам (для пользователя), ELK/Loki для логов. <em>Золотые сигналы: latency, traffic, errors, saturation — назвать их = плюс балл.</em></p></div>
+  <div class="q"><strong>13. Прод упал ночью. Первые 15 минут?</strong>
+    <p>Масштаб по мониторингу → быстрое восстановление (откат) → потом корневая причина → постмортем. <em>«Сначала чиню, потом разбираюсь» — правильный порядок.</em></p></div>
+  <div class="q"><strong>14. SLI / SLO / SLA и error budget?</strong>
+    <p>Метрика → внутренняя цель → внешнее обязательство; бюджет ошибок регулирует темп релизов. <em>Показывает зрелость выше «мидл-исполнителя».</em></p></div>
+  <div class="q"><strong>15. Как проверяете, что бэкапы работают?</strong>
+    <p>Тестовое восстановление по расписанию; RPO/RTO. <em>«Бэкап есть, но не восстанавливали» — любимая ловушка интервьюеров.</em></p></div>
+
+  <h2>Про вас</h2>
+  <div class="q"><strong>16. Самый жёсткий инцидент в вашей практике?</strong>
+    <p>Хронология → действия → восстановление → что изменили после. <em>История с постмортемом и выводами — сильнейший ответ DevOps-интервью.</em></p></div>
+
+  <div class="cta">
+    <strong>Это общий список. А что спросят именно на вашем собеседовании?</strong>
+    <p>Пришлите текст вакансии — бесплатно вернём вероятные вопросы по ней, риски и слабые темы.
+    А в приложении SkillCue — тренировка ответов и подсказки прямо во время созвона.</p>
+    <a class="btn" href="https://t.me/SkillCue_support_bot?start=seo_devops">Разобрать мою вакансию бесплатно</a>
+  </div>
+
+  <p class="related">Смежные роли: <a href="./java.html">Java-разработчик</a> · <a href="./python.html">Python-разработчик</a> · <a href="./index.html">все роли</a></p>
+
+  <footer>© 2026 SkillCue · <a href="../index.html">Главная</a> · <a href="https://github.com/GalievGleb/ScillCue/releases/latest/download/SkillCue-Setup.exe">Скачать приложение</a></footer>
+</body>
+</html>

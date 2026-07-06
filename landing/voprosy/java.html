@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Вопросы на собеседовании Java-разработчика в 2026 — с разбором ответов</title>
+  <meta name="description" content="16 вопросов с собеседований Java: коллекции, equals/hashCode, Stream API, исключения, многопоточность, Spring — и что хотят услышать интервьюеры. Бесплатный разбор вашей вакансии." />
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      { "@type": "Question", "name": "В чём разница между == и equals()?", "acceptedAnswer": { "@type": "Answer", "text": "== сравнивает ссылки, equals() — содержимое (если переопределён). Контракт: переопределяешь equals — обязан переопределить hashCode, иначе объект «теряется» в HashMap. Это вопрос №1 на Java-интервью." } },
+      { "@type": "Question", "name": "Как устроен HashMap внутри?", "acceptedAnswer": { "@type": "Answer", "text": "Массив бакетов: hashCode ключа → индекс; коллизии — связный список, с Java 8 при разрастании — красно-чёрное дерево. Средний доступ O(1). Хотят: связь с контрактом equals/hashCode и что бывает при плохом хеше." } },
+      { "@type": "Question", "name": "Почему String неизменяемый и что такое string pool?", "acceptedAnswer": { "@type": "Answer", "text": "Безопасность, кэширование хеша, потокобезопасность; литералы переиспользуются из пула. Следствие: конкатенация в цикле — StringBuilder." } },
+      { "@type": "Question", "name": "Checked vs unchecked исключения?", "acceptedAnswer": { "@type": "Answer", "text": "Checked (IOException) компилятор заставляет обработать или пробросить; unchecked (RuntimeException) — ошибки программиста. Хотят мнение: когда какие уместны и почему в современных фреймворках доминируют unchecked." } },
+      { "@type": "Question", "name": "Что такое ArrayList vs LinkedList и что выбрать?", "acceptedAnswer": { "@type": "Answer", "text": "ArrayList — массив: O(1) доступ по индексу, дорогие вставки в середину; LinkedList — узлы: дешёвые вставки по итератору, O(n) доступ. Честный ответ: на практике почти всегда ArrayList." } },
+      { "@type": "Question", "name": "Зачем нужны synchronized и volatile?", "acceptedAnswer": { "@type": "Answer", "text": "synchronized — взаимное исключение + видимость изменений; volatile — только видимость (чтение всегда актуального значения), без атомарности составных операций. Классика: почему count++ с volatile всё равно ломается." } }
+    ]
+  }
+  </script>
+  <style>
+    :root { --green: #1f8a4d; --ink: #16202e; --muted: #5b6878; --line: #e4e9ef; }
+    * { box-sizing: border-box; }
+    body { max-width: 860px; margin: 0 auto; padding: 28px 20px 64px; font-family: Inter, system-ui, sans-serif; color: var(--ink); line-height: 1.65; }
+    a { color: var(--green); }
+    .top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 28px; font-weight: 700; }
+    .top a.home { color: var(--ink); text-decoration: none; font-size: 18px; }
+    h1 { font-size: 28px; line-height: 1.25; letter-spacing: -.02em; }
+    h2 { font-size: 20px; margin-top: 34px; border-bottom: 1px solid var(--line); padding-bottom: 8px; }
+    .q { margin-top: 18px; }
+    .q strong { display: block; }
+    .q p { margin: 6px 0 0; color: #33404f; }
+    .q p em { color: var(--muted); font-style: normal; font-size: 14px; }
+    .cta { background: #f0f7f2; border: 1px solid #cfe6d7; border-radius: 16px; padding: 20px 22px; margin-top: 36px; }
+    .cta a.btn { display: inline-block; background: var(--green); color: #fff; padding: 11px 20px; border-radius: 10px; text-decoration: none; font-weight: 700; margin-top: 10px; }
+    .related { margin-top: 30px; color: var(--muted); }
+    footer { margin-top: 44px; color: var(--muted); font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="top"><a class="home" href="../index.html">← SkillCue</a><a href="./index.html">Все роли</a></div>
+
+  <h1>Вопросы на собеседовании Java-разработчика: 16 вопросов с разбором</h1>
+  <p>Java-интервью консервативны: ядро языка, коллекции, исключения, немного многопоточности
+  и Spring. Сюрпризов мало — валятся на глубине уточняющих вопросов. К каждому пункту —
+  <em>что хочет услышать интервьюер</em>.</p>
+
+  <h2>Ядро языка</h2>
+  <div class="q"><strong>1. == vs equals(); контракт equals/hashCode.</strong>
+    <p>== — ссылки, equals — содержимое; переопределил equals — переопредели hashCode. <em>Уточнят: что сломается в HashMap без hashCode. Вопрос №1.</em></p></div>
+  <div class="q"><strong>2. Почему String неизменяемый? Что такое string pool?</strong>
+    <p>Безопасность, кэш хеша, потокобезопасность; литералы — из пула. <em>Следствие для практики: StringBuilder в циклах.</em></p></div>
+  <div class="q"><strong>3. Интерфейс vs абстрактный класс — когда что?</strong>
+    <p>Интерфейс — контракт (+default-методы), абстрактный класс — общее состояние и часть реализации; наследование одно, интерфейсов много. <em>Хотят критерий выбора, не определения.</em></p></div>
+  <div class="q"><strong>4. final / finally / finalize?</strong>
+    <p>Модификатор неизменяемости / блок «всегда выполнится» / устаревший хук GC (не использовать). <em>Вопрос-скороговорка на внимательность.</em></p></div>
+  <div class="q"><strong>5. Checked vs unchecked исключения; ваша практика обработки?</strong>
+    <p>Checked заставляет обрабатывать, unchecked — ошибки логики. <em>Плюс: почему Spring оборачивает всё в unchecked; своё осмысленное мнение ценится.</em></p></div>
+
+  <h2>Коллекции</h2>
+  <div class="q"><strong>6. Как устроен HashMap? Что при коллизиях?</strong>
+    <p>Бакеты по hashCode, коллизии — список → дерево (Java 8+), O(1) в среднем. <em>Второй по частоте вопрос; готовьте рассказ на 90 секунд.</em></p></div>
+  <div class="q"><strong>7. ArrayList vs LinkedList?</strong>
+    <p>Массив vs узлы; доступ O(1) vs вставки по итератору. <em>Сильный финал: «на практике почти всегда ArrayList — и вот почему (кэш-локальность)».</em></p></div>
+  <div class="q"><strong>8. HashSet vs TreeSet vs LinkedHashSet?</strong>
+    <p>Хеш без порядка / отсортированный (compareTo, O(log n)) / порядок вставки. <em>Уточнят: что нужно элементу TreeSet (Comparable/Comparator).</em></p></div>
+
+  <h2>Stream API и современная Java</h2>
+  <div class="q"><strong>9. Stream API: map vs flatMap, терминальные vs промежуточные операции?</strong>
+    <p>Промежуточные ленивы, терминальная запускает конвейер; flatMap разворачивает вложенные структуры. <em>Классика: из List&lt;List&lt;String&gt;&gt; — плоский список.</em></p></div>
+  <div class="q"><strong>10. Optional: зачем и как НЕ надо использовать?</strong>
+    <p>Явный «может отсутствовать» вместо null; анти-паттерны: Optional в полях/параметрах, optional.get() без проверки. <em>Хотят зрелость, не восторг.</em></p></div>
+
+  <h2>Многопоточность</h2>
+  <div class="q"><strong>11. synchronized vs volatile?</strong>
+    <p>Взаимное исключение + видимость vs только видимость. <em>Проверка: почему volatile count++ всё равно гонка (составная операция) и чем лечить (AtomicInteger).</em></p></div>
+  <div class="q"><strong>12. Как запустить задачу в пуле потоков? ExecutorService, Future.</strong>
+    <p>Пул вместо new Thread: управление ресурсами, submit → Future/CompletableFuture. <em>Достаточно уверенного практического минимума для мидла.</em></p></div>
+
+  <h2>Spring и данные</h2>
+  <div class="q"><strong>13. Что такое IoC/DI? Как Spring создаёт бины?</strong>
+    <p>Контейнер управляет зависимостями: конструкторная инъекция предпочтительна; scope singleton по умолчанию. <em>Уточнят: почему field injection ругают.</em></p></div>
+  <div class="q"><strong>14. Как работает @Transactional? Когда «не работает»?</strong>
+    <p>Прокси вокруг бина: транзакция на границе публичного метода. Ловушки: self-invocation, private-методы, проглоченные исключения. <em>Ловушки — то, что отличает практика.</em></p></div>
+  <div class="q"><strong>15. Проблема N+1 в JPA — что это и как чинить?</strong>
+    <p>Ленивая загрузка порождает запрос на каждую строку; лечение: fetch join, EntityGraph, батчинг. <em>Пример из своего проекта — золото.</em></p></div>
+
+  <h2>Про вас</h2>
+  <div class="q"><strong>16. Расскажите о самой сложной задаче на проекте.</strong>
+    <p>Контекст → проблема → варианты → решение → результат. <em>Подготовьте историю с техническими деталями заранее — уточняющие вопросы будут.</em></p></div>
+
+  <div class="cta">
+    <strong>Это общий список. А что спросят именно на вашем собеседовании?</strong>
+    <p>Пришлите текст вакансии — бесплатно вернём вероятные вопросы по ней, риски и слабые темы.
+    А в приложении SkillCue — тренировка ответов и подсказки прямо во время созвона.</p>
+    <a class="btn" href="https://t.me/SkillCue_support_bot?start=seo_java">Разобрать мою вакансию бесплатно</a>
+  </div>
+
+  <p class="related">Смежные роли: <a href="./python.html">Python-разработчик</a> · <a href="./devops.html">DevOps</a> · <a href="./index.html">все роли</a></p>
+
+  <footer>© 2026 SkillCue · <a href="../index.html">Главная</a> · <a href="https://github.com/GalievGleb/ScillCue/releases/latest/download/SkillCue-Setup.exe">Скачать приложение</a></footer>
+</body>
+</html>
