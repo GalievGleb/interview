@@ -40,6 +40,22 @@ export class GatewayService {
     return key;
   }
 
+  /** Публичная проверка живости для мониторинга: Redis + наличие апстрим-ключа. */
+  async health(): Promise<{ ok: boolean; redis: boolean; upstreamConfigured: boolean; ts: number }> {
+    let redisOk = false;
+    try {
+      redisOk = (await this.redis.getClient().ping()) === 'PONG';
+    } catch {
+      redisOk = false;
+    }
+    return {
+      ok: redisOk,
+      redis: redisOk,
+      upstreamConfigured: Boolean(process.env.OPENROUTER_API_KEY),
+      ts: Date.now(),
+    };
+  }
+
   /** Bearer <SKILLCUE-...> → проверенная лицензия, иначе 401. */
   authorize(authHeader: string | undefined): VerifiedLicense {
     const token = (authHeader ?? '').replace(/^Bearer\s+/i, '').trim();

@@ -44,6 +44,11 @@ class IssueDto {
 export class GatewayController {
   constructor(private readonly gateway: GatewayService) {}
 
+  @Get('health')
+  async health() {
+    return this.gateway.health(); // без авторизации — для аптайм-мониторинга
+  }
+
   @Get('v1/models')
   async models(@Headers('authorization') auth: string | undefined) {
     this.gateway.authorize(auth); // каталог только по валидному ключу
