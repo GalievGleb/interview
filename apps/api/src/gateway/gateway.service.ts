@@ -105,18 +105,34 @@ export class GatewayService {
   }
 
   async assertQuota(license: VerifiedLicense): Promise<void> {
-    const okRate = await this.redis.checkRateLimit(
-      `gw:rate:${license.id}:${Math.floor(Date.now() / 60_000)}`,
-      RATE_LIMIT_PER_MIN,
-      90,
-    );
+    let okRate: boolean;
+    let used: number;
+    try {
+      okRate = await this.redis.checkRateLimit(
+        `gw:rate:${license.id}:${Math.floor(Date.now() / 60_000)}`,
+        RATE_LIMIT_PER_MIN,
+        90,
+      );
+      used = await this.usedTokens(license.id);
+    } catch (e) {
+      // Redis недоступен — fail-closed, но с понятным 503, а не сырым 500.
+      this.logger.error(`Redis unavailable in assertQuota: ${e}`);
+      throw new HttpException(
+        {
+          error: {
+            message: 'Сервис временно недоступен, попробуйте через минуту.',
+            code: 'service_unavailable',
+          },
+        },
+        503,
+      );
+    }
     if (!okRate) {
       throw new HttpException(
         { error: { message: 'Слишком много запросов — подождите минуту.', code: 'rate_limited' } },
         429,
       );
     }
-    const used = await this.usedTokens(license.id);
     if (used >= license.budget) {
       throw new HttpException(
         {
@@ -134,11 +150,16 @@ export class GatewayService {
 
   async recordUsage(licenseId: string, tokens: number): Promise<void> {
     if (tokens <= 0) return;
-    const client = this.redis.getClient();
-    const key = this.usageKey(licenseId);
-    const total = await client.incrby(key, Math.ceil(tokens));
-    if (total === Math.ceil(tokens)) {
-      await client.expire(key, USAGE_TTL_S);
+    try {
+      const client = this.redis.getClient();
+      const key = this.usageKey(licenseId);
+      const total = await client.incrby(key, Math.ceil(tokens));
+      if (total === Math.ceil(tokens)) {
+        await client.expire(key, USAGE_TTL_S);
+      }
+    } catch (e) {
+      // Метрика — не критичнее уже отданного ответа: логируем, но не роняем запрос.
+      this.logger.error(`recordUsage failed (tokens lost from metering): ${e}`);
     }
   }
 
