@@ -68,7 +68,10 @@ export class GatewayController {
     @Res() res: Response,
   ) {
     const license = this.gateway.authorize(auth);
-    const upstream = await this.gateway.chatCompletions(license, body);
+    // Клиент отключился → абортим апстрим (перестаём жечь токены OpenRouter).
+    const ac = new AbortController();
+    res.on('close', () => ac.abort());
+    const upstream = await this.gateway.chatCompletions(license, body, ac.signal);
 
     if (!upstream.ok && !upstream.body) {
       res.status(upstream.status).json({
@@ -128,11 +131,29 @@ export class GatewayController {
           }
         }
       }
+    } catch {
+      // Обрыв клиента (AbortError) или сбой апстрима — расход за уже полученное
+      // спишется в finally; повторно ошибку не бросаем, res закрывается ниже.
     } finally {
       const tokens = exactTokens ?? this.gateway.estimateTokens(body, completionChars);
       await this.gateway.recordUsage(license.id, tokens).catch(() => undefined);
-      res.end();
+      if (!res.writableEnded) res.end();
     }
+  }
+
+  private requireAdmin(adminSecret: string | undefined): void {
+    const expected = process.env.GATEWAY_ADMIN_SECRET ?? '';
+    if (!expected || adminSecret !== expected) {
+      throw new UnauthorizedException({
+        error: { message: 'Bad admin secret', code: 'unauthorized' },
+      });
+    }
+  }
+
+  @Get('gateway/stats')
+  async stats(@Headers('x-admin-secret') adminSecret: string | undefined) {
+    this.requireAdmin(adminSecret);
+    return this.gateway.usageStats();
   }
 
   @Post('gateway/issue')
@@ -140,12 +161,7 @@ export class GatewayController {
     @Headers('x-admin-secret') adminSecret: string | undefined,
     @Body() dto: IssueDto,
   ) {
-    const expected = process.env.GATEWAY_ADMIN_SECRET ?? '';
-    if (!expected || adminSecret !== expected) {
-      throw new UnauthorizedException({
-        error: { message: 'Bad admin secret', code: 'unauthorized' },
-      });
-    }
+    this.requireAdmin(adminSecret);
     const privateKeyHex = process.env.LICENSE_PRIVATE_KEY_HEX ?? '';
     if (!privateKeyHex) {
       throw new HttpException(

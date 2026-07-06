@@ -15,6 +15,10 @@ Desktop (api-py) ──Bearer SKILLCUE-…──▶ Gateway /v1/chat/completions
 
 - Эндпоинты OpenAI-совместимые: `POST /v1/chat/completions` (stream и нет),
   `GET /v1/models` (кэш 10 мин), `GET /v1/usage` (расход ключа за месяц).
+- Обрыв клиента посреди стрима абортит апстрим (не платим за невидимые токены).
+- `GET /gateway/stats` (заголовок `x-admin-secret`) — сколько лицензий активно и
+  токенов потрачено за месяц (мониторинг счёта OpenRouter): `{month, activeLicenses,
+  totalTokens, top[]}`. Email не хранится, только анонимные id ключей.
 - Бюджеты тарифов зеркалят `apps/api-py/app/services/license.py`:
   basic 5M, max 20M токенов/мес; `tokens_month` в ключе переопределяет.
 - Учёт: точный из usage-чанка стрима (`stream_options.include_usage`),

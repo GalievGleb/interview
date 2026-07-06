@@ -178,7 +178,11 @@ export class GatewayService {
    * контроллер, а мы считаем токены: точно — из usage-чанка (просим его через
    * stream_options), грубо — по символам, если провайдер usage не прислал.
    */
-  async chatCompletions(license: VerifiedLicense, body: Record<string, unknown>) {
+  async chatCompletions(
+    license: VerifiedLicense,
+    body: Record<string, unknown>,
+    signal?: AbortSignal,
+  ) {
     await this.assertQuota(license);
 
     const model = String(body.model ?? '');
@@ -208,6 +212,9 @@ export class GatewayService {
         'X-Title': 'SkillCue',
       },
       body: JSON.stringify(upstreamBody),
+      // Клиент отключился посреди стрима → контроллер абортит апстрим, чтобы
+      // не платить OpenRouter за токены, которых покупатель уже не увидит.
+      signal,
     });
     return resp;
   }
@@ -216,5 +223,40 @@ export class GatewayService {
   estimateTokens(body: Record<string, unknown>, completionChars: number): number {
     const promptChars = JSON.stringify(body.messages ?? '').length;
     return Math.ceil(promptChars / 4) + Math.ceil(completionChars / 4);
+  }
+
+  /**
+   * Админ-статистика расхода за текущий месяц: сколько лицензий активно и сколько
+   * токенов потрачено (мониторинг счёта OpenRouter владельца). Email не хранится —
+   * только анонимные id ключей.
+   */
+  async usageStats(): Promise<{
+    month: string;
+    activeLicenses: number;
+    totalTokens: number;
+    top: Array<{ id: string; tokens: number }>;
+  }> {
+    const month = monthStamp();
+    const client = this.redis.getClient();
+    const pattern = `gw:tok:*:${month}`;
+    const rows: Array<{ id: string; tokens: number }> = [];
+    let cursor = '0';
+    do {
+      const [next, keys] = await client.scan(cursor, 'MATCH', pattern, 'COUNT', 200);
+      cursor = next;
+      if (keys.length) {
+        const vals = await client.mget(...keys);
+        keys.forEach((k, i) => {
+          rows.push({ id: k.split(':')[2] ?? '?', tokens: parseInt(vals[i] ?? '0', 10) || 0 });
+        });
+      }
+    } while (cursor !== '0');
+    rows.sort((a, b) => b.tokens - a.tokens);
+    return {
+      month,
+      activeLicenses: rows.length,
+      totalTokens: rows.reduce((s, r) => s + r.tokens, 0),
+      top: rows.slice(0, 20),
+    };
   }
 }
