@@ -163,3 +163,29 @@ def test_complete_captures_usage(monkeypatch):
     assert out == "hi"
     assert usage == {"prompt_tokens": 120, "completion_tokens": 45}
     assert again is None  # pop очищает
+
+
+def test_gateway_errors_pass_through_with_own_message():
+    """Ошибки нашего гейтвея (лицензия) доходят до покупателя дословно, а не как
+    generic-текст провайдера («пополните баланс провайдера»)."""
+    import json
+
+    quota_body = json.dumps(
+        {"error": {"message": "Месячный лимит токенов тарифа исчерпан.", "code": "token_quota_exceeded"}},
+        ensure_ascii=False,
+    )
+    err = provider_adapter.parse_provider_error(402, quota_body)
+    assert err.code == "token_quota_exceeded"
+    assert "лимит токенов" in err.message.lower()
+
+    model_body = json.dumps(
+        {"error": {"message": "Модель «openai/gpt-5.5» недоступна на этом тарифе.", "code": "model_not_allowed"}},
+        ensure_ascii=False,
+    )
+    err = provider_adapter.parse_provider_error(403, model_body)
+    assert err.code == "model_not_allowed"
+    assert "недоступна" in err.message.lower()
+
+    # Чужой провайдерский 402 (не наш код) идёт по обычному маппингу.
+    generic = provider_adapter.parse_provider_error(402, '{"error":{"message":"insufficient credit"}}')
+    assert generic.code == "insufficient_credits"

@@ -68,7 +68,33 @@ def _base_url(provider: str) -> str:
     return PROVIDER_CONFIG[provider]["base_url"]
 
 
+# Коды ошибок НАШЕГО гейтвея лицензий: у них уже есть готовое русское сообщение
+# для покупателя — пробрасываем как есть, не подменяя на generic-текст провайдера
+# (иначе «лимит тарифа исчерпан» превратился бы в «пополните баланс провайдера»).
+_GATEWAY_ERROR_CODES = {
+    "token_quota_exceeded",
+    "model_not_allowed",
+    "invalid_license",
+    "gateway_unconfigured",
+}
+
+
+def _gateway_error(body: str) -> tuple[str, str] | None:
+    try:
+        err = (json.loads(body) or {}).get("error") or {}
+    except (json.JSONDecodeError, AttributeError, TypeError):
+        return None
+    code, msg = err.get("code"), err.get("message")
+    if code in _GATEWAY_ERROR_CODES and isinstance(msg, str) and msg.strip():
+        return msg.strip(), code
+    return None
+
+
 def parse_provider_error(status: int, body: str, provider: str = "openrouter") -> AppError:
+    passthrough = _gateway_error(body)
+    if passthrough is not None:
+        msg, code = passthrough
+        return AppError(msg, status, code)
     low = body.lower()
     if status == 401:
         return AppError(
