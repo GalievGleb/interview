@@ -11,7 +11,11 @@ import { api } from '../api';
 import type { SmokeReviewSession } from './types';
 
 const KEY = 'skillcue.vacancyReview.sessions.v1';
+// Надгробия удалённых id: без них reconcile тянул удалённую-в-офлайне сессию
+// обратно с сервера (delete не дошёл) — и она «воскресала» при следующем старте.
+const TOMBSTONE_KEY = 'skillcue.vacancyReview.deleted.v1';
 const MAX_SESSIONS = 25;
+const MAX_TOMBSTONES = 200;
 
 export const MOCK_SESSIONS_SYNCED_EVENT = 'skillcue:mock-sessions-synced';
 
@@ -25,6 +29,25 @@ function readAll(): StoredSession[] {
     return Array.isArray(parsed) ? (parsed as StoredSession[]) : [];
   } catch {
     return [];
+  }
+}
+
+function readTombstones(): string[] {
+  try {
+    const raw = localStorage.getItem(TOMBSTONE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? (parsed as string[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function addTombstone(id: string): void {
+  try {
+    const next = [id, ...readTombstones().filter((x) => x !== id)].slice(0, MAX_TOMBSTONES);
+    localStorage.setItem(TOMBSTONE_KEY, JSON.stringify(next));
+  } catch {
+    /* storage full — worst case a rare resurrect, not a crash */
   }
 }
 
@@ -55,6 +78,18 @@ export function saveSession(session: SmokeReviewSession): void {
   const all = readAll().filter((s) => s.id !== session.id);
   all.unshift(stamped);
   writeAll(all);
+  // Пересохранение ранее удалённого id (тот же id снова в работе) снимает надгробие.
+  const tombstones = readTombstones();
+  if (tombstones.includes(session.id)) {
+    try {
+      localStorage.setItem(
+        TOMBSTONE_KEY,
+        JSON.stringify(tombstones.filter((x) => x !== session.id)),
+      );
+    } catch {
+      /* non-fatal */
+    }
+  }
   mirrorUpsert(stamped);
 }
 
@@ -68,10 +103,12 @@ export function getSession(id: string): SmokeReviewSession | null {
 
 export function deleteSession(id: string): void {
   writeAll(readAll().filter((s) => s.id !== id));
+  // Надгробие ставим ДО remote-delete: если бэкенд офлайн, reconcile при
+  // следующем старте не должен тянуть эту сессию обратно с сервера.
+  addTombstone(id);
   void api.deleteMockSessionRemote(id).catch(() => {
-    /* backend offline — acceptable: local copy is gone, remote row is pruned
-       by MAX_SESSIONS eventually; reconcile never resurrects deleted ids that
-       are missing locally AND older than the local newest (see merge below). */
+    /* backend offline — надгробие не даст сессии воскреснуть; повторный
+       remote-delete уйдёт из syncMockSessionsFromBackend, пока строка жива. */
   });
 }
 
@@ -103,6 +140,7 @@ export async function syncMockSessionsFromBackend(): Promise<void> {
   const local = readAll();
   const localById = new Map(local.map((s) => [s.id, s]));
   const remoteById = new Map(remote.map((r) => [r.id, r]));
+  const tombstoned = new Set(readTombstones());
 
   // Push: local newer or missing remotely.
   for (const s of local) {
@@ -113,10 +151,19 @@ export async function syncMockSessionsFromBackend(): Promise<void> {
     }
   }
 
+  // Добиваем remote-delete для удалённых в офлайне сессий, которые ещё живы
+  // на сервере (первый delete не дошёл) — иначе строка висела бы вечно.
+  for (const r of remote) {
+    if (tombstoned.has(r.id)) {
+      void api.deleteMockSessionRemote(r.id).catch(() => {});
+    }
+  }
+
   // Pull: remote sessions we don't have locally (payload IS the session).
+  // Надгробленные пропускаем — пользователь их удалил, воскрешать нельзя.
   let changed = false;
   for (const r of remote) {
-    if (!localById.has(r.id)) {
+    if (!localById.has(r.id) && !tombstoned.has(r.id)) {
       const session = r.payload as unknown as StoredSession;
       if (session && typeof session.id === 'string') {
         local.push(session);
@@ -128,6 +175,8 @@ export async function syncMockSessionsFromBackend(): Promise<void> {
   if (changed) {
     local.sort((a, b) => b.startedAt - a.startedAt);
     writeAll(local);
-    window.dispatchEvent(new Event(MOCK_SESSIONS_SYNCED_EVENT));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event(MOCK_SESSIONS_SYNCED_EVENT));
+    }
   }
 }

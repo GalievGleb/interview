@@ -50,7 +50,6 @@ export default function VacancySetup({ onAnalyze, analyzing, error }: Props) {
     return () => {
       alive = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadDoc = async (id: string, into: 'resume' | 'legend') => {

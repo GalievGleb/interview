@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, type StreamInterviewOpts } from '../lib/api';
 import { buildRevisionStreamOpts, type AnswerRevisionMode } from '../lib/answerRevision';
 import { sanitizeLiveAnswer } from '@interview/shared';
@@ -18,6 +18,9 @@ export function useAnswerRevision() {
     cancelRef.current = null;
     setRevising(false);
   }, []);
+
+  // Анмаунт посреди ревизии: обрываем SSE, не жжём токены на невидимый ответ.
+  useEffect(() => cancel, [cancel]);
 
   const revise = useCallback(
     (

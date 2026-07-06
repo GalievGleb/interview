@@ -88,8 +88,14 @@ def verify_license_key(key: str) -> dict | None:
     if not isinstance(payload, dict) or not payload.get("email"):
         return None
     expires_at = payload.get("expires_at")
-    if expires_at is not None and time.time() > float(expires_at):
-        return None
+    if expires_at is not None:
+        # Нечисловой срок в подписанном ключе — ошибка издателя; трактуем как
+        # невалидный ключ, а не 500 в /license/status («не бросает исключений»).
+        try:
+            if time.time() > float(expires_at):
+                return None
+        except (TypeError, ValueError):
+            return None
     return payload
 
 

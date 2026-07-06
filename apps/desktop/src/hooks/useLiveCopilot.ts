@@ -1115,6 +1115,19 @@ export function useLiveCopilot() {
     if (hadStreams) await endInterviewSession();
   }, [clearSpeculative, endInterviewSession]);
 
+  // Уход со страницы во время записи обязан выключить микрофон и закрыть сокеты —
+  // иначе mic «горит» в фоне (приватность) и trial-минуты не фиксируются на закрытии
+  // сокета. Держим stop в ref, чтобы cleanup сработал РОВНО раз на анмаунте, а не
+  // пересоздавался при каждой смене identity колбэка stop.
+  const stopRef = useRef(stop);
+  stopRef.current = stop;
+  useEffect(
+    () => () => {
+      void stopRef.current();
+    },
+    [],
+  );
+
   const updateAnswerEntry = useCallback((id: string, spoken: string) => {
     setAnswerHistory((prev) =>
       prev.map((entry) => (entry.id === id ? { ...entry, spoken, ts: Date.now() } : entry)),

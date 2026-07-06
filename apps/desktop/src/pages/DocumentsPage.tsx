@@ -122,7 +122,6 @@ function ProfilePackCard({ reloadKey }: { reloadKey: number }) {
 
   useEffect(() => {
     void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reloadKey]);
 
   const save = async () => {

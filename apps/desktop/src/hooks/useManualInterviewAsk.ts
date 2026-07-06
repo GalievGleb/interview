@@ -43,6 +43,9 @@ export function useManualInterviewAsk(options: UseManualInterviewAskOptions) {
     cancelRef.current = null;
   }, []);
 
+  // Анмаунт посреди стрима: обрываем SSE, иначе запрос дожёвывает токены впустую.
+  useEffect(() => cancel, [cancel]);
+
   const ask = useCallback(() => {
     const input = question.trim();
     if (!input) return;

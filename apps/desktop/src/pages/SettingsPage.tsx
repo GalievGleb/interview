@@ -391,7 +391,9 @@ function acceleratorToChips(acc: string): string[] {
   return acc.split('+').map((k) => (k === 'CommandOrControl' ? 'Ctrl' : k));
 }
 
-/** KeyboardEvent → Electron accelerator; null, если сочетание не годится. */
+/** KeyboardEvent → Electron accelerator; null, если сочетание не годится.
+ *  Буквы/цифры берём из e.code (физическая клавиша): с русской раскладкой
+ *  e.key даёт «Р», которую Electron-акселератор не принимает. */
 function eventToAccelerator(e: KeyboardEvent): string | null {
   if (['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) return null;
   const mods: string[] = [];
@@ -400,12 +402,15 @@ function eventToAccelerator(e: KeyboardEvent): string | null {
   if (e.shiftKey) mods.push('Shift');
   // Глобальный хоткей без модификатора перехватывал бы обычный ввод.
   if (mods.length === 0) return null;
-  let key = e.key;
-  if (key === ' ') key = 'Space';
-  else if (key.startsWith('Arrow')) key = key.slice(5);
-  else if (key.length === 1) key = key.toUpperCase();
-  else if (!/^F\d{1,2}$|^(Home|End|PageUp|PageDown|Insert|Delete|Backspace|Tab|Enter)$/.test(key))
-    return null;
+  let key: string;
+  if (/^Key[A-Z]$/.test(e.code)) key = e.code.slice(3);
+  else if (/^Digit[0-9]$/.test(e.code)) key = e.code.slice(5);
+  else if (e.key === ' ') key = 'Space';
+  else if (e.key.startsWith('Arrow')) key = e.key.slice(5);
+  else if (/^F\d{1,2}$|^(Home|End|PageUp|PageDown|Insert|Delete|Backspace|Tab|Enter)$/.test(e.key))
+    key = e.key;
+  else if (e.key.length === 1 && /[a-z0-9]/i.test(e.key)) key = e.key.toUpperCase();
+  else return null;
   return [...mods, key].join('+');
 }
 

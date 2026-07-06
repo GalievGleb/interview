@@ -24,7 +24,10 @@ export default function AnswerActions({
 
   return (
     <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
-      {question && answer.trim() ? <FeedbackButtons question={question} answer={answer} /> : null}
+      {/* key: новый вопрос — свежая пара 👍/👎, иначе оценка залипает с прошлого ответа. */}
+      {question && answer.trim() ? (
+        <FeedbackButtons key={question} question={question} answer={answer} />
+      ) : null}
       {onEdit ? (
         <button
           type="button"
