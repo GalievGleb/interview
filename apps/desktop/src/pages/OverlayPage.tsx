@@ -7,6 +7,7 @@ import type { TranscriptLine } from '../hooks/useLiveCopilot';
 import MarkdownText from '../components/MarkdownText';
 import { forceDarkTheme } from '../lib/theme';
 import { modeInstructionPrefix, useAnswerModes } from '../lib/answerModes';
+import { deriveLiveExchange } from '../lib/liveOverlaySync';
 
 /**
  * Плавающий оверлей SkillCue (вдохновлён Cluely, но в навы+зелёном стиле):
@@ -366,10 +367,10 @@ export default function OverlayPage() {
   const lastEntry = answerHistory[answerHistory.length - 1];
   useEffect(() => {
     if (manualBusyRef.current) return;
-    const liveText = streamText || lastEntry?.spoken || '';
-    if (!liveText) return;
+    const view = deriveLiveExchange(streamText, streaming, lastEntry?.spoken);
+    if (!view.show) return;
     const question = currentQuestion || lastEntry?.question || 'Вопрос интервьюера';
-    setExchange({ label: 'Live', request: question, text: liveText, streaming });
+    setExchange({ label: 'Live', request: question, text: view.text, streaming });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [streamText, streaming, lastEntry?.id, lastEntry?.spoken, currentQuestion]);
 
