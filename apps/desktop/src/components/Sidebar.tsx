@@ -288,7 +288,7 @@ export default function Sidebar() {
               Whisper
               <span className={`sc-dot ${model?.ready ? 'sc-dot--success' : 'sc-dot--warning'}`} />
               <span
-                className={`text-[11px] font-normal ${model?.ready ? 'text-emerald-300' : 'text-ink-faint'}`}
+                className={`text-[11px] font-normal ${model?.ready ? 'text-accent' : 'text-ink-faint'}`}
               >
                 {model ? (model.ready ? 'Готова' : 'Не загружена') : '…'}
               </span>
@@ -328,7 +328,7 @@ export default function Sidebar() {
               }}
               className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-2 py-1.5 text-[11px] font-medium transition-colors ${
                 undetected
-                  ? 'border-emerald-500/40 bg-emerald-900/25 text-emerald-300'
+                  ? 'border-accent/40 bg-accent-soft text-accent'
                   : 'border-surface-border text-ink-muted hover:bg-surface-hover'
               }`}
               title="Скрыть при демонстрации экрана"

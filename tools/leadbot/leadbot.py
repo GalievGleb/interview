@@ -179,8 +179,8 @@ def main():
     while True:
         try:
             updates = api(token, "getUpdates", offset=state["offset"], timeout=65, allowed_updates=["message"])
-        except (urllib.error.URLError, TimeoutError, RuntimeError) as e:
-            print(f"[{datetime.now(UTC):%H:%M:%S}] сеть/API: {e}; повтор через 5 сек")
+        except Exception as e:  # сеть/API на Windows кидает разные типы (URLError, OSError, JSON...)
+            print(f"[{datetime.now(UTC):%H:%M:%S}] сеть/API: {type(e).__name__}: {e}; повтор через 5 сек", flush=True)
             time.sleep(5)
             continue
 

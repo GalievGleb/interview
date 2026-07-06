@@ -104,8 +104,10 @@ function SettingRow({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between gap-4 border-b border-surface-border/60 py-3.5 last:border-b-0">
-      <div className="min-w-0">
+    // flex-wrap: на минимальной ширине окна контрол уходит под текст,
+    // а не давит колонку заголовка до нечитаемой ширины.
+    <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-surface-border/60 py-3.5 last:border-b-0">
+      <div className="min-w-[200px] flex-1">
         <p className="text-[13px] font-semibold text-ink">{title}</p>
         <p className="mt-0.5 text-xs text-ink-faint">{desc}</p>
       </div>
