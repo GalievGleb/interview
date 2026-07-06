@@ -153,10 +153,19 @@ export class GatewayService {
     };
   }
 
-  /** GET /v1/models — прокси с кэшем: каталог одинаков для всех ключей. */
+  // Каталог кэшируется сырым; политику моделей применяем НА ВОЗВРАТЕ, чтобы смена
+  // blocklist/allowlist действовала сразу, без ожидания протухания кэша.
+  private filterCatalog(catalog: unknown): unknown {
+    const c = catalog as { data?: Array<{ id?: string }> };
+    if (!c || !Array.isArray(c.data)) return catalog;
+    return { ...c, data: c.data.filter((m) => isModelAllowed(String(m?.id ?? ''))) };
+  }
+
+  /** GET /v1/models — прокси с кэшем; заблокированные модели скрыты из списка,
+   * чтобы приложение не показывало то, что вернёт 403. */
   async models(): Promise<unknown> {
     const cached = await this.redis.getClient().get(MODELS_CACHE_KEY);
-    if (cached) return JSON.parse(cached);
+    if (cached) return this.filterCatalog(JSON.parse(cached));
     const resp = await fetch(`${OPENROUTER_BASE}/models`, {
       headers: { Authorization: `Bearer ${this.upstreamKey()}` },
     });
@@ -170,7 +179,7 @@ export class GatewayService {
     await this.redis
       .getClient()
       .set(MODELS_CACHE_KEY, JSON.stringify(data), 'EX', MODELS_CACHE_TTL_S);
-    return data;
+    return this.filterCatalog(data);
   }
 
   /**
