@@ -22,6 +22,7 @@ class KeysPayload(BaseModel):
 class KeysStatus(BaseModel):
     openai: bool
     openrouter: bool
+    managed_openrouter: bool = False
     deepgram: bool
     yandex: bool
     default_provider: str
@@ -96,6 +97,7 @@ def save_ai_settings(payload: AiSettingsPayload) -> AiSettingsResponse:
 
 def _ai_response() -> AiSettingsResponse:
     prefs = load_preferences()
+    s = get_settings()
     return AiSettingsResponse(
         provider=prefs.provider,
         base_url=prefs.base_url,
@@ -106,16 +108,19 @@ def _ai_response() -> AiSettingsResponse:
         vacancy_review_model=prefs.vacancy_review_model,
         last_models_sync_at=prefs.last_models_sync_at,
         models_cache_count=len(prefs.models_cache),
-        has_openrouter_key=secrets.has_secret("openrouter_api_key"),
+        has_openrouter_key=secrets.has_secret("openrouter_api_key") or bool(s.skillcue_gateway_url),
     )
 
 
 def _status() -> KeysStatus:
     s = get_settings()
     prefs = load_preferences()
+    has_own_openrouter = secrets.has_secret("openrouter_api_key")
+    has_managed_openrouter = bool(s.skillcue_gateway_url)
     return KeysStatus(
         openai=secrets.has_secret("openai_api_key"),
-        openrouter=secrets.has_secret("openrouter_api_key"),
+        openrouter=has_own_openrouter or has_managed_openrouter,
+        managed_openrouter=has_managed_openrouter and not has_own_openrouter,
         deepgram=secrets.has_secret("deepgram_api_key"),
         yandex=secrets.has_secret("yandex_api_key"),
         default_provider=prefs.provider or s.default_provider,

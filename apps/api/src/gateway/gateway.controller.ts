@@ -17,7 +17,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { Response } from 'express';
-import { IsEmail, IsIn, IsInt, IsOptional, Min } from 'class-validator';
+import { IsEmail, IsIn, IsInt, IsOptional, IsString, Min } from 'class-validator';
 import { GatewayService } from './gateway.service';
 import { mintLicenseKey } from './license.util';
 
@@ -38,6 +38,11 @@ class IssueDto {
   @IsInt()
   @Min(1)
   tokensMonth?: number;
+}
+
+class TrialDto {
+  @IsString()
+  clientId!: string;
 }
 
 @Controller()
@@ -154,6 +159,11 @@ export class GatewayController {
   async stats(@Headers('x-admin-secret') adminSecret: string | undefined) {
     this.requireAdmin(adminSecret);
     return this.gateway.usageStats();
+  }
+
+  @Post('gateway/trial')
+  async trial(@Body() dto: TrialDto) {
+    return this.gateway.issueTrial(dto.clientId);
   }
 
   @Post('gateway/issue')

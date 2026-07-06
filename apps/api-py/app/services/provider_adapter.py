@@ -3,6 +3,7 @@ import contextvars
 import json
 import logging
 import os
+import uuid
 from collections.abc import AsyncGenerator
 
 import httpx
@@ -133,14 +134,7 @@ def parse_provider_error(status: int, body: str, provider: str = "openrouter") -
 _gateway_cache: dict = {"at": 0.0, "key": ""}
 
 
-def _gateway_license_key() -> str:
-    """Валидный лицензионный ключ из AppMeta (или ''), с минутным кэшем."""
-    import time
-
-    now = time.monotonic()
-    if now - _gateway_cache["at"] < 60:
-        return _gateway_cache["key"]
-    key = ""
+def _stored_gateway_license_key() -> str:
     try:
         from app.db.models import AppMeta
         from app.db.session import SessionLocal
@@ -149,10 +143,76 @@ def _gateway_license_key() -> str:
         with SessionLocal() as db:
             row = db.get(AppMeta, "license_key")
             stored = (row.value if row else "").strip()
-        if stored and verify_license_key(stored):
-            key = stored
-    except Exception:  # noqa: BLE001 — фолбэк не должен ломать основной путь
-        key = ""
+        return stored if stored and verify_license_key(stored) else ""
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _gateway_root_url(gateway_url: str) -> str:
+    root = gateway_url.rstrip("/")
+    return root[:-3] if root.endswith("/v1") else root
+
+
+def _get_or_create_install_id() -> str:
+    from app.db.models import AppMeta
+    from app.db.session import SessionLocal
+
+    with SessionLocal() as db:
+        row = db.get(AppMeta, "install_id")
+        if row and row.value:
+            return row.value
+        value = str(uuid.uuid4())
+        if row is None:
+            db.add(AppMeta(key="install_id", value=value))
+        else:
+            row.value = value
+        db.commit()
+        return value
+
+
+def _store_gateway_license_key(key: str, email: str = "") -> None:
+    from app.db.models import AppMeta
+    from app.db.session import SessionLocal
+
+    with SessionLocal() as db:
+        for meta_key, value in (("license_key", key), ("license_email", email)):
+            row = db.get(AppMeta, meta_key)
+            if row is None:
+                db.add(AppMeta(key=meta_key, value=value))
+            else:
+                row.value = value
+        db.commit()
+
+
+def _claim_gateway_trial_key(gateway_url: str) -> str:
+    try:
+        install_id = _get_or_create_install_id()
+        root = _gateway_root_url(gateway_url)
+        with httpx.Client(timeout=8.0) as client:
+            resp = client.post(f"{root}/gateway/trial", json={"clientId": install_id})
+        if resp.status_code >= 400:
+            logger.warning("gateway trial claim failed: %s %s", resp.status_code, resp.text[:200])
+            return ""
+        data = resp.json()
+        key = str(data.get("key") or "").strip()
+        if key:
+            _store_gateway_license_key(key, str(data.get("email") or ""))
+        return key
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("gateway trial claim failed: %s", exc)
+        return ""
+
+
+def _gateway_license_key() -> str:
+    """Валидный лицензионный ключ из AppMeta (или ''), с минутным кэшем."""
+    import time
+
+    now = time.monotonic()
+    if now - _gateway_cache["at"] < 60:
+        return _gateway_cache["key"]
+    key = _stored_gateway_license_key()
+    if not key and get_settings().skillcue_gateway_url:
+        key = _claim_gateway_trial_key(get_settings().skillcue_gateway_url)
     _gateway_cache["at"] = now
     _gateway_cache["key"] = key
     return key

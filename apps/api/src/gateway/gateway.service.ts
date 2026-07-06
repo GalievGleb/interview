@@ -8,8 +8,9 @@
  * сообщение как есть.
  */
 import { HttpException, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import { createHash } from 'crypto';
 import { RedisService } from '../redis/redis.service';
-import { VerifiedLicense, verifyLicenseKey } from './license.util';
+import { VerifiedLicense, mintLicenseKey, verifyLicenseKey } from './license.util';
 
 const OPENROUTER_BASE = process.env.GATEWAY_UPSTREAM_BASE ?? 'https://openrouter.ai/api/v1';
 const MODELS_CACHE_KEY = 'gw:models';
@@ -17,6 +18,7 @@ const MODELS_CACHE_TTL_S = 600;
 // Ключ расхода живёт ~45 дней: текущий месяц + запас на чтение статистики.
 const USAGE_TTL_S = 45 * 24 * 3600;
 const RATE_LIMIT_PER_MIN = 60;
+const TRIAL_LICENSE_TTL_S = 15 * 24 * 3600;
 
 function monthStamp(): string {
   const d = new Date();
@@ -93,6 +95,33 @@ export class GatewayService {
       });
     }
     return license;
+  }
+
+  async issueTrial(clientId: string | undefined): Promise<{ key: string; email: string; plan: 'trial' }> {
+    const normalized = (clientId ?? '').trim().slice(0, 200);
+    if (!normalized) {
+      throw new UnauthorizedException({
+        error: { message: 'Missing trial client id', code: 'missing_client_id' },
+      });
+    }
+
+    const id = createHash('sha256').update(normalized).digest('hex').slice(0, 24);
+    const redisKey = `gw:trial:${id}`;
+    const email = `trial-${id}@skillcue.local`;
+    const cached = await this.redis.getClient().get(redisKey);
+    if (cached) return { key: cached, email, plan: 'trial' };
+
+    const privateKeyHex = process.env.LICENSE_PRIVATE_KEY_HEX ?? '';
+    if (!privateKeyHex) {
+      throw new HttpException(
+        { error: { message: 'LICENSE_PRIVATE_KEY_HEX is not set', code: 'gateway_unconfigured' } },
+        503,
+      );
+    }
+
+    const key = mintLicenseKey({ email, plan: 'trial', days: 14, tokensMonth: 300_000 }, privateKeyHex);
+    await this.redis.getClient().set(redisKey, key, 'EX', TRIAL_LICENSE_TTL_S);
+    return { key, email, plan: 'trial' };
   }
 
   private usageKey(licenseId: string): string {

@@ -35,6 +35,25 @@ def test_license_key_routes_via_gateway(monkeypatch):
     assert key == "SKILLCUE-abc.def"
 
 
+def test_no_user_key_claims_limited_trial_key_via_gateway(monkeypatch):
+    _reset_cache()
+    monkeypatch.setattr(provider_adapter.secrets, "get_secret", lambda name: "")
+    settings = provider_adapter.get_settings()
+    monkeypatch.setattr(settings, "skillcue_gateway_url", "https://gw.example/v1")
+    monkeypatch.setattr(provider_adapter, "_stored_gateway_license_key", lambda: "", raising=False)
+    monkeypatch.setattr(
+        provider_adapter,
+        "_claim_gateway_trial_key",
+        lambda gateway_url: "SKILLCUE-trial.key",
+        raising=False,
+    )
+
+    provider, base_url, key = provider_adapter._resolve("openrouter")
+    assert provider == "openrouter"
+    assert base_url == "https://gw.example/v1"
+    assert key == "SKILLCUE-trial.key"
+
+
 def test_own_key_wins_over_gateway(monkeypatch):
     """BYOK-пользователь не должен внезапно поехать через гейтвей."""
     _reset_cache()

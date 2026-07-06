@@ -16,6 +16,7 @@ export const DEFAULT_PUBLIC_KEY_HEX =
 
 /** Месячные токен-бюджеты тарифов (вход+выход), зеркало license.py. */
 export const PLAN_TOKEN_BUDGETS: Record<string, number> = {
+  trial: 300_000,
   basic: 5_000_000,
   max: 20_000_000,
 };
@@ -42,8 +43,9 @@ function b64urlEncode(data: Buffer): string {
   return data.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-export function normalizePlan(plan: string | null | undefined): 'basic' | 'max' {
+export function normalizePlan(plan: string | null | undefined): 'trial' | 'basic' | 'max' {
   const p = (plan ?? '').trim().toLowerCase();
+  if (p === 'trial') return 'trial';
   if (p === 'basic') return 'basic';
   // pro/full/неизвестное в ПОДПИСАННОМ ключе трактуем в пользу покупателя.
   return 'max';
@@ -100,7 +102,7 @@ export function verifyLicenseKey(
 
 export interface MintOptions {
   email: string;
-  plan?: 'basic' | 'max';
+  plan?: 'trial' | 'basic' | 'max';
   days?: number;
   tokensMonth?: number;
 }

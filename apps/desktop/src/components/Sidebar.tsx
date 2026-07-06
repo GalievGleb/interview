@@ -181,7 +181,7 @@ function useSessionLive(): boolean {
 }
 
 export default function Sidebar() {
-  const { backendOnline, hasAnyKey } = useApp();
+  const { backendOnline, backendStatus, hasAnyKey } = useApp();
   const { t } = useI18n();
   const navigate = useNavigate();
   const sessionLive = useSessionLive();
@@ -301,18 +301,17 @@ export default function Sidebar() {
       </div>
 
       <div className="space-y-2 border-t border-surface-border px-4 py-3">
-        <StatusBadge
-          label={`Backend ${backendOnline ? 'в сети' : 'не в сети'}`}
-          tone={backendOnline ? 'success' : 'error'}
-        />
+        {backendOnline ? (
+          <StatusBadge label="SkillCue готов" tone="success" />
+        ) : backendStatus?.state === 'failed' ? (
+          <StatusBadge label="Сервис недоступен" tone="error" />
+        ) : null}
         {/* Статус ключей известен только когда бэкенд ответил. Пока он оффлайн
             (в т.ч. первые секунды после старта) не показываем «Нет AI-ключа» —
             это ложная тревога, когда ключ на самом деле задан. */}
-        {!backendOnline ? (
-          <StatusBadge label="AI-ключ — проверяем…" tone="idle" />
-        ) : hasAnyKey ? (
+        {backendOnline && hasAnyKey ? (
           <StatusBadge label="AI-ключ задан" tone="success" />
-        ) : (
+        ) : backendOnline ? (
           <button
             type="button"
             className="block w-full text-left transition-opacity hover:opacity-80"
@@ -321,7 +320,7 @@ export default function Sidebar() {
           >
             <StatusBadge label="Нет AI-ключа — настроить" tone="warning" />
           </button>
-        )}
+        ) : null}
         {isElectron && (
           <div className="flex gap-1.5 pt-1">
             <button

@@ -425,7 +425,7 @@ export default function InterviewPage() {
       micCheck,
     ]);
     if (health.status === 'rejected') {
-      problems.push('Бэкенд не отвечает — проверьте, что он запущен (порт 8000).');
+      problems.push('SkillCue ещё не готов к live-сессии. Повторите запуск через пару секунд.');
     }
     if (provider.status === 'rejected' || (provider.status === 'fulfilled' && !provider.value.ok)) {
       problems.push('LLM-ключ не отвечает — проверьте ключ и модель в Настройках.');

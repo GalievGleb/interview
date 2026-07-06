@@ -1,12 +1,13 @@
 {
   "name": "@interview/desktop",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "concurrently -k -n vite,electron -c blue,green \"vite\" \"wait-on http://localhost:5173 && tsc -p tsconfig.electron.json && electron .\"",
     "build": "vite build && tsc -p tsconfig.electron.json",
-    "dist": "pnpm build && electron-builder",
+    "dist": "pnpm dist:full",
+    "dist:app": "pnpm build && electron-builder",
     "build:backend": "cd ../api-py && pyinstaller skillcue-backend.spec",
     "predownload:model": "cd ../api-py && python predownload_models.py",
     "dist:full": "pnpm build:backend && pnpm build && electron-builder",

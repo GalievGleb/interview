@@ -9,7 +9,7 @@
     "build": "pnpm --filter @interview/shared build && pnpm -r build",
     "build:api": "pnpm --filter @interview/api build",
     "build:desktop": "pnpm --filter @interview/desktop build",
-    "dist:desktop": "pnpm --filter @interview/desktop dist",
+    "dist:desktop": "pnpm --filter @interview/desktop dist:full",
     "db:generate": "pnpm --filter @interview/api db:generate",
     "db:migrate": "pnpm --filter @interview/api db:migrate",
     "db:push": "pnpm --filter @interview/api db:push"

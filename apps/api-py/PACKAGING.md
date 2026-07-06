@@ -20,8 +20,9 @@ pyinstaller skillcue-backend.spec          # → apps/api-py/dist/skillcue-backe
 pnpm --filter @interview/desktop dist:full # = build:backend + build + electron-builder
 ```
 
-`dist:full` runs both steps. Plain `dist` skips the backend (ships the empty
-placeholder dir → app falls back to the "Backend offline" banner).
+`dist:full`, root `pnpm dist:desktop`, and desktop `pnpm dist` run both steps.
+Use `pnpm --filter @interview/desktop dist:app` only when you intentionally want
+an app-only installer without rebuilding the backend.
 
 ## Notes / tuning
 - `run_server.py` is the frozen entry point (`uvicorn.run(app, port=$SKILLCUE_PORT)`).

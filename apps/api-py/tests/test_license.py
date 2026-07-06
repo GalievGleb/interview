@@ -60,6 +60,7 @@ def test_expired_subscription_key_rejected(keypair):
 
 # --- plans / budgets ---------------------------------------------------------
 def test_plan_normalization():
+    assert lic.normalize_plan("trial") == "trial"
     assert lic.normalize_plan("pro") == "max"
     assert lic.normalize_plan("basic") == "basic"
     assert lic.normalize_plan(None) == "max"

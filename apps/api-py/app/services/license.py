@@ -55,6 +55,8 @@ PLAN_FEATURES = {
 def normalize_plan(plan: str | None) -> str:
     """Ключи первых партий выпускались с plan="pro" — это нынешний max."""
     p = (plan or "").strip().lower()
+    if p == "trial":
+        return "trial"
     if p in ("max", "pro", "full"):
         return "max"
     if p == "basic":

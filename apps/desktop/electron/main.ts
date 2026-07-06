@@ -281,6 +281,7 @@ function createMainWindow(): BrowserWindow {
     backgroundColor: '#0f1117',
     title: 'SkillCue',
     icon: BRAND_ICON,
+    autoHideMenuBar: true,
     webPreferences: {
       preload: getPreloadPath(),
       contextIsolation: true,
@@ -293,6 +294,7 @@ function createMainWindow(): BrowserWindow {
     win.show();
     win.focus();
   });
+  win.setMenuBarVisibility(false);
 
   win.webContents.on('did-fail-load', (_e, code, desc, url) => {
     console.error('[electron] did-fail-load', code, desc, url);
@@ -639,6 +641,7 @@ function setupDisplayMedia(): void {
 }
 
 app.whenReady().then(() => {
+  Menu.setApplicationMenu(null);
   void ensureBackend();
   setupContentSecurityPolicy();
   setupDisplayMedia();

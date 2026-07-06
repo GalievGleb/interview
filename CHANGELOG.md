@@ -5,7 +5,13 @@
 
 ## [Unreleased]
 
+## [0.1.2] — 2026-07-06
+
 ### Added
+- Managed SkillCue Cloud trial: fresh installs can use the gateway without asking
+  the user for an OpenRouter API key.
+- Gateway endpoint `/gateway/trial` issues a limited signed trial license and
+  keeps the normal Redis token quota path.
 - Серверный гейтвей лицензий (`apps/api`): OpenAI-совместимый прокси `/v1/*`,
   офлайн-проверка Ed25519-ключей, учёт токенов по тарифам в Redis, выпуск ключей
   `/gateway/issue`, публичный `/health` для мониторинга.
@@ -17,10 +23,20 @@
 - План версий (`docs/VERSIONING.md`) и этот changelog.
 
 ### Changed
+- Desktop release scripts now build the frozen Python backend by default before
+  packaging the installer.
+- Startup UX no longer exposes backend warmup as a user-facing warning.
 - Релизы десктопа публикуются в публичный репозиторий `GalievGleb/ScillCue`
   (код остаётся в приватном `interview`); ссылки «Скачать» и автообновление
   выровнены на него.
 - Лендинг: canonical/OG на `skill-cue.ru`, готовый к заполнению сниппет Метрики.
+
+### Fixed
+- Freshly downloaded installer no longer ships without `skillcue-backend.exe`
+  when built through the normal `dist`/`dist:desktop` command.
+- Removed the native Electron menu bar from packaged desktop windows.
+- Sidebar and live preflight no longer show dev-oriented backend/API-key noise
+  during normal startup.
 
 ### Security
 - Redis AOF включён — учёт токенов переживает сбой (потеря ≤1 сек).

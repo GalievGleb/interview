@@ -274,7 +274,7 @@ async function fetchWithTimeout(path: string, options: RequestOptions = {}): Pro
     if (err instanceof DOMException && err.name === 'AbortError') {
       throw new Error(
         timeoutMs <= REQUEST_TIMEOUT_MS
-          ? 'Бэкенд не отвечает — проверьте, что uvicorn запущен на порту 8000'
+          ? 'SkillCue не ответил вовремя. Повторите действие через пару секунд.'
           : 'Операция заняла слишком много времени — попробуйте ещё раз',
         { cause: err },
       );
@@ -284,7 +284,7 @@ async function fetchWithTimeout(path: string, options: RequestOptions = {}): Pro
     // человекочитаемую причину вместо сырого «Failed to fetch».
     if (err instanceof TypeError) {
       throw new Error(
-        'Бэкенд не в сети — он запускается через несколько секунд после старта приложения. Если не проходит — перезапустите приложение.',
+        'SkillCue сейчас не готов принять запрос. Повторите действие через пару секунд; если повторяется — перезапустите приложение.',
         { cause: err },
       );
     }
@@ -360,6 +360,7 @@ export interface StreamInterviewOpts {
 export interface KeysStatus {
   openai: boolean;
   openrouter: boolean;
+  managed_openrouter?: boolean;
   deepgram: boolean;
   yandex: boolean;
   default_provider: string;
