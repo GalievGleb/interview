@@ -33,9 +33,14 @@ DEFAULT_CONFIG = {
     "bot_token": "ВСТАВЬ_ТОКЕН_ОТ_BOTFATHER",
     "admin_chat_id": 0,
     "channel_url": "",
-    "download_url": "https://github.com/GalievGleb/ScillCue/releases/latest",
-    # Платёжная ссылка (Продамус/Lava/Tribute). Пусто — бот попросит написать в чат.
+    "download_url": "https://github.com/GalievGleb/ScillCue/releases/latest/download/SkillCue-Setup.exe",
+    # Платёжная ссылка (Т-Банк «перевод по ссылке» / ЮKassa / Lava). Если задана —
+    # показывается первой, СБП — как запасной способ.
     "pay_url": "",
+    # СБП-реквизиты для перевода (все три поля заданы — бот показывает блок СБП).
+    "sbp_phone": "",
+    "sbp_bank": "",
+    "sbp_name": "",
     # Приватный ключ подписи лицензий; пусто — apps/api-py/.license_signing_key из репо.
     "signing_key_path": "",
 }
@@ -152,14 +157,25 @@ ADMIN_COMMANDS = USER_COMMANDS + [
 
 
 def pay_instructions(cfg: dict) -> str:
+    ways = []
     if cfg.get("pay_url"):
+        ways.append(f"💳 Оплата по ссылке (карта любого банка):\n{cfg['pay_url']}")
+    if cfg.get("sbp_phone") and cfg.get("sbp_bank") and cfg.get("sbp_name"):
+        ways.append(
+            "📱 Перевод по СБП (займёт минуту):\n"
+            f"Телефон: {cfg['sbp_phone']}\n"
+            f"Банк: {cfg['sbp_bank']}\n"
+            f"Получатель: {cfg['sbp_name']} — сверь имя перед отправкой"
+        )
+    if not ways:
         return (
-            f"Оплатить: {cfg['pay_url']}\n\n"
-            "После оплаты пришли сюда скрин или чек — вышлю лицензионный ключ в течение часа."
+            "Напиши сюда «Беру Базовый» или «Беру Максимум» — пришлю реквизиты для оплаты. "
+            "После оплаты вышлю лицензионный ключ в течение часа."
         )
     return (
-        "Напиши сюда «Беру Базовый» или «Беру Максимум» — пришлю реквизиты для оплаты. "
-        "После оплаты вышлю лицензионный ключ в течение часа."
+        "\n\n".join(ways)
+        + "\n\nПосле оплаты пришли сюда скрин перевода — в течение часа вышлю "
+        "лицензионный ключ (обычно быстрее)."
     )
 
 # ------------------------------------------------------------- инфраструктура ---
