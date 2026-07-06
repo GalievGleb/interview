@@ -32,7 +32,7 @@ DEFAULT_CONFIG = {
     "bot_token": "ВСТАВЬ_ТОКЕН_ОТ_BOTFATHER",
     "admin_chat_id": 0,
     "channel_url": "",
-    "download_url": "https://github.com/GalievGleb/interview/releases/latest",
+    "download_url": "https://github.com/GalievGleb/ScillCue/releases/latest",
 }
 
 # Сообщение длиннее этого порога считаем вакансией, короче — вопросом.

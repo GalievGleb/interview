@@ -65,11 +65,14 @@ Release** с установщиком и `latest.yml`. Десктоп со вс�
 ## 5. Что должно совпадать (иначе автообновление сломается)
 
 - `apps/desktop/package.json` version **==** git-тег (без `v` в package.json, с `v` в теге).
-- `download_url` лидбота (`tools/leadbot/config.json`) и любые ссылки «Скачать» на
-  лендинге ведут на `…/releases/latest` того же репозитория, куда публикует
-  `release.yml`. **Проверить:** сейчас в конфиге `github.com/GalievGleb/ScillCue`,
-  а код в `github.com/GalievGleb/interview` — убедись, что релизы публикуются туда,
-  куда ведёт ссылка, иначе кнопка «Скачать» отдаст 404.
+- **Раздельные репозитории (осознанно):** код — приватный `GalievGleb/interview`,
+  релизы/установщики — публичный `GalievGleb/ScillCue`. Поэтому все три места
+  должны указывать на `ScillCue`:
+  - `apps/desktop/package.json → build.publish.repo = "ScillCue"` (сюда
+    electron-builder публикует и отсюда electron-updater берёт обновления);
+  - `download_url` лидбота (`tools/leadbot/config.json`) → `…/ScillCue/releases/latest`;
+  - ссылки «Скачать» на лендинге → тот же `…/ScillCue/releases/latest`.
+  - CI (`release.yml`) должен получать `GH_TOKEN` с правом публикации в `ScillCue`.
 
 ## 6. CHANGELOG.md
 
