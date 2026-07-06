@@ -21,6 +21,11 @@ import { autoUpdater } from 'electron-updater';
 const API_URL = process.env.API_URL ?? 'http://127.0.0.1:8000';
 const isDev = !app.isPackaged;
 
+// Адрес серверного гейтвея лицензий SkillCue. Покупатель без своего ключа
+// OpenRouter, но с валидной лицензией ходит к нейросети через него (провайдер
+// сам это решает в provider_adapter._resolve). Переопределяется env при сборке.
+const SKILLCUE_GATEWAY_URL = process.env.SKILLCUE_GATEWAY_URL ?? 'https://skill-cue.ru/v1';
+
 // Случайный токен на запуск: бэкенд принимает запросы только с ним, чтобы
 // другие локальные процессы/сайты не могли дёргать API (и жечь LLM-токены).
 // Активен только когда бэкенд запущён нами (env уходит в spawn).
@@ -124,6 +129,8 @@ async function ensureBackend(): Promise<void> {
       PYTHONPATH: '.',
       SKILLCUE_PORT: new URL(API_URL).port || '8000',
       SKILLCUE_API_TOKEN: API_TOKEN,
+      // Бэкенд подхватит как settings.skillcue_gateway_url (BYOK-фолбэк на гейтвей).
+      SKILLCUE_GATEWAY_URL,
     };
     if (app.isPackaged) {
       // Use the bundled, pre-downloaded Whisper cache so the first run is offline.

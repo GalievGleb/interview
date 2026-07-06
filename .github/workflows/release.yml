@@ -77,8 +77,13 @@ jobs:
       - name: Build & publish desktop
         working-directory: apps/desktop
         env:
-          # Must be a token for the repo named in apps/desktop/package.json → build.publish.
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Релизы публикуются в ДРУГОЙ репозиторий (GalievGleb/ScillCue, см.
+          # apps/desktop/package.json → build.publish). Встроенный GITHUB_TOKEN
+          # имеет права только на текущий репо (interview) и получит 404 при
+          # создании релиза в ScillCue. Нужен PAT с доступом к ScillCue,
+          # добавленный в Settings → Secrets как SCILLCUE_RELEASE_TOKEN.
+          # Фолбэк на GITHUB_TOKEN оставлен для случая «релизы в тот же репо».
+          GH_TOKEN: ${{ secrets.SCILLCUE_RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           pnpm build
           pnpm exec electron-builder --win --publish always
