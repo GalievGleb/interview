@@ -95,7 +95,11 @@ export default function ModelSelect({
                 />
               ))}
               {filtered.length === 0 && (
-                <p className="px-2 py-3 text-xs text-ink-muted">Модели не найдены</p>
+                <p className="px-2 py-3 text-xs text-ink-muted">
+                  {models.length === 0
+                    ? 'Каталог моделей пуст — синхронизируйте его в настройках AI. «Автовыбор» работает и без каталога.'
+                    : 'Модели не найдены'}
+                </p>
               )}
             </div>
           </div>

@@ -736,9 +736,14 @@
   transform: translateY(1px);
 }
 
+/* Неактивная кнопка: глобальная прозрачность гасила и фон, и тёмный текст —
+   на белом фоне надпись сливалась. Явные приглушённые, но читаемые цвета. */
 .prep-btn:disabled {
   cursor: not-allowed;
-  opacity: 0.45;
+  background: var(--prep-green-soft);
+  border-color: rgba(52, 199, 123, 0.3);
+  box-shadow: none;
+  color: var(--prep-ink-muted);
 }
 
 .prep-btn-secondary,
@@ -1527,3 +1532,11 @@
 :root[data-theme='light'] .prep-tone-amber { color: #a16207; border-color: rgba(161, 98, 7, 0.35); }
 :root[data-theme='light'] .prep-tone-red { color: #dc2626; border-color: rgba(220, 38, 38, 0.35); }
 :root[data-theme='light'] .prep-tone-violet { color: #7c3aed; border-color: rgba(124, 58, 237, 0.35); }
+
+/* Мини-результаты («Вероятные вопросы» и т.п.): светло-зелёный текст #86efac
+   тёмной темы нечитаем на белом — плотный зелёный и чуть заметнее подложка. */
+:root[data-theme='light'] .prep-mini-results span {
+  color: #0f5c37;
+  border-color: rgba(21, 122, 74, 0.4);
+  background: rgba(21, 122, 74, 0.12);
+}

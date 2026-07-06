@@ -30,12 +30,15 @@ export interface SttDeviceInfo {
 
 export type SttEngineId = 'whisper' | 'deepgram' | 'speechkit';
 
+export type SpeechKitModelId = 'general' | 'general:rc';
+
 export interface SttSettingsDto {
   local_model: WhisperQualityId;
   partial_model: WhisperQualityId;
   final_model: WhisperQualityId;
   device: SttDeviceId;
   engine: SttEngineId;
+  speechkit_model: SpeechKitModelId;
 }
 
 export interface SttDiagnostics {
@@ -273,6 +276,15 @@ async function fetchWithTimeout(path: string, options: RequestOptions = {}): Pro
         timeoutMs <= REQUEST_TIMEOUT_MS
           ? 'Бэкенд не отвечает — проверьте, что uvicorn запущен на порту 8000'
           : 'Операция заняла слишком много времени — попробуйте ещё раз',
+        { cause: err },
+      );
+    }
+    // `fetch` бросает TypeError при сетевом сбое (соединение отклонено). Обычно
+    // это первые секунды после старта, пока бэкенд ещё поднимается — показываем
+    // человекочитаемую причину вместо сырого «Failed to fetch».
+    if (err instanceof TypeError) {
+      throw new Error(
+        'Бэкенд не в сети — он запускается через несколько секунд после старта приложения. Если не проходит — перезапустите приложение.',
         { cause: err },
       );
     }

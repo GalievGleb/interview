@@ -305,7 +305,12 @@ export default function Sidebar() {
           label={`Backend ${backendOnline ? 'в сети' : 'не в сети'}`}
           tone={backendOnline ? 'success' : 'error'}
         />
-        {hasAnyKey ? (
+        {/* Статус ключей известен только когда бэкенд ответил. Пока он оффлайн
+            (в т.ч. первые секунды после старта) не показываем «Нет AI-ключа» —
+            это ложная тревога, когда ключ на самом деле задан. */}
+        {!backendOnline ? (
+          <StatusBadge label="AI-ключ — проверяем…" tone="idle" />
+        ) : hasAnyKey ? (
           <StatusBadge label="AI-ключ задан" tone="success" />
         ) : (
           <button

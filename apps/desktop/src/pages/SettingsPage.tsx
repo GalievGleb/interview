@@ -129,7 +129,7 @@ function Toggle({ on, onChange, label }: { on: boolean; onChange: (v: boolean) =
       }`}
     >
       <span
-        className={`absolute top-[3px] h-4 w-4 rounded-full bg-white transition-transform ${
+        className={`absolute left-0 top-[3px] h-4 w-4 rounded-full bg-white transition-transform ${
           on ? 'translate-x-[21px]' : 'translate-x-[3px]'
         }`}
       />
