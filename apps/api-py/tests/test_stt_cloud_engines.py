@@ -106,3 +106,28 @@ def test_speechkit_language_codes():
     # раньше сюда уходил [] -> ["auto"] и авто-режим был сломан.
     assert _language_codes("multi") == ["ru-RU", "en-US"]
     assert _language_codes("") == ["ru-RU", "en-US"]
+
+
+def test_speechkit_rotation_budgets():
+    """Ротация обязана учитывать оба лимита сессии: 5 минут И 10 МБ."""
+    from app.services.stt import speechkit_stream as sk
+
+    # Мягкая ротация — по времени или байтам, но только в паузе между фразами.
+    assert sk.soft_rotation_due(sk.SESSION_RECONNECT_S + 1, 0, speech_active=False)
+    assert not sk.soft_rotation_due(sk.SESSION_RECONNECT_S + 1, 0, speech_active=True)
+    assert sk.soft_rotation_due(10, sk.SESSION_SOFT_BYTES, speech_active=False)
+    assert not sk.soft_rotation_due(10, sk.SESSION_SOFT_BYTES - 1, speech_active=False)
+    # Жёсткая — по байтам, независимо от речи (иначе сервер оборвёт сам).
+    assert sk.hard_rotation_due(sk.SESSION_HARD_BYTES)
+    assert not sk.hard_rotation_due(sk.SESSION_HARD_BYTES - 1)
+
+
+def test_speechkit_48k_byte_budget_expires_before_time_deadline():
+    """При 48 кГц (96 КБ/с) байтовый бюджет истекает раньше 240-с дедлайна —
+    ротация по одному лишь времени опоздала бы (регресс исходного бага)."""
+    from app.services.stt import speechkit_stream as sk
+
+    bytes_at_time_deadline = 96_000 * sk.SESSION_RECONNECT_S
+    assert bytes_at_time_deadline > sk.SESSION_SOFT_BYTES
+    # А при дефолтных 16 кГц (32 КБ/с) время истекает первым — как задумано.
+    assert 32_000 * sk.SESSION_RECONNECT_S < sk.SESSION_SOFT_BYTES

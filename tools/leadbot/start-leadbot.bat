@@ -1,12 +1,12 @@
 @echo off
-chcp 65001 >nul
-rem Запуск SkillCue lead bot. Окно должно оставаться открытым, пока бот работает.
-rem Для автозапуска при включении ПК: Win+R -> shell:startup -> положить ярлык на этот файл.
+rem SkillCue lead bot launcher. Keep this window open while the bot runs.
+rem Autostart: Win+R -> shell:startup -> put a shortcut to this file there.
 cd /d "%~dp0"
 set PYTHONIOENCODING=utf-8
+chcp 65001 >nul
 :loop
 py -3.12 -u leadbot.py
 echo.
-echo Бот остановился. Перезапуск через 10 секунд... (Ctrl+C — выйти)
-timeout /t 10 >nul
+echo Bot stopped. Restarting in 10 seconds... (Ctrl+C to exit)
+timeout /t 10 /nobreak >nul
 goto loop

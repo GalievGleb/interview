@@ -279,11 +279,25 @@
       linear-gradient(180deg, #0c1726 0%, #08111f 100%);
   }
 
+  /* Светлая тема: хардкод тёмного градиента ломал контраст с уже
+     перевёрнутым тёмным текстом навигации. */
+  :root[data-theme='light'] .skillcue-titlebar {
+    background:
+      radial-gradient(circle at 12% 0%, rgba(52, 199, 123, 0.08), transparent 28rem),
+      linear-gradient(180deg, #f7fafd 0%, #eef3f9 100%);
+  }
+
   .skillcue-sidebar {
     @apply flex w-[248px] shrink-0 flex-col border-r border-surface-border;
     background:
       radial-gradient(circle at 18% 8%, rgba(52, 199, 123, 0.12), transparent 18rem),
       linear-gradient(180deg, #0d1828 0%, #08101d 100%);
+  }
+
+  :root[data-theme='light'] .skillcue-sidebar {
+    background:
+      radial-gradient(circle at 18% 8%, rgba(52, 199, 123, 0.08), transparent 18rem),
+      linear-gradient(180deg, #f4f8fc 0%, #eaf1f8 100%);
   }
 
   .skillcue-logo {
@@ -350,6 +364,9 @@
 :root[data-theme='light'] .text-red-300 { color: rgb(185 28 28); }
 :root[data-theme='light'] .text-red-200\/90 { color: rgb(153 27 27); }
 :root[data-theme='light'] .text-amber-200\/90 { color: rgb(146 64 14); }
+:root[data-theme='light'] .text-amber-200 { color: rgb(146 64 14); }
 :root[data-theme='light'] .text-amber-100 { color: rgb(146 64 14); }
+:root[data-theme='light'] .bg-amber-950\/20 { background-color: rgb(254 243 199 / 0.6); }
+:root[data-theme='light'] .border-amber-700\/30 { border-color: rgb(217 119 6 / 0.35); }
 :root[data-theme='light'] .text-violet-300 { color: rgb(109 40 217); }
 :root[data-theme='light'] .text-sky-400 { color: rgb(2 132 199); }

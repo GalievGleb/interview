@@ -5,8 +5,10 @@ partial-результаты и нормализация текста. Прот�
 whisper_stream/deepgram_stream — десктоп не отличает движки.
 
 Особенности:
-* gRPC-сессия живёт максимум 5 минут — мост сам переподключается заранее,
-  live-интервью на 40+ минут работает бесшовно.
+* Лимиты gRPC-сессии — 5 минут аудио И 10 МБ данных; мост следит за обоими
+  бюджетами и переподключается заранее (при 48 кГц байты кончаются за ~100 с).
+  Обрыв сессии не фатален: до 3 ретраев с бэкоффом, live на 40+ минут
+  работает бесшовно.
 * Зависимости (grpcio + yandexcloud) тяжёлые, поэтому вынесены в
   requirements-stt-cloud.txt и импортируются лениво с понятной ошибкой.
 * Порядок событий v3 на фразу: partial* -> final -> final_refinement -> eou_update.
@@ -31,9 +33,28 @@ from .whisper_stream import RECEIVE_POLL_S, quality_gate
 logger = logging.getLogger("stt.speechkit")
 
 SPEECHKIT_ENDPOINT = "stt.api.cloud.yandex.net:443"
-# Жёсткий лимит сессии — 5 минут; переподключаемся заранее в паузе между фразами.
+# Лимиты сессии SpeechKit v3: 5 минут аудио И 10 МБ данных. При 16 кГц первым
+# истекает время, при 48 кГц (A/B-режим) — байты (~104 с). Ротация обязана
+# учитывать оба бюджета, иначе сервер рвёт сессию сам.
 SESSION_RECONNECT_S = 240
+SESSION_SOFT_BYTES = 7_000_000  # мягкая ротация в паузе между фразами
+SESSION_HARD_BYTES = 9_500_000  # аварийная ротация даже посреди фразы
+# Сетевой глитч не должен убивать STT до конца интервью — пробуем переподняться.
+MAX_SESSION_FAILURES = 3
 DEPS_HINT = "Для Яндекс SpeechKit установите зависимости: pip install -r requirements-stt-cloud.txt"
+
+
+def soft_rotation_due(elapsed_s: float, bytes_sent: int, speech_active: bool) -> bool:
+    """Пора мягко ротировать сессию (только в паузе между фразами)."""
+    if speech_active:
+        return False
+    return elapsed_s > SESSION_RECONNECT_S or bytes_sent >= SESSION_SOFT_BYTES
+
+
+def hard_rotation_due(bytes_sent: int) -> bool:
+    """Байтовый бюджет почти исчерпан — ротируем немедленно, иначе сервер
+    оборвёт сессию сам и финал фразы пропадёт целиком."""
+    return bytes_sent >= SESSION_HARD_BYTES
 
 
 def api_key() -> str:
@@ -218,21 +239,28 @@ async def run_speechkit_stream(
                     stt_pb2, language=language, sample_rate=sample_rate
                 )
             )
+            bytes_sent = 0
             while True:
                 try:
                     data = await asyncio.wait_for(audio_q.get(), timeout=RECEIVE_POLL_S)
                 except TimeoutError:
-                    # Реконнект только в тишине, чтобы не резать фразу на середине.
-                    if (
-                        time.monotonic() - session_started > SESSION_RECONNECT_S
-                        and not state["speech_started_sent"]
-                    ):
-                        break
-                    continue
-                if data is None:
+                    data = None
+                    timed_out = True
+                else:
+                    timed_out = False
+                if not timed_out and data is None:
                     state["client_gone"] = True
                     break
-                yield stt_pb2.StreamingRequest(chunk=stt_pb2.AudioChunk(data=data))
+                if data is not None:
+                    bytes_sent += len(data)
+                    yield stt_pb2.StreamingRequest(chunk=stt_pb2.AudioChunk(data=data))
+                # Дедлайн проверяем на КАЖДОЙ итерации, не только в таймауте:
+                # при непрерывном аудио таймаут очереди может не наступать вовсе.
+                elapsed = time.monotonic() - session_started
+                if hard_rotation_due(bytes_sent) or soft_rotation_due(
+                    elapsed, bytes_sent, state["speech_started_sent"]
+                ):
+                    break
             session_over.set()
 
         call = stub.RecognizeStreaming(requests(), metadata=(("authorization", f"Api-Key {key}"),))
@@ -272,22 +300,37 @@ async def run_speechkit_stream(
         return "client_gone" if state["client_gone"] else "reconnect"
 
     try:
+        failures = 0
         while True:
             channel = grpc.aio.secure_channel(SPEECHKIT_ENDPOINT, grpc.ssl_channel_credentials())
             try:
                 outcome = await one_session(channel)
-            except Exception as exc:  # noqa: BLE001 — сеть/ключ: сообщаем и выходим
-                logger.warning("SpeechKit session failed: %s", exc)
-                try:
-                    await client_ws.send_json({"type": "error", "message": f"SpeechKit: {exc}"})
-                except Exception:  # noqa: BLE001
-                    pass
-                break
+                failures = 0
+            except Exception as exc:  # noqa: BLE001 — сеть/лимит: ретраим с бэкоффом
+                failures += 1
+                logger.warning(
+                    "SpeechKit session failed (%s/%s): %s", failures, MAX_SESSION_FAILURES, exc
+                )
+                if state["client_gone"] or failures >= MAX_SESSION_FAILURES:
+                    try:
+                        await client_ws.send_json(
+                            {"type": "error", "message": f"SpeechKit: {exc}"}
+                        )
+                    except Exception:  # noqa: BLE001
+                        pass
+                    break
+                # Незавершённая фраза при обрыве потеряна на стороне сервера —
+                # отдадим клиенту то, что успело прийти, и поднимем новую сессию.
+                if state["pending_final"]:
+                    await emit_final()
+                state["speech_started_sent"] = False
+                await asyncio.sleep(0.5 * failures)
+                continue
             finally:
                 await channel.close()
             if outcome == "client_gone":
                 break
-            logger.info("SpeechKit session rotated (5-min limit)")
+            logger.info("SpeechKit session rotated (time/byte budget)")
     finally:
         receiver.cancel()
         # Финал, который сервер прислал, но eou не успел дойти до клиента.

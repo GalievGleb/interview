@@ -39,3 +39,4 @@ tools/leadbot/state.json
 
 # Graphify knowledge-graph caches (regenerate with: graphify update .)
 graphify-out/
+tools/leadbot/crash.log

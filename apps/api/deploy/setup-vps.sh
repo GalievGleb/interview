@@ -34,16 +34,16 @@ command -v pnpm >/dev/null || npm install -g pnpm@9 --silent
 systemctl enable --now redis-server
 redis-cli ping | grep -q PONG && log "Redis OK"
 
-# --- сборка гейтвея ---------------------------------------------------------
+# --- сборка ТОЛЬКО гейтвея ---------------------------------------------------
+# Полный nest build тянет prisma/stripe/bcrypt магазинных модулей — гейтвею они
+# не нужны. Компилируем изолированное поддерево (gateway + redis) своим
+# tsconfig.gateway.json: без prisma generate, без сборки shared, минимум RAM.
 cd "$APP_DIR"
-log "pnpm install (workspace)"
-pnpm install --frozen-lockfile 2>/dev/null || pnpm install
-log "prisma generate (нужен только для компиляции старых модулей)"
-(cd apps/api && npx prisma generate >/dev/null)
-log "build shared + api"
-pnpm --filter @interview/shared build
-pnpm --filter @interview/api build
-test -f apps/api/dist/gateway-main.js && log "gateway build OK"
+log "pnpm install (--ignore-scripts: гейтвею нативные модули не нужны)"
+pnpm install --ignore-scripts --no-frozen-lockfile
+log "tsc gateway-only"
+(cd apps/api && npx tsc -p tsconfig.gateway.json)
+test -f apps/api/dist/gateway-main.js && log "gateway build OK" || { echo "!! gateway build FAILED"; exit 1; }
 
 # --- systemd: гейтвей -------------------------------------------------------
 cat > /etc/systemd/system/skillcue-gateway.service <<UNIT

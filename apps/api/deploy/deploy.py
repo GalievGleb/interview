@@ -149,9 +149,15 @@ def main() -> None:
     ap.add_argument("--port", type=int, default=22)
     args = ap.parse_args()
 
+    import os
+
     import paramiko
 
-    password = args.password or input(f"SSH-пароль {args.user}@{args.host}: ")
+    password = (
+        args.password
+        or os.environ.get("SKILLCUE_SSH_PASSWORD")
+        or input(f"SSH-пароль {args.user}@{args.host}: ")
+    )
 
     ssh = paramiko.SSHClient()
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
