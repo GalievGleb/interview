@@ -146,6 +146,7 @@ class SttSettingsPayload(BaseModel):
     final_model: str | None = None
     device: str | None = None
     engine: str | None = None  # whisper | deepgram | speechkit
+    speechkit_model: str | None = None  # general | general:rc
 
 
 @router.get("/settings")
@@ -161,6 +162,7 @@ def save_stt_settings_endpoint(payload: SttSettingsPayload) -> dict:
         final_model=payload.final_model,
         device=payload.device,
         engine=payload.engine,
+        speechkit_model=payload.speechkit_model,
     )
     # Model/device may have changed — drop cached providers and loaded models so
     # the next transcription reloads with the new configuration.

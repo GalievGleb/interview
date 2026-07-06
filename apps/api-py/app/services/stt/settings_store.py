@@ -20,6 +20,9 @@ VALID_DEVICES = {"auto", "cpu", "gpu"}
 # Live-движок: локальный Whisper (приватно, бесплатно) или облачный стриминг
 # (Deepgram Nova-3 / Яндекс SpeechKit v3 — быстрее, нужен API-ключ).
 VALID_ENGINES = {"whisper", "deepgram", "speechkit"}
+# Модель SpeechKit: general — стабильная, general:rc — кандидат следующего
+# релиза (улучшения качества русского по релиз-нотам приходят туда первыми).
+VALID_SPEECHKIT_MODELS = {"general", "general:rc"}
 
 
 class SttSettings(BaseModel):
@@ -28,6 +31,7 @@ class SttSettings(BaseModel):
     final_model: str = "balanced"
     device: str = "auto"
     engine: str = "whisper"
+    speechkit_model: str = "general"
 
     def sanitized(self) -> SttSettings:
         s = get_settings()
@@ -44,6 +48,11 @@ class SttSettings(BaseModel):
             final_model=final,
             device=self.device if self.device in VALID_DEVICES else s.stt_device,
             engine=self.engine if self.engine in VALID_ENGINES else "whisper",
+            speechkit_model=(
+                self.speechkit_model
+                if self.speechkit_model in VALID_SPEECHKIT_MODELS
+                else "general"
+            ),
         )
 
 

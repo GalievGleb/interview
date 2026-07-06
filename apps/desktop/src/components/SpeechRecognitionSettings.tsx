@@ -7,6 +7,7 @@ import {
 } from '@interview/shared';
 import {
   api,
+  type SpeechKitModelId,
   type SttDeviceId,
   type SttDeviceInfo,
   type SttEngineId,
@@ -45,6 +46,13 @@ const ENGINES: Array<{
     keyField: 'yandex_api_key',
     keyPlaceholder: 'API-ключ сервисного аккаунта Яндекс Cloud',
   },
+];
+
+// Модель SpeechKit: улучшения качества русского приходят сначала в general:rc
+// и лишь через недели переезжают в стабильную general (релиз-ноты Яндекса).
+const SPEECHKIT_MODELS: Array<{ id: SpeechKitModelId; label: string }> = [
+  { id: 'general', label: 'Стабильная' },
+  { id: 'general:rc', label: 'Кандидат (rc)' },
 ];
 
 const QUALITIES: WhisperQualityId[] = ['fast', 'balanced', 'quality', 'max'];
@@ -315,6 +323,31 @@ export default function SpeechRecognitionSettings() {
               Без ключа live-сессия покажет ошибку и подскажет вернуться на Local Whisper.
             </p>
           )}
+        </div>
+      )}
+
+      {/* SpeechKit: стабильная модель или кандидат со свежими улучшениями */}
+      {engine === 'speechkit' && (
+        <div className="sc-card flex flex-wrap items-center justify-between gap-3 p-5">
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-ink">Модель распознавания</p>
+            <p className="text-xs text-ink-faint">
+              Стабильная (general) — проверенная. Кандидат (general:rc) первым получает
+              улучшения качества русского, но Яндекс обновляет его без предупреждения.
+            </p>
+          </div>
+          <div className="sc-segmented" role="group" aria-label="Модель SpeechKit">
+            {SPEECHKIT_MODELS.map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => void patchSettings({ speechkit_model: m.id })}
+                className={`sc-segmented__item ${(settings.speechkit_model ?? 'general') === m.id ? 'sc-segmented__item--active' : ''}`}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 

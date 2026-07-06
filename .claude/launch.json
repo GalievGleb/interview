@@ -9,6 +9,12 @@
       "autoPort": true
     },
     {
+      "name": "api-py",
+      "runtimeExecutable": "py",
+      "runtimeArgs": ["-3.12", "-m", "uvicorn", "--app-dir", "apps/api-py", "app.main:app", "--port", "8000"],
+      "port": 8000
+    },
+    {
       "name": "landing-static",
       "runtimeExecutable": "py",
       "runtimeArgs": ["-3.12", "-m", "http.server", "4173", "--directory", "landing"],

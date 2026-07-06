@@ -108,6 +108,38 @@ def test_speechkit_language_codes():
     assert _language_codes("") == ["ru-RU", "en-US"]
 
 
+def test_speechkit_model_setting_sanitized():
+    assert SttSettings(speechkit_model="general:rc").sanitized().speechkit_model == "general:rc"
+    assert SttSettings(speechkit_model="nonsense").sanitized().speechkit_model == "general"
+    assert SttSettings().sanitized().speechkit_model == "general"
+
+
+def test_speechkit_model_endpoint_roundtrip(client):
+    res = client.post("/stt/settings", json={"speechkit_model": "general:rc"})
+    assert res.status_code == 200, res.text
+    assert res.json()["speechkit_model"] == "general:rc"
+    assert client.get("/stt/settings").json()["speechkit_model"] == "general:rc"
+    # Вернём дефолт, чтобы не влиять на другие тесты (файл настроек общий).
+    client.post("/stt/settings", json={"speechkit_model": "general"})
+
+
+def test_speechkit_session_options_set_model_and_fast_eou():
+    """Сессия обязана явно задавать модель и быстрый EOU-детектор: HIGH +
+    подсказка о паузах — это и есть «качественно и быстро» по доке SpeechKit."""
+    from unittest.mock import MagicMock
+
+    from app.services.stt import speechkit_stream as sk
+
+    stt_pb2 = MagicMock()
+    sk.build_session_options(stt_pb2, language="ru", sample_rate=16000, model="general:rc")
+
+    assert stt_pb2.RecognitionModelOptions.call_args.kwargs["model"] == "general:rc"
+    eou = stt_pb2.DefaultEouClassifier.call_args.kwargs
+    assert eou["type"] is stt_pb2.DefaultEouClassifier.HIGH
+    assert eou["max_pause_between_words_hint_ms"] == sk.EOU_MAX_PAUSE_HINT_MS
+    assert "eou_classifier" in stt_pb2.StreamingOptions.call_args.kwargs
+
+
 def test_speechkit_rotation_budgets():
     """Ротация обязана учитывать оба лимита сессии: 5 минут И 10 МБ."""
     from app.services.stt import speechkit_stream as sk

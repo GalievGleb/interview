@@ -42,6 +42,11 @@ SESSION_HARD_BYTES = 9_500_000  # аварийная ротация даже п�
 # Сетевой глитч не должен убивать STT до конца интервью — пробуем переподняться.
 MAX_SESSION_FAILURES = 3
 DEPS_HINT = "Для Яндекс SpeechKit установите зависимости: pip install -r requirements-stt-cloud.txt"
+# EOU-детектор HIGH — конец фразы фиксируется раньше (дока: «минимальная
+# задержка» финалов), суфлёр получает вопрос быстрее. Цена — риск ложных
+# разрывов на медленной речи; подсказка о паузах его гасит: кандидат на
+# интервью думает вслух, пауза между словами до ~0.8 с — ещё не конец фразы.
+EOU_MAX_PAUSE_HINT_MS = 800
 
 
 def soft_rotation_due(elapsed_s: float, bytes_sent: int, speech_active: bool) -> bool:
@@ -84,7 +89,7 @@ def _import_grpc():
     return grpc, stt_pb2, stt_service_pb2_grpc
 
 
-def build_session_options(stt_pb2, *, language: str, sample_rate: int):
+def build_session_options(stt_pb2, *, language: str, sample_rate: int, model: str = "general"):
     lang_codes = _language_codes(language)
     restriction = stt_pb2.LanguageRestrictionOptions(
         restriction_type=stt_pb2.LanguageRestrictionOptions.WHITELIST,
@@ -92,6 +97,7 @@ def build_session_options(stt_pb2, *, language: str, sample_rate: int):
     )
     return stt_pb2.StreamingOptions(
         recognition_model=stt_pb2.RecognitionModelOptions(
+            model=model,
             audio_format=stt_pb2.AudioFormatOptions(
                 raw_audio=stt_pb2.RawAudio(
                     audio_encoding=stt_pb2.RawAudio.LINEAR16_PCM,
@@ -106,7 +112,13 @@ def build_session_options(stt_pb2, *, language: str, sample_rate: int):
             ),
             language_restriction=restriction,
             audio_processing_type=stt_pb2.RecognitionModelOptions.REAL_TIME,
-        )
+        ),
+        eou_classifier=stt_pb2.EouClassifierOptions(
+            default_classifier=stt_pb2.DefaultEouClassifier(
+                type=stt_pb2.DefaultEouClassifier.HIGH,
+                max_pause_between_words_hint_ms=EOU_MAX_PAUSE_HINT_MS,
+            )
+        ),
     )
 
 
@@ -144,13 +156,17 @@ async def run_speechkit_stream(
         await client_ws.send_json({"type": "error", "message": DEPS_HINT})
         return
 
+    from .settings_store import load_stt_settings
+
+    model = load_stt_settings().speechkit_model
+    model_label = f"speechkit-v3-{model}"
     await client_ws.send_json(
         {
             "type": "ready",
             "engine": "speechkit",
-            "model": "speechkit-v3-general",
-            "partial_model": "speechkit-v3-general",
-            "final_model": "speechkit-v3-general",
+            "model": model_label,
+            "partial_model": model_label,
+            "final_model": model_label,
             "sample_rate": sample_rate,
         }
     )
@@ -236,7 +252,7 @@ async def run_speechkit_stream(
         async def requests():
             yield stt_pb2.StreamingRequest(
                 session_options=build_session_options(
-                    stt_pb2, language=language, sample_rate=sample_rate
+                    stt_pb2, language=language, sample_rate=sample_rate, model=model
                 )
             )
             bytes_sent = 0
@@ -313,9 +329,7 @@ async def run_speechkit_stream(
                 )
                 if state["client_gone"] or failures >= MAX_SESSION_FAILURES:
                     try:
-                        await client_ws.send_json(
-                            {"type": "error", "message": f"SpeechKit: {exc}"}
-                        )
+                        await client_ws.send_json({"type": "error", "message": f"SpeechKit: {exc}"})
                     except Exception:  # noqa: BLE001
                         pass
                     break
@@ -392,7 +406,9 @@ class SpeechKitProvider(BaseTranscriptionProvider):
         return PRIVACY_CLOUD + " Аудио уходит в Яндекс Cloud (Россия)."
 
     def _active_model(self) -> str:
-        return "speechkit-v3-general"
+        from .settings_store import load_stt_settings
+
+        return f"speechkit-v3-{load_stt_settings().speechkit_model}"
 
     async def _transcribe_file(
         self, audio: bytes, *, language: str | None, sample_rate: int
