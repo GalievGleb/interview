@@ -51,6 +51,14 @@ curl -X POST http://109.172.47.103:8787/gateway/issue \
 
 Планы: `basic` (5M токенов/мес) или `max` (20M). `days` опционально (без него — бессрочный).
 
+## Мониторинг расхода (счёт OpenRouter)
+
+```bash
+# сколько лицензий активно и токенов потрачено за текущий месяц
+curl -s http://109.172.47.103:8787/gateway/stats -H "x-admin-secret: <секрет>" | python3 -m json.tool
+# (публично: https://skill-cue.ru/gateway/stats с тем же заголовком)
+```
+
 ## Обновить код
 
 - **Гейтвей:** скопировать изменённые файлы `apps/api/src/**` → `cd /opt/skillcue/apps/api && npx tsc -p tsconfig.gateway.json && systemctl restart skillcue-gateway`.
