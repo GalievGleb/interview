@@ -7,6 +7,19 @@ import {
   SttSessionOptions,
 } from './sttOptions';
 
+/**
+ * Захват, только что открытый в ws.onopen, «осиротел», если за время
+ * асинхронного startCapture соединение остановили или пересоздали. Такой
+ * захват нужно немедленно гасить, иначе микрофон/экран останутся включены.
+ */
+export function captureIsStale(
+  stopped: boolean,
+  currentWs: WebSocket | null,
+  myWs: WebSocket | null,
+): boolean {
+  return stopped || !myWs || currentWs !== myWs || myWs.readyState !== WebSocket.OPEN;
+}
+
 /** Server-measured timing breakdown for one utterance (ms). */
 export interface SttTimings {
   speechMs?: number;
@@ -121,8 +134,12 @@ export async function startLiveSession(
     ws.binaryType = 'arraybuffer';
 
     ws.onopen = async () => {
+      // startCapture асинхронный (getUserMedia/getDisplayMedia — до нескольких
+      // секунд). Пока идёт await, соединение могло закрыться и пересоздаться;
+      // фиксируем «своё» ws, чтобы не осиротить только что открытый захват.
+      const myWs = ws;
       try {
-        capture = await startCapture(
+        const cap = await startCapture(
           source,
           (buffer) => {
             if (ws && ws.readyState === WebSocket.OPEN) ws.send(buffer);
@@ -130,6 +147,13 @@ export async function startLiveSession(
           },
           { sampleRateMode: audioMode },
         );
+        if (captureIsStale(stopped, ws, myWs)) {
+          // Соединение сменилось/закрылось за время await — этот захват
+          // осиротел бы (микрофон/экран остались бы включены). Гасим сразу.
+          cap.stop();
+          return;
+        }
+        capture = cap;
       } catch (err) {
         handlers.onError(err instanceof Error ? err.message : 'Нет доступа к источнику звука');
         cleanup();
