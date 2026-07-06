@@ -23,6 +23,25 @@ function monthStamp(): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
+// Защита расходов: бюджет тарифа — в ТОКЕНАХ, но цена токена у моделей отличается
+// в ~100 раз. Без ограничения покупатель может пустить весь бюджет через дорогую
+// модель и разорить владельца. GATEWAY_ALLOWED_MODELS (через запятую) ограничивает
+// список; пусто — разрешены все (обратная совместимость). Матч по префиксу, чтобы
+// "openai/gpt-4o-mini" покрывал версии.
+function allowedModels(): string[] {
+  return (process.env.GATEWAY_ALLOWED_MODELS ?? '')
+    .split(',')
+    .map((m) => m.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function isModelAllowed(model: string): boolean {
+  const allow = allowedModels();
+  if (allow.length === 0) return true;
+  const m = (model || '').toLowerCase();
+  return allow.some((a) => m === a || m.startsWith(a));
+}
+
 @Injectable()
 export class GatewayService {
   private readonly logger = new Logger('Gateway');
@@ -156,6 +175,19 @@ export class GatewayService {
    */
   async chatCompletions(license: VerifiedLicense, body: Record<string, unknown>) {
     await this.assertQuota(license);
+
+    const model = String(body.model ?? '');
+    if (!isModelAllowed(model)) {
+      throw new HttpException(
+        {
+          error: {
+            message: `Модель «${model}» недоступна на этом тарифе.`,
+            code: 'model_not_allowed',
+          },
+        },
+        403,
+      );
+    }
 
     const upstreamBody: Record<string, unknown> = { ...body };
     if (upstreamBody.stream) {

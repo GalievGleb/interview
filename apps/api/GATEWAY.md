@@ -40,6 +40,7 @@ node dist/main.js
 | `GATEWAY_ADMIN_SECRET` | секрет для `/gateway/issue` |
 | `LICENSE_PRIVATE_KEY_HEX` | приватный ключ подписи (нужен только для issue; тот же, что `.license_signing_key`) |
 | `GATEWAY_UPSTREAM_BASE` | (опц.) апстрим вместо OpenRouter |
+| `GATEWAY_ALLOWED_MODELS` | (опц., но РЕКОМЕНДУЕТСЯ) список моделей через запятую, напр. `openai/gpt-4o-mini,openai/gpt-4o`. Пусто = разрешены все. **Зачем:** бюджет тарифа в токенах, но дорогая модель тратит в ~100× больше денег на тот же объём — allowlist не даёт покупателю пустить бюджет через Opus и разорить владельца. Матч по префиксу. При запрете — 403 `model_not_allowed`. |
 
 ## Выпуск ключей
 
