@@ -138,6 +138,10 @@ export function setFastAnswer(on: boolean): void {
 }
 const REQUEST_TIMEOUT_MS = 10_000;
 const LONG_REQUEST_TIMEOUT_MS = 180_000;
+// Сторож простоя SSE-стримов: столько тишины (без единого байта) = мёртвый поток.
+// Первый токен обычно приходит за 1–3 с; 25 с покрывает медленную модель, но
+// ловит зависший сервер/сеть до того, как суфлёр «застрянет» на всю сессию.
+const STREAM_IDLE_TIMEOUT_MS = 25_000;
 const VACANCY_EVALUATE_TIMEOUT_MS = 15_000;
 
 export interface LicenseStatusDto {
@@ -167,11 +171,45 @@ interface SseHandlers {
   onError: (msg: string) => void;
 }
 
+/**
+ * Сторож простоя для SSE-стримов: если поток замолчал (сервер завис / сеть
+ * встала без разрыва TCP), reader.read() висел бы вечно, а вызвавший код держал
+ * бы busy-флаг навсегда. Таймер перевзводится на каждый пришедший байт;
+ * срабатывание = abort зависшего чтения. `state.timedOut` отличает это от
+ * пользовательской отмены (которая тоже даёт AbortError).
+ */
+export function createIdleWatchdog(controller: AbortController): {
+  state: { timedOut: boolean };
+  arm: () => void;
+  disarm: () => void;
+} {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const state = { timedOut: false };
+  return {
+    state,
+    arm() {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        state.timedOut = true;
+        controller.abort();
+      }, STREAM_IDLE_TIMEOUT_MS);
+    },
+    disarm() {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+    },
+  };
+}
+
 /** Generic SSE POST stream for chat endpoints. Returns a cancel function. */
 function sseChatStream(path: string, body: unknown, handlers: SseHandlers): () => void {
   const controller = new AbortController();
+  const watchdog = createIdleWatchdog(controller);
   void (async () => {
     try {
+      watchdog.arm();
       const resp = await fetch(`${API_URL}${path}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
@@ -187,6 +225,7 @@ function sseChatStream(path: string, body: unknown, handlers: SseHandlers): () =
       let buffer = '';
       for (;;) {
         const { done, value } = await reader.read();
+        watchdog.arm();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');
@@ -205,9 +244,13 @@ function sseChatStream(path: string, body: unknown, handlers: SseHandlers): () =
       }
       handlers.onDone();
     } catch (err) {
-      if ((err as Error).name !== 'AbortError') {
+      if (watchdog.state.timedOut) {
+        handlers.onError('Ответ не пришёл вовремя — соединение зависло. Повторите.');
+      } else if ((err as Error).name !== 'AbortError') {
         handlers.onError(err instanceof Error ? err.message : 'Ошибка запроса');
       }
+    } finally {
+      watchdog.disarm();
     }
   })();
   return () => controller.abort();
@@ -662,15 +705,22 @@ export const api = {
     const controller = new AbortController();
     let spoken = '';
     let finished = false;
+    // Сторож простоя: без него зависший поток (сервер завис / сеть «чёрная дыра»)
+    // держал бы streamLock в useLiveCopilot навсегда true — суфлёр молча умирал
+    // бы до конца сессии, без ошибки пользователю.
+    const watchdog = createIdleWatchdog(controller);
+    const { arm: armIdle, disarm: disarmIdle } = watchdog;
 
     const finish = (text: string, answerId?: string) => {
       if (finished) return;
       finished = true;
+      disarmIdle();
       handlers.onDone(text, answerId);
     };
 
     void (async () => {
       try {
+        armIdle();
         const resp = await fetch(`${API_URL}/chat/interview/stream`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
@@ -755,6 +805,7 @@ export const api = {
 
         for (;;) {
           const { done, value } = await reader.read();
+          armIdle(); // пришли данные (или закрытие) — перевзводим сторож
           if (value) {
             buffer += decoder.decode(value, { stream: true });
             const lines = buffer.split('\n');
@@ -773,10 +824,17 @@ export const api = {
         if (spoken) finish(spoken);
         else handlers.onError('Пустой ответ от модели');
       } catch (err) {
+        disarmIdle();
         if (spoken) finish(spoken);
-        else if ((err as Error).name !== 'AbortError') {
+        else if (watchdog.state.timedOut) {
+          // Idle-abort, а не пользовательская отмена: обязаны сообщить об ошибке,
+          // иначе streamLock в useLiveCopilot останется навсегда взведён.
+          handlers.onError('Ответ не пришёл вовремя — соединение зависло. Повторите вопрос.');
+        } else if ((err as Error).name !== 'AbortError') {
           handlers.onError(err instanceof Error ? err.message : 'Ошибка запроса');
         }
+      } finally {
+        disarmIdle();
       }
     })();
     return () => controller.abort();
@@ -793,8 +851,10 @@ export const api = {
     opts: { mode?: ChatMode; provider?: string; model?: string; context?: string } = {},
   ): () => void {
     const controller = new AbortController();
+    const watchdog = createIdleWatchdog(controller);
     void (async () => {
       try {
+        watchdog.arm();
         const resp = await fetch(`${API_URL}/chat`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
@@ -817,6 +877,7 @@ export const api = {
         let buffer = '';
         for (;;) {
           const { done, value } = await reader.read();
+          watchdog.arm();
           if (done) break;
           buffer += decoder.decode(value, { stream: true });
           const lines = buffer.split('\n');
@@ -835,9 +896,13 @@ export const api = {
         }
         handlers.onDone();
       } catch (err) {
-        if ((err as Error).name !== 'AbortError') {
+        if (watchdog.state.timedOut) {
+          handlers.onError('Ответ не пришёл вовремя — соединение зависло. Повторите.');
+        } else if ((err as Error).name !== 'AbortError') {
           handlers.onError(err instanceof Error ? err.message : 'Ошибка запроса');
         }
+      } finally {
+        watchdog.disarm();
       }
     })();
     return () => controller.abort();
