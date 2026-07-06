@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Вопросы на собеседовании Python-разработчика в 2026 — с разбором ответов</title>
+  <meta name="description" content="17 вопросов с собеседований Python: GIL, декораторы, генераторы, изменяемые типы, ООП, asyncio — и что хотят услышать интервьюеры. Бесплатный разбор вашей вакансии." />
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      { "@type": "Question", "name": "Чем список отличается от кортежа?", "acceptedAnswer": { "@type": "Answer", "text": "Список изменяемый, кортеж — нет: кортеж может быть ключом словаря, чуть экономнее по памяти, защищает данные от случайной правки. Хотят услышать следствия неизменяемости, а не только определение." } },
+      { "@type": "Question", "name": "Что такое GIL и на что он влияет?", "acceptedAnswer": { "@type": "Answer", "text": "Глобальная блокировка интерпретатора: в CPython байткод исполняет один поток за раз. Потоки хороши для I/O, для CPU-задач — multiprocessing. Правильная структура ответа: что это → на что влияет → чем обходить." } },
+      { "@type": "Question", "name": "Что такое декоратор?", "acceptedAnswer": { "@type": "Answer", "text": "Функция, оборачивающая другую функцию для добавления поведения без правки её кода: логирование, кэш, проверка прав. Уметь написать простой декоратор с functools.wraps на доске." } },
+      { "@type": "Question", "name": "Чем генератор отличается от списка? Когда что выбрать?", "acceptedAnswer": { "@type": "Answer", "text": "Генератор ленивый — отдаёт элементы по одному через yield и не держит всё в памяти; список — сразу весь. Большие/бесконечные данные и конвейеры — генераторы; многократный доступ и индексация — списки." } },
+      { "@type": "Question", "name": "Почему изменяемый default-аргумент — ловушка?", "acceptedAnswer": { "@type": "Answer", "text": "def f(x, acc=[]) — список создаётся один раз при определении функции и разделяется между вызовами. Правильный паттерн: acc=None + создание внутри. Один из самых частых вопросов-фильтров." } },
+      { "@type": "Question", "name": "Как работает словарь внутри?", "acceptedAnswer": { "@type": "Answer", "text": "Хеш-таблица: hash ключа → слот; ключи должны быть хешируемыми; средний доступ O(1). Плюс — про коллизии и почему изменяемые типы не могут быть ключами." } }
+    ]
+  }
+  </script>
+  <style>
+    :root { --green: #1f8a4d; --ink: #16202e; --muted: #5b6878; --line: #e4e9ef; }
+    * { box-sizing: border-box; }
+    body { max-width: 860px; margin: 0 auto; padding: 28px 20px 64px; font-family: Inter, system-ui, sans-serif; color: var(--ink); line-height: 1.65; }
+    a { color: var(--green); }
+    .top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 28px; font-weight: 700; }
+    .top a.home { color: var(--ink); text-decoration: none; font-size: 18px; }
+    h1 { font-size: 28px; line-height: 1.25; letter-spacing: -.02em; }
+    h2 { font-size: 20px; margin-top: 34px; border-bottom: 1px solid var(--line); padding-bottom: 8px; }
+    .q { margin-top: 18px; }
+    .q strong { display: block; }
+    .q p { margin: 6px 0 0; color: #33404f; }
+    .q p em { color: var(--muted); font-style: normal; font-size: 14px; }
+    .cta { background: #f0f7f2; border: 1px solid #cfe6d7; border-radius: 16px; padding: 20px 22px; margin-top: 36px; }
+    .cta a.btn { display: inline-block; background: var(--green); color: #fff; padding: 11px 20px; border-radius: 10px; text-decoration: none; font-weight: 700; margin-top: 10px; }
+    .related { margin-top: 30px; color: var(--muted); }
+    footer { margin-top: 44px; color: var(--muted); font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="top"><a class="home" href="../index.html">← SkillCue</a><a href="./index.html">Все роли</a></div>
+
+  <h1>Вопросы на собеседовании Python-разработчика: 17 вопросов с разбором</h1>
+  <p>Питоновские интервью для джунов и мидлов удивительно предсказуемы: структуры данных,
+  «ловушки» языка, немного ООП и внутренностей. Ниже — самое частое, с ориентиром
+  <em>что хотят услышать</em>.</p>
+
+  <h2>Структуры данных</h2>
+  <div class="q"><strong>1. Список vs кортеж — разница и следствия?</strong>
+    <p>Изменяемость: кортеж может быть ключом словаря, защищает данные, чуть экономнее. <em>Хотят следствия, а не определение.</em></p></div>
+  <div class="q"><strong>2. Как словарь работает внутри?</strong>
+    <p>Хеш-таблица: hash ключа → слот, средний O(1), ключи — только хешируемые. <em>Уточняющий: почему список не может быть ключом.</em></p></div>
+  <div class="q"><strong>3. Множество (set): для чего и какова сложность операций?</strong>
+    <p>Уникальность и быстрые проверки вхождения O(1); дедупликация, пересечения. <em>Классика: убрать дубли из списка одной строкой.</em></p></div>
+  <div class="q"><strong>4. Поверхностная vs глубокая копия?</strong>
+    <p>copy() копирует контейнер, но не вложенные объекты; deepcopy — рекурсивно. <em>Пример с list of lists, где правка «копии» меняет оригинал.</em></p></div>
+
+  <h2>Ловушки и идиомы языка</h2>
+  <div class="q"><strong>5. Почему def f(x, acc=[]) — баг?</strong>
+    <p>Default создаётся один раз и разделяется между вызовами; правильно acc=None. <em>Вопрос-фильтр — на нём валятся чаще всего.</em></p></div>
+  <div class="q"><strong>6. *args и **kwargs — зачем?</strong>
+    <p>Произвольные позиционные/именованные аргументы; проброс аргументов в обёртках и декораторах. <em>Свяжите с декораторами — двойной балл.</em></p></div>
+  <div class="q"><strong>7. Что такое декоратор? Напишите простой.</strong>
+    <p>Обёртка, добавляющая поведение: логирование, кэш, права. <em>Уметь написать на доске с functools.wraps и объяснить, зачем wraps.</em></p></div>
+  <div class="q"><strong>8. Генераторы и yield: чем лучше списка?</strong>
+    <p>Ленивость: по одному элементу, без всей памяти; конвейеры обработки. <em>Минус тоже назовите: одноразовость, нет len/индексации.</em></p></div>
+  <div class="q"><strong>9. List/dict comprehension — когда это хорошо, а когда нечитаемо?</strong>
+    <p>Краткие преобразования — да; тройная вложенность с условиями — уже цикл. <em>Проверяют вкус к читаемости, не синтаксис.</em></p></div>
+
+  <h2>ООП и внутренности</h2>
+  <div class="q"><strong>10. Что такое GIL? Потоки vs процессы?</strong>
+    <p>Один поток исполняет байткод за раз: потоки — для I/O, multiprocessing — для CPU. <em>Структура «что → на что влияет → чем обходить» звучит уверенно.</em></p></div>
+  <div class="q"><strong>11. Магические методы: __init__, __repr__, __eq__ — зачем?</strong>
+    <p>Протоколы языка: инициализация, отладочное представление, сравнение (+ __hash__ в паре с __eq__). <em>Пример: зачем __repr__ в логах.</em></p></div>
+  <div class="q"><strong>12. classmethod vs staticmethod?</strong>
+    <p>classmethod получает класс (альтернативные конструкторы), staticmethod — просто функция в пространстве класса. <em>Пример from_json() решает.</em></p></div>
+  <div class="q"><strong>13. Как устроены исключения? try/except/else/finally.</strong>
+    <p>Ловить конкретные типы, else — если не было исключения, finally — всегда. <em>Красный флаг для интервьюера: голый except: pass.</em></p></div>
+  <div class="q"><strong>14. Аннотации типов: зачем, если Python динамический?</strong>
+    <p>Документация, IDE, mypy ловит ошибки до рана; в командах — стандарт. <em>Достаточно рабочего опыта с ними, глубин дженериков не ждут от мидла.</em></p></div>
+
+  <h2>Асинхронность и практика</h2>
+  <div class="q"><strong>15. asyncio: когда выбрать вместо потоков?</strong>
+    <p>Много одновременного I/O (тысячи соединений) — корутины дешевле потоков; CPU-задачи asyncio не ускоряет. <em>Пара слов про await и event loop — достаточно для мидла.</em></p></div>
+  <div class="q"><strong>16. Как тестируете код? pytest, фикстуры, моки.</strong>
+    <p>pytest, параметризация, фикстуры, unittest.mock для внешних зависимостей. <em>Пример: как замокали HTTP-вызов.</em></p></div>
+
+  <h2>Про вас</h2>
+  <div class="q"><strong>17. Самый интересный проект/задача на Python?</strong>
+    <p>История: контекст → задача → решение → результат в цифрах. <em>Подготовьте заранее, привяжите к стеку вакансии.</em></p></div>
+
+  <div class="cta">
+    <strong>Это общий список. А что спросят именно на вашем собеседовании?</strong>
+    <p>Пришлите текст вакансии — бесплатно вернём вероятные вопросы по ней, риски и слабые темы.
+    А в приложении SkillCue — тренировка ответов и подсказки прямо во время созвона.</p>
+    <a class="btn" href="https://t.me/SkillCue_support_bot?start=seo_python">Разобрать мою вакансию бесплатно</a>
+  </div>
+
+  <p class="related">Смежные роли: <a href="./qa-avtomatizator.html">QA Automation</a> · <a href="./frontend.html">Frontend</a> · <a href="./index.html">все роли</a></p>
+
+  <footer>© 2026 SkillCue · <a href="../index.html">Главная</a> · <a href="https://github.com/GalievGleb/ScillCue/releases/latest">Скачать приложение</a></footer>
+</body>
+</html>

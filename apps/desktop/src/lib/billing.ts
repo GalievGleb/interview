@@ -1,11 +1,12 @@
 /**
- * Тарифы и покупка. Оплата — через внешний checkout (LemonSqueezy):
- * приложение открывает страницу оплаты в браузере, после оплаты вебхук
- * (tools/license_webhook.py) отправляет лицензионный ключ на почту,
- * пользователь активирует его в настройках. Ключей API в приложении нет.
+ * Тарифы и покупка. Оплата на RU-старте — через Telegram-бота:
+ * кнопка «Оплатить» открывает @SkillCue_support_bot с deep-link'ом плана,
+ * бот присылает реквизиты, после оплаты админ выдаёт лицензионный ключ
+ * (leadbot: /key), пользователь активирует его в настройках. Ключей API
+ * в приложении нет.
  *
- * ЗАМЕНИТЬ ссылки на реальные checkout-URL после создания продуктов
- * в LemonSqueezy (Store → Products → Share → Checkout link).
+ * Для EN-экспансии вернуть внешний checkout (LemonSqueezy) — вебхук уже
+ * готов: apps/api-py/tools/license_webhook.py.
  */
 
 export type PlanId = 'basic' | 'max';
@@ -52,14 +53,16 @@ export const PLANS: PlanInfo[] = [
   },
 ];
 
+const SALES_BOT = 'https://t.me/SkillCue_support_bot';
+
 const CHECKOUT_URLS: Record<PlanId, Record<BillingPeriod, string>> = {
   basic: {
-    monthly: 'https://skillcue.lemonsqueezy.com/buy/basic-monthly',
-    yearly: 'https://skillcue.lemonsqueezy.com/buy/basic-yearly',
+    monthly: `${SALES_BOT}?start=buy_basic_monthly`,
+    yearly: `${SALES_BOT}?start=buy_basic_yearly`,
   },
   max: {
-    monthly: 'https://skillcue.lemonsqueezy.com/buy/max-monthly',
-    yearly: 'https://skillcue.lemonsqueezy.com/buy/max-yearly',
+    monthly: `${SALES_BOT}?start=buy_max_monthly`,
+    yearly: `${SALES_BOT}?start=buy_max_yearly`,
   },
 };
 

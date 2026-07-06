@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Вопросы на собеседовании QA Automation (Python) в 2026 — с разбором ответов</title>
+  <meta name="description" content="16 вопросов с собеседований автоматизатора тестирования: pytest, локаторы, ожидания, POM, API-тесты, CI, flaky-тесты — и что хотят услышать. Бесплатный разбор вашей вакансии." />
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      { "@type": "Question", "name": "Что такое пирамида тестирования?", "acceptedAnswer": { "@type": "Answer", "text": "Много быстрых юнит-тестов в основании, меньше интеграционных, немного E2E наверху: чем выше — тем дороже и нестабильнее. Хотят услышать: почему «всё покрыть E2E» — антипаттерн." } },
+      { "@type": "Question", "name": "Какие локаторы предпочитаете и почему?", "acceptedAnswer": { "@type": "Answer", "text": "Приоритет: data-testid → id → устойчивый CSS → XPath в крайнем случае. Критерий — устойчивость к изменениям вёрстки и читаемость." } },
+      { "@type": "Question", "name": "Чем неявные ожидания отличаются от явных?", "acceptedAnswer": { "@type": "Answer", "text": "Неявные — глобальный таймаут поиска элементов; явные — ждать конкретное условие (кликабельность, видимость). Явные предпочтительнее; sleep() — признак слабой автоматизации." } },
+      { "@type": "Question", "name": "Что такое Page Object Model?", "acceptedAnswer": { "@type": "Answer", "text": "Паттерн: страница = класс, локаторы и действия инкапсулированы, тесты читаются как сценарии. Даёт переиспользование и единственную точку правки при изменении UI." } },
+      { "@type": "Question", "name": "Как боретесь с flaky-тестами?", "acceptedAnswer": { "@type": "Answer", "text": "Найти причину (гонки, ожидания, зависимые данные, окружение), а не ставить retry. Карантин нестабильных тестов, стабильные ожидания, изоляция данных." } },
+      { "@type": "Question", "name": "Как устроен ваш CI для автотестов?", "acceptedAnswer": { "@type": "Answer", "text": "Триггеры (PR/ночные), стадии, параллелизация, отчёты (Allure), артефакты и скрины падений. Хотят: тесты — часть конвейера, а не локальный запуск." } }
+    ]
+  }
+  </script>
+  <style>
+    :root { --green: #1f8a4d; --ink: #16202e; --muted: #5b6878; --line: #e4e9ef; }
+    * { box-sizing: border-box; }
+    body { max-width: 860px; margin: 0 auto; padding: 28px 20px 64px; font-family: Inter, system-ui, sans-serif; color: var(--ink); line-height: 1.65; }
+    a { color: var(--green); }
+    .top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 28px; font-weight: 700; }
+    .top a.home { color: var(--ink); text-decoration: none; font-size: 18px; }
+    h1 { font-size: 28px; line-height: 1.25; letter-spacing: -.02em; }
+    h2 { font-size: 20px; margin-top: 34px; border-bottom: 1px solid var(--line); padding-bottom: 8px; }
+    .q { margin-top: 18px; }
+    .q strong { display: block; }
+    .q p { margin: 6px 0 0; color: #33404f; }
+    .q p em { color: var(--muted); font-style: normal; font-size: 14px; }
+    .cta { background: #f0f7f2; border: 1px solid #cfe6d7; border-radius: 16px; padding: 20px 22px; margin-top: 36px; }
+    .cta a.btn { display: inline-block; background: var(--green); color: #fff; padding: 11px 20px; border-radius: 10px; text-decoration: none; font-weight: 700; margin-top: 10px; }
+    .related { margin-top: 30px; color: var(--muted); }
+    footer { margin-top: 44px; color: var(--muted); font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="top"><a class="home" href="../index.html">← SkillCue</a><a href="./index.html">Все роли</a></div>
+
+  <h1>Вопросы на собеседовании QA Automation: 16 вопросов с разбором</h1>
+  <p>Собеседование автоматизатора — это три слоя: инструменты (селекторы, ожидания, фреймворк),
+  инженерная культура (POM, CI, flaky) и базовый язык. Ниже — типовые вопросы каждого слоя и
+  <em>что на самом деле проверяет интервьюер</em>.</p>
+
+  <h2>Архитектура автоматизации</h2>
+  <div class="q"><strong>1. Пирамида тестирования — что это и зачем?</strong>
+    <p>Юнит → интеграционные → E2E: чем выше, тем дороже и нестабильнее. <em>Хотят: почему «всё через UI» — антипаттерн и где место ваших тестов.</em></p></div>
+  <div class="q"><strong>2. Что такое Page Object Model? Плюсы и когда он избыточен?</strong>
+    <p>Страница = класс, локаторы и действия внутри, тесты читаются как сценарии. <em>Плюс — сказать про перебор: для 5 тестов POM может быть оверинжинирингом.</em></p></div>
+  <div class="q"><strong>3. Как организуете тестовые данные?</strong>
+    <p>Фикстуры, фабрики, генерация через API, изоляция между тестами, очистка. <em>Проверяют главную боль реальных проектов — зависимые данные.</em></p></div>
+  <div class="q"><strong>4. Selenium vs Playwright — что выберете и почему?</strong>
+    <p>Playwright: автоожидания, скорость, трейсы; Selenium: экосистема, легаси, Grid. <em>Хотят аргументы, а не религию: «зависит от проекта, вот критерии».</em></p></div>
+
+  <h2>Селекторы и ожидания</h2>
+  <div class="q"><strong>5. Какие локаторы предпочитаете и в каком порядке?</strong>
+    <p>data-testid → id → устойчивый CSS → XPath в крайнем случае. <em>Критерии: устойчивость к правкам вёрстки, читаемость.</em></p></div>
+  <div class="q"><strong>6. Явные vs неявные ожидания? Почему sleep() — плохо?</strong>
+    <p>Неявные — глобальный таймаут, явные — ждать условие. sleep всегда либо медленный, либо недостаточный. <em>Это вопрос-фильтр: sleep в ответе = красный флаг.</em></p></div>
+  <div class="q"><strong>7. Тест падает локально проходит, в CI падает. Как дебажите?</strong>
+    <p>Скрины/видео/трейсы из CI, различия окружений (разрешение, таймауты, данные, параллельность), логи приложения. <em>Проверяют системность мышления.</em></p></div>
+  <div class="q"><strong>8. Как боретесь с flaky-тестами?</strong>
+    <p>Причина (гонки, ожидания, данные), карантин, а не бездумный retry. <em>Ответ «ставлю retry=3» без анализа — минус.</em></p></div>
+
+  <h2>pytest и Python</h2>
+  <div class="q"><strong>9. Что такое фикстуры pytest, какие scope бывают?</strong>
+    <p>Подготовка/очистка через DI: function, class, module, session; yield для teardown. <em>Пример: одна авторизация на session вместо каждой в тесте.</em></p></div>
+  <div class="q"><strong>10. Как параметризовать тест?</strong>
+    <p>@pytest.mark.parametrize — один тест на наборе данных; ids для читаемых отчётов. <em>Связка с классами эквивалентности — сильный ответ.</em></p></div>
+  <div class="q"><strong>11. conftest.py — зачем он?</strong>
+    <p>Общие фикстуры и хуки для пакета тестов без импортов. <em>Плюс: иерархия conftest'ов по папкам.</em></p></div>
+
+  <h2>API-тесты и CI</h2>
+  <div class="q"><strong>12. Как строите API-тесты?</strong>
+    <p>httpx/requests: статус → схема ответа (pydantic/jsonschema) → бизнес-проверки → негатив; данные через API, а не UI. <em>Проверка схемы, а не только 200 — то, что отличает мидла.</em></p></div>
+  <div class="q"><strong>13. Как устроен CI для ваших тестов?</strong>
+    <p>Триггеры (PR/ночь), стадии, параллелизация, Allure-отчёты, артефакты падений. <em>Хотят: тесты как часть конвейера, а не локальная кнопка.</em></p></div>
+  <div class="q"><strong>14. Git: rebase vs merge, как работаете с ветками?</strong>
+    <p>Feature-ветки, PR с ревью; rebase — линейная история, merge — сохранение контекста. <em>Достаточно уверенного рабочего процесса, а не гуру-ответа.</em></p></div>
+
+  <h2>Про вас</h2>
+  <div class="q"><strong>15. Сколько тестов вы написали / какое покрытие было?</strong>
+    <p>Готовьте цифры заранее: сколько тестов, что покрывали, сколько времени экономил прогон, что ловили. <em>«Не помню» звучит как «не писал».</em></p></div>
+  <div class="q"><strong>16. Самая сложная задача в автоматизации?</strong>
+    <p>История: контекст → проблема → варианты → решение → результат. <em>Технические детали в истории — доказательство реального опыта.</em></p></div>
+
+  <div class="cta">
+    <strong>Это общий список. А что спросят именно на вашем собеседовании?</strong>
+    <p>Пришлите текст вакансии — бесплатно вернём вероятные вопросы по ней, риски и слабые темы.
+    А в приложении SkillCue — тренировка ответов и подсказки прямо во время созвона.</p>
+    <a class="btn" href="https://t.me/SkillCue_support_bot?start=seo_qa_auto">Разобрать мою вакансию бесплатно</a>
+  </div>
+
+  <p class="related">Смежные роли: <a href="./qa-manual.html">QA ручное тестирование</a> · <a href="./python.html">Python-разработчик</a> · <a href="./index.html">все роли</a></p>
+
+  <footer>© 2026 SkillCue · <a href="../index.html">Главная</a> · <a href="https://github.com/GalievGleb/ScillCue/releases/latest">Скачать приложение</a></footer>
+</body>
+</html>

@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Вопросы на собеседовании Frontend-разработчика (JS/React) в 2026 — с разбором</title>
+  <meta name="description" content="17 вопросов с собеседований frontend: замыкания, event loop, промисы, React-хуки, вёрстка, оптимизация — и что хотят услышать интервьюеры. Бесплатный разбор вашей вакансии." />
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      { "@type": "Question", "name": "Что такое замыкание в JavaScript?", "acceptedAnswer": { "@type": "Answer", "text": "Функция вместе с лексическим окружением: она видит переменные места своего создания даже после завершения внешней функции. Хотят пример практической пользы: приватное состояние, фабрики, обработчики." } },
+      { "@type": "Question", "name": "Как работает Event Loop?", "acceptedAnswer": { "@type": "Answer", "text": "Стек вызовов, очередь макрозадач (setTimeout) и микрозадач (промисы): после каждой макрозадачи разгребаются все микрозадачи. Классическая проверка — порядок console.log с setTimeout и Promise.resolve." } },
+      { "@type": "Question", "name": "В чём разница между == и ===?", "acceptedAnswer": { "@type": "Answer", "text": "=== сравнивает без приведения типов, == приводит операнды по неочевидным правилам. Правильный ответ: всегда ===, и пара примеров коварства ==." } },
+      { "@type": "Question", "name": "Зачем нужен ключ (key) в списках React?", "acceptedAnswer": { "@type": "Answer", "text": "Ключи помогают реконсиляции сопоставлять элементы между рендерами. Индекс как ключ ломает состояние при вставке/удалении — хотят услышать именно это." } },
+      { "@type": "Question", "name": "Как работает useEffect и его массив зависимостей?", "acceptedAnswer": { "@type": "Answer", "text": "Эффект после рендера; зависимости определяют, когда он перезапускается; функция очистки — при размонтировании и перед повторным запуском. Частые баги: пустой массив с устаревшими значениями, бесконечные циклы." } },
+      { "@type": "Question", "name": "Чем flexbox отличается от grid?", "acceptedAnswer": { "@type": "Answer", "text": "Flexbox — одномерная раскладка (ряд или колонка), grid — двумерная (ряды и колонки сразу). Хотят: когда естественен каждый, а не «grid новее»." } }
+    ]
+  }
+  </script>
+  <style>
+    :root { --green: #1f8a4d; --ink: #16202e; --muted: #5b6878; --line: #e4e9ef; }
+    * { box-sizing: border-box; }
+    body { max-width: 860px; margin: 0 auto; padding: 28px 20px 64px; font-family: Inter, system-ui, sans-serif; color: var(--ink); line-height: 1.65; }
+    a { color: var(--green); }
+    .top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 28px; font-weight: 700; }
+    .top a.home { color: var(--ink); text-decoration: none; font-size: 18px; }
+    h1 { font-size: 28px; line-height: 1.25; letter-spacing: -.02em; }
+    h2 { font-size: 20px; margin-top: 34px; border-bottom: 1px solid var(--line); padding-bottom: 8px; }
+    .q { margin-top: 18px; }
+    .q strong { display: block; }
+    .q p { margin: 6px 0 0; color: #33404f; }
+    .q p em { color: var(--muted); font-style: normal; font-size: 14px; }
+    .cta { background: #f0f7f2; border: 1px solid #cfe6d7; border-radius: 16px; padding: 20px 22px; margin-top: 36px; }
+    .cta a.btn { display: inline-block; background: var(--green); color: #fff; padding: 11px 20px; border-radius: 10px; text-decoration: none; font-weight: 700; margin-top: 10px; }
+    .related { margin-top: 30px; color: var(--muted); }
+    footer { margin-top: 44px; color: var(--muted); font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="top"><a class="home" href="../index.html">← SkillCue</a><a href="./index.html">Все роли</a></div>
+
+  <h1>Вопросы на собеседовании Frontend (JS/React): 17 вопросов с разбором</h1>
+  <p>Frontend-интервью почти всегда идёт слоями: JavaScript-ядро → React → вёрстка → сеть и
+  оптимизация. Ниже — вопросы, которые встречаются чаще всего, и <em>что за каждым стоит</em>.</p>
+
+  <h2>JavaScript-ядро</h2>
+  <div class="q"><strong>1. Что такое замыкание? Пример из практики.</strong>
+    <p>Функция + лексическое окружение места создания. <em>Сильный ответ — практический: приватное состояние, дебаунс, фабрики обработчиков.</em></p></div>
+  <div class="q"><strong>2. Event loop: что выведет код с setTimeout и Promise?</strong>
+    <p>Синхронный код → все микрозадачи (промисы) → макрозадача (setTimeout). <em>Потренируйтесь на 3–4 снippетах — это спрашивают в 8 из 10 интервью.</em></p></div>
+  <div class="q"><strong>3. var / let / const и хойстинг?</strong>
+    <p>var — функциональная область и hoisting с undefined; let/const — блочная и TDZ. <em>Классика-ловушка: var в цикле с setTimeout.</em></p></div>
+  <div class="q"><strong>4. == vs === ?</strong>
+    <p>=== без приведения типов; правило — всегда строгое равенство. <em>Пара примеров коварства ==: '' == 0, null == undefined.</em></p></div>
+  <div class="q"><strong>5. Что такое this и от чего зависит?</strong>
+    <p>От способа вызова: метод, обычный вызов, call/apply/bind, стрелочные берут this из окружения. <em>Хотят таблицу случаев, а не «это сложно».</em></p></div>
+  <div class="q"><strong>6. Промисы vs async/await; как обработать ошибки?</strong>
+    <p>async/await — синтаксис над промисами; try/catch, Promise.all/allSettled для параллельности. <em>Плюс: чем all отличается от allSettled на живом примере.</em></p></div>
+
+  <h2>React</h2>
+  <div class="q"><strong>7. State vs props?</strong>
+    <p>Props приходят сверху и неизменяемы для компонента, state — собственное изменяемое состояние. <em>База; отвечать без пауз.</em></p></div>
+  <div class="q"><strong>8. Зачем key в списках и почему индекс — плохо?</strong>
+    <p>Ключи нужны реконсиляции; индекс ломает состояние при вставке/удалении элементов. <em>Второй по частоте React-вопрос.</em></p></div>
+  <div class="q"><strong>9. useEffect: зависимости, очистка, типичные баги?</strong>
+    <p>Запуск после рендера, deps — когда перезапускать, cleanup перед повтором и при размонтировании. <em>Расскажите про бесконечный цикл из-за объекта в deps — покажет практику.</em></p></div>
+  <div class="q"><strong>10. Когда нужен useMemo/useCallback, а когда это преждевременная оптимизация?</strong>
+    <p>Дорогие вычисления и стабильность ссылок для memo-детей; по умолчанию — не нужен. <em>Ответ «оборачиваю всё» — красный флаг.</em></p></div>
+  <div class="q"><strong>11. Как бы вы организовали состояние приложения (локальное vs глобальное)?</strong>
+    <p>Локальное — по умолчанию; глобальное (Redux/Zustand/Context) — для действительно общего. <em>Критерии выбора важнее названия библиотеки.</em></p></div>
+
+  <h2>Вёрстка</h2>
+  <div class="q"><strong>12. Flexbox vs Grid — когда что?</strong>
+    <p>Flex — одномерные ряды/колонки, Grid — двумерные раскладки. <em>Пример: карточная сетка — grid, панель кнопок — flex.</em></p></div>
+  <div class="q"><strong>13. Специфичность селекторов, как решаете конфликты?</strong>
+    <p>inline > id > класс/атрибут > тег; предсказуемость через методологию (БЭМ/модули) вместо !important. <em>!important как норма — красный флаг.</em></p></div>
+  <div class="q"><strong>14. Как сделать адаптивную вёрстку?</strong>
+    <p>Мобайл-фёрст, media queries, относительные единицы, clamp(), картинки с srcset. <em>Достаточно системы, не всех единиц наизусть.</em></p></div>
+
+  <h2>Сеть и оптимизация</h2>
+  <div class="q"><strong>15. Что происходит после ввода URL до отрисовки страницы?</strong>
+    <p>DNS → TCP/TLS → запрос → HTML → парсинг → CSSOM/DOM → рендер; блокирующие ресурсы. <em>Любимый вопрос на понимание всей цепочки; 2-минутная версия наготове.</em></p></div>
+  <div class="q"><strong>16. Как ускорить медленную страницу?</strong>
+    <p>Профилирование (Lighthouse/DevTools) → код-сплиттинг, lazy-загрузка, кэширование, сжатие картинок, меньше ререндеров. <em>Начать с «сначала измеряю» — уже половина правильного ответа.</em></p></div>
+
+  <h2>Про вас</h2>
+  <div class="q"><strong>17. Самая сложная задача на фронте?</strong>
+    <p>История: контекст → проблема → решение → результат (цифры, если есть). <em>Подготовьте 2 истории заранее — они закрывают половину поведенческих вопросов.</em></p></div>
+
+  <div class="cta">
+    <strong>Это общий список. А что спросят именно на вашем собеседовании?</strong>
+    <p>Пришлите текст вакансии — бесплатно вернём вероятные вопросы по ней, риски и слабые темы.
+    А в приложении SkillCue — тренировка ответов и подсказки прямо во время созвона.</p>
+    <a class="btn" href="https://t.me/SkillCue_support_bot?start=seo_frontend">Разобрать мою вакансию бесплатно</a>
+  </div>
+
+  <p class="related">Смежные роли: <a href="./python.html">Python-разработчик</a> · <a href="./qa-avtomatizator.html">QA Automation</a> · <a href="./index.html">все роли</a></p>
+
+  <footer>© 2026 SkillCue · <a href="../index.html">Главная</a> · <a href="https://github.com/GalievGleb/ScillCue/releases/latest">Скачать приложение</a></footer>
+</body>
+</html>

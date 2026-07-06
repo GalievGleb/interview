@@ -12,6 +12,7 @@
 Подробная инструкция: docs/gtm/00-start-here.md
 """
 
+import base64
 import json
 import os
 import re
@@ -33,6 +34,10 @@ DEFAULT_CONFIG = {
     "admin_chat_id": 0,
     "channel_url": "",
     "download_url": "https://github.com/GalievGleb/ScillCue/releases/latest",
+    # Платёжная ссылка (Продамус/Lava/Tribute). Пусто — бот попросит написать в чат.
+    "pay_url": "",
+    # Приватный ключ подписи лицензий; пусто — apps/api-py/.license_signing_key из репо.
+    "signing_key_path": "",
 }
 
 # Сообщение длиннее этого порога считаем вакансией, короче — вопросом.
@@ -104,19 +109,58 @@ ADMIN_HELP = (
     "Ты админ этого бота. Что умею:\n\n"
     "• Ответить лиду — просто ответь реплаем на уведомление о лиде\n"
     "• /reply <chat_id> <текст> — то же самое вручную\n"
+    "• /key <basic|max> <дней|0> <email> [chat_id] — выпустить лицензионный ключ\n"
+    "  (0 дней = бессрочный; с chat_id ключ сразу уйдёт покупателю)\n"
     "• /stats — статистика по лидам\n\n"
     "Все лиды пишутся в leads.jsonl рядом со скриптом."
 )
 
+# Витрина тарифов (цены синхронизированы с apps/desktop/src/lib/billing.ts и лендингом).
+PLAN_CATALOG = {
+    "basic": {"title": "💼 Базовый — подготовка", "rub": 1490},
+    "max": {"title": "🚀 Максимум — всё включено", "rub": 2990},
+}
+
+BUY_INTRO = (
+    "Тарифы SkillCue:\n\n"
+    "💼 Базовый — подготовка: 1 490 ₽/мес\n"
+    "Мок-собеседования, анализ вакансий, тренировка ответов, 5 млн токенов ИИ.\n\n"
+    "🚀 Максимум — всё включено: 2 990 ₽/мес\n"
+    "+ live-подсказки на созвоне, оверлей, анализ экрана, 20 млн токенов ИИ.\n\n"
+    "Год = цена 10 месяцев (2 в подарок).\n\n"
+)
+
+KEY_DELIVERY = (
+    "🎉 Готово! Твой лицензионный ключ:\n\n{key}\n\n"
+    "Активация: открой SkillCue → Настройки → Лицензия → вставь ключ целиком "
+    "(начинается со SKILLCUE-).\n"
+    "Тариф: {plan_title}, срок: {term}.\n\n"
+    "Если что-то не заработало — просто напиши сюда."
+)
+
 USER_COMMANDS = [
     {"command": "start", "description": "Что умеет бот"},
+    {"command": "buy", "description": "Купить тариф (Базовый / Максимум)"},
     {"command": "help", "description": "Как получить бесплатный разбор"},
 ]
 
 ADMIN_COMMANDS = USER_COMMANDS + [
     {"command": "stats", "description": "Статистика по лидам"},
     {"command": "reply", "description": "Ответить лиду: /reply <chat_id> <текст>"},
+    {"command": "key", "description": "Выпустить ключ: /key <basic|max> <дней|0> <email> [chat_id]"},
 ]
+
+
+def pay_instructions(cfg: dict) -> str:
+    if cfg.get("pay_url"):
+        return (
+            f"Оплатить: {cfg['pay_url']}\n\n"
+            "После оплаты пришли сюда скрин или чек — вышлю лицензионный ключ в течение часа."
+        )
+    return (
+        "Напиши сюда «Беру Базовый» или «Беру Максимум» — пришлю реквизиты для оплаты. "
+        "После оплаты вышлю лицензионный ключ в течение часа."
+    )
 
 # ------------------------------------------------------------- инфраструктура ---
 
@@ -181,6 +225,39 @@ def persist_state(state: dict):
                 time.sleep(0.2)
 
 
+def mint_license(cfg: dict, plan: str, days: int, email: str) -> str:
+    """Выпустить Ed25519-ключ — тот же формат, что проверяет apps/api-py (license.py).
+
+    Требует пакет cryptography и приватный ключ издателя. Логика зеркалит
+    apps/api-py/tools/generate_license_key.py — формат менять только синхронно!
+    """
+    try:
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    except ImportError:
+        raise RuntimeError(
+            "нет пакета cryptography — установи: py -3.12 -m pip install cryptography"
+        ) from None
+
+    key_path = Path(cfg.get("signing_key_path") or "")
+    if not cfg.get("signing_key_path"):
+        key_path = BASE.parent.parent / "apps" / "api-py" / ".license_signing_key"
+    if not key_path.exists():
+        raise RuntimeError(f"нет приватного ключа подписи: {key_path}")
+
+    priv = Ed25519PrivateKey.from_private_bytes(
+        bytes.fromhex(key_path.read_text(encoding="utf-8").strip())
+    )
+    payload: dict = {"email": email, "issued_at": int(time.time()), "plan": plan}
+    if days > 0:
+        payload["expires_at"] = int(time.time()) + days * 86400
+    body = json.dumps(payload, separators=(",", ":")).encode()
+
+    def b64url(data: bytes) -> str:
+        return base64.urlsafe_b64encode(data).decode().rstrip("=")
+
+    return f"SKILLCUE-{b64url(body)}.{b64url(priv.sign(body))}"
+
+
 # ------------------------------------------------------------------ обработка ---
 
 
@@ -226,6 +303,44 @@ def handle_admin(cfg: dict, msg: dict):
             send(token, admin_id, f"⚠️ Не получилось: {e}\nФормат: /reply <chat_id> <текст>")
         return
 
+    if text.startswith("/key"):
+        # /key <basic|max> <дней|0> <email> [chat_id покупателя]
+        parts = text.split()
+        try:
+            plan = parts[1].lower()
+            if plan not in PLAN_CATALOG:
+                raise ValueError(f"план должен быть basic или max, а не «{plan}»")
+            days = int(parts[2])
+            email = parts[3]
+            target = int(parts[4]) if len(parts) > 4 else None
+            key = mint_license(cfg, plan, days, email)
+            term = f"{days} дн." if days > 0 else "бессрочно"
+            save_lead(
+                {"kind": "key_issued", "plan": plan, "days": days, "email": email,
+                 "chat_id": target or 0}
+            )
+            if target:
+                send(
+                    token,
+                    target,
+                    KEY_DELIVERY.format(
+                        key=key, plan_title=PLAN_CATALOG[plan]["title"], term=term
+                    ),
+                )
+                send(token, admin_id, f"✅ Ключ {plan}/{term} отправлен покупателю {target}")
+            else:
+                send(token, admin_id, f"Ключ {plan}/{term} для {email}:\n\n{key}")
+        except (IndexError, ValueError, RuntimeError) as e:
+            send(
+                token,
+                admin_id,
+                f"⚠️ Не получилось: {e}\n"
+                "Формат: /key <basic|max> <дней|0> <email> [chat_id]\n"
+                "Примеры: /key max 30 ivan@mail.ru 628321557 — сразу покупателю;\n"
+                "/key basic 0 test@test.ru — бессрочный, покажу тебе.",
+            )
+        return
+
     if text.startswith("/stats"):
         rows = []
         if LEADS_PATH.exists():
@@ -244,6 +359,44 @@ def handle_admin(cfg: dict, msg: dict):
     send(token, admin_id, ADMIN_HELP)
 
 
+def _handle_buy(cfg: dict, msg: dict, lead_base: dict, payload: str):
+    """Покупка: /buy или deep-link buy_<план>_<период> из кнопки «Оплатить» приложения."""
+    token = cfg["bot_token"]
+    chat_id = msg["chat"]["id"]
+    parts = payload.split("_")  # ["buy"] | ["buy", "max", "monthly"]
+    plan = parts[1] if len(parts) > 1 and parts[1] in PLAN_CATALOG else None
+    period = parts[2] if len(parts) > 2 else ""
+
+    save_lead({**lead_base, "kind": "buy_intent", "plan": plan or "", "period": period})
+
+    if plan:
+        info = PLAN_CATALOG[plan]
+        price = info["rub"] * 10 if period == "yearly" else info["rub"]
+        price_str = f"{price:,}".replace(",", " ")
+        unit = "₽/год (цена 10 месяцев)" if period == "yearly" else "₽/мес"
+        text = (
+            f"Отличный выбор!\n\n{info['title']}: {price_str} {unit}\n\n"
+            f"{pay_instructions(cfg)}\n\n"
+            "Ключ активируется в приложении: Настройки → Лицензия."
+        )
+    else:
+        text = BUY_INTRO + pay_instructions(cfg)
+    send(token, chat_id, text)
+
+    admin_id = int(cfg.get("admin_chat_id") or 0)
+    if admin_id:
+        send(
+            token,
+            admin_id,
+            f"🤑 ХОЧЕТ КУПИТЬ: {plan or 'смотрит тарифы'}"
+            f"{f' / {period}' if period else ''}\n"
+            f"chat_id: {chat_id}\nusername: @{lead_base['username'] or '—'}\n"
+            f"имя: {lead_base['name'] or '—'}\n"
+            f"💬 Ответь реплаем (реквизиты/вопросы). После оплаты:\n"
+            f"/key {plan or 'max'} 30 email@покупателя {chat_id}",
+        )
+
+
 def handle_user(cfg: dict, msg: dict):
     token = cfg["bot_token"]
     chat_id = msg["chat"]["id"]
@@ -256,7 +409,10 @@ def handle_user(cfg: dict, msg: dict):
     text = msg.get("text", "")
 
     if text.startswith("/start"):
-        payload = text[7:].strip()  # /start utm_метка — атрибуция источника
+        payload = text[7:].strip()  # /start utm_метка ИЛИ buy_<план>_<период> из приложения
+        if payload.startswith("buy"):
+            _handle_buy(cfg, msg, lead_base, payload)
+            return
         save_lead({**lead_base, "kind": "start", "utm": payload})
         send(token, chat_id, WELCOME, reply_markup=download_button(cfg))
         admin_id = int(cfg.get("admin_chat_id") or 0)
@@ -274,6 +430,10 @@ def handle_user(cfg: dict, msg: dict):
                 f"[настройка] Ваш chat_id: {chat_id} — впишите его в config.json "
                 "как admin_chat_id, если вы владелец бота.",
             )
+        return
+
+    if text.startswith("/buy"):
+        _handle_buy(cfg, msg, lead_base, "buy")
         return
 
     if text.startswith("/help"):
