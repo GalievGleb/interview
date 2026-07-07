@@ -158,6 +158,8 @@ export interface SmokeAnswerEvaluation {
    * heuristic fallback. Absent on old saved sessions = unknown.
    */
   evaluationSource?: 'ai' | 'heuristic';
+  /** Почему упал AI-разбор (для честного сообщения): таймаут / квота / прочее. */
+  evaluationError?: 'timeout' | 'quota' | 'error';
 }
 
 export interface SmokeAnswer {
