@@ -1,6 +1,6 @@
 {
   "name": "@interview/desktop",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "private": true,
   "main": "dist-electron/main.js",
   "scripts": {
@@ -84,12 +84,14 @@
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "SkillCue-Setup.${ext}"
     },
     "publish": {
       "provider": "github",
       "owner": "GalievGleb",
-      "repo": "ScillCue"
+      "repo": "ScillCue",
+      "releaseType": "release"
     },
     "protocols": [
       {
