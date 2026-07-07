@@ -663,6 +663,36 @@ export const ru = {
     'Резюме и вакансия подключены. Первый мок займёт 20–30 минут: вопросы, честная оценка каждого ответа и карта готовности в конце.',
   'wizard.startMock': 'Разобрать вакансию и начать мок',
 
+  // Лицензии (LicensesPage)
+  'licenses.title': 'Открытое ПО и лицензии',
+  'licenses.subtitle':
+    'Приложение использует перечисленные ниже open-source компоненты. Полные тексты лицензий доступны в их репозиториях.',
+  'licenses.colComponent': 'Компонент',
+  'licenses.colLicense': 'Лицензия',
+  'licenses.colUse': 'Использование',
+  'licenses.footer':
+    'Whisper-модели распространяются на условиях MIT (OpenAI). Локальная транскрипция выполняется на вашем устройстве; аудио не отправляется на наши серверы.',
+
+  // Экспорт сессии (InterviewExportButtons)
+  'export.jsonTitle': 'Скачать JSON для анализа в AI',
+  'export.json': 'Скачать JSON',
+  'export.txtTitle': 'Скачать TXT для анализа в AI',
+  'export.txt': 'Скачать TXT',
+  'export.mdTitle': 'Скачать Markdown-разбор для чтения после собеседования',
+  'export.md': 'Скачать MD',
+  'export.debugTitle': 'Скачать дебаг: твой голос (WAV) + таймлайн событий STT/LLM с таймингами',
+  'export.debug': 'Дебаг',
+  'export.debugFull': 'Скачать дебаг',
+
+  // Выбор модели (ModelSelect)
+  'modelsel.auto': 'Автовыбор',
+  'modelsel.autoSub': 'SkillCue выберет модель по задаче',
+  'modelsel.missing': 'Выбранная модель недоступна в каталоге — выберите автовыбор или другую модель.',
+  'modelsel.search': 'Поиск по названию, id или провайдеру…',
+  'modelsel.emptyCatalog':
+    'Каталог моделей пуст — синхронизируйте его в настройках AI. «Автовыбор» работает и без каталога.',
+  'modelsel.notFound': 'Модели не найдены',
+
   // Панель транскрипта
   'transcript.title': 'Live-транскрипт',
   'transcript.lines': 'строк',

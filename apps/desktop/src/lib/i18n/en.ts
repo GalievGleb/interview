@@ -659,6 +659,36 @@ export const en: Record<I18nKey, string> = {
     'Resume and vacancy are connected. The first mock takes 20–30 minutes: questions, an honest score for each answer, and a readiness map at the end.',
   'wizard.startMock': 'Review the vacancy and start the mock',
 
+  // Licences (LicensesPage)
+  'licenses.title': 'Open-source software and licences',
+  'licenses.subtitle':
+    'The app uses the open-source components listed below. Full licence texts are available in their repositories.',
+  'licenses.colComponent': 'Component',
+  'licenses.colLicense': 'Licence',
+  'licenses.colUse': 'Use',
+  'licenses.footer':
+    'Whisper models are distributed under the MIT licence (OpenAI). Local transcription runs on your device; audio is not sent to our servers.',
+
+  // Session export (InterviewExportButtons)
+  'export.jsonTitle': 'Download JSON for AI analysis',
+  'export.json': 'Download JSON',
+  'export.txtTitle': 'Download TXT for AI analysis',
+  'export.txt': 'Download TXT',
+  'export.mdTitle': 'Download a Markdown review to read after the interview',
+  'export.md': 'Download MD',
+  'export.debugTitle': 'Download debug: your voice (WAV) + STT/LLM event timeline with timings',
+  'export.debug': 'Debug',
+  'export.debugFull': 'Download debug',
+
+  // Model select (ModelSelect)
+  'modelsel.auto': 'Auto',
+  'modelsel.autoSub': 'SkillCue picks a model per task',
+  'modelsel.missing': 'The selected model is unavailable in the catalog — choose Auto or another model.',
+  'modelsel.search': 'Search by name, id or provider…',
+  'modelsel.emptyCatalog':
+    'The model catalog is empty — sync it in AI settings. "Auto" works without a catalog.',
+  'modelsel.notFound': 'No models found',
+
   // Transcript panel
   'transcript.title': 'Live transcript',
   'transcript.lines': 'lines',

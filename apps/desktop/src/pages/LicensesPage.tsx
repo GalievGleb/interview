@@ -1,3 +1,5 @@
+import { useI18n } from '../lib/i18n';
+
 interface OssComponent {
   name: string;
   license: string;
@@ -25,23 +27,21 @@ const COMPONENTS: OssComponent[] = [
 ];
 
 export default function LicensesPage() {
+  const { t } = useI18n();
   return (
     <div className="max-w-3xl">
       <div className="mb-6">
-        <h2 className="page-title">Открытое ПО и лицензии</h2>
-        <p className="page-subtitle">
-          Приложение использует перечисленные ниже open-source компоненты. Полные тексты лицензий
-          доступны в их репозиториях.
-        </p>
+        <h2 className="page-title">{t('licenses.title')}</h2>
+        <p className="page-subtitle">{t('licenses.subtitle')}</p>
       </div>
 
       <div className="card overflow-hidden p-0">
         <table className="w-full text-sm">
           <thead className="border-b border-surface-border text-left text-xs text-ink-faint">
             <tr>
-              <th className="px-4 py-2">Компонент</th>
-              <th className="px-4 py-2">Лицензия</th>
-              <th className="px-4 py-2">Использование</th>
+              <th className="px-4 py-2">{t('licenses.colComponent')}</th>
+              <th className="px-4 py-2">{t('licenses.colLicense')}</th>
+              <th className="px-4 py-2">{t('licenses.colUse')}</th>
             </tr>
           </thead>
           <tbody>

@@ -6,6 +6,7 @@ import {
   filterModels,
   groupModelsForSelect,
 } from '../lib/aiModels';
+import { useI18n } from '../lib/i18n';
 
 interface Props {
   label: string;
@@ -25,9 +26,12 @@ export default function ModelSelect({
   models,
   onChange,
   missing = false,
-  autoTitle = 'Автовыбор',
-  autoSubtitle = 'SkillCue выберет модель по задаче',
+  autoTitle,
+  autoSubtitle,
 }: Props) {
+  const { t } = useI18n();
+  const resolvedAutoTitle = autoTitle ?? t('modelsel.auto');
+  const resolvedAutoSubtitle = autoSubtitle ?? t('modelsel.autoSub');
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
 
@@ -35,7 +39,7 @@ export default function ModelSelect({
   const filtered = useMemo(() => filterModels(sorted, query), [sorted, query]);
 
   const selectedLabel =
-    value === AUTO_VALUE ? autoTitle : models.find((m) => m.id === value)?.name ?? value;
+    value === AUTO_VALUE ? resolvedAutoTitle : models.find((m) => m.id === value)?.name ?? value;
 
   const pick = (id: string) => {
     onChange(id);
@@ -50,11 +54,7 @@ export default function ModelSelect({
         <p className="text-xs text-ink-muted">{description}</p>
       </div>
 
-      {missing && (
-        <p className="text-xs text-amber-400">
-          Выбранная модель недоступна в каталоге — выберите автовыбор или другую модель.
-        </p>
-      )}
+      {missing && <p className="text-xs text-amber-400">{t('modelsel.missing')}</p>}
 
       <div className="relative">
         <button
@@ -72,15 +72,15 @@ export default function ModelSelect({
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Поиск по названию, id или провайдеру…"
+                placeholder={t('modelsel.search')}
                 className="field text-sm"
                 autoFocus
               />
             </div>
             <div className="max-h-56 overflow-y-auto p-1">
               <OptionRow
-                title={autoTitle}
-                subtitle={autoSubtitle}
+                title={resolvedAutoTitle}
+                subtitle={resolvedAutoSubtitle}
                 active={value === AUTO_VALUE}
                 onPick={() => pick(AUTO_VALUE)}
               />
@@ -96,9 +96,7 @@ export default function ModelSelect({
               ))}
               {filtered.length === 0 && (
                 <p className="px-2 py-3 text-xs text-ink-muted">
-                  {models.length === 0
-                    ? 'Каталог моделей пуст — синхронизируйте его в настройках AI. «Автовыбор» работает и без каталога.'
-                    : 'Модели не найдены'}
+                  {models.length === 0 ? t('modelsel.emptyCatalog') : t('modelsel.notFound')}
                 </p>
               )}
             </div>

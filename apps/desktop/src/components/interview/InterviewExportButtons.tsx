@@ -4,6 +4,7 @@ import {
   exportInterviewSessionMd,
   exportInterviewSessionTxt,
 } from '../../lib/interviewSessionExport';
+import { useI18n } from '../../lib/i18n';
 
 interface InterviewExportButtonsProps {
   exportData: InterviewSessionExport;
@@ -19,6 +20,7 @@ export default function InterviewExportButtons({
   compact = false,
   onDownloadDebug,
 }: InterviewExportButtonsProps) {
+  const { t } = useI18n();
   const canExport =
     !disabled && (exportData.exchanges.length > 0 || exportData.transcript.length > 0);
 
@@ -29,27 +31,27 @@ export default function InterviewExportButtons({
         className="btn-secondary btn-sm"
         disabled={!canExport}
         onClick={() => exportInterviewSessionJson(exportData)}
-        title="Скачать JSON для анализа в AI"
+        title={t('export.jsonTitle')}
       >
-        {compact ? 'JSON' : 'Скачать JSON'}
+        {compact ? 'JSON' : t('export.json')}
       </button>
       <button
         type="button"
         className="btn-secondary btn-sm"
         disabled={!canExport}
         onClick={() => exportInterviewSessionTxt(exportData)}
-        title="Скачать TXT для анализа в AI"
+        title={t('export.txtTitle')}
       >
-        {compact ? 'TXT' : 'Скачать TXT'}
+        {compact ? 'TXT' : t('export.txt')}
       </button>
       <button
         type="button"
         className="btn-secondary btn-sm"
         disabled={!canExport}
         onClick={() => exportInterviewSessionMd(exportData)}
-        title="Скачать Markdown-разбор для чтения после собеседования"
+        title={t('export.mdTitle')}
       >
-        {compact ? 'MD' : 'Скачать MD'}
+        {compact ? 'MD' : t('export.md')}
       </button>
       {onDownloadDebug && (
         <button
@@ -57,9 +59,9 @@ export default function InterviewExportButtons({
           className="btn-secondary btn-sm"
           disabled={!canExport}
           onClick={() => onDownloadDebug()}
-          title="Скачать дебаг: твой голос (WAV) + таймлайн событий STT/LLM с таймингами"
+          title={t('export.debugTitle')}
         >
-          {compact ? 'Дебаг' : 'Скачать дебаг'}
+          {compact ? t('export.debug') : t('export.debugFull')}
         </button>
       )}
     </div>
