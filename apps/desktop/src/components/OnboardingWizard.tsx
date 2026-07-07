@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
+import { useI18n } from '../lib/i18n';
 
 const DISMISS_KEY = 'skillcue:onboarding-dismissed';
 
@@ -27,6 +28,7 @@ interface Props {
  */
 export default function OnboardingWizard({ hasResume, hasVacancy, onDocsChanged, onDismiss }: Props) {
   const navigate = useNavigate();
+  const { t } = useI18n();
   const [resumeText, setResumeText] = useState('');
   const [vacancyText, setVacancyText] = useState('');
   const [saving, setSaving] = useState(false);
@@ -46,61 +48,54 @@ export default function OnboardingWizard({ hasResume, hasVacancy, onDocsChanged,
   const saveDoc = async (kind: 'resume' | 'vacancy', text: string) => {
     const trimmed = text.trim();
     if (trimmed.length < 30) {
-      setError('Слишком коротко — вставьте полный текст, хотя бы пару абзацев.');
+      setError(t('wizard.tooShort'));
       return;
     }
     setSaving(true);
     setError('');
     try {
       const title =
-        kind === 'resume' ? 'Резюме' : trimmed.split('\n')[0].slice(0, 60) || 'Вакансия';
+        kind === 'resume' ? t('docs.kind.resume') : trimmed.split('\n')[0].slice(0, 60) || t('docs.kind.vacancy');
       await api.uploadText(kind, title, trimmed);
       onDocsChanged();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Не удалось сохранить — проверьте, запущен ли backend.');
+      setError(e instanceof Error ? e.message : t('wizard.saveError'));
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <section className="prep-card prep-card-pad prep-rise" aria-label="Первые шаги">
+    <section className="prep-card prep-card-pad prep-rise" aria-label={t('wizard.firstSteps')}>
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="prep-eyebrow">Первые шаги · {step} из 3</p>
+          <p className="prep-eyebrow">{t('wizard.firstSteps')} · {step} {t('home.report.of')} 3</p>
           <h2 className="prep-h2 mt-1">
-            {step === 1
-              ? 'Шаг 1. Вставьте резюме — ответы будут вашими фактами'
-              : step === 2
-                ? 'Шаг 2. Вставьте вакансию, к которой готовитесь'
-                : 'Шаг 3. Всё готово — прогоните первый мок'}
+            {step === 1 ? t('wizard.step1') : step === 2 ? t('wizard.step2') : t('wizard.step3')}
           </h2>
         </div>
         <button type="button" className="prep-link-btn shrink-0" onClick={dismiss}>
-          Скрыть
+          {t('overlay.pill.hide')}
         </button>
       </div>
 
       <div className="prep-flow-line mt-2" aria-hidden="true">
         <span style={hasResume ? { color: 'var(--prep-green)' } : undefined}>
-          {hasResume ? '✓ ' : ''}Резюме
+          {hasResume ? '✓ ' : ''}{t('docs.kind.resume')}
         </span>
         <span style={hasVacancy ? { color: 'var(--prep-green)' } : undefined}>
-          {hasVacancy ? '✓ ' : ''}Вакансия
+          {hasVacancy ? '✓ ' : ''}{t('docs.kind.vacancy')}
         </span>
-        <span>Мок-интервью</span>
+        <span>{t('wizard.mock')}</span>
       </div>
 
       {step === 1 && (
         <>
-          <p className="prep-sub mt-2">
-            Без резюме подсказки будут общими. С резюме SkillCue отвечает вашим опытом и не
-            выдумывает лишнего. Файлом (PDF/DOCX) можно загрузить на странице «Документы».
-          </p>
+          <p className="prep-sub mt-2">{t('wizard.step1Sub')}</p>
           <textarea
             className="prep-textarea mt-3"
             style={{ minHeight: 140 }}
-            placeholder="Вставьте текст резюме: опыт, проекты, стек…"
+            placeholder={t('wizard.resumePlaceholder')}
             value={resumeText}
             onChange={(e) => setResumeText(e.target.value)}
           />
@@ -111,10 +106,10 @@ export default function OnboardingWizard({ hasResume, hasVacancy, onDocsChanged,
               disabled={saving}
               onClick={() => saveDoc('resume', resumeText)}
             >
-              {saving ? 'Сохраняю…' : 'Сохранить резюме'}
+              {saving ? t('common.saving') : t('wizard.saveResume')}
             </button>
             <button type="button" className="prep-btn-ghost prep-btn-sm" onClick={() => navigate('/documents')}>
-              Загрузить файлом
+              {t('wizard.uploadFile')}
             </button>
           </div>
         </>
@@ -122,14 +117,11 @@ export default function OnboardingWizard({ hasResume, hasVacancy, onDocsChanged,
 
       {step === 2 && (
         <>
-          <p className="prep-sub mt-2">
-            SkillCue разберёт её на требования и вероятные вопросы и соберёт план мок-интервью
-            под эту конкретную роль.
-          </p>
+          <p className="prep-sub mt-2">{t('wizard.step2Sub')}</p>
           <textarea
             className="prep-textarea mt-3"
             style={{ minHeight: 140 }}
-            placeholder="Вставьте описание вакансии: обязанности, требования, стек…"
+            placeholder={t('wizard.vacancyPlaceholder')}
             value={vacancyText}
             onChange={(e) => setVacancyText(e.target.value)}
           />
@@ -140,7 +132,7 @@ export default function OnboardingWizard({ hasResume, hasVacancy, onDocsChanged,
               disabled={saving}
               onClick={() => saveDoc('vacancy', vacancyText)}
             >
-              {saving ? 'Сохраняю…' : 'Сохранить вакансию'}
+              {saving ? t('common.saving') : t('wizard.saveVacancy')}
             </button>
           </div>
         </>
@@ -148,13 +140,10 @@ export default function OnboardingWizard({ hasResume, hasVacancy, onDocsChanged,
 
       {step === 3 && (
         <>
-          <p className="prep-sub mt-2">
-            Резюме и вакансия подключены. Первый мок займёт 20–30 минут: вопросы, честная
-            оценка каждого ответа и карта готовности в конце.
-          </p>
+          <p className="prep-sub mt-2">{t('wizard.step3Sub')}</p>
           <div className="mt-3">
             <button type="button" className="prep-btn" onClick={() => navigate('/prepare')}>
-              Разобрать вакансию и начать мок
+              {t('wizard.startMock')}
             </button>
           </div>
         </>

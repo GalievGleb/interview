@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState, type DragEvent } from 'react';
 import { api } from '../lib/api';
 import { useApp } from '../context/AppContext';
+import { useI18n } from '../lib/i18n';
 import MarkdownText from '../components/MarkdownText';
 
 type Mode = 'review' | 'summary';
 
 export default function MeetingPage() {
+  const { t } = useI18n();
   const { hasAnyKey } = useApp();
   const [transcript, setTranscript] = useState('');
   const [result, setResult] = useState('');
@@ -26,7 +28,7 @@ export default function MeetingPage() {
   // после закрытия страницы: summary + исходный транскрипт.
   const saveToHistory = async (summary: string, sourceTranscript: string, kind: Mode) => {
     try {
-      const title = `${kind === 'review' ? 'Разбор интервью' : 'Итоги встречи'}${
+      const title = `${kind === 'review' ? t('meeting.reviewTitle') : t('meeting.summaryTitle')}${
         fileName ? ` — ${fileName}` : ''
       }`;
       const session = await api.createSession('meeting', title);
@@ -47,7 +49,7 @@ export default function MeetingPage() {
       setFileName(file.name);
       setError('');
     } catch {
-      setError('Не удалось прочитать файл');
+      setError(t('meeting.readError'));
     }
   };
 
@@ -73,9 +75,9 @@ export default function MeetingPage() {
     cancelRef.current = stream(
       transcript,
       {
-        onChunk: (t) => {
-          accumulated += t;
-          setResult((prev) => prev + t);
+        onChunk: (chunk) => {
+          accumulated += chunk;
+          setResult((prev) => prev + chunk);
         },
         onDone: () => {
           setLoading(false);
@@ -93,16 +95,13 @@ export default function MeetingPage() {
   return (
     <div className="max-w-3xl">
       <div className="mb-5">
-        <h2 className="page-title">Разбор разговора</h2>
-        <p className="page-subtitle">
-          Загрузите запись интервью (или вставьте текст) — получите разбор слабых ответов
-          кандидата либо summary встречи. Аудио не загружается; анализируется только текст.
-        </p>
+        <h2 className="page-title">{t('settings.dev.meeting')}</h2>
+        <p className="page-subtitle">{t('meeting.pageSub')}</p>
       </div>
 
       {!hasAnyKey && !localLlm && (
         <div className="mb-4 rounded-xl border border-amber-700/30 bg-amber-950/20 p-3.5 text-sm text-amber-200">
-          Сначала добавьте API-ключ в «Настройках» — или включите локальную модель ниже.
+          {t('meeting.needKey')}
         </div>
       )}
 
@@ -115,37 +114,35 @@ export default function MeetingPage() {
             onChange={(e) => setLocalLlm(e.target.checked)}
             className="h-4 w-4 accent-[#34c77b]"
           />
-          Локально (Ollama)
+          {t('meeting.local')}
         </label>
         {localLlm && (
           <>
             <input
               value={localModel}
               onChange={(e) => setLocalModel(e.target.value)}
-              placeholder="модель (например llama3.1)"
+              placeholder={t('meeting.modelPlaceholder')}
               className="field max-w-[220px] py-1.5 text-xs"
             />
-            <span className="text-xs text-ink-faint">
-              Нужен запущенный Ollama (localhost:11434). Анализ не уходит в облако.
-            </span>
+            <span className="text-xs text-ink-faint">{t('meeting.localHint')}</span>
           </>
         )}
       </div>
 
-      <div className="segmented mb-3" role="group" aria-label="Режим анализа">
+      <div className="segmented mb-3" role="group" aria-label={t('meeting.modeAria')}>
         <button
           type="button"
           onClick={() => setMode('review')}
           className={`segmented-item ${mode === 'review' ? 'segmented-item-active' : ''}`}
         >
-          Разбор интервью
+          {t('meeting.reviewTitle')}
         </button>
         <button
           type="button"
           onClick={() => setMode('summary')}
           className={`segmented-item ${mode === 'summary' ? 'segmented-item-active' : ''}`}
         >
-          Итоги встречи
+          {t('meeting.summaryTitle')}
         </button>
       </div>
 
@@ -164,8 +161,8 @@ export default function MeetingPage() {
         }`}
       >
         {fileName
-          ? `Загружен: ${fileName} — кликните, чтобы заменить`
-          : 'Перетащите файл с разговором (.txt, .md, .vtt, .srt) или кликните для выбора'}
+          ? `${t('meeting.loaded')} ${fileName} ${t('meeting.replaceHint')}`
+          : t('meeting.dropHint')}
         <input
           ref={fileRef}
           type="file"
@@ -181,7 +178,7 @@ export default function MeetingPage() {
       <textarea
         value={transcript}
         onChange={(e) => setTranscript(e.target.value)}
-        placeholder="…или вставьте текст разговора сюда"
+        placeholder={t('meeting.pasteHint')}
         rows={10}
         className="field resize-y leading-relaxed"
       />
@@ -191,7 +188,7 @@ export default function MeetingPage() {
           disabled={loading || !transcript.trim()}
           className="btn-primary"
         >
-          {loading ? 'Анализ…' : mode === 'review' ? 'Разобрать интервью' : 'Сделать итоги'}
+          {loading ? t('meeting.analyzing') : mode === 'review' ? t('meeting.reviewBtn') : t('meeting.summaryBtn')}
         </button>
         {error && <p className="text-sm text-red-400">{error}</p>}
       </div>
@@ -199,7 +196,7 @@ export default function MeetingPage() {
       {result && (
         <div className="card mt-6 p-5 text-sm leading-relaxed text-ink">
           {savedToHistory && (
-            <p className="mb-3 text-xs text-emerald-400">Сохранено в Историю (фильтр «Разбор»)</p>
+            <p className="mb-3 text-xs text-emerald-400">{t('meeting.savedToHistory')}</p>
           )}
           <MarkdownText text={result} />
         </div>

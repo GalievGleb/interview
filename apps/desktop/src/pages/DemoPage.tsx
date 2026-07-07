@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
+import { useI18n, type I18nKey } from '../lib/i18n';
 
 /**
  * Демо «как это работает» — скриптованная live-сессия без микрофона, STT и
@@ -16,24 +17,6 @@ interface DemoTurn {
   answer: string;
 }
 
-const DEMO_TURNS: DemoTurn[] = [
-  {
-    speech: ['Давайте начнём.', 'Давайте начнём. Расскажите, как бы вы тестировали форму логина?'],
-    question: 'Как бы вы тестировали форму логина?',
-    answer:
-      'Я бы разбил проверку на слои. Сначала позитивный сценарий: валидная пара логин-пароль, вход, редирект. Дальше негативные: неверный пароль, пустые поля, несуществующий пользователь — и проверяю тексты ошибок. Затем граничные случаи: пробелы, длинные строки, спецсимволы, SQL-инъекции. И отдельно — безопасность: блокировка после серии неудачных попыток и что пароль не светится в логах.',
-  },
-  {
-    speech: [
-      'Хорошо. А чем severity',
-      'Хорошо. А чем severity отличается от priority? Приведите пример.',
-    ],
-    question: 'Чем severity отличается от priority?',
-    answer:
-      'Severity — это техническая тяжесть дефекта, насколько сильно он ломает систему. Priority — очерёдность исправления с точки зрения бизнеса. Они не всегда совпадают: опечатка в названии компании на главной — severity низкий, а priority высокий. И наоборот: падение редкого экспорта, которым никто не пользуется, — severity высокий, priority низкий.',
-  },
-];
-
 interface DemoLine {
   speaker: 'other' | 'me';
   text: string;
@@ -42,17 +25,33 @@ interface DemoLine {
 
 type Phase = 'idle' | 'listening' | 'transcribing' | 'answering' | 'done';
 
-const PHASE_LABEL: Record<Phase, string> = {
-  idle: 'Демо готово',
-  listening: 'Слушаю разговор',
-  transcribing: 'Распознаю вопрос',
-  answering: 'Отвечаю',
-  done: 'Демо завершено',
+const PHASE_KEY: Record<Phase, I18nKey> = {
+  idle: 'demo.phase.idle',
+  listening: 'demo.phase.listening',
+  transcribing: 'demo.phase.transcribing',
+  answering: 'demo.phase.answering',
+  done: 'demo.phase.done',
 };
 
 export default function DemoPage() {
   const navigate = useNavigate();
+  const { t } = useI18n();
   const { hasAnyKey, hasStt } = useApp();
+  const demoTurns = useMemo<DemoTurn[]>(
+    () => [
+      {
+        speech: [t('demo.t1.s1'), t('demo.t1.s2')],
+        question: t('demo.t1.q'),
+        answer: t('demo.t1.a'),
+      },
+      {
+        speech: [t('demo.t2.s1'), t('demo.t2.s2')],
+        question: t('demo.t2.q'),
+        answer: t('demo.t2.a'),
+      },
+    ],
+    [t],
+  );
   const [phase, setPhase] = useState<Phase>('idle');
   const [lines, setLines] = useState<DemoLine[]>([]);
   const [question, setQuestion] = useState('');
@@ -81,7 +80,7 @@ export default function DemoPage() {
     setSttMs(null);
     setLlmMs(null);
 
-    for (const turn of DEMO_TURNS) {
+    for (const turn of demoTurns) {
       if (!alive()) return;
       setPhase('listening');
       setQuestion('');
@@ -129,15 +128,15 @@ export default function DemoPage() {
 
     if (!alive()) return;
     setPhase('done');
-  }, []);
+  }, [demoTurns]);
 
   const setupReady = hasAnyKey && hasStt;
 
   return (
     <div className="mx-auto flex h-full max-w-5xl flex-col">
       <div className="mb-4 flex flex-wrap items-center gap-3">
-        <span className="sc-badge sc-badge--accent">ДЕМО</span>
-        <h1 className="text-lg font-bold text-ink">Как работает live-подсказка</h1>
+        <span className="sc-badge sc-badge--accent">{t('demo.badge')}</span>
+        <h1 className="text-lg font-bold text-ink">{t('demo.title')}</h1>
         <span className="ml-auto flex items-center gap-2 text-[12px] text-ink-muted">
           <span
             className={`sc-dot ${
@@ -148,7 +147,7 @@ export default function DemoPage() {
                   : ''
             }`}
           />
-          {PHASE_LABEL[phase]}
+          {t(PHASE_KEY[phase])}
         </span>
         {sttMs !== null && (
           <span className="sc-badge font-mono text-[11px]">STT {(sttMs / 1000).toFixed(1)}s</span>
@@ -158,20 +157,13 @@ export default function DemoPage() {
         )}
       </div>
 
-      <p className="mb-4 text-sm text-ink-muted">
-        Это воспроизведение заготовленной записи: микрофон, распознавание и AI-ключи не
-        используются. В реальной сессии SkillCue слушает звук встречи и отвечает так же — за
-        пару секунд после вопроса.
-      </p>
+      <p className="mb-4 text-sm text-ink-muted">{t('demo.disclaimer')}</p>
 
       {phase === 'idle' ? (
         <div className="sc-card flex flex-1 flex-col items-center justify-center gap-4 p-10 text-center">
-          <p className="max-w-md text-sm text-ink-muted">
-            60 секунд: интервьюер задаёт два вопроса, SkillCue распознаёт их и подсказывает
-            готовый ответ, который можно произнести вслух.
-          </p>
+          <p className="max-w-md text-sm text-ink-muted">{t('demo.intro')}</p>
           <button type="button" className="btn-primary" onClick={() => void play()}>
-            Запустить демо
+            {t('demo.start')}
           </button>
         </div>
       ) : (
@@ -179,13 +171,13 @@ export default function DemoPage() {
           {/* Транскрипт */}
           <div className="sc-card flex min-h-0 flex-col p-4">
             <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
-              Живой транскрипт
+              {t('overlay.liveTranscript')}
             </p>
             <div className="min-h-0 flex-1 space-y-2 overflow-y-auto">
               {lines.map((line, i) => (
                 <div key={i} className="text-[13px] leading-relaxed">
                   <span className="mr-1.5 text-[11px] font-semibold uppercase text-sky-400">
-                    Интервьюер
+                    {t('history.speaker.other')}
                   </span>
                   <span className={line.final ? 'text-ink' : 'text-ink-muted'}>
                     {line.text}
@@ -194,7 +186,7 @@ export default function DemoPage() {
                 </div>
               ))}
               {lines.length === 0 && (
-                <p className="text-[13px] text-ink-faint">Жду начала разговора…</p>
+                <p className="text-[13px] text-ink-faint">{t('demo.waiting')}</p>
               )}
             </div>
           </div>
@@ -204,11 +196,11 @@ export default function DemoPage() {
             {question ? (
               <>
                 <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
-                  Вопрос
+                  {t('prep.smoke.question')}
                 </p>
                 <p className="mb-3 text-[13.5px] font-semibold text-ink">{question}</p>
                 <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
-                  Подсказка — сказать вслух
+                  {t('demo.hintLabel')}
                 </p>
                 <div className="min-h-0 flex-1 overflow-y-auto text-[14px] leading-relaxed text-ink">
                   {answer}
@@ -217,7 +209,7 @@ export default function DemoPage() {
               </>
             ) : (
               <div className="flex flex-1 items-center justify-center text-[13px] text-ink-faint">
-                {phase === 'done' ? 'Демо завершено' : 'Как только прозвучит вопрос — здесь появится ответ'}
+                {phase === 'done' ? t('demo.phase.done') : t('demo.answerHint')}
               </div>
             )}
           </div>
@@ -228,24 +220,23 @@ export default function DemoPage() {
       {phase === 'done' && (
         <div className="sc-card mt-4 flex flex-wrap items-center gap-3 p-4">
           <p className="min-w-0 flex-1 text-sm text-ink-muted">
-            {setupReady
-              ? 'Всё настроено — можно запускать реальную сессию.'
-              : 'Для реальной сессии нужны AI-ключ и локальная модель речи — настройка занимает пару минут.'}
+            {setupReady ? t('demo.finalReady') : t('demo.finalNotReady')}
           </p>
           <button
             type="button"
             className="btn-secondary btn-sm"
             onClick={() => void play()}
           >
-            Ещё раз
+            {t('demo.again')}
           </button>
           <button
             type="button"
             className="btn-primary btn-sm"
             onClick={() => navigate(setupReady ? '/interview' : '/settings?tab=ai')}
           >
-            {setupReady ? 'Запустить live' : 'Настроить и попробовать'}
+            {setupReady ? t('demo.startLive') : t('demo.setup')}
           </button>
+
         </div>
       )}
     </div>

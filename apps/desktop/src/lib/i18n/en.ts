@@ -583,6 +583,82 @@ export const en: Record<I18nKey, string> = {
   'prep.smoke.speakStopBtn': '■ Stop',
   'prep.smoke.speakBtn': '🔊 Read aloud',
 
+  // Conversation review (MeetingPage)
+  'meeting.reviewTitle': 'Interview review',
+  'meeting.summaryTitle': 'Meeting summary',
+  'meeting.readError': 'Could not read the file',
+  'meeting.pageSub':
+    'Upload an interview recording (or paste the text) to get a review of the candidate\'s weak answers or a meeting summary. Audio is not uploaded; only the text is analyzed.',
+  'meeting.needKey':
+    'First add an API key in Settings — or enable a local model below.',
+  'meeting.local': 'Locally (Ollama)',
+  'meeting.modelPlaceholder': 'model (e.g. llama3.1)',
+  'meeting.localHint': 'A running Ollama (localhost:11434) is required. Analysis does not go to the cloud.',
+  'meeting.modeAria': 'Analysis mode',
+  'meeting.loaded': 'Loaded:',
+  'meeting.replaceHint': '— click to replace',
+  'meeting.dropHint':
+    'Drop a conversation file (.txt, .md, .vtt, .srt) or click to choose',
+  'meeting.pasteHint': '…or paste the conversation text here',
+  'meeting.analyzing': 'Analyzing…',
+  'meeting.reviewBtn': 'Review interview',
+  'meeting.summaryBtn': 'Make summary',
+  'meeting.savedToHistory': 'Saved to History (the "Review" filter)',
+
+  // "How it works" demo (DemoPage)
+  'demo.phase.idle': 'Demo ready',
+  'demo.phase.listening': 'Listening to the conversation',
+  'demo.phase.transcribing': 'Recognizing the question',
+  'demo.phase.answering': 'Answering',
+  'demo.phase.done': 'Demo finished',
+  'demo.badge': 'DEMO',
+  'demo.title': 'How the live hint works',
+  'demo.disclaimer':
+    "This is a playback of a prepared recording: no microphone, recognition or AI keys are used. In a real session SkillCue listens to the meeting audio and answers the same way — a couple of seconds after the question.",
+  'demo.intro':
+    '60 seconds: the interviewer asks two questions, SkillCue recognizes them and suggests a ready answer you can say out loud.',
+  'demo.start': 'Start the demo',
+  'demo.waiting': 'Waiting for the conversation to start…',
+  'demo.hintLabel': 'Hint — say it out loud',
+  'demo.answerHint': 'As soon as a question is asked, the answer appears here',
+  'demo.finalReady': 'Everything is set up — you can start a real session.',
+  'demo.finalNotReady':
+    'A real session needs an AI key and a local speech model — setup takes a couple of minutes.',
+  'demo.again': 'Again',
+  'demo.startLive': 'Start live',
+  'demo.setup': 'Set up and try',
+  'demo.t1.s1': "Let's begin.",
+  'demo.t1.s2': "Let's begin. Tell me, how would you test a login form?",
+  'demo.t1.q': 'How would you test a login form?',
+  'demo.t1.a':
+    "I'd split the checks into layers. First the positive path: a valid login-password pair, sign-in, redirect. Then the negatives: wrong password, empty fields, a non-existent user — checking the error messages. Then edge cases: spaces, long strings, special characters, SQL injections. And separately — security: lockout after a series of failed attempts, and that the password never shows up in logs.",
+  'demo.t2.s1': 'Good. And how is severity',
+  'demo.t2.s2': 'Good. And how is severity different from priority? Give an example.',
+  'demo.t2.q': 'How is severity different from priority?',
+  'demo.t2.a':
+    "Severity is the technical seriousness of a defect — how badly it breaks the system. Priority is the order of fixing from a business point of view. They don't always match: a typo in the company name on the homepage is low severity but high priority. And the other way round: a crash in a rarely used export nobody touches is high severity but low priority.",
+
+  // First-run wizard (OnboardingWizard)
+  'wizard.tooShort': 'Too short — paste the full text, at least a couple of paragraphs.',
+  'wizard.saveError': 'Could not save — check that the backend is running.',
+  'wizard.firstSteps': 'First steps',
+  'wizard.step1': 'Step 1. Paste your resume — answers will use your facts',
+  'wizard.step2': "Step 2. Paste the vacancy you're preparing for",
+  'wizard.step3': 'Step 3. All set — run your first mock',
+  'wizard.mock': 'Mock interview',
+  'wizard.step1Sub':
+    'Without a resume the hints are generic. With one, SkillCue answers with your experience and does not make things up. You can upload a file (PDF/DOCX) on the "Documents" page.',
+  'wizard.resumePlaceholder': 'Paste your resume text: experience, projects, stack…',
+  'wizard.saveResume': 'Save resume',
+  'wizard.uploadFile': 'Upload as a file',
+  'wizard.step2Sub':
+    'SkillCue will break it down into requirements and likely questions and build a mock-interview plan for this specific role.',
+  'wizard.vacancyPlaceholder': 'Paste the vacancy description: responsibilities, requirements, stack…',
+  'wizard.saveVacancy': 'Save vacancy',
+  'wizard.step3Sub':
+    'Resume and vacancy are connected. The first mock takes 20–30 minutes: questions, an honest score for each answer, and a readiness map at the end.',
+  'wizard.startMock': 'Review the vacancy and start the mock',
+
   // Transcript panel
   'transcript.title': 'Live transcript',
   'transcript.lines': 'lines',
