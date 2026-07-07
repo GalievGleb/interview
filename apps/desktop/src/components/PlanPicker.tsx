@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useApp } from '../context/AppContext';
+import { useI18n } from '../lib/i18n';
 import {
   PLANS,
   checkoutUrl,
@@ -15,6 +16,7 @@ import {
  */
 export default function PlanPicker() {
   const { license } = useApp();
+  const { t } = useI18n();
   const [period, setPeriod] = useState<BillingPeriod>('monthly');
   const [confirmPlan, setConfirmPlan] = useState<PlanId | null>(null);
 
@@ -31,18 +33,18 @@ export default function PlanPicker() {
     <div className="sc-card mb-5 p-5">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h3 className="text-sm font-semibold text-ink">Тариф</h3>
+          <h3 className="text-sm font-semibold text-ink">{t('plan.title')}</h3>
           <p className="mt-0.5 text-xs text-ink-faint">
             {currentPlan
-              ? `Текущий план: ${currentPlan === 'max' ? 'Максимум' : 'Базовый'}`
-              : 'Пробный доступ: 15 минут live и небольшой лимит на подготовку'}
+              ? `${t('plan.current')} ${currentPlan === 'max' ? t('plan.max') : t('plan.basic')}`
+              : t('plan.trialInfo')}
           </p>
         </div>
-        <div className="sc-segmented" role="group" aria-label="Период оплаты">
+        <div className="sc-segmented" role="group" aria-label={t('plan.periodAria')}>
           {(
             [
-              ['monthly', 'Месяц'],
-              ['yearly', 'Год · −17%'],
+              ['monthly', t('plan.monthly')],
+              ['yearly', t('plan.yearly')],
             ] as const
           ).map(([id, label]) => (
             <button
@@ -71,23 +73,23 @@ export default function PlanPicker() {
               }`}
             >
               <div className="mb-1 flex items-center justify-between gap-2">
-                <p className="text-[13px] font-semibold text-ink">{plan.name}</p>
+                <p className="text-[13px] font-semibold text-ink">{t(plan.nameKey)}</p>
                 {isCurrent ? (
-                  <span className="sc-badge sc-badge--success">Текущий</span>
+                  <span className="sc-badge sc-badge--success">{t('plan.currentBadge')}</span>
                 ) : plan.popular ? (
-                  <span className="sc-badge sc-badge--accent">Популярный</span>
+                  <span className="sc-badge sc-badge--accent">{t('plan.popular')}</span>
                 ) : null}
               </div>
               <p className="mb-3">
                 <span className="text-2xl font-bold text-ink">{formatRub(price)}</span>
                 <span className="text-xs text-ink-faint">
-                  {period === 'monthly' ? ' / месяц' : ' / год'}
+                  {period === 'monthly' ? t('plan.perMonth') : t('plan.perYear')}
                 </span>
               </p>
               <ul className="mb-4 space-y-1.5">
                 {plan.features.map((f) => (
                   <li
-                    key={f.text}
+                    key={f.textKey}
                     className={`flex items-start gap-2 text-xs ${
                       f.included ? 'text-ink-muted' : 'text-ink-faint line-through'
                     }`}
@@ -95,20 +97,19 @@ export default function PlanPicker() {
                     <span className={f.included ? 'text-accent' : 'text-ink-faint'}>
                       {f.included ? '✓' : '—'}
                     </span>
-                    {f.text}
+                    {t(f.textKey)}
                   </li>
                 ))}
               </ul>
 
               {isCurrent ? (
                 <button type="button" className="btn-secondary btn-sm w-full" disabled>
-                  Ваш текущий план
+                  {t('plan.yourCurrent')}
                 </button>
               ) : confirmPlan === plan.id ? (
                 <div className="rounded-xl border border-surface-border bg-surface-panel p-3">
                   <p className="mb-2 text-[11.5px] leading-snug text-ink-muted">
-                    Оплата откроется в браузере. После оплаты лицензионный ключ придёт
-                    на почту — активируйте его в карточке «Лицензия» ниже.
+                    {t('plan.checkoutNote')}
                   </p>
                   <div className="flex gap-2">
                     <button
@@ -116,14 +117,14 @@ export default function PlanPicker() {
                       className="btn-primary btn-sm flex-1"
                       onClick={() => openCheckout(plan.id)}
                     >
-                      Перейти к оплате
+                      {t('plan.goToCheckout')}
                     </button>
                     <button
                       type="button"
                       className="btn-secondary btn-sm"
                       onClick={() => setConfirmPlan(null)}
                     >
-                      Отмена
+                      {t('common.cancel')}
                     </button>
                   </div>
                 </div>
@@ -133,7 +134,7 @@ export default function PlanPicker() {
                   className={`btn-sm w-full ${plan.popular ? 'btn-primary' : 'btn-secondary'}`}
                   onClick={() => setConfirmPlan(plan.id)}
                 >
-                  {currentPlan ? 'Сменить план' : 'Оформить'}
+                  {currentPlan ? t('plan.switch') : t('plan.subscribe')}
                 </button>
               )}
             </div>

@@ -9,46 +9,48 @@
  * готов: apps/api-py/tools/license_webhook.py.
  */
 
+import type { I18nKey } from './i18n';
+
 export type PlanId = 'basic' | 'max';
 export type BillingPeriod = 'monthly' | 'yearly';
 
 export interface PlanInfo {
   id: PlanId;
-  name: string;
+  nameKey: I18nKey;
   monthlyRub: number;
   /** Год = 10 месяцев (2 в подарок). */
   yearlyRub: number;
-  features: Array<{ text: string; included: boolean }>;
+  features: Array<{ textKey: I18nKey; included: boolean }>;
   popular?: boolean;
 }
 
 export const PLANS: PlanInfo[] = [
   {
     id: 'basic',
-    name: 'Базовый — подготовка',
+    nameKey: 'billing.plan.basic.name',
     monthlyRub: 1490,
     yearlyRub: 14900,
     features: [
-      { text: 'Мок-собеседования с разбором', included: true },
-      { text: 'Анализ вакансий и слабых тем', included: true },
-      { text: 'База знаний и тренировка ответов', included: true },
-      { text: 'Месячный объём ИИ для подготовки', included: true },
-      { text: 'Live-подсказки и оверлей', included: false },
-      { text: 'Анализ экрана и скрытность', included: false },
+      { textKey: 'billing.feat.mock', included: true },
+      { textKey: 'billing.feat.vacancy', included: true },
+      { textKey: 'billing.feat.kb', included: true },
+      { textKey: 'billing.feat.aiPrep', included: true },
+      { textKey: 'billing.feat.live', included: false },
+      { textKey: 'billing.feat.screen', included: false },
     ],
   },
   {
     id: 'max',
-    name: 'Максимум — всё включено',
+    nameKey: 'billing.plan.max.name',
     monthlyRub: 2990,
     yearlyRub: 29900,
     popular: true,
     features: [
-      { text: 'Всё из «Базового»', included: true },
-      { text: 'Live-подсказки во время собеседования', included: true },
-      { text: 'Оверлей поверх Zoom/Meet + скрытность', included: true },
-      { text: 'Анализ экрана (скриншот → подсказка)', included: true },
-      { text: 'Увеличенный объём ИИ — хватит на активный поиск', included: true },
+      { textKey: 'billing.feat.allBasic', included: true },
+      { textKey: 'billing.feat.liveDuring', included: true },
+      { textKey: 'billing.feat.overlay', included: true },
+      { textKey: 'billing.feat.screenshot', included: true },
+      { textKey: 'billing.feat.aiMax', included: true },
     ],
   },
 ];

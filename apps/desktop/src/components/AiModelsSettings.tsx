@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../lib/api';
 import ModelSelect from './ModelSelect';
 import { AiSettings, AUTO_VALUE, NormalizedModel, isModelMissing } from '../lib/aiModels';
+import { useI18n } from '../lib/i18n';
 
 /**
  * Выбор моделей. Ключ провайдера живёт на сервере (лицензионный гейтвей), поэтому
@@ -9,6 +10,7 @@ import { AiSettings, AUTO_VALUE, NormalizedModel, isModelMissing } from '../lib/
  * подтягиваются автоматически. Доступен только выбор модели под задачу.
  */
 export default function AiModelsSettings() {
+  const { t } = useI18n();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState('');
@@ -43,11 +45,11 @@ export default function AiModelsSettings() {
         /* каталог недоступен (нет сети/лицензии) — останется «Автовыбор» */
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Не удалось загрузить настройки моделей');
+      setError(err instanceof Error ? err.message : t('aimodels.loadError'));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void load();
@@ -78,82 +80,80 @@ export default function AiModelsSettings() {
         vacancy_review_model: vacancyModel,
       });
       await load();
-      setToast('Настройки сохранены');
+      setToast(t('aimodels.saved'));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Ошибка сохранения');
+      setError(err instanceof Error ? err.message : t('aimodels.saveError'));
     } finally {
       setSaving(false);
     }
   };
 
   if (loading) {
-    return <div className="card mb-5 p-5 text-sm text-ink-muted">Загрузка моделей…</div>;
+    return <div className="card mb-5 p-5 text-sm text-ink-muted">{t('aimodels.loading')}</div>;
   }
 
   return (
     <div className="card mb-5 space-y-6 p-5">
       <div>
-        <h3 className="text-sm font-semibold text-ink">Выбор моделей</h3>
-        <p className="mt-0.5 text-sm text-ink-muted">
-          «Автовыбор» — SkillCue сам подбирает модель под задачу. При желании поставьте конкретную.
-        </p>
+        <h3 className="text-sm font-semibold text-ink">{t('aimodels.title')}</h3>
+        <p className="mt-0.5 text-sm text-ink-muted">{t('aimodels.desc')}</p>
       </div>
 
       <div className="space-y-5">
         <ModelSelect
-          label="Основная модель Copilot"
-          description="Для обычных ответов и общих действий SkillCue."
+          label={t('aimodels.default.label')}
+          description={t('aimodels.default.desc')}
           value={defaultModel}
           models={models}
           missing={isModelMissing(defaultModel, models)}
           onChange={setDefaultModel}
         />
         <ModelSelect
-          label="Модель для кода"
-          description="Для задач, где важны код, архитектура, технические объяснения и исправления."
+          label={t('aimodels.coding.label')}
+          description={t('aimodels.coding.desc')}
           value={codingModel}
           models={models}
           missing={isModelMissing(codingModel, models)}
           onChange={setCodingModel}
         />
         <ModelSelect
-          label="Быстрая live-модель"
-          description="Для коротких ответов в реальном интервью. Здесь важнее скорость, чем глубокий анализ."
+          label={t('aimodels.fast.label')}
+          description={t('aimodels.fast.desc')}
           value={fastModel}
           models={models}
           missing={isModelMissing(fastModel, models)}
           onChange={setFastModel}
-          autoSubtitle="SkillCue выберет быструю модель для live-ответов"
+          autoSubtitle={t('aimodels.fast.auto')}
         />
         <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
           <ModelSelect
-            label="Модель разбора вакансии"
-            description="Для вкладки «Разбор вакансии», Smoke Review и оценки ответов. Ставьте тяжёлую модель: GPT-5.5, GPT-5.4 или Sonnet 4."
+            label={t('aimodels.vacancy.label')}
+            description={t('aimodels.vacancy.desc')}
             value={vacancyModel}
             models={models}
             missing={isModelMissing(vacancyModel, models)}
             onChange={setVacancyModel}
-            autoSubtitle="Авто выберет сильную модель для медленного, качественного разбора вакансии"
+            autoSubtitle={t('aimodels.vacancy.auto')}
           />
         </div>
         <ModelSelect
-          label="Модель глубокого анализа"
-          description="Для детального анализа, mock feedback, резюме и истории опыта. Не влияет на live-скорость."
+          label={t('aimodels.deep.label')}
+          description={t('aimodels.deep.desc')}
           value={deepModel}
           models={models}
           missing={isModelMissing(deepModel, models)}
           onChange={setDeepModel}
-          autoSubtitle="SkillCue выберет reasoning-модель для подробного анализа"
+          autoSubtitle={t('aimodels.deep.auto')}
         />
       </div>
 
       <div className="flex items-center gap-3 border-t border-surface-border pt-4">
         <button onClick={save} disabled={!dirty || saving} className="btn-primary">
-          {saving ? 'Сохраняю…' : 'Сохранить'}
+          {saving ? t('common.saving') : t('common.save')}
         </button>
         {toast && <p className="text-sm text-emerald-400">{toast}</p>}
         {error && <p className="text-sm text-red-400">{error}</p>}
-        {!dirty && !toast && <p className="text-xs text-ink-faint">Нет изменений</p>}
+        {!dirty && !toast && <p className="text-xs text-ink-faint">{t('aimodels.noChanges')}</p>}
       </div>
     </div>
   );

@@ -1,22 +1,27 @@
 import { useState } from 'react';
 import { api } from '../lib/api';
 import { useApp } from '../context/AppContext';
+import { useI18n, type I18nKey } from '../lib/i18n';
 
-const PLAN_LABELS: Record<string, string> = {
-  trial: 'Пробный доступ',
-  basic: 'Basic — подготовка',
-  max: 'Max — всё включено',
+const PLAN_LABEL_KEYS: Record<string, I18nKey> = {
+  trial: 'license.plan.trial',
+  basic: 'license.plan.basic',
+  max: 'license.plan.max',
 };
 
 /** Лицензия: 15-мин live-trial, тариф, месячный токен-бюджет + активация ключа. */
 export default function LicenseCard() {
   const { license, refreshLicense } = useApp();
+  const { t } = useI18n();
   const [key, setKey] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
   if (!license) return null;
+
+  const planLabel = (plan: string) =>
+    PLAN_LABEL_KEYS[plan] ? t(PLAN_LABEL_KEYS[plan]) : plan;
 
   const activate = async () => {
     if (!key.trim()) return;
@@ -25,11 +30,11 @@ export default function LicenseCard() {
     setMessage('');
     try {
       const res = await api.activateLicense(key.trim());
-      setMessage(`Лицензия активирована (${PLAN_LABELS[res.plan] ?? res.plan})`);
+      setMessage(`${t('license.activated')} (${planLabel(res.plan)})`);
       setKey('');
       await refreshLicense();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Не удалось активировать ключ');
+      setError(err instanceof Error ? err.message : t('license.activateError'));
     } finally {
       setBusy(false);
     }
@@ -41,33 +46,32 @@ export default function LicenseCard() {
   const badge =
     license.status === 'active' ? (
       <span className="sc-badge sc-badge--success">
-        <span className="sc-dot sc-dot--success" /> {PLAN_LABELS[license.plan] ?? license.plan}
+        <span className="sc-dot sc-dot--success" /> {planLabel(license.plan)}
       </span>
     ) : license.status === 'trial' ? (
-      <span className="sc-badge sc-badge--accent">Trial · осталось {minutesLeft} мин live</span>
+      <span className="sc-badge sc-badge--accent">
+        {t('license.trialLeftPre')} {minutesLeft} {t('license.trialLeftPost')}
+      </span>
     ) : (
-      <span className="sc-badge sc-badge--error">Пробные минуты закончились</span>
+      <span className="sc-badge sc-badge--error">{t('license.trialEnded')}</span>
     );
 
   return (
     <div className="sc-card mb-5 p-5">
       <div className="mb-2 flex items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold text-ink">Лицензия</h3>
+        <h3 className="text-sm font-semibold text-ink">{t('license.title')}</h3>
         {badge}
       </div>
 
       {license.status === 'active' ? (
         <p className="text-sm text-ink-muted">
-          Оформлена на <span className="text-ink">{license.licensed_to}</span>.
-          {license.plan === 'basic' &&
-            ' Live-режим и оверлей доступны на тарифе max — напишите нам для апгрейда.'}
+          {t('license.issuedTo')} <span className="text-ink">{license.licensed_to}</span>.
+          {license.plan === 'basic' && t('license.basicUpsell')}
         </p>
       ) : (
         <>
           <p className="mb-3 text-sm text-ink-muted">
-            {license.status === 'trial'
-              ? 'Попробуйте live-режим: 15 минут бесплатно, плюс небольшой лимит на подготовку. Дальше — по лицензии.'
-              : 'Пробные live-минуты израсходованы: live приостановлен, подготовка работает в рамках лимита. Введите ключ, чтобы продолжить.'}
+            {license.status === 'trial' ? t('license.trialPrompt') : t('license.expiredPrompt')}
           </p>
           <div className="flex flex-col gap-2 sm:flex-row">
             <input
@@ -82,7 +86,7 @@ export default function LicenseCard() {
               disabled={busy || !key.trim()}
               className="btn-primary btn-sm shrink-0"
             >
-              {busy ? 'Проверяю…' : 'Активировать'}
+              {busy ? t('common.checking') : t('license.activate')}
             </button>
           </div>
           {message && <p className="mt-2 text-xs text-emerald-400">{message}</p>}
@@ -93,9 +97,7 @@ export default function LicenseCard() {
       {/* Токены пользователю не показываем — только мягкое уведомление, если
           серверный месячный лимит тарифа исчерпан и AI временно недоступен. */}
       {license.tokens_left_month === 0 && (
-        <p className="mt-4 text-xs text-amber-300">
-          Месячный лимит тарифа исчерпан — AI-функции возобновятся 1-го числа.
-        </p>
+        <p className="mt-4 text-xs text-amber-300">{t('license.monthLimit')}</p>
       )}
     </div>
   );

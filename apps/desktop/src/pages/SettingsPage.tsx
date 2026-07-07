@@ -11,7 +11,7 @@ import PlanPicker from '../components/PlanPicker';
 import AnswerModesSettings from '../components/AnswerModesSettings';
 import { useTheme, type ThemePref } from '../lib/theme';
 import { RELEASE_NOTES } from '../lib/releaseNotes';
-import { useI18n } from '../lib/i18n';
+import { useI18n, type I18nKey } from '../lib/i18n';
 import { loadLiveCopilotPrefs, saveLiveCopilotPrefs } from '../lib/liveCopilotPrefs';
 import {
   ANSWER_LANGUAGE_LABELS,
@@ -40,16 +40,16 @@ type SettingsTab =
   | 'developer'
   | 'notes';
 
-const SECTIONS: Array<{ id: SettingsTab; label: string; d: string }> = [
-  { id: 'general', label: 'Общие', d: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z|M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.09a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.09a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z' },
-  { id: 'ai', label: 'ИИ и модели', d: 'M12 2a4 4 0 0 1 4 4c0 .74-.2 1.43-.55 2.03A4 4 0 0 1 18 12a4 4 0 0 1-2 3.46V17a4 4 0 0 1-8 0v-1.54A4 4 0 0 1 6 12a4 4 0 0 1 2.55-3.97A4 4 0 0 1 8 6a4 4 0 0 1 4-4z' },
-  { id: 'speech', label: 'Речь и звук', d: 'M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z|M19 10v1a7 7 0 0 1-14 0v-1|M12 18v4' },
-  { id: 'modes', label: 'Режимы ответа', d: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z' },
-  { id: 'keybinds', label: 'Горячие клавиши', d: 'M2 6h20v12H2z|M6 10h.01M10 10h.01M14 10h.01M18 10h.01|M7 14h10' },
-  { id: 'billing', label: 'Подписка', d: 'M2 6h20v12H2z|M2 10h20' },
-  { id: 'privacy', label: 'Приватность', d: 'M12 2 4 5v6c0 5 3.4 9.4 8 11 4.6-1.6 8-6 8-11V5z' },
-  { id: 'developer', label: 'Разработчик', d: 'm8 8-4 4 4 4|m16 8 4 4-4 4|m12 4-2 16' },
-  { id: 'notes', label: 'Что нового', d: 'M4 4h16v14H8l-4 4z|M8 9h8|M8 13h5' },
+const SECTIONS: Array<{ id: SettingsTab; labelKey: I18nKey; d: string }> = [
+  { id: 'general', labelKey: 'settings.section.general', d: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z|M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.09a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.09a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z' },
+  { id: 'ai', labelKey: 'settings.section.ai', d: 'M12 2a4 4 0 0 1 4 4c0 .74-.2 1.43-.55 2.03A4 4 0 0 1 18 12a4 4 0 0 1-2 3.46V17a4 4 0 0 1-8 0v-1.54A4 4 0 0 1 6 12a4 4 0 0 1 2.55-3.97A4 4 0 0 1 8 6a4 4 0 0 1 4-4z' },
+  { id: 'speech', labelKey: 'settings.section.speech', d: 'M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z|M19 10v1a7 7 0 0 1-14 0v-1|M12 18v4' },
+  { id: 'modes', labelKey: 'settings.section.modes', d: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z' },
+  { id: 'keybinds', labelKey: 'settings.section.keybinds', d: 'M2 6h20v12H2z|M6 10h.01M10 10h.01M14 10h.01M18 10h.01|M7 14h10' },
+  { id: 'billing', labelKey: 'settings.section.billing', d: 'M2 6h20v12H2z|M2 10h20' },
+  { id: 'privacy', labelKey: 'settings.section.privacy', d: 'M12 2 4 5v6c0 5 3.4 9.4 8 11 4.6-1.6 8-6 8-11V5z' },
+  { id: 'developer', labelKey: 'settings.section.developer', d: 'm8 8-4 4 4 4|m16 8 4 4-4 4|m12 4-2 16' },
+  { id: 'notes', labelKey: 'settings.section.notes', d: 'M4 4h16v14H8l-4 4z|M8 9h8|M8 13h5' },
 ];
 
 const STEALTH_KEY = 'skillcue.overlayStealth';
@@ -166,7 +166,7 @@ function GeneralSection() {
   const checkUpdates = async () => {
     const check = window.electronAPI?.updater?.check;
     if (!check) {
-      setUpdateMsg('Проверка обновлений доступна в установленном приложении.');
+      setUpdateMsg(t('settings.update.unavailable'));
       return;
     }
     setChecking(true);
@@ -174,11 +174,13 @@ function GeneralSection() {
     try {
       const res = await check();
       if (res.state === 'available') {
-        setUpdateMsg(`Доступна версия ${res.version} — скачивается в фоне.`);
+        setUpdateMsg(
+          `${t('settings.update.availablePre')} ${res.version} ${t('settings.update.availablePost')}`,
+        );
       } else if (res.state === 'none') {
-        setUpdateMsg(res.message ?? 'У вас последняя версия.');
+        setUpdateMsg(res.message ?? t('settings.update.latest'));
       } else {
-        setUpdateMsg(`Не удалось проверить: ${res.message ?? 'ошибка'}`);
+        setUpdateMsg(`${t('settings.update.failed')} ${res.message ?? t('common.error')}`);
       }
     } finally {
       setChecking(false);
@@ -205,8 +207,8 @@ function GeneralSection() {
     <>
       <div className="sc-card mb-5 px-5 py-1.5">
         <SettingRow
-          title={`Версия SkillCue${version ? ` ${version}` : ''}`}
-          desc="Обновления скачиваются в фоне и ставятся при перезапуске"
+          title={`${t('settings.version')}${version ? ` ${version}` : ''}`}
+          desc={t('settings.version.desc')}
         >
           <div className="flex items-center gap-3">
             {updateMsg && <p className="max-w-56 text-right text-[11px] text-ink-faint">{updateMsg}</p>}
@@ -216,18 +218,18 @@ function GeneralSection() {
               disabled={checking}
               onClick={() => void checkUpdates()}
             >
-              {checking ? 'Проверяю…' : 'Проверить обновления'}
+              {checking ? t('settings.update.checking') : t('settings.update.check')}
             </button>
           </div>
         </SettingRow>
 
-        <SettingRow title="Тема оформления" desc="Тёмная, светлая или как в системе">
-          <div className="sc-segmented" role="group" aria-label="Тема">
+        <SettingRow title={t('settings.theme.title')} desc={t('settings.theme.desc')}>
+          <div className="sc-segmented" role="group" aria-label={t('settings.theme.aria')}>
             {(
               [
-                ['system', 'Системная'],
-                ['dark', 'Тёмная'],
-                ['light', 'Светлая'],
+                ['system', t('settings.theme.system')],
+                ['dark', t('settings.theme.dark')],
+                ['light', t('settings.theme.light')],
               ] as Array<[ThemePref, string]>
             ).map(([id, label]) => (
               <button
@@ -243,13 +245,10 @@ function GeneralSection() {
         </SettingRow>
 
         {autoLaunchAvailable && (
-          <SettingRow
-            title="Запускать при входе в систему"
-            desc="SkillCue откроется автоматически после включения компьютера"
-          >
+          <SettingRow title={t('settings.autolaunch.title')} desc={t('settings.autolaunch.desc')}>
             <Toggle
               on={autoLaunch}
-              label="Автозапуск"
+              label={t('settings.autolaunch.aria')}
               onChange={(v) => {
                 setAutoLaunch(v);
                 void window.electronAPI?.setAutoLaunch?.(v);
@@ -261,7 +260,7 @@ function GeneralSection() {
 
       <div className="sc-card mb-5 px-5 py-1.5">
         <p className="pt-3 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
-          Язык
+          {t('settings.langGroup')}
         </p>
         <SettingRow title={t('settings.language.title')} desc={t('settings.language.subtitle')}>
           <div className="sc-segmented" role="group" aria-label={t('common.language')}>
@@ -277,34 +276,28 @@ function GeneralSection() {
             ))}
           </div>
         </SettingRow>
-        <SettingRow
-          title="Язык распознавания речи"
-          desc="Каким языком говорят на собеседовании; дублируется на экране Live"
-        >
+        <SettingRow title={t('settings.stt.title')} desc={t('settings.stt.desc')}>
           <select
             value={sttLanguage}
             onChange={(e) => changeSttLanguage(e.target.value)}
             className="select-compact min-w-[150px]"
-            aria-label="Язык распознавания речи"
+            aria-label={t('settings.stt.title')}
           >
-            <option value="ru">Русский</option>
-            <option value="multi">Авто (ru+en)</option>
-            <option value="en">Английский</option>
+            <option value="ru">{t('settings.stt.optRu')}</option>
+            <option value="multi">{t('settings.stt.optAuto')}</option>
+            <option value="en">{t('settings.stt.optEn')}</option>
           </select>
         </SettingRow>
-        <SettingRow
-          title="Язык ответов ИИ"
-          desc="На каком языке подсказки формулируют ответ; «Авто» — на языке вопроса"
-        >
+        <SettingRow title={t('settings.answerLang.title')} desc={t('settings.answerLang.desc')}>
           <select
             value={answerLang}
             onChange={(e) => changeAnswerLang(e.target.value as AnswerLanguagePref)}
             className="select-compact min-w-[150px]"
-            aria-label="Язык ответов ИИ"
+            aria-label={t('settings.answerLang.title')}
           >
             {(Object.keys(ANSWER_LANGUAGE_LABELS) as AnswerLanguagePref[]).map((id) => (
               <option key={id} value={id}>
-                {ANSWER_LANGUAGE_LABELS[id]}
+                {t(`settings.answerLang.${id}` as I18nKey)}
               </option>
             ))}
           </select>
@@ -313,34 +306,25 @@ function GeneralSection() {
 
       <div className="sc-card mb-5 px-5 py-1.5">
         <p className="pt-3 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
-          Оверлей
+          {t('settings.overlayGroup')}
         </p>
-        <SettingRow
-          title="Скрытность (Undetectability)"
-          desc="Оверлей не виден на скриншотах, записи экрана и демонстрации в Zoom/Meet"
-        >
-          <Toggle on={stealth} label="Скрытность" onChange={toggleStealth} />
+        <SettingRow title={t('settings.stealth.title')} desc={t('settings.stealth.desc')}>
+          <Toggle on={stealth} label={t('settings.stealth.aria')} onChange={toggleStealth} />
         </SettingRow>
-        <SettingRow
-          title="Смотреть экран при нехватке контекста"
-          desc="Если разговора нет, Подсказка сама делает скриншот и отвечает по нему (чуть медленнее)"
-        >
+        <SettingRow title={t('settings.useScreen.title')} desc={t('settings.useScreen.desc')}>
           <Toggle
             on={useScreen}
-            label="Анализ экрана"
+            label={t('settings.useScreen.aria')}
             onChange={(v) => {
               setUseScreen(v);
               localStorage.setItem(USE_SCREEN_KEY, v ? '1' : '0');
             }}
           />
         </SettingRow>
-        <SettingRow
-          title="«Скрыть» прячет весь виджет"
-          desc="Выключите — кнопка «Скрыть» будет сворачивать панели до пилла, а не прятать всё окно"
-        >
+        <SettingRow title={t('settings.hideWidget.title')} desc={t('settings.hideWidget.desc')}>
           <Toggle
             on={hideWidget}
-            label="«Скрыть» прячет весь виджет"
+            label={t('settings.hideWidget.title')}
             onChange={(v) => {
               setHideWidget(v);
               localStorage.setItem(HIDE_WIDGET_KEY, v ? '1' : '0');
@@ -354,38 +338,38 @@ function GeneralSection() {
 
 /* ---------------- Горячие клавиши ---------------- */
 
-const KEYBIND_GROUPS: Array<{ title: string; items: Array<[string, string]> }> = [
+const KEYBIND_GROUPS: Array<{ titleKey: I18nKey; items: Array<{ id: string; keys: string }> }> = [
   {
-    title: 'Основные',
+    titleKey: 'settings.kb.group.main',
     items: [
-      ['Показать / скрыть оверлей', 'Ctrl+Shift+H'],
-      ['Спросить (Подсказка)', 'Ctrl+Enter'],
-      ['Очистить чат оверлея', 'Ctrl+R'],
-      ['Остановить сессию записи', 'Ctrl+Shift+\\'],
-      ['Живой транскрипт', 'Ctrl+/'],
-      ['Закрыть ответ / меню', 'Esc'],
+      { id: 'toggleOverlay', keys: 'Ctrl+Shift+H' },
+      { id: 'ask', keys: 'Ctrl+Enter' },
+      { id: 'clearChat', keys: 'Ctrl+R' },
+      { id: 'stopSession', keys: 'Ctrl+Shift+\\' },
+      { id: 'liveTranscript', keys: 'Ctrl+/' },
+      { id: 'closeAnswer', keys: 'Esc' },
     ],
   },
   {
-    title: 'Окно оверлея',
+    titleKey: 'settings.kb.group.window',
     items: [
-      ['Сдвинуть вверх', 'Ctrl+↑'],
-      ['Сдвинуть вниз', 'Ctrl+↓'],
-      ['Сдвинуть влево', 'Ctrl+←'],
-      ['Сдвинуть вправо', 'Ctrl+→'],
+      { id: 'moveUp', keys: 'Ctrl+↑' },
+      { id: 'moveDown', keys: 'Ctrl+↓' },
+      { id: 'moveLeft', keys: 'Ctrl+←' },
+      { id: 'moveRight', keys: 'Ctrl+→' },
     ],
   },
   {
-    title: 'Прокрутка ответа',
+    titleKey: 'settings.kb.group.scroll',
     items: [
-      ['Прокрутить вверх', 'Ctrl+Shift+↑'],
-      ['Прокрутить вниз', 'Ctrl+Shift+↓'],
+      { id: 'scrollUp', keys: 'Ctrl+Shift+↑' },
+      { id: 'scrollDown', keys: 'Ctrl+Shift+↓' },
     ],
   },
 ];
 
-/** Метка «Показать / скрыть оверлей» — единственный настраиваемый (глобальный) хоткей. */
-const TOGGLE_OVERLAY_LABEL = 'Показать / скрыть оверлей';
+/** id ряда «Показать / скрыть оверлей» — единственный настраиваемый (глобальный) хоткей. */
+const TOGGLE_OVERLAY_ID = 'toggleOverlay';
 
 function acceleratorToChips(acc: string): string[] {
   return acc.split('+').map((k) => (k === 'CommandOrControl' ? 'Ctrl' : k));
@@ -415,6 +399,7 @@ function eventToAccelerator(e: KeyboardEvent): string | null {
 }
 
 function KeybindsSection() {
+  const { t } = useI18n();
   const kb = window.electronAPI?.keybinds;
   const [toggleAcc, setToggleAcc] = useState('CommandOrControl+Shift+H');
   const [defaultAcc, setDefaultAcc] = useState('CommandOrControl+Shift+H');
@@ -435,7 +420,7 @@ function KeybindsSection() {
     setBindError('');
     const res = await kb.setToggleOverlay(acc);
     setToggleAcc(res.shortcut);
-    if (!res.ok) setBindError(res.error ?? 'Не удалось назначить сочетание');
+    if (!res.ok) setBindError(res.error ?? t('settings.kb.bindError'));
   };
 
   useEffect(() => {
@@ -474,20 +459,20 @@ function KeybindsSection() {
   return (
     <div className="sc-card mb-5 p-5">
       <p className="mb-4 text-xs text-ink-faint">
-        Горячие клавиши работают, когда окно оверлея в фокусе; «{TOGGLE_OVERLAY_LABEL}» — глобальная
-        и настраивается, если системное сочетание конфликтует с другим приложением.
+        {t('settings.kb.note.pre')} «{t('settings.kb.toggleOverlay')}» {t('settings.kb.note.post')}
       </p>
       {KEYBIND_GROUPS.map((group) => (
-        <div key={group.title} className="mb-4 last:mb-0">
+        <div key={group.titleKey} className="mb-4 last:mb-0">
           <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
-            {group.title}
+            {t(group.titleKey)}
           </p>
           <div className="space-y-0.5">
-            {group.items.map(([label, keys]) => {
-              const editable = label === TOGGLE_OVERLAY_LABEL && !!kb;
+            {group.items.map((item) => {
+              const label = t(`settings.kb.${item.id}` as I18nKey);
+              const editable = item.id === TOGGLE_OVERLAY_ID && !!kb;
               return (
                 <div
-                  key={label}
+                  key={item.id}
                   className="flex items-center justify-between gap-3 rounded-lg px-2.5 py-2 text-[13px] text-ink-muted transition-colors hover:bg-surface-hover hover:text-ink"
                 >
                   <span className="min-w-0 flex-1">{label}</span>
@@ -496,7 +481,7 @@ function KeybindsSection() {
                       {bindError && <span className="text-[11px] text-red-400">{bindError}</span>}
                       {capturing ? (
                         <span className="animate-pulse text-[11px] text-accent">
-                          Нажмите сочетание… (Esc — отмена)
+                          {t('settings.kb.capturing')}
                         </span>
                       ) : (
                         renderKeys(acceleratorToChips(toggleAcc))
@@ -506,7 +491,7 @@ function KeybindsSection() {
                         className="btn-secondary btn-sm"
                         onClick={() => setCapturing((v) => !v)}
                       >
-                        {capturing ? 'Отмена' : 'Изменить'}
+                        {capturing ? t('common.cancel') : t('common.change')}
                       </button>
                       {toggleAcc !== defaultAcc && !capturing && (
                         <button
@@ -514,12 +499,12 @@ function KeybindsSection() {
                           className="btn-secondary btn-sm"
                           onClick={() => void applyAccelerator(defaultAcc)}
                         >
-                          Сбросить
+                          {t('common.reset')}
                         </button>
                       )}
                     </span>
                   ) : (
-                    renderKeys(keys.split('+'))
+                    renderKeys(item.keys.split('+'))
                   )}
                 </div>
               );
@@ -534,6 +519,7 @@ function KeybindsSection() {
 /* ---------------- Что нового ---------------- */
 
 function ReleaseNotesSection() {
+  const { t, lang } = useI18n();
   const [openVersion, setOpenVersion] = useState<string | null>(RELEASE_NOTES[0]?.version ?? null);
   // 'all' — аккордеон по всем версиям; конкретная версия — только она, раскрытая.
   const [filter, setFilter] = useState('all');
@@ -543,7 +529,7 @@ function ReleaseNotesSection() {
     <div className="sc-card mb-5 p-5">
       <div className="mb-3 flex items-center justify-between gap-3">
         <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
-          История версий
+          {t('settings.notes.history')}
         </p>
         <select
           value={filter}
@@ -552,9 +538,9 @@ function ReleaseNotesSection() {
             if (e.target.value !== 'all') setOpenVersion(e.target.value);
           }}
           className="select-compact min-w-[140px]"
-          aria-label="Версия"
+          aria-label={t('settings.notes.versionAria')}
         >
-          <option value="all">Все версии</option>
+          <option value="all">{t('settings.notes.allVersions')}</option>
           {RELEASE_NOTES.map((n) => (
             <option key={n.version} value={n.version}>
               v{n.version}
@@ -578,7 +564,7 @@ function ReleaseNotesSection() {
                     {note.title}
                   </span>
                   <span className="block text-[11px] text-ink-faint">
-                    {new Date(note.date).toLocaleDateString('ru-RU', {
+                    {new Date(note.date).toLocaleDateString(lang === 'en' ? 'en-US' : 'ru-RU', {
                       day: 'numeric',
                       month: 'long',
                       year: 'numeric',
@@ -612,6 +598,7 @@ function ReleaseNotesSection() {
 
 export default function SettingsPage() {
   const navigate = useNavigate();
+  const { t } = useI18n();
   // Deep link: /settings?tab=speech открывает нужный раздел из предупреждений.
   const [params] = useSearchParams();
   const requestedTab = params.get('tab') as SettingsTab | null;
@@ -629,7 +616,9 @@ export default function SettingsPage() {
   const reportProblem = async () => {
     const collect = window.electronAPI?.collectDiagnostics;
     if (!collect) {
-      openSupportLink(`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent('SkillCue: проблема')}`);
+      openSupportLink(
+        `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(t('settings.report.subject'))}`,
+      );
       return;
     }
     setReporting(true);
@@ -656,8 +645,8 @@ export default function SettingsPage() {
       extras.push({ name: 'activation.json', content: JSON.stringify(getActivation(), null, 2) });
       await collect(extras);
       openSupportLink(
-        `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent('SkillCue: проблема')}&body=${encodeURIComponent(
-          'Опишите, что случилось и в какой момент.\n\nПриложите zip-архив отчёта — он уже открыт в проводнике.',
+        `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(t('settings.report.subject'))}&body=${encodeURIComponent(
+          t('settings.report.body'),
         )}`,
       );
     } finally {
@@ -674,9 +663,9 @@ export default function SettingsPage() {
   const deleteData = async () => {
     try {
       await api.deleteAllData();
-      setMessage('Все данные удалены');
+      setMessage(t('settings.data.deleted'));
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : 'Ошибка');
+      setMessage(err instanceof Error ? err.message : t('common.error'));
     } finally {
       setConfirmDelete(false);
     }
@@ -688,7 +677,7 @@ export default function SettingsPage() {
       <aside className="w-52 shrink-0">
         <div className="sticky top-4 rounded-2xl border border-surface-border bg-surface-light/70 p-2">
           <p className="px-2.5 pb-1.5 pt-2 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
-            Настройки
+            {t('nav.settings')}
           </p>
           {SECTIONS.map((s) => (
             <button
@@ -702,7 +691,7 @@ export default function SettingsPage() {
               }`}
             >
               <Icon d={s.d} />
-              {s.label}
+              {t(s.labelKey)}
             </button>
           ))}
 
@@ -710,17 +699,17 @@ export default function SettingsPage() {
           <div className="mt-2 border-t border-surface-border/60 pt-2">
             <SidebarLink
               icon="M12 8v4|M12 16h.01|M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z"
-              label={reporting ? 'Собираю отчёт…' : 'Сообщить о проблеме'}
+              label={reporting ? t('settings.report.collecting') : t('settings.report.link')}
               onClick={() => void reportProblem()}
             />
             <SidebarLink
               icon="M4 6h16v12H4z|m4 7 8 6 8-6"
-              label="Написать в поддержку"
+              label={t('settings.support.email')}
               onClick={() => openSupportLink(`mailto:${SUPPORT_EMAIL}`)}
             />
             <SidebarLink
               icon="m22 2-7 20-4-9-9-4z|M22 2 11 13"
-              label="Telegram-чат"
+              label={t('settings.support.telegram')}
               onClick={() => openSupportLink(SUPPORT_TELEGRAM_URL)}
             />
             {!!window.electronAPI?.quit && (
@@ -730,7 +719,7 @@ export default function SettingsPage() {
                 className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-[13px] font-semibold text-ink-muted transition-colors hover:bg-red-500/10 hover:text-red-400"
               >
                 <Icon d="M12 2v10|M18.36 6.64a9 9 0 1 1-12.72 0" />
-                Выйти из SkillCue
+                {t('settings.quit')}
               </button>
             )}
           </div>
@@ -739,19 +728,9 @@ export default function SettingsPage() {
 
       <div className="min-w-0 flex-1">
         <h1 className="mb-1 text-lg font-bold text-ink">
-          {SECTIONS.find((s) => s.id === tab)?.label}
+          {t(SECTIONS.find((s) => s.id === tab)!.labelKey)}
         </h1>
-        <p className="mb-5 text-sm text-ink-faint">
-          {tab === 'general' && 'Версия, тема, язык и поведение оверлея.'}
-          {tab === 'ai' && 'Модели для live-подсказок и разбора вакансий.'}
-          {tab === 'speech' && 'Whisper, качество записи и микрофон.'}
-          {tab === 'modes' && 'Пресеты стиля ответов для оверлея.'}
-          {tab === 'keybinds' && 'Все сочетания клавиш приложения и оверлея.'}
-          {tab === 'billing' && 'Тариф и лицензия.'}
-          {tab === 'privacy' && 'Данные, лицензии open-source, удаление.'}
-          {tab === 'developer' && 'Отладка STT, задержек и voice-регрессий.'}
-          {tab === 'notes' && 'История версий SkillCue.'}
-        </p>
+        <p className="mb-5 text-sm text-ink-faint">{t(`settings.sub.${tab}` as I18nKey)}</p>
 
         {tab === 'general' && <GeneralSection />}
 
@@ -779,31 +758,30 @@ export default function SettingsPage() {
           <>
             <div className="card mb-5 flex items-center justify-between gap-4 p-5">
               <div>
-                <h3 className="text-sm font-semibold text-ink">Открытое ПО и лицензии</h3>
-                <p className="mt-0.5 text-sm text-ink-muted">
-                  Уведомления о лицензиях встроенных open-source компонентов.
-                </p>
+                <h3 className="text-sm font-semibold text-ink">{t('settings.privacy.oss.title')}</h3>
+                <p className="mt-0.5 text-sm text-ink-muted">{t('settings.privacy.oss.desc')}</p>
               </div>
               <button
                 type="button"
                 onClick={() => navigate('/licenses')}
                 className="btn-secondary btn-sm"
               >
-                Открыть
+                {t('common.open')}
               </button>
             </div>
 
             <div className="card mb-5 flex items-center justify-between gap-4 p-5">
               <div className="min-w-0">
-                <h3 className="text-sm font-semibold text-ink">Журнал ошибок для отчёта</h3>
+                <h3 className="text-sm font-semibold text-ink">
+                  {t('settings.privacy.errlog.title')}
+                </h3>
                 <p className="mt-0.5 text-sm text-ink-muted">
-                  Ошибки копятся локально и уходят, только когда вы сами жмёте «Сообщить о
-                  проблеме». Никакой фоновой отправки. Сейчас накоплено: {errorLogCount}.
+                  {t('settings.privacy.errlog.desc')} {errorLogCount}.
                 </p>
               </div>
               <Toggle
                 on={errorLogOn}
-                label="Журнал ошибок"
+                label={t('settings.privacy.errlog.aria')}
                 onChange={(v) => {
                   setErrorLogEnabled(v);
                   setErrorLogOn(v);
@@ -813,13 +791,12 @@ export default function SettingsPage() {
             </div>
 
             <div className="rounded-2xl border border-red-900/40 bg-red-950/10 p-5">
-              <h3 className="mb-1 text-sm font-semibold text-red-300">Удаление данных</h3>
-              <p className="mb-4 text-sm text-ink-muted">
-                Документы, сессии и история хранятся локально. Можно удалить их одной кнопкой.
-                API-ключи останутся в secure storage.
-              </p>
+              <h3 className="mb-1 text-sm font-semibold text-red-300">
+                {t('settings.privacy.delete.title')}
+              </h3>
+              <p className="mb-4 text-sm text-ink-muted">{t('settings.privacy.delete.desc')}</p>
               <button onClick={() => setConfirmDelete(true)} className="btn-danger">
-                Удалить все данные
+                {t('settings.privacy.delete.btn')}
               </button>
               {message && <p className="mt-3 text-sm text-emerald-400">{message}</p>}
             </div>
@@ -829,39 +806,36 @@ export default function SettingsPage() {
         {tab === 'developer' && (
           <>
             <div className="card mb-5 p-5">
-              <h3 className="text-sm font-semibold text-ink">Инструменты разработчика</h3>
-              <p className="mt-0.5 mb-3 text-sm text-ink-muted">
-                Эти экраны нужны для отладки STT, latency и voice regression. В обычной подготовке
-                они не участвуют.
-              </p>
+              <h3 className="text-sm font-semibold text-ink">{t('settings.dev.title')}</h3>
+              <p className="mt-0.5 mb-3 text-sm text-ink-muted">{t('settings.dev.desc')}</p>
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
                   onClick={() => navigate('/test-lab')}
                   className="btn-secondary btn-sm"
                 >
-                  Тестовая лаборатория
+                  {t('settings.dev.testLab')}
                 </button>
                 <button
                   type="button"
                   onClick={() => navigate('/benchmark')}
                   className="btn-secondary btn-sm"
                 >
-                  STT-бенчмарк
+                  {t('settings.dev.benchmark')}
                 </button>
                 <button
                   type="button"
                   onClick={() => navigate('/diagnostics')}
                   className="btn-secondary btn-sm"
                 >
-                  Диагностика задержек
+                  {t('settings.dev.diagnostics')}
                 </button>
                 <button
                   type="button"
                   onClick={() => navigate('/meeting')}
                   className="btn-secondary btn-sm"
                 >
-                  Разбор разговора
+                  {t('settings.dev.meeting')}
                 </button>
               </div>
             </div>
@@ -875,22 +849,20 @@ export default function SettingsPage() {
       <Modal
         open={confirmDelete}
         onClose={() => setConfirmDelete(false)}
-        title="Удалить все данные?"
-        subtitle="Документы, сессии и история будут удалены безвозвратно."
+        title={t('settings.deleteModal.title')}
+        subtitle={t('settings.deleteModal.subtitle')}
         footer={
           <>
             <button onClick={() => setConfirmDelete(false)} className="btn-secondary btn-sm">
-              Отмена
+              {t('common.cancel')}
             </button>
             <button onClick={() => void deleteData()} className="btn-danger btn-sm">
-              Удалить
+              {t('common.delete')}
             </button>
           </>
         }
       >
-        <p className="text-sm text-ink-muted">
-          Это действие нельзя отменить. API-ключи останутся в secure storage.
-        </p>
+        <p className="text-sm text-ink-muted">{t('settings.deleteModal.body')}</p>
       </Modal>
     </div>
   );

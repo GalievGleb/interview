@@ -6,6 +6,7 @@ import {
   updateMode,
   useAnswerModes,
 } from '../lib/answerModes';
+import { useI18n } from '../lib/i18n';
 
 /**
  * Управление режимами ответа (аналог Manage Modes в Cluely).
@@ -13,6 +14,7 @@ import {
  * оверлея. Выбор режима доступен и из меню оверлея.
  */
 export default function AnswerModesSettings() {
+  const { t } = useI18n();
   const { modes, active, setActive } = useAnswerModes();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [newName, setNewName] = useState('');
@@ -22,11 +24,8 @@ export default function AnswerModesSettings() {
   return (
     <div className="sc-card mb-5 p-5">
       <div className="mb-3">
-        <h3 className="text-sm font-semibold text-ink">Режимы ответа</h3>
-        <p className="mt-0.5 text-xs text-ink-faint">
-          Режим задаёт стиль и контекст подсказок в оверлее: роль, стек, язык, длину ответа.
-          Активный режим можно переключать из меню «…» в оверлее.
-        </p>
+        <h3 className="text-sm font-semibold text-ink">{t('modes.title')}</h3>
+        <p className="mt-0.5 text-xs text-ink-faint">{t('modes.desc')}</p>
       </div>
 
       <div className="space-y-1.5">
@@ -50,13 +49,15 @@ export default function AnswerModesSettings() {
                 ✓
               </span>
               <span>
-                <span className="block text-[13px] font-semibold text-ink">{mode.name}</span>
+                <span className="block text-[13px] font-semibold text-ink">
+                  {mode.id === GENERAL_MODE.id ? t('modes.general') : mode.name}
+                </span>
                 <span className="block text-[11px] text-ink-faint">
                   {mode.id === GENERAL_MODE.id
-                    ? 'Без дополнительной инструкции'
+                    ? t('modes.noInstruction')
                     : mode.instruction.trim()
                       ? mode.instruction.slice(0, 90) + (mode.instruction.length > 90 ? '…' : '')
-                      : 'Инструкция не задана'}
+                      : t('modes.instructionEmpty')}
                 </span>
               </span>
             </button>
@@ -67,7 +68,7 @@ export default function AnswerModesSettings() {
                   className="btn-secondary btn-sm"
                   onClick={() => setEditingId(editingId === mode.id ? null : mode.id)}
                 >
-                  {editingId === mode.id ? 'Готово' : 'Изменить'}
+                  {editingId === mode.id ? t('modes.done') : t('common.change')}
                 </button>
                 <button
                   type="button"
@@ -77,7 +78,7 @@ export default function AnswerModesSettings() {
                     removeMode(mode.id);
                   }}
                 >
-                  Удалить
+                  {t('common.delete')}
                 </button>
               </div>
             )}
@@ -87,16 +88,16 @@ export default function AnswerModesSettings() {
 
       {editing && (
         <div className="mt-3 rounded-xl border border-surface-border bg-surface-panel p-3.5">
-          <label className="label">Название режима</label>
+          <label className="label">{t('modes.nameLabel')}</label>
           <input
             className="field mb-3"
             value={editing.name}
             onChange={(e) => updateMode(editing.id, { name: e.target.value })}
           />
-          <label className="label">Инструкция для модели</label>
+          <label className="label">{t('modes.instructionLabel')}</label>
           <textarea
             className="field min-h-[96px] resize-y"
-            placeholder="Например: «Я Python-разработчик, собеседуюсь на middle. Отвечай кратко, от первого лица, с примерами из Django»."
+            placeholder={t('modes.instructionPlaceholder')}
             value={editing.instruction}
             onChange={(e) => updateMode(editing.id, { instruction: e.target.value })}
           />
@@ -106,7 +107,7 @@ export default function AnswerModesSettings() {
       <div className="mt-3 flex gap-2">
         <input
           className="field flex-1"
-          placeholder="Название нового режима (например, «Frontend-собес»)"
+          placeholder={t('modes.newPlaceholder')}
           value={newName}
           onChange={(e) => setNewName(e.target.value)}
           onKeyDown={(e) => {
@@ -127,7 +128,7 @@ export default function AnswerModesSettings() {
             setEditingId(m.id);
           }}
         >
-          Создать режим
+          {t('modes.create')}
         </button>
       </div>
     </div>

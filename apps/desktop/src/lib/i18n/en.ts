@@ -28,9 +28,319 @@ export const en: Record<I18nKey, string> = {
   'common.loading': 'Loading…',
   'common.language': 'Interface language',
 
+  'common.error': 'Error',
+  'common.open': 'Open',
+  'common.change': 'Change',
+  'common.reset': 'Reset',
+
   'settings.language.title': 'Interface language',
   'settings.language.subtitle':
     'Changes the UI chrome language. AI answers follow the session language.',
+
+  // Settings — sidebar sections
+  'settings.section.general': 'General',
+  'settings.section.ai': 'AI & models',
+  'settings.section.speech': 'Speech & audio',
+  'settings.section.modes': 'Answer modes',
+  'settings.section.keybinds': 'Shortcuts',
+  'settings.section.billing': 'Subscription',
+  'settings.section.privacy': 'Privacy',
+  'settings.section.developer': 'Developer',
+  'settings.section.notes': "What's new",
+
+  // Settings — section subtitles
+  'settings.sub.general': 'Version, theme, language and overlay behaviour.',
+  'settings.sub.ai': 'Models for live hints and vacancy review.',
+  'settings.sub.speech': 'Whisper, recording quality and microphone.',
+  'settings.sub.modes': 'Answer style presets for the overlay.',
+  'settings.sub.keybinds': 'All app and overlay keyboard shortcuts.',
+  'settings.sub.billing': 'Plan and licence.',
+  'settings.sub.privacy': 'Data, open-source licences, deletion.',
+  'settings.sub.developer': 'STT, latency and voice-regression debugging.',
+  'settings.sub.notes': 'SkillCue version history.',
+
+  // Settings — sidebar (help/quit)
+  'settings.report.collecting': 'Collecting report…',
+  'settings.report.link': 'Report a problem',
+  'settings.support.email': 'Contact support',
+  'settings.support.telegram': 'Telegram chat',
+  'settings.quit': 'Quit SkillCue',
+
+  // Settings — General
+  'settings.version': 'SkillCue version',
+  'settings.version.desc': 'Updates download in the background and install on restart',
+  'settings.update.checking': 'Checking…',
+  'settings.update.check': 'Check for updates',
+  'settings.update.unavailable': 'Update checks are available in the installed app.',
+  'settings.update.availablePre': 'Version',
+  'settings.update.availablePost': 'is available — downloading in the background.',
+  'settings.update.latest': 'You have the latest version.',
+  'settings.update.failed': 'Update check failed:',
+  'settings.theme.title': 'Theme',
+  'settings.theme.desc': 'Dark, light, or follow the system',
+  'settings.theme.aria': 'Theme',
+  'settings.theme.system': 'System',
+  'settings.theme.dark': 'Dark',
+  'settings.theme.light': 'Light',
+  'settings.autolaunch.title': 'Launch on system start',
+  'settings.autolaunch.desc': 'SkillCue opens automatically after you turn on your computer',
+  'settings.autolaunch.aria': 'Auto-launch',
+  'settings.langGroup': 'Language',
+  'settings.stt.title': 'Speech recognition language',
+  'settings.stt.desc': 'Which language is spoken in the interview; also shown on the Live screen',
+  'settings.stt.optRu': 'Russian',
+  'settings.stt.optAuto': 'Auto (ru+en)',
+  'settings.stt.optEn': 'English',
+  'settings.answerLang.title': 'AI answer language',
+  'settings.answerLang.desc': 'Which language hints use to phrase answers; "Auto" follows the question',
+  'settings.answerLang.auto': 'Auto (match question)',
+  'settings.answerLang.ru': 'Russian',
+  'settings.answerLang.en': 'English',
+  'settings.overlayGroup': 'Overlay',
+  'settings.stealth.title': 'Stealth (undetectability)',
+  'settings.stealth.desc':
+    'The overlay is hidden from screenshots, screen recording and Zoom/Meet sharing',
+  'settings.stealth.aria': 'Stealth',
+  'settings.useScreen.title': 'Look at the screen when context is missing',
+  'settings.useScreen.desc':
+    "If there's no conversation, the hint takes a screenshot and answers from it (a bit slower)",
+  'settings.useScreen.aria': 'Screen analysis',
+  'settings.hideWidget.title': '"Hide" hides the whole widget',
+  'settings.hideWidget.desc':
+    'Turn off and the "Hide" button collapses the panels to a pill instead of hiding the whole window',
+
+  // Settings — Shortcuts
+  'settings.kb.note.pre': 'Shortcuts work while the overlay window is focused;',
+  'settings.kb.note.post':
+    'is global and can be reassigned if the system shortcut clashes with another app.',
+  'settings.kb.group.main': 'Basics',
+  'settings.kb.group.window': 'Overlay window',
+  'settings.kb.group.scroll': 'Answer scrolling',
+  'settings.kb.toggleOverlay': 'Show / hide overlay',
+  'settings.kb.ask': 'Ask (Hint)',
+  'settings.kb.clearChat': 'Clear overlay chat',
+  'settings.kb.stopSession': 'Stop the recording session',
+  'settings.kb.liveTranscript': 'Live transcript',
+  'settings.kb.closeAnswer': 'Close answer / menu',
+  'settings.kb.moveUp': 'Move up',
+  'settings.kb.moveDown': 'Move down',
+  'settings.kb.moveLeft': 'Move left',
+  'settings.kb.moveRight': 'Move right',
+  'settings.kb.scrollUp': 'Scroll up',
+  'settings.kb.scrollDown': 'Scroll down',
+  'settings.kb.capturing': 'Press a shortcut… (Esc to cancel)',
+  'settings.kb.bindError': "Couldn't assign the shortcut",
+
+  // Settings — What's new
+  'settings.notes.history': 'Version history',
+  'settings.notes.allVersions': 'All versions',
+  'settings.notes.versionAria': 'Version',
+
+  // Settings — Privacy
+  'settings.privacy.oss.title': 'Open-source software and licences',
+  'settings.privacy.oss.desc': 'Licence notices for bundled open-source components.',
+  'settings.privacy.errlog.title': 'Error log for reports',
+  'settings.privacy.errlog.desc':
+    'Errors accumulate locally and are sent only when you click "Report a problem" yourself. No background sending. Currently stored:',
+  'settings.privacy.errlog.aria': 'Error log',
+  'settings.privacy.delete.title': 'Delete data',
+  'settings.privacy.delete.desc':
+    'Documents, sessions and history are stored locally. You can delete them with one button. API keys stay in secure storage.',
+  'settings.privacy.delete.btn': 'Delete all data',
+  'settings.data.deleted': 'All data deleted',
+
+  // Settings — Developer
+  'settings.dev.title': 'Developer tools',
+  'settings.dev.desc':
+    "These screens are for debugging STT, latency and voice regression. They're not part of normal prep.",
+  'settings.dev.testLab': 'Test lab',
+  'settings.dev.benchmark': 'STT benchmark',
+  'settings.dev.diagnostics': 'Latency diagnostics',
+  'settings.dev.meeting': 'Conversation review',
+
+  // Settings — delete modal
+  'settings.deleteModal.title': 'Delete all data?',
+  'settings.deleteModal.subtitle': 'Documents, sessions and history will be deleted permanently.',
+  'settings.deleteModal.body': "This can't be undone. API keys stay in secure storage.",
+  'settings.report.subject': 'SkillCue: problem',
+  'settings.report.body':
+    'Describe what happened and when.\n\nAttach the report zip — it is already open in your file explorer.',
+
+  // Common (saving)
+  'common.saving': 'Saving…',
+
+  // Settings — Microphone
+  'mic.title': 'Microphone',
+  'mic.desc': 'Device used to capture your voice in live mode',
+  'mic.devicesError': 'Could not get the device list',
+  'mic.permissionDenied': 'Microphone access denied',
+  'mic.openError': 'Could not open the microphone',
+  'mic.noDevices': 'No devices found',
+  'mic.fallback': 'Microphone',
+  'mic.stop': 'Stop',
+  'mic.test': 'Test',
+  'mic.permissionHint': 'Device names are hidden — microphone access is required.',
+  'mic.grant': 'Grant access',
+  'mic.level': 'Signal level — speak into the microphone',
+
+  // Settings — AI models
+  'aimodels.loadError': 'Could not load model settings',
+  'aimodels.saved': 'Settings saved',
+  'aimodels.saveError': 'Save error',
+  'aimodels.loading': 'Loading models…',
+  'aimodels.title': 'Model selection',
+  'aimodels.desc':
+    '"Auto" lets SkillCue pick the model per task. Set a specific one if you prefer.',
+  'aimodels.default.label': 'Main Copilot model',
+  'aimodels.default.desc': 'For regular answers and general SkillCue actions.',
+  'aimodels.coding.label': 'Model for code',
+  'aimodels.coding.desc':
+    'For tasks involving code, architecture, technical explanations and fixes.',
+  'aimodels.fast.label': 'Fast live model',
+  'aimodels.fast.desc':
+    'For short answers in a real interview. Speed matters more than deep analysis here.',
+  'aimodels.fast.auto': 'SkillCue will pick a fast model for live answers',
+  'aimodels.vacancy.label': 'Vacancy review model',
+  'aimodels.vacancy.desc':
+    'For the "Vacancy review" tab, Smoke Review and answer scoring. Use a heavy model: GPT-5.5, GPT-5.4 or Sonnet 4.',
+  'aimodels.vacancy.auto': 'Auto picks a strong model for slow, high-quality vacancy review',
+  'aimodels.deep.label': 'Deep-analysis model',
+  'aimodels.deep.desc':
+    'For detailed analysis, mock feedback, resume and experience history. Does not affect live speed.',
+  'aimodels.deep.auto': 'SkillCue will pick a reasoning model for detailed analysis',
+  'aimodels.noChanges': 'No changes',
+
+  // Settings — Answer modes
+  'modes.title': 'Answer modes',
+  'modes.desc':
+    'A mode sets the style and context of overlay hints: role, stack, language, answer length. Switch the active mode from the "…" menu in the overlay.',
+  'modes.noInstruction': 'No extra instruction',
+  'modes.instructionEmpty': 'No instruction set',
+  'modes.done': 'Done',
+  'modes.nameLabel': 'Mode name',
+  'modes.instructionLabel': 'Instruction for the model',
+  'modes.instructionPlaceholder':
+    'For example: "I\'m a Python developer interviewing for a middle role. Answer briefly, in the first person, with Django examples".',
+  'modes.newPlaceholder': 'Name of the new mode (e.g. "Frontend interview")',
+  'modes.create': 'Create mode',
+  'modes.general': 'General',
+
+  // Settings — Speech recognition (STT)
+  'stt.whisper.tagline':
+    'Private and free: audio never leaves your device. Latency depends on your hardware.',
+  'stt.whisper.privacy': 'Audio is processed locally.',
+  'stt.deepgram.tagline': 'Fastest: words on screen in ~300 ms. ~0.66₽/min, requires an API key.',
+  'stt.deepgram.privacy': 'Audio goes to the Deepgram cloud (USA).',
+  'stt.deepgram.keyPlaceholder': 'Deepgram API key',
+  'stt.speechkit.label': 'Yandex SpeechKit v3',
+  'stt.speechkit.tagline':
+    'Best Russian recognition. ~0.65₽/min, billed in rubles, requires an API key.',
+  'stt.speechkit.privacy': 'Audio goes to Yandex Cloud (Russia).',
+  'stt.speechkit.keyPlaceholder': 'Yandex Cloud service-account API key',
+  'stt.skModel.general': 'Stable',
+  'stt.skModel.rc': 'Candidate (rc)',
+  'stt.loadError': 'Could not load STT settings',
+  'stt.saveError': 'Could not save settings',
+  'stt.downloadError': 'Could not start the download',
+  'stt.deleteError': 'Could not delete the model',
+  'stt.loading': 'Loading speech recognition settings…',
+  'stt.keySaved': 'Key saved. Live recognition will switch from the next session.',
+  'stt.saveKeyError': 'Could not save the key',
+  'stt.title': 'Speech recognition (STT)',
+  'stt.desc': 'Live transcription engine: local (private) or cloud (faster and more accurate).',
+  'stt.badge.private': 'Private',
+  'stt.badge.keySaved': 'Key saved',
+  'stt.badge.keyNeeded': 'Key needed',
+  'stt.apiKey': 'API key',
+  'stt.saved': 'saved',
+  'stt.saveKey': 'Save key',
+  'stt.replaceKey': 'Replace key',
+  'stt.noKeyWarn':
+    'Without a key the live session will show an error and suggest switching back to Local Whisper.',
+  'stt.skModel.title': 'Recognition model',
+  'stt.skModel.desc':
+    'Stable (general) is proven. The candidate (general:rc) gets Russian-quality improvements first, but Yandex updates it without notice.',
+  'stt.skModel.aria': 'SpeechKit model',
+  'stt.alert.local':
+    'Recognition: Local Whisper — audio is recognized locally and is not sent to the cloud.',
+  'stt.alert.cloudPre': 'Recognition:',
+  'stt.streaming.title': 'Streaming models',
+  'stt.partial.label': 'Intermediate model (live captions)',
+  'stt.partial.hint': 'Fast updates while you speak (~500 ms).',
+  'stt.final.label': 'Final model (after a pause)',
+  'stt.final.hint': 'More accurate once the phrase is finished.',
+  'stt.localModel': 'Local model',
+  'stt.meter.speed': 'Speed',
+  'stt.meter.acc': 'Accuracy',
+  'stt.meter.res': 'Resources',
+  'stt.model.ready': 'Downloaded · Ready',
+  'stt.model.notDownloaded': 'Not downloaded',
+  'stt.retry': 'Retry',
+  'stt.download': 'Download',
+  'stt.device.title': 'Compute device',
+  'stt.device.desc': 'Auto picks the GPU when available, otherwise the CPU.',
+  'stt.device.auto': 'Auto',
+  'stt.validation': 'Validation',
+  'stt.runBenchmark': 'Run STT benchmark',
+  'stt.openDiagnostics': 'Open diagnostics',
+
+  // Common (checking)
+  'common.checking': 'Checking…',
+
+  // Billing — plan names and features
+  'billing.plan.basic.name': 'Basic — preparation',
+  'billing.plan.max.name': 'Max — everything included',
+  'billing.feat.mock': 'Mock interviews with review',
+  'billing.feat.vacancy': 'Vacancy analysis and weak topics',
+  'billing.feat.kb': 'Knowledge base and answer practice',
+  'billing.feat.aiPrep': 'Monthly AI volume for preparation',
+  'billing.feat.live': 'Live hints and overlay',
+  'billing.feat.screen': 'Screen analysis and stealth',
+  'billing.feat.allBasic': 'Everything in Basic',
+  'billing.feat.liveDuring': 'Live hints during the interview',
+  'billing.feat.overlay': 'Overlay over Zoom/Meet + stealth',
+  'billing.feat.screenshot': 'Screen analysis (screenshot → hint)',
+  'billing.feat.aiMax': 'Increased AI volume — enough for an active search',
+
+  // Settings — Plan (PlanPicker)
+  'plan.title': 'Plan',
+  'plan.current': 'Current plan:',
+  'plan.max': 'Max',
+  'plan.basic': 'Basic',
+  'plan.trialInfo': 'Trial access: 15 minutes of live and a small prep limit',
+  'plan.periodAria': 'Billing period',
+  'plan.monthly': 'Monthly',
+  'plan.yearly': 'Yearly · −17%',
+  'plan.currentBadge': 'Current',
+  'plan.popular': 'Popular',
+  'plan.perMonth': ' / month',
+  'plan.perYear': ' / year',
+  'plan.yourCurrent': 'Your current plan',
+  'plan.checkoutNote':
+    'Checkout opens in your browser. After payment a licence key arrives by email — activate it in the "Licence" card below.',
+  'plan.goToCheckout': 'Go to checkout',
+  'plan.switch': 'Change plan',
+  'plan.subscribe': 'Subscribe',
+
+  // Settings — Licence (LicenseCard)
+  'license.plan.trial': 'Trial access',
+  'license.plan.basic': 'Basic — preparation',
+  'license.plan.max': 'Max — everything included',
+  'license.activated': 'Licence activated',
+  'license.activateError': 'Could not activate the key',
+  'license.trialLeftPre': 'Trial ·',
+  'license.trialLeftPost': 'min of live left',
+  'license.trialEnded': 'Trial minutes have ended',
+  'license.title': 'Licence',
+  'license.issuedTo': 'Issued to',
+  'license.basicUpsell':
+    ' Live mode and overlay are available on the Max plan — contact us to upgrade.',
+  'license.trialPrompt':
+    'Try live mode: 15 minutes free, plus a small prep limit. After that — with a licence.',
+  'license.expiredPrompt':
+    'Trial live minutes are used up: live is paused, prep works within the limit. Enter a key to continue.',
+  'license.activate': 'Activate',
+  'license.monthLimit': "The plan's monthly limit is used up — AI features resume on the 1st.",
 
   'onboarding.firstRun': 'First run',
   'onboarding.skip': 'Skip',

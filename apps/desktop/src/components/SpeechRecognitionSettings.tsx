@@ -1,10 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  STT_PRIVACY_LOCAL,
-  STT_RESOURCE_USAGE_LOCAL,
-  WHISPER_MODEL_CARDS,
-} from '@interview/shared';
+import { WHISPER_MODEL_CARDS } from '@interview/shared';
 import {
   api,
   type SpeechKitModelId,
@@ -15,44 +11,47 @@ import {
   type SttSettingsDto,
   type WhisperQualityId,
 } from '../lib/api';
+import { useI18n, type I18nKey } from '../lib/i18n';
 
 const ENGINES: Array<{
   id: SttEngineId;
   label: string;
-  tagline: string;
-  privacy: string;
+  labelKey?: I18nKey;
+  taglineKey: I18nKey;
+  privacyKey: I18nKey;
   keyField?: 'deepgram_api_key' | 'yandex_api_key';
-  keyPlaceholder?: string;
+  keyPlaceholderKey?: I18nKey;
 }> = [
   {
     id: 'whisper',
     label: 'Local Whisper',
-    tagline: 'Приватно и бесплатно: аудио не покидает устройство. Задержка зависит от железа.',
-    privacy: 'Звук обрабатывается локально.',
+    taglineKey: 'stt.whisper.tagline',
+    privacyKey: 'stt.whisper.privacy',
   },
   {
     id: 'deepgram',
     label: 'Deepgram Nova-3',
-    tagline: 'Самый быстрый: слова на экране через ~300 мс. ~0.66₽/мин, нужен API-ключ.',
-    privacy: 'Аудио уходит в облако Deepgram (США).',
+    taglineKey: 'stt.deepgram.tagline',
+    privacyKey: 'stt.deepgram.privacy',
     keyField: 'deepgram_api_key',
-    keyPlaceholder: 'Deepgram API key',
+    keyPlaceholderKey: 'stt.deepgram.keyPlaceholder',
   },
   {
     id: 'speechkit',
-    label: 'Яндекс SpeechKit v3',
-    tagline: 'Лучшее распознавание русского. ~0.65₽/мин, оплата в рублях, нужен API-ключ.',
-    privacy: 'Аудио уходит в Яндекс Cloud (Россия).',
+    label: 'Yandex SpeechKit v3',
+    labelKey: 'stt.speechkit.label',
+    taglineKey: 'stt.speechkit.tagline',
+    privacyKey: 'stt.speechkit.privacy',
     keyField: 'yandex_api_key',
-    keyPlaceholder: 'API-ключ сервисного аккаунта Яндекс Cloud',
+    keyPlaceholderKey: 'stt.speechkit.keyPlaceholder',
   },
 ];
 
 // Модель SpeechKit: улучшения качества русского приходят сначала в general:rc
 // и лишь через недели переезжают в стабильную general (релиз-ноты Яндекса).
-const SPEECHKIT_MODELS: Array<{ id: SpeechKitModelId; label: string }> = [
-  { id: 'general', label: 'Стабильная' },
-  { id: 'general:rc', label: 'Кандидат (rc)' },
+const SPEECHKIT_MODELS: Array<{ id: SpeechKitModelId; labelKey: I18nKey }> = [
+  { id: 'general', labelKey: 'stt.skModel.general' },
+  { id: 'general:rc', labelKey: 'stt.skModel.rc' },
 ];
 
 const QUALITIES: WhisperQualityId[] = ['fast', 'balanced', 'quality', 'max'];
@@ -106,6 +105,7 @@ const EMPTY_STATUS: StatusMap = { fast: null, balanced: null, quality: null, max
 /** Speech Recognition settings: mode, local model manager, device, privacy. */
 export default function SpeechRecognitionSettings() {
   const navigate = useNavigate();
+  const { t } = useI18n();
   const [settings, setSettings] = useState<SttSettingsDto | null>(null);
   const [statuses, setStatuses] = useState<StatusMap>(EMPTY_STATUS);
   const [device, setDevice] = useState<SttDeviceInfo | null>(null);
@@ -116,6 +116,8 @@ export default function SpeechRecognitionSettings() {
   const [cloudKeys, setCloudKeys] = useState({ deepgram: false, yandex: false });
   const [keyDraft, setKeyDraft] = useState('');
   const [savingKey, setSavingKey] = useState(false);
+
+  const engineLabel = (e: (typeof ENGINES)[number]) => (e.labelKey ? t(e.labelKey) : e.label);
 
   const refreshStatuses = useCallback(async () => {
     const entries = await Promise.all(
@@ -140,13 +142,13 @@ export default function SpeechRecognitionSettings() {
           .then((k) => alive && setCloudKeys({ deepgram: k.deepgram, yandex: k.yandex }))
           .catch(() => undefined);
       } catch (err) {
-        if (alive) setError(err instanceof Error ? err.message : 'Не удалось загрузить настройки STT');
+        if (alive) setError(err instanceof Error ? err.message : t('stt.loadError'));
       }
     })();
     return () => {
       alive = false;
     };
-  }, [refreshStatuses]);
+  }, [refreshStatuses, t]);
 
   const anyDownloading = useMemo(
     () => QUALITIES.some((q) => statuses[q]?.status === 'downloading'),
@@ -155,8 +157,8 @@ export default function SpeechRecognitionSettings() {
 
   useEffect(() => {
     if (!anyDownloading) return;
-    const t = setInterval(() => void refreshStatuses(), 1200);
-    return () => clearInterval(t);
+    const timer = setInterval(() => void refreshStatuses(), 1200);
+    return () => clearInterval(timer);
   }, [anyDownloading, refreshStatuses]);
 
   const patchSettings = useCallback(
@@ -167,10 +169,10 @@ export default function SpeechRecognitionSettings() {
         const saved = await api.saveSttSettings(patch);
         setSettings(saved);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Не удалось сохранить настройки');
+        setError(err instanceof Error ? err.message : t('stt.saveError'));
       }
     },
-    [],
+    [t],
   );
 
   const download = useCallback(
@@ -181,13 +183,13 @@ export default function SpeechRecognitionSettings() {
         const st = await api.sttModelDownload(quality);
         setStatuses((prev) => ({ ...prev, [quality]: st }));
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Не удалось начать загрузку');
+        setError(err instanceof Error ? err.message : t('stt.downloadError'));
       } finally {
         setBusy(null);
         void refreshStatuses();
       }
     },
-    [refreshStatuses],
+    [refreshStatuses, t],
   );
 
   const removeModel = useCallback(
@@ -197,13 +199,13 @@ export default function SpeechRecognitionSettings() {
       try {
         await api.sttModelDelete(quality);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Не удалось удалить модель');
+        setError(err instanceof Error ? err.message : t('stt.deleteError'));
       } finally {
         setBusy(null);
         void refreshStatuses();
       }
     },
-    [refreshStatuses],
+    [refreshStatuses, t],
   );
 
   const autoChoose = useCallback(() => {
@@ -220,14 +222,12 @@ export default function SpeechRecognitionSettings() {
 
   if (!settings) {
     return (
-      <div className="card mb-5 p-5 text-sm text-ink-muted">
-        {error || 'Загрузка настроек распознавания речи…'}
-      </div>
+      <div className="card mb-5 p-5 text-sm text-ink-muted">{error || t('stt.loading')}</div>
     );
   }
 
   const deviceOptions: { id: SttDeviceId; label: string }[] = [
-    { id: 'auto', label: 'Авто' },
+    { id: 'auto', label: t('stt.device.auto') },
     { id: 'cpu', label: 'CPU' },
     { id: 'gpu', label: 'GPU' },
   ];
@@ -245,9 +245,9 @@ export default function SpeechRecognitionSettings() {
       const status = await api.saveKeys({ [activeEngine.keyField]: keyDraft.trim() });
       setCloudKeys({ deepgram: status.deepgram, yandex: status.yandex });
       setKeyDraft('');
-      setNote('Ключ сохранён. Live-распознавание переключится со следующей сессии.');
+      setNote(t('stt.keySaved'));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Не удалось сохранить ключ');
+      setError(err instanceof Error ? err.message : t('stt.saveKeyError'));
     } finally {
       setSavingKey(false);
     }
@@ -256,10 +256,8 @@ export default function SpeechRecognitionSettings() {
   return (
     <div className="mb-5 space-y-4">
       <div>
-        <h3 className="text-sm font-semibold text-ink">Распознавание речи (STT)</h3>
-        <p className="mt-0.5 text-sm text-ink-muted">
-          Движок live-транскрипции: локальный (приватно) или облачный (быстрее и точнее).
-        </p>
+        <h3 className="text-sm font-semibold text-ink">{t('stt.title')}</h3>
+        <p className="mt-0.5 text-sm text-ink-muted">{t('stt.desc')}</p>
       </div>
 
       {/* Engine selector */}
@@ -276,16 +274,18 @@ export default function SpeechRecognitionSettings() {
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <p className="font-medium text-ink">{e.label}</p>
-                    {e.id === 'whisper' && <span className="sc-badge sc-badge--accent">Приватно</span>}
+                    <p className="font-medium text-ink">{engineLabel(e)}</p>
+                    {e.id === 'whisper' && (
+                      <span className="sc-badge sc-badge--accent">{t('stt.badge.private')}</span>
+                    )}
                     {e.keyField && (
                       <span className={`sc-badge ${keySaved ? 'sc-badge--accent' : ''}`}>
-                        {keySaved ? 'Ключ сохранён' : 'Нужен ключ'}
+                        {keySaved ? t('stt.badge.keySaved') : t('stt.badge.keyNeeded')}
                       </span>
                     )}
                   </div>
-                  <p className="mt-1 text-sm text-ink-muted">{e.tagline}</p>
-                  <p className="mt-0.5 text-xs text-ink-faint">{e.privacy}</p>
+                  <p className="mt-1 text-sm text-ink-muted">{t(e.taglineKey)}</p>
+                  <p className="mt-0.5 text-xs text-ink-faint">{t(e.privacyKey)}</p>
                 </div>
                 <Radio selected={selected} />
               </div>
@@ -298,14 +298,14 @@ export default function SpeechRecognitionSettings() {
       {activeEngine.keyField && (
         <div className="sc-card p-5">
           <p className="text-sm font-medium text-ink">
-            API-ключ · {activeEngine.label}
-            {engineKeySaved && <span className="ml-2 text-xs text-emerald-400">сохранён</span>}
+            {t('stt.apiKey')} · {engineLabel(activeEngine)}
+            {engineKeySaved && <span className="ml-2 text-xs text-emerald-400">{t('stt.saved')}</span>}
           </p>
           <div className="mt-2 flex flex-wrap items-center gap-2" onClick={(ev) => ev.stopPropagation()}>
             <input
               type="password"
               className="input-compact min-w-[260px] flex-1"
-              placeholder={activeEngine.keyPlaceholder}
+              placeholder={activeEngine.keyPlaceholderKey ? t(activeEngine.keyPlaceholderKey) : ''}
               value={keyDraft}
               onChange={(ev) => setKeyDraft(ev.target.value)}
             />
@@ -315,14 +315,10 @@ export default function SpeechRecognitionSettings() {
               disabled={savingKey || !keyDraft.trim()}
               onClick={() => void saveCloudKey()}
             >
-              {savingKey ? 'Сохраняю…' : engineKeySaved ? 'Заменить ключ' : 'Сохранить ключ'}
+              {savingKey ? t('common.saving') : engineKeySaved ? t('stt.replaceKey') : t('stt.saveKey')}
             </button>
           </div>
-          {!engineKeySaved && (
-            <p className="mt-2 text-xs text-amber-300">
-              Без ключа live-сессия покажет ошибку и подскажет вернуться на Local Whisper.
-            </p>
-          )}
+          {!engineKeySaved && <p className="mt-2 text-xs text-amber-300">{t('stt.noKeyWarn')}</p>}
         </div>
       )}
 
@@ -330,13 +326,10 @@ export default function SpeechRecognitionSettings() {
       {engine === 'speechkit' && (
         <div className="sc-card flex flex-wrap items-center justify-between gap-3 p-5">
           <div className="min-w-0">
-            <p className="text-sm font-medium text-ink">Модель распознавания</p>
-            <p className="text-xs text-ink-faint">
-              Стабильная (general) — проверенная. Кандидат (general:rc) первым получает
-              улучшения качества русского, но Яндекс обновляет его без предупреждения.
-            </p>
+            <p className="text-sm font-medium text-ink">{t('stt.skModel.title')}</p>
+            <p className="text-xs text-ink-faint">{t('stt.skModel.desc')}</p>
           </div>
-          <div className="sc-segmented" role="group" aria-label="Модель SpeechKit">
+          <div className="sc-segmented" role="group" aria-label={t('stt.skModel.aria')}>
             {SPEECHKIT_MODELS.map((m) => (
               <button
                 key={m.id}
@@ -344,7 +337,7 @@ export default function SpeechRecognitionSettings() {
                 onClick={() => void patchSettings({ speechkit_model: m.id })}
                 className={`sc-segmented__item ${(settings.speechkit_model ?? 'general') === m.id ? 'sc-segmented__item--active' : ''}`}
               >
-                {m.label}
+                {t(m.labelKey)}
               </button>
             ))}
           </div>
@@ -354,8 +347,8 @@ export default function SpeechRecognitionSettings() {
       <div className="cockpit-alert cockpit-alert-info">
         <span>
           {engine === 'whisper'
-            ? 'Распознавание: Local Whisper — аудио распознаётся локально и не отправляется в облако.'
-            : `Распознавание: ${activeEngine.label}. ${activeEngine.privacy}`}
+            ? t('stt.alert.local')
+            : `${t('stt.alert.cloudPre')} ${engineLabel(activeEngine)}. ${t(activeEngine.privacyKey)}`}
         </span>
       </div>
 
@@ -364,10 +357,10 @@ export default function SpeechRecognitionSettings() {
       <>
       {/* Live streaming models */}
       <div className="sc-card p-5">
-        <p className="mb-3 text-sm font-semibold text-ink">Потоковые модели</p>
+        <p className="mb-3 text-sm font-semibold text-ink">{t('stt.streaming.title')}</p>
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
-            <span className="label">Промежуточная модель (live-субтитры)</span>
+            <span className="label">{t('stt.partial.label')}</span>
             <select
               value={settings.partial_model ?? 'fast'}
               onChange={(e) => void patchSettings({ partial_model: e.target.value as WhisperQualityId })}
@@ -375,14 +368,14 @@ export default function SpeechRecognitionSettings() {
             >
               {QUALITIES.map((q) => (
                 <option key={q} value={q}>
-                  {WHISPER_MODEL_CARDS.find((c) => c.quality === q)?.label ?? q}
+                  {t(`whisper.${q}.label`)}
                 </option>
               ))}
             </select>
-            <p className="mt-1 text-xs text-ink-faint">Быстрые обновления пока вы говорите (~500 мс).</p>
+            <p className="mt-1 text-xs text-ink-faint">{t('stt.partial.hint')}</p>
           </div>
           <div>
-            <span className="label">Финальная модель (после паузы)</span>
+            <span className="label">{t('stt.final.label')}</span>
             <select
               value={settings.final_model ?? settings.local_model}
               onChange={(e) =>
@@ -395,18 +388,18 @@ export default function SpeechRecognitionSettings() {
             >
               {QUALITIES.map((q) => (
                 <option key={q} value={q}>
-                  {WHISPER_MODEL_CARDS.find((c) => c.quality === q)?.label ?? q}
+                  {t(`whisper.${q}.label`)}
                 </option>
               ))}
             </select>
-            <p className="mt-1 text-xs text-ink-faint">Точнее, когда фраза уже закончена.</p>
+            <p className="mt-1 text-xs text-ink-faint">{t('stt.final.hint')}</p>
           </div>
         </div>
       </div>
 
       {/* Local model cards */}
       <div className="space-y-2.5">
-        <p className="px-1 text-[10px] font-semibold uppercase tracking-wide text-ink-faint">Локальная модель</p>
+        <p className="px-1 text-[10px] font-semibold uppercase tracking-wide text-ink-faint">{t('stt.localModel')}</p>
         {WHISPER_MODEL_CARDS.map((card) => {
           const st = statuses[card.quality];
           const selected = settings.local_model === card.quality;
@@ -426,18 +419,20 @@ export default function SpeechRecognitionSettings() {
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <p className="font-medium text-ink">{card.label}</p>
-                    {card.recommended && <span className="sc-badge sc-badge--accent">Рекомендуется</span>}
+                    <p className="font-medium text-ink">{t(`whisper.${card.quality}.label`)}</p>
+                    {card.recommended && (
+                      <span className="sc-badge sc-badge--accent">{t('onboarding.stt.recommended')}</span>
+                    )}
                   </div>
                   <p className="sc-model-card__specs">
                     ~{card.approxDownloadMb} MB · RAM ≥ {card.recommendedRamGb} GB ·{' '}
                     {card.recommendedDevice.toUpperCase()} · {card.expectedSpeed}
                   </p>
-                  <p className="mt-1.5 text-sm text-ink-muted">{card.description}</p>
+                  <p className="mt-1.5 text-sm text-ink-muted">{t(`whisper.${card.quality}.desc`)}</p>
                   <div className="mt-3 space-y-1.5">
-                    <Meter label="Скорость" level={m.speed} kind="speed" />
-                    <Meter label="Точность" level={m.acc} kind="acc" />
-                    <Meter label="Ресурсы" level={m.res} kind="res" />
+                    <Meter label={t('stt.meter.speed')} level={m.speed} kind="speed" />
+                    <Meter label={t('stt.meter.acc')} level={m.acc} kind="acc" />
+                    <Meter label={t('stt.meter.res')} level={m.res} kind="res" />
                   </div>
                 </div>
                 <Radio selected={selected} />
@@ -446,14 +441,14 @@ export default function SpeechRecognitionSettings() {
               <div className="mt-3 flex items-center justify-between gap-3 border-t border-surface-border/60 pt-3">
                 {downloaded ? (
                   <span className="inline-flex items-center gap-1.5 text-xs text-emerald-400">
-                    <span className="sc-dot sc-dot--success" /> Загружена · Готова
+                    <span className="sc-dot sc-dot--success" /> {t('stt.model.ready')}
                   </span>
                 ) : downloading ? (
                   <span className="sc-progress mr-3 flex-1">
                     <span className="sc-progress__fill" style={{ width: `${Math.max(4, pct)}%` }} />
                   </span>
                 ) : (
-                  <span className="text-xs text-ink-faint">Не загружена</span>
+                  <span className="text-xs text-ink-faint">{t('stt.model.notDownloaded')}</span>
                 )}
 
                 <div className="flex shrink-0 items-center gap-2" onClick={(e) => e.stopPropagation()}>
@@ -464,7 +459,7 @@ export default function SpeechRecognitionSettings() {
                       onClick={() => void removeModel(card.quality)}
                       className="btn-danger btn-sm"
                     >
-                      Удалить
+                      {t('common.delete')}
                     </button>
                   ) : downloading ? (
                     <span className="sc-mono text-xs text-ink-muted">{pct}%</span>
@@ -475,7 +470,7 @@ export default function SpeechRecognitionSettings() {
                       onClick={() => void download(card.quality)}
                       className="btn-primary btn-sm"
                     >
-                      {failed ? 'Повторить' : `Скачать ~${card.approxDownloadMb} МБ`}
+                      {failed ? t('stt.retry') : `${t('stt.download')} ~${card.approxDownloadMb} ${t('unit.mb')}`}
                     </button>
                   )}
                 </div>
@@ -492,14 +487,16 @@ export default function SpeechRecognitionSettings() {
       {/* Compute device */}
       <div className="sc-card flex flex-wrap items-center justify-between gap-4 p-5">
         <div>
-          <p className="text-sm font-medium text-ink">Вычислительное устройство</p>
+          <p className="text-sm font-medium text-ink">{t('stt.device.title')}</p>
           <p className="text-xs text-ink-faint">
-            Авто выбирает GPU при наличии, иначе CPU.
-            {device ? ` ${device.totalRamGb ? `${device.totalRamGb} ГБ RAM` : 'RAM неизвестно'} · ${device.hasGpu ? 'GPU обнаружен' : 'только CPU'}.` : ''}
+            {t('stt.device.desc')}
+            {device
+              ? ` ${device.totalRamGb ? `${device.totalRamGb} ${t('unit.gbRam')}` : t('onboarding.sttStep.ramUnknown')} · ${device.hasGpu ? t('onboarding.sttStep.gpuFound') : t('onboarding.sttStep.cpuOnly')}.`
+              : ''}
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <div className="sc-segmented" role="group" aria-label="Вычислительное устройство">
+          <div className="sc-segmented" role="group" aria-label={t('stt.device.title')}>
             {deviceOptions.map((d) => (
               <button
                 key={d.id}
@@ -512,7 +509,7 @@ export default function SpeechRecognitionSettings() {
             ))}
           </div>
           <button type="button" onClick={autoChoose} disabled={!device} className="btn-secondary btn-sm">
-            Выбрать авто
+            {t('onboarding.sttStep.autoChoose')}
           </button>
         </div>
       </div>
@@ -521,12 +518,12 @@ export default function SpeechRecognitionSettings() {
 
       {/* Validation */}
       <div className="sc-card flex flex-wrap items-center gap-2 p-5">
-        <span className="flex-1 text-sm text-ink-muted">Проверка</span>
+        <span className="flex-1 text-sm text-ink-muted">{t('stt.validation')}</span>
         <button type="button" onClick={() => navigate('/benchmark')} className="btn-secondary btn-sm">
-          Запустить STT-бенчмарк
+          {t('stt.runBenchmark')}
         </button>
         <button type="button" onClick={() => navigate('/diagnostics')} className="btn-secondary btn-sm">
-          Открыть диагностику
+          {t('stt.openDiagnostics')}
         </button>
       </div>
 
@@ -534,7 +531,7 @@ export default function SpeechRecognitionSettings() {
       {engine === 'whisper' && (
         <div className="cockpit-alert cockpit-alert-warn">
           <span>
-            {STT_PRIVACY_LOCAL} {STT_RESOURCE_USAGE_LOCAL}
+            {t('onboarding.sttStep.privacyLocal')} {t('onboarding.sttStep.resourceLocal')}
           </span>
         </div>
       )}

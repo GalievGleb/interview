@@ -5,8 +5,10 @@ import {
   setSelectedMicId,
   ensureMicPermission,
 } from '../lib/audioDevices';
+import { useI18n } from '../lib/i18n';
 
 export default function MicrophoneSettings() {
+  const { t } = useI18n();
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [selected, setSelected] = useState(getSelectedMicId());
   const [needsPermission, setNeedsPermission] = useState(false);
@@ -23,9 +25,9 @@ export default function MicrophoneSettings() {
       setNeedsPermission(mics.length > 0 && !mics[0].label);
       setSelected((cur) => cur || mics[0]?.deviceId || '');
     } catch {
-      setError('Не удалось получить список устройств');
+      setError(t('mic.devicesError'));
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void refresh();
@@ -41,7 +43,7 @@ export default function MicrophoneSettings() {
       await ensureMicPermission();
       await refresh();
     } catch {
-      setError('Доступ к микрофону отклонён');
+      setError(t('mic.permissionDenied'));
     }
   };
 
@@ -86,7 +88,7 @@ export default function MicrophoneSettings() {
         cleanupRef.current = null;
       };
     } catch {
-      setError('Не удалось открыть микрофон');
+      setError(t('mic.openError'));
     }
   };
 
@@ -95,10 +97,8 @@ export default function MicrophoneSettings() {
   return (
     <div className="card mb-5 space-y-4 p-5">
       <div>
-        <h3 className="text-sm font-semibold text-ink">Микрофон</h3>
-        <p className="mt-0.5 text-sm text-ink-muted">
-          Устройство для захвата вашего голоса в live-режиме
-        </p>
+        <h3 className="text-sm font-semibold text-ink">{t('mic.title')}</h3>
+        <p className="mt-0.5 text-sm text-ink-muted">{t('mic.desc')}</p>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -107,36 +107,36 @@ export default function MicrophoneSettings() {
           onChange={(e) => onChange(e.target.value)}
           className="field flex-1"
         >
-          {devices.length === 0 && <option value="">Устройства не найдены</option>}
+          {devices.length === 0 && <option value="">{t('mic.noDevices')}</option>}
           {devices.map((d, i) => (
             <option key={d.deviceId} value={d.deviceId}>
-              {d.label || `Микрофон ${i + 1}`}
+              {d.label || `${t('mic.fallback')} ${i + 1}`}
             </option>
           ))}
         </select>
         {testing ? (
           <button onClick={stopTest} className="btn-danger btn-sm">
-            Стоп
+            {t('mic.stop')}
           </button>
         ) : (
           <button onClick={startTest} className="btn-secondary btn-sm">
-            Проверить
+            {t('mic.test')}
           </button>
         )}
       </div>
 
       {needsPermission && (
         <div className="flex items-center gap-3 text-sm text-ink-muted">
-          <span>Названия устройств скрыты — нужен доступ к микрофону.</span>
+          <span>{t('mic.permissionHint')}</span>
           <button onClick={grant} className="btn-secondary btn-sm">
-            Разрешить доступ
+            {t('mic.grant')}
           </button>
         </div>
       )}
 
       {testing && (
         <div>
-          <p className="mb-1 text-xs text-ink-faint">Уровень сигнала — говорите в микрофон</p>
+          <p className="mb-1 text-xs text-ink-faint">{t('mic.level')}</p>
           <div className="h-2 w-full overflow-hidden rounded-full bg-surface">
             <div
               className="h-full rounded-full bg-emerald-400 transition-[width] duration-75"
