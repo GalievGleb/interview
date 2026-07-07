@@ -1,6 +1,6 @@
 {
   "name": "@interview/desktop",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "private": true,
   "main": "dist-electron/main.js",
   "scripts": {
@@ -52,6 +52,7 @@
   "build": {
     "appId": "com.interview.assistant",
     "productName": "Skillcue",
+    "electronVersion": "33.4.11",
     "directories": {
       "output": "release"
     },
