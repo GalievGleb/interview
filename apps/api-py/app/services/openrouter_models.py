@@ -197,15 +197,29 @@ async def fetch_openrouter_models(*, use_cache: bool = False) -> list[Normalized
             return cached
 
     key = secrets.get_secret("openrouter_api_key")
+    prefs = load_preferences()
+    base_url = prefs.base_url or DEFAULT_BASE_URL
+
+    # Покупательский путь: своего OpenRouter-ключа нет — берём каталог через
+    # лицензионный гейтвей SkillCue (тот же OpenAI-совместимый /models по Bearer
+    # лицензии). Ключ провайдера остаётся на сервере, пользователь его не вводит.
+    if not key:
+        from app.config import get_settings
+        from app.services.provider_adapter import _gateway_license_key
+
+        settings = get_settings()
+        if settings.skillcue_gateway_url:
+            license_key = _gateway_license_key()
+            if license_key:
+                key = license_key
+                base_url = settings.skillcue_gateway_url.rstrip("/")
+
     if not key:
         raise AppError(
-            "OpenRouter API key не задан. Добавьте ключ в настройках.",
+            "Каталог моделей недоступен — нет лицензии и ключа провайдера.",
             400,
             "missing_api_key",
         )
-
-    prefs = load_preferences()
-    base_url = prefs.base_url or DEFAULT_BASE_URL
 
     async with httpx.AsyncClient(timeout=60) as client:
         resp = await client.get(

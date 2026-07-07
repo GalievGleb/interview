@@ -32,7 +32,7 @@ export const PLANS: PlanInfo[] = [
       { text: 'Мок-собеседования с разбором', included: true },
       { text: 'Анализ вакансий и слабых тем', included: true },
       { text: 'База знаний и тренировка ответов', included: true },
-      { text: '5 млн токенов ИИ в месяц', included: true },
+      { text: 'Месячный объём ИИ для подготовки', included: true },
       { text: 'Live-подсказки и оверлей', included: false },
       { text: 'Анализ экрана и скрытность', included: false },
     ],
@@ -48,7 +48,7 @@ export const PLANS: PlanInfo[] = [
       { text: 'Live-подсказки во время собеседования', included: true },
       { text: 'Оверлей поверх Zoom/Meet + скрытность', included: true },
       { text: 'Анализ экрана (скриншот → подсказка)', included: true },
-      { text: '20 млн токенов ИИ в месяц', included: true },
+      { text: 'Увеличенный объём ИИ — хватит на активный поиск', included: true },
     ],
   },
 ];

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { NavLink } from 'react-router-dom';
 import { useI18n, type I18nKey } from '../lib/i18n';
 import { useApp } from '../context/AppContext';
 import StatusBadge from './ui/StatusBadge';
@@ -179,9 +179,8 @@ function useSessionLive(): boolean {
 }
 
 export default function Sidebar() {
-  const { backendOnline, backendStatus, hasAnyKey } = useApp();
+  const { backendOnline, backendStatus } = useApp();
   const { t } = useI18n();
-  const navigate = useNavigate();
   const sessionLive = useSessionLive();
   const [undetected, setUndetected] = useState(false);
   const [hiddenTaskbar, setHiddenTaskbar] = useState(false);
@@ -247,25 +246,12 @@ export default function Sidebar() {
       </nav>
 
       <div className="space-y-2 border-t border-surface-border px-4 py-3">
+        {/* Ключ провайдера живёт на сервере (лицензионный гейтвей) — статус ключа
+            пользователю не показываем, только готовность самого сервиса. */}
         {backendOnline ? (
           <StatusBadge label="SkillCue готов" tone="success" />
         ) : backendStatus?.state === 'failed' ? (
           <StatusBadge label="Сервис недоступен" tone="error" />
-        ) : null}
-        {/* Статус ключей известен только когда бэкенд ответил. Пока он оффлайн
-            (в т.ч. первые секунды после старта) не показываем «Нет AI-ключа» —
-            это ложная тревога, когда ключ на самом деле задан. */}
-        {backendOnline && hasAnyKey ? (
-          <StatusBadge label="AI-ключ задан" tone="success" />
-        ) : backendOnline ? (
-          <button
-            type="button"
-            className="block w-full text-left transition-opacity hover:opacity-80"
-            onClick={() => navigate('/settings?tab=ai')}
-            title="AI-ключ не настроен — открыть настройки"
-          >
-            <StatusBadge label="Нет AI-ключа — настроить" tone="warning" />
-          </button>
         ) : null}
         {isElectron && (
           <div className="flex gap-1.5 pt-1">

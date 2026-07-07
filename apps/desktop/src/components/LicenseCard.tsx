@@ -49,11 +49,6 @@ export default function LicenseCard() {
       <span className="sc-badge sc-badge--error">Пробные минуты закончились</span>
     );
 
-  const quotaPct = Math.min(
-    100,
-    Math.round((license.tokens_used_month / Math.max(1, license.tokens_budget_month)) * 100),
-  );
-
   return (
     <div className="sc-card mb-5 p-5">
       <div className="mb-2 flex items-center justify-between gap-3">
@@ -95,30 +90,13 @@ export default function LicenseCard() {
         </>
       )}
 
-      {/* Месячный токен-бюджет тарифа — серверный лимит, защищает стоимость API. */}
-      <div className="mt-4">
-        <div className="mb-1 flex items-center justify-between text-[11px] text-ink-faint">
-          <span>Токены за месяц</span>
-          <span className="sc-mono">
-            {license.tokens_used_month.toLocaleString('ru')} /{' '}
-            {license.tokens_budget_month.toLocaleString('ru')}
-          </span>
-        </div>
-        <span className="sc-progress">
-          <span
-            className="sc-progress__fill"
-            style={{
-              width: `${quotaPct}%`,
-              backgroundColor: quotaPct >= 90 ? '#f87171' : quotaPct >= 70 ? '#fbbf24' : undefined,
-            }}
-          />
-        </span>
-        {license.tokens_left_month === 0 && (
-          <p className="mt-1.5 text-xs text-amber-300">
-            Лимит исчерпан — AI-функции приостановлены до 1-го числа.
-          </p>
-        )}
-      </div>
+      {/* Токены пользователю не показываем — только мягкое уведомление, если
+          серверный месячный лимит тарифа исчерпан и AI временно недоступен. */}
+      {license.tokens_left_month === 0 && (
+        <p className="mt-4 text-xs text-amber-300">
+          Месячный лимит тарифа исчерпан — AI-функции возобновятся 1-го числа.
+        </p>
+      )}
     </div>
   );
 }
