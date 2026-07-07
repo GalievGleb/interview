@@ -41,7 +41,8 @@ server {
         proxy_set_header Host \$host;
     }
     location / {
-        try_files \$uri \$uri/ /index.html;
+        # \$uri.html — чтобы «чистые» URL без .html работали (напр. /requisites).
+        try_files \$uri \$uri.html \$uri/ /index.html;
     }
 }
 NGINX
