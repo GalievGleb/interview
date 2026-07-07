@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useApp } from '../context/AppContext';
+import { useI18n } from '../lib/i18n';
 import OnboardingSttStep from '../components/OnboardingSttStep';
 
 function Stroke({ d, size = 16 }: { d: string; size?: number }) {
@@ -16,6 +17,7 @@ function Stroke({ d, size = 16 }: { d: string; size?: number }) {
 
 export default function OnboardingPage() {
   const { completeOnboarding } = useApp();
+  const { t } = useI18n();
   const navigate = useNavigate();
   const [step, setStep] = useState<1 | 2 | 3>(1);
 
@@ -41,11 +43,11 @@ export default function OnboardingPage() {
           </div>
           <span className="text-base font-semibold tracking-tight">Skillcue</span>
           <span className="ml-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
-            Первый запуск
+            {t('onboarding.firstRun')}
           </span>
         </div>
         <button type="button" onClick={finish} className="btn-ghost btn-sm">
-          Пропустить
+          {t('onboarding.skip')}
         </button>
       </header>
 
@@ -53,14 +55,13 @@ export default function OnboardingPage() {
         {step === 1 ? (
           <>
             <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-accent">
-              Распознавание речи
+              {t('onboarding.stt.eyebrow')}
             </p>
             <h1 className="text-[32px] font-semibold leading-tight tracking-tight">
-              Настройте локальное распознавание речи
+              {t('onboarding.stt.title')}
             </h1>
             <p className="mt-2 max-w-xl text-sm leading-relaxed text-ink-muted">
-              SkillCue слушает вопросы интервью и распознаёт их в реальном времени. Выберите, как
-              это работает — по умолчанию всё остаётся на вашем устройстве.
+              {t('onboarding.stt.subtitle')}
             </p>
 
             <div className="mt-7 grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -70,52 +71,57 @@ export default function OnboardingPage() {
                     <Stroke d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" size={18} />
                   </span>
                   <div>
-                    <p className="text-[15px] font-semibold text-ink">Локальный Whisper</p>
-                    <p className="text-xs font-medium text-accent">Рекомендуется</p>
+                    <p className="text-[15px] font-semibold text-ink">
+                      {t('onboarding.stt.whisperTitle')}
+                    </p>
+                    <p className="text-xs font-medium text-accent">
+                      {t('onboarding.stt.recommended')}
+                    </p>
                   </div>
                 </div>
                 <p className="text-sm leading-relaxed text-ink-muted">
-                  Аудио распознаётся локально на вашем устройстве и{' '}
-                  <strong className="font-semibold text-ink">не отправляется в облако</strong> в
-                  локальном режиме. Распознавание выполняется на вашем CPU/GPU.
+                  {t('onboarding.stt.whisperDesc.pre')}
+                  <strong className="font-semibold text-ink">
+                    {t('onboarding.stt.whisperDesc.strong')}
+                  </strong>
+                  {t('onboarding.stt.whisperDesc.post')}
                 </p>
               </div>
 
               <div className="sc-card p-5">
                 <p className="mb-3 text-[10px] font-semibold uppercase tracking-wide text-ink-faint">
-                  Чего ожидать
+                  {t('onboarding.stt.expect')}
                 </p>
                 <ul className="space-y-2.5 text-sm text-ink-muted">
                   <li className="flex items-start gap-2.5">
                     <span className="mt-0.5 text-emerald-400">
                       <Stroke d="M20 6 9 17l-5-5" />
                     </span>
-                    Работает офлайн после загрузки модели
+                    {t('onboarding.stt.expect.offline')}
                   </li>
                   <li className="flex items-start gap-2.5">
                     <span className="mt-0.5 text-amber-400">
                       <Stroke d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z|M12 9v4|M12 17h.01" />
                     </span>
-                    Использует CPU/GPU — может влиять на батарею, шум вентилятора и производительность
+                    {t('onboarding.stt.expect.cpu')}
                   </li>
                   <li className="flex items-start gap-2.5">
                     <span className="mt-0.5 text-accent">
                       <Stroke d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4|M7 10l5 5 5-5|M12 15V3" />
                     </span>
-                    Сначала нужно загрузить локальную речевую модель
+                    {t('onboarding.stt.expect.download')}
                   </li>
                 </ul>
               </div>
             </div>
 
             <div className="mt-5 rounded-2xl border border-amber-700/30 bg-amber-950/20 p-4 text-sm text-amber-200">
-              <strong className="font-semibold">Этичное использование.</strong> Приложение помогает
-              готовиться и работать на разрешённых созвонах. Не используйте его для обмана
-              интервьюеров и предупреждайте участников о записи, если этого требуют правила.
+              <strong className="font-semibold">{t('onboarding.ethics.strong')}</strong>
+              {t('onboarding.ethics.body')}
             </div>
 
             <button onClick={() => setStep(2)} className="btn-primary mt-6 w-full py-3 sm:w-auto sm:px-8">
-              Выбрать речевую модель
+              {t('onboarding.stt.choose')}
             </button>
           </>
         ) : step === 2 ? (
@@ -136,6 +142,7 @@ export default function OnboardingPage() {
  */
 function OnboardingKeyStep({ onBack, onDone }: { onBack: () => void; onDone: () => void }) {
   const { refreshKeys } = useApp();
+  const { t } = useI18n();
   const [provider, setProvider] = useState<'openrouter' | 'openai'>('openrouter');
   const [key, setKey] = useState('');
   const [saving, setSaving] = useState(false);
@@ -154,7 +161,7 @@ function OnboardingKeyStep({ onBack, onDone }: { onBack: () => void; onDone: () 
       await refreshKeys();
       onDone();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Не удалось сохранить ключ');
+      setError(err instanceof Error ? err.message : t('onboarding.key.saveError'));
     } finally {
       setSaving(false);
     }
@@ -162,14 +169,13 @@ function OnboardingKeyStep({ onBack, onDone }: { onBack: () => void; onDone: () 
 
   return (
     <div className="max-w-xl">
-      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-accent">AI-ключ</p>
-      <h1 className="text-[32px] font-semibold leading-tight tracking-tight">
-        Подключите AI — это сердце подсказок
-      </h1>
-      <p className="mt-2 text-sm leading-relaxed text-ink-muted">
-        Ключ нужен для live-ответов и умной оценки в mock-интервью. Распознавание речи остаётся
-        локальным. Ключ хранится только на вашем устройстве.
+      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-accent">
+        {t('onboarding.key.eyebrow')}
       </p>
+      <h1 className="text-[32px] font-semibold leading-tight tracking-tight">
+        {t('onboarding.key.title')}
+      </h1>
+      <p className="mt-2 text-sm leading-relaxed text-ink-muted">{t('onboarding.key.subtitle')}</p>
 
       <div className="sc-card mt-6 p-5">
         <div className="mb-3 flex gap-2">
@@ -180,7 +186,7 @@ function OnboardingKeyStep({ onBack, onDone }: { onBack: () => void; onDone: () 
               onClick={() => setProvider(p)}
               className={`btn-sm ${provider === p ? 'btn-primary' : 'btn-secondary'}`}
             >
-              {p === 'openrouter' ? 'OpenRouter (рекомендуем)' : 'OpenAI'}
+              {p === 'openrouter' ? t('onboarding.key.openrouter') : t('onboarding.key.openai')}
             </button>
           ))}
         </div>
@@ -193,15 +199,12 @@ function OnboardingKeyStep({ onBack, onDone }: { onBack: () => void; onDone: () 
           autoFocus
         />
         {error && <p className="mt-2 text-sm text-red-400">{error}</p>}
-        <p className="mt-3 text-xs leading-relaxed text-ink-faint">
-          Ключ OpenRouter даёт доступ сразу ко многим моделям. Получить его можно на
-          openrouter.ai — займёт пару минут. Можно пропустить и добавить позже в Настройках.
-        </p>
+        <p className="mt-3 text-xs leading-relaxed text-ink-faint">{t('onboarding.key.hint')}</p>
       </div>
 
       <div className="mt-6 flex flex-wrap items-center gap-3">
         <button type="button" onClick={onBack} className="btn-secondary">
-          Назад
+          {t('onboarding.back')}
         </button>
         <button
           type="button"
@@ -209,10 +212,10 @@ function OnboardingKeyStep({ onBack, onDone }: { onBack: () => void; onDone: () 
           disabled={!key.trim() || saving}
           className="btn-primary px-8"
         >
-          {saving ? 'Сохраняю…' : 'Сохранить и начать'}
+          {saving ? t('onboarding.key.saving') : t('onboarding.key.save')}
         </button>
         <button type="button" onClick={onDone} className="btn-ghost btn-sm">
-          Пропустить — добавлю позже
+          {t('onboarding.key.skipLater')}
         </button>
       </div>
     </div>
