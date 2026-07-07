@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api';
-import { shouldQueueIncomingAnswer } from '../lib/liveAnswerQueue';
+import { decideAnswerAction } from '../lib/liveAnswerMachine';
 import { startLiveSession, LiveSession, SttMode, SttTimings } from '../lib/liveSession';
 import { prepareTranscriptForLlm, PreparedTranscript } from '../lib/prepareTranscriptForLlm';
 import { SttSessionOptions } from '../lib/sttOptions';
@@ -655,14 +655,19 @@ export function useLiveCopilot() {
         return;
       }
 
-      if (q === lastCompletedRef.current) return;
-      if (streamLockRef.current && q === lastQuestionRef.current) return;
-
       const requestTimings = serverTimingsRef.current ? { ...serverTimingsRef.current } : null;
       const requestQuestionFinalAt = questionFinalAtRef.current;
 
-      if (streamLockRef.current) {
-        if (!shouldQueueIncomingAnswer(lastQuestionRef.current, q)) return;
+      const decision = decideAnswerAction({
+        question: q,
+        locked: streamLockRef.current,
+        lastQuestion: lastQuestionRef.current,
+        lastCompleted: lastCompletedRef.current,
+      });
+
+      if (decision.action === 'skip') return;
+
+      if (decision.action === 'queue') {
         queuedAnswerRef.current = {
           rawMerged,
           serverTimings: requestTimings,
