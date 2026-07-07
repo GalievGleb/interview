@@ -1,8 +1,6 @@
 import { useEffect, useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useI18n, type I18nKey } from '../lib/i18n';
-import { WHISPER_MODEL_CARDS } from '@interview/shared';
-import { api } from '../lib/api';
 import { useApp } from '../context/AppContext';
 import StatusBadge from './ui/StatusBadge';
 
@@ -187,32 +185,6 @@ export default function Sidebar() {
   const sessionLive = useSessionLive();
   const [undetected, setUndetected] = useState(false);
   const [hiddenTaskbar, setHiddenTaskbar] = useState(false);
-  const [model, setModel] = useState<{ label: string; mb: number; ready: boolean } | null>(null);
-
-  useEffect(() => {
-    if (!backendOnline) return;
-    let alive = true;
-    void (async () => {
-      try {
-        const s = await api.getSttSettings();
-        const q = s.final_model ?? s.local_model;
-        const card = WHISPER_MODEL_CARDS.find((c) => c.quality === q);
-        const st = await api.sttModelStatus(q).catch(() => null);
-        if (alive) {
-          setModel({
-            label: card?.label ?? q,
-            mb: card?.approxDownloadMb ?? 0,
-            ready: st?.downloaded ?? false,
-          });
-        }
-      } catch {
-        /* backend not ready */
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [backendOnline]);
 
   return (
     <aside className="skillcue-sidebar">
@@ -273,32 +245,6 @@ export default function Sidebar() {
           </div>
         ))}
       </nav>
-
-      <div className="px-3 pb-2">
-        <button
-          type="button"
-          onClick={() => navigate('/settings')}
-          className="flex w-full items-center gap-2.5 rounded-xl border border-surface-border bg-surface-card/85 px-3 py-2.5 text-left shadow-soft transition-colors hover:border-surface-border-strong hover:bg-surface-hover"
-        >
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent-soft text-accent">
-            <Icon name="mic" size={16} />
-          </span>
-          <span className="min-w-0 flex-1 leading-tight">
-            <span className="flex items-center gap-1.5 text-[13px] font-medium text-ink">
-              Whisper
-              <span className={`sc-dot ${model?.ready ? 'sc-dot--success' : 'sc-dot--warning'}`} />
-              <span
-                className={`text-[11px] font-normal ${model?.ready ? 'text-accent' : 'text-ink-faint'}`}
-              >
-                {model ? (model.ready ? 'Готова' : 'Не загружена') : '…'}
-              </span>
-            </span>
-            <span className="sc-mono block truncate text-[11px] text-ink-faint">
-              {model ? `${model.label}${model.mb ? ` · ~${model.mb} МБ` : ''}` : 'Локальный Whisper'}
-            </span>
-          </span>
-        </button>
-      </div>
 
       <div className="space-y-2 border-t border-surface-border px-4 py-3">
         {backendOnline ? (

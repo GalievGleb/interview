@@ -282,6 +282,14 @@ function createMainWindow(): BrowserWindow {
     title: 'SkillCue',
     icon: BRAND_ICON,
     autoHideMenuBar: true,
+    // Прячем светлую системную рамку Windows и рисуем кнопки окна поверх нашего
+    // тёмного тайтлбара — сам тайтлбар отвечает за перетаскивание (app-region).
+    titleBarStyle: 'hidden',
+    titleBarOverlay: {
+      color: '#0c1726',
+      symbolColor: '#c7d3e2',
+      height: 52,
+    },
     webPreferences: {
       preload: getPreloadPath(),
       contextIsolation: true,

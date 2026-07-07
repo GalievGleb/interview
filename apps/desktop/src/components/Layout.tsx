@@ -55,13 +55,7 @@ function TitleBar({ onInterview }: { onInterview: boolean }) {
 
   return (
     <header className="skillcue-titlebar">
-      <div className="flex items-center gap-1.5">
-        <span className="h-3 w-3 rounded-full bg-[#ff5f57]/80" />
-        <span className="h-3 w-3 rounded-full bg-[#febc2e]/80" />
-        <span className="h-3 w-3 rounded-full bg-[#28c840]/80" />
-      </div>
-
-      <div className="ml-1 flex items-center gap-2">
+      <div className="flex items-center gap-2">
         <div className="skillcue-logo skillcue-logo--small" aria-hidden />
         <span className="text-sm font-semibold tracking-tight text-ink">SkillCue</span>
         <span className="sc-mono rounded-md border border-surface-border bg-surface-elevated px-1.5 py-0.5 text-[10px] text-ink-faint">
@@ -69,15 +63,20 @@ function TitleBar({ onInterview }: { onInterview: boolean }) {
         </span>
       </div>
 
-      <div className="h-5 w-px bg-surface-border" />
-
-      <div className="flex items-center gap-2 text-[13px] text-ink-muted">
-        <span className={`sc-dot ${live ? 'sc-dot--live' : ''}`} />
-        <span>{live ? 'Live-сессия' : 'Ожидание'}</span>
-        {live && liveStart != null && (
-          <span className="sc-mono text-ink-faint">{elapsed(now - liveStart)}</span>
-        )}
-      </div>
+      {/* Статус-хронометр показываем только во время live-сессии;
+          в простое лишний текст «Ожидание» только шумел. */}
+      {live && (
+        <>
+          <div className="h-5 w-px bg-surface-border" />
+          <div className="flex items-center gap-2 text-[13px] text-ink-muted">
+            <span className="sc-dot sc-dot--live" />
+            <span>Live-сессия</span>
+            {liveStart != null && (
+              <span className="sc-mono text-ink-faint">{elapsed(now - liveStart)}</span>
+            )}
+          </div>
+        </>
+      )}
 
       <div className="ml-auto flex items-center gap-2">
         {onInterview && (
@@ -122,12 +121,13 @@ function TitleBar({ onInterview }: { onInterview: boolean }) {
           </span>
         ) : (
           <span
-            className="skillcue-local-pill"
-            title="Распознавание речи работает на вашем устройстве."
+            className="skillcue-local-pill skillcue-local-pill--icon"
+            title="Распознавание речи работает на вашем устройстве — приватно."
+            aria-label="Локально и приватно"
           >
             <svg
-              width="13"
-              height="13"
+              width="14"
+              height="14"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
@@ -137,7 +137,6 @@ function TitleBar({ onInterview }: { onInterview: boolean }) {
             >
               <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
             </svg>
-            Локально · Приватно
           </span>
         )}
       </div>

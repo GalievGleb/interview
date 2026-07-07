@@ -273,10 +273,22 @@
   }
 
   .skillcue-titlebar {
-    @apply flex h-[52px] shrink-0 items-center gap-3 border-b border-surface-border px-4;
+    @apply flex h-[52px] shrink-0 items-center gap-3 border-b border-surface-border pl-4;
+    /* Наш тайтлбар — зона перетаскивания окна (нативная рамка скрыта). Справа
+       нативные кнопки окна (titleBarOverlay): резервируем под них место, чтобы
+       контент не заезжал. В браузере env() = 0, отступ схлопывается до 16px. */
+    -webkit-app-region: drag;
+    padding-right: calc(16px + (100vw - env(titlebar-area-width, 100vw) - env(titlebar-area-x, 0px)));
     background:
       radial-gradient(circle at 12% 0%, rgba(52, 199, 123, 0.1), transparent 28rem),
       linear-gradient(180deg, #0c1726 0%, #08111f 100%);
+  }
+  /* Интерактивные элементы тайтлбара должны кликаться, а не таскать окно. */
+  .skillcue-titlebar button,
+  .skillcue-titlebar a,
+  .skillcue-titlebar input,
+  .skillcue-titlebar .skillcue-local-pill {
+    -webkit-app-region: no-drag;
   }
 
   /* Светлая тема: хардкод тёмного градиента ломал контраст с уже
@@ -343,6 +355,11 @@
   .skillcue-local-pill--cloud {
     @apply border-amber-400/30 text-amber-300;
     background: rgba(251, 191, 36, 0.12);
+  }
+  /* Локальный режим без подписи — компактный значок-щит (текст убрали по просьбе,
+     приватность считывается по иконке + tooltip). */
+  .skillcue-local-pill--icon {
+    @apply gap-0 px-1.5 py-1.5;
   }
 }
 
