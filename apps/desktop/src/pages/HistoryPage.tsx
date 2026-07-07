@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import InterviewExportButtons from '../components/interview/InterviewExportButtons';
 import { api, SessionItem, SessionDetail } from '../lib/api';
 import { buildStoredSessionExport } from '../lib/interviewSessionExport';
+import { useI18n, type I18nKey } from '../lib/i18n';
 import {
   listSessions as listMockSessions,
   deleteSession as deleteMockSession,
@@ -11,19 +12,19 @@ import type { ReadinessLabel, SmokeReviewSession } from '../lib/vacancyReview/ty
 
 type SourceFilter = 'all' | 'interview' | 'meeting' | 'mock';
 
-const SOURCE_TABS: { id: SourceFilter; label: string }[] = [
-  { id: 'all', label: 'Все' },
-  { id: 'interview', label: 'Live' },
-  { id: 'mock', label: 'Мок' },
-  { id: 'meeting', label: 'Разбор' },
+const SOURCE_TABS: { id: SourceFilter; labelKey: I18nKey }[] = [
+  { id: 'all', labelKey: 'history.tab.all' },
+  { id: 'interview', labelKey: 'history.tab.live' },
+  { id: 'mock', labelKey: 'history.tab.mock' },
+  { id: 'meeting', labelKey: 'history.tab.meeting' },
 ];
 
-const READINESS_LABELS: Record<ReadinessLabel, string> = {
-  not_ready: 'Не готов',
-  weak: 'Слабо',
-  almost_ready: 'Почти готов',
-  ready: 'Готов',
-  strong: 'Сильный уровень',
+const READINESS_KEY: Record<ReadinessLabel, I18nKey> = {
+  not_ready: 'history.readiness.not_ready',
+  weak: 'history.readiness.weak',
+  almost_ready: 'history.readiness.almost_ready',
+  ready: 'history.readiness.ready',
+  strong: 'history.readiness.strong',
 };
 
 /** Единый элемент списка: сессии backend (live/meeting) + локальные мок-сессии. */
@@ -31,13 +32,9 @@ type HistoryRow =
   | { kind: 'backend'; id: string; startedAt: number; session: SessionItem }
   | { kind: 'mock'; id: string; startedAt: number; session: SmokeReviewSession };
 
-function sourceBadge(row: HistoryRow) {
-  if (row.kind === 'mock') return { label: 'Мок' };
-  return row.session.mode === 'meeting' ? { label: 'Разбор' } : { label: 'Live' };
-}
-
-function speakerLabel(speaker: string) {
-  return speaker === 'me' ? 'Вы' : 'Интервьюер';
+function sourceBadgeKey(row: HistoryRow): I18nKey {
+  if (row.kind === 'mock') return 'history.tab.mock';
+  return row.session.mode === 'meeting' ? 'history.tab.meeting' : 'history.tab.live';
 }
 
 function TrashIcon() {
@@ -58,31 +55,33 @@ function TrashIcon() {
 }
 
 function MockSessionDetail({ session }: { session: SmokeReviewSession }) {
+  const { t, lang } = useI18n();
+  const loc = lang === 'en' ? 'en-US' : 'ru-RU';
   const report = session.report;
   const answered = session.answers.filter((a) => !a.skipped);
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="prep-eyebrow">Мок-интервью</p>
+          <p className="prep-eyebrow">{t('history.mock.eyebrow')}</p>
           <h2 className="prep-h2 prep-section-title">
-            {session.vacancyAnalysis.targetRole || 'Мок-интервью по вакансии'}
+            {session.vacancyAnalysis.targetRole || t('history.mock.titleFallback')}
           </h2>
         </div>
         <p className="prep-faint">
-          {answered.length}/{session.questions.length} вопросов ·{' '}
-          {new Date(session.startedAt).toLocaleString()}
+          {answered.length}/{session.questions.length} {t('history.questions')} ·{' '}
+          {new Date(session.startedAt).toLocaleString(loc)}
         </p>
       </div>
 
       {report && (
         <div className="prep-preview-card space-y-3 text-sm leading-relaxed">
           <p className="text-[15px] font-semibold">
-            Готовность: {report.overallScore}/100 — {READINESS_LABELS[report.status]}
+            {t('history.mock.readiness')} {report.overallScore}/100 — {t(READINESS_KEY[report.status])}
           </p>
           {report.strengths.length > 0 && (
             <div>
-              <p className="font-semibold">Сильные стороны</p>
+              <p className="font-semibold">{t('history.mock.strengths')}</p>
               <ul className="mt-1 list-disc space-y-1 pl-5">
                 {report.strengths.map((s, i) => (
                   <li key={i}>{s}</li>
@@ -92,7 +91,7 @@ function MockSessionDetail({ session }: { session: SmokeReviewSession }) {
           )}
           {report.weakAreas.length > 0 && (
             <div>
-              <p className="font-semibold">Слабые места</p>
+              <p className="font-semibold">{t('history.mock.weakAreas')}</p>
               <ul className="mt-1 list-disc space-y-1 pl-5">
                 {report.weakAreas.map((s, i) => (
                   <li key={i}>{s}</li>
@@ -102,7 +101,7 @@ function MockSessionDetail({ session }: { session: SmokeReviewSession }) {
           )}
           {report.criticalGaps.length > 0 && (
             <div>
-              <p className="font-semibold">Критичные пробелы</p>
+              <p className="font-semibold">{t('history.mock.criticalGaps')}</p>
               <ul className="mt-1 list-disc space-y-1 pl-5">
                 {report.criticalGaps.map((s, i) => (
                   <li key={i}>{s}</li>
@@ -112,7 +111,7 @@ function MockSessionDetail({ session }: { session: SmokeReviewSession }) {
           )}
           {report.nextPracticePlan.length > 0 && (
             <div>
-              <p className="font-semibold">План тренировки</p>
+              <p className="font-semibold">{t('history.mock.plan')}</p>
               <ul className="mt-1 list-disc space-y-1 pl-5">
                 {report.nextPracticePlan.map((s, i) => (
                   <li key={i}>{s}</li>
@@ -129,7 +128,9 @@ function MockSessionDetail({ session }: { session: SmokeReviewSession }) {
             const question = session.questions.find((q) => q.id === answer.questionId);
             return (
               <article key={answer.questionId} className="prep-answer-review">
-                <p className="prep-answer-question">{question?.question ?? 'Вопрос'}</p>
+                <p className="prep-answer-question">
+                  {question?.question ?? t('history.mock.questionFallback')}
+                </p>
                 <p className="prep-answer-text">{answer.text}</p>
                 {answer.evaluation && (
                   <p className="prep-faint mt-2">
@@ -147,6 +148,8 @@ function MockSessionDetail({ session }: { session: SmokeReviewSession }) {
 
 export default function HistoryPage() {
   const navigate = useNavigate();
+  const { t, lang } = useI18n();
+  const loc = lang === 'en' ? 'en-US' : 'ru-RU';
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [mockSessions, setMockSessions] = useState<SmokeReviewSession[]>([]);
   const [selected, setSelected] = useState<SessionDetail | null>(null);
@@ -166,11 +169,11 @@ export default function HistoryPage() {
       const res = await api.listSessions();
       setSessions(res.sessions);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Ошибка загрузки истории');
+      setError(err instanceof Error ? err.message : t('history.loadError'));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void loadSessions();
@@ -190,7 +193,7 @@ export default function HistoryPage() {
       setSelectedMock(null);
       setError('');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Не удалось открыть сессию');
+      setError(err instanceof Error ? err.message : t('history.openError'));
     }
   };
 
@@ -201,7 +204,7 @@ export default function HistoryPage() {
   };
 
   const remove = async (row: HistoryRow) => {
-    if (!window.confirm('Удалить сессию и все связанные ответы?')) return;
+    if (!window.confirm(t('history.confirmDelete'))) return;
     setDeletingId(row.id);
     setError('');
     try {
@@ -215,7 +218,7 @@ export default function HistoryPage() {
         if (selected?.id === row.id) setSelected(null);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Не удалось удалить сессию');
+      setError(err instanceof Error ? err.message : t('history.deleteError'));
     } finally {
       setDeletingId(null);
     }
@@ -223,7 +226,8 @@ export default function HistoryPage() {
 
   const removeAll = async () => {
     if (sessions.length === 0) return;
-    if (!window.confirm(`Удалить все интервью (${sessions.length})? Действие необратимо.`)) return;
+    if (!window.confirm(`${t('history.confirmDeleteAllPre')} (${sessions.length})? ${t('history.irreversible')}`))
+      return;
     setClearing(true);
     setError('');
     try {
@@ -231,7 +235,7 @@ export default function HistoryPage() {
       setSessions([]);
       setSelected(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Не удалось удалить все сессии');
+      setError(err instanceof Error ? err.message : t('history.deleteAllError'));
     } finally {
       setClearing(false);
     }
@@ -271,21 +275,18 @@ export default function HistoryPage() {
         row.kind === 'mock'
           ? `мок ${row.session.vacancyAnalysis.targetRole}`
           : `${row.session.title ?? ''} ${row.session.mode}`;
-      const hay = `${title} ${new Date(row.startedAt).toLocaleString()}`.toLowerCase();
+      const hay = `${title} ${new Date(row.startedAt).toLocaleString(loc)}`.toLowerCase();
       return hay.includes(q);
     });
-  }, [rows, query, source]);
+  }, [rows, query, source, loc]);
 
   return (
     <div className="prep h-full overflow-y-auto">
       <div className="prep-wrap prep-rise prep-home">
         <section>
-          <p className="prep-eyebrow">История интервью</p>
-          <h1 className="prep-h1 mt-1">Вернитесь к вопросам, где было сложно.</h1>
-          <p className="prep-sub mt-1.5 max-w-2xl">
-            Live-сессии, мок-интервью и разборы разговоров — в одном месте. Откройте, чтобы
-            разобрать вопросы и сохранить удачные формулировки.
-          </p>
+          <p className="prep-eyebrow">{t('history.eyebrow')}</p>
+          <h1 className="prep-h1 mt-1">{t('history.title')}</h1>
+          <p className="prep-sub mt-1.5 max-w-2xl">{t('history.sub')}</p>
         </section>
 
         <section className="prep-history-toolbar mt-5">
@@ -293,19 +294,19 @@ export default function HistoryPage() {
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Найти по названию, дате или режиму…"
+              placeholder={t('history.searchPlaceholder')}
               className="prep-input w-full"
             />
           </div>
-          <div className="prep-segmented" role="group" aria-label="Фильтр источника">
-            {SOURCE_TABS.map((t) => (
+          <div className="prep-segmented" role="group" aria-label={t('history.sourceAria')}>
+            {SOURCE_TABS.map((tab) => (
               <button
-                key={t.id}
+                key={tab.id}
                 type="button"
-                onClick={() => setSource(t.id)}
-                className={source === t.id ? 'prep-segmented-active' : ''}
+                onClick={() => setSource(tab.id)}
+                className={source === tab.id ? 'prep-segmented-active' : ''}
               >
-                {t.label}
+                {t(tab.labelKey)}
               </button>
             ))}
           </div>
@@ -318,7 +319,7 @@ export default function HistoryPage() {
                 disabled={clearing}
                 className="prep-btn prep-btn-ghost prep-btn-sm"
               >
-                {clearing ? 'Удаляю…' : 'Удалить все'}
+                {clearing ? t('history.deleting') : t('history.deleteAll')}
               </button>
             )}
           </div>
@@ -332,43 +333,42 @@ export default function HistoryPage() {
 
         <section className="prep-history-grid">
           <div className="prep-session-list">
-            {loading && <p className="prep-faint">Загрузка…</p>}
+            {loading && <p className="prep-faint">{t('common.loading')}</p>}
             {!loading && filtered.length === 0 && (
               <div className="prep-empty-state">
-                <p className="prep-h2">{rows.length === 0 ? 'Сессий пока нет' : 'Ничего не найдено'}</p>
-                <p className="prep-sub mt-1">
-                  Сначала разберите вакансию или запустите live. После этого здесь появятся
-                  вопросы, ответы, оценки и сильные формулировки.
+                <p className="prep-h2">
+                  {rows.length === 0 ? t('history.empty.none') : t('history.empty.notFound')}
                 </p>
+                <p className="prep-sub mt-1">{t('history.empty.sub')}</p>
                 {rows.length === 0 && (
                   <button
                     type="button"
                     className="prep-btn prep-btn-sm mt-4"
                     onClick={() => navigate('/prepare')}
                   >
-                    Разобрать вакансию
+                    {t('home.action.reviewVacancy')}
                   </button>
                 )}
               </div>
             )}
             {filtered.map((row) => {
-              const badge = sourceBadge(row);
+              const badgeLabel = t(sourceBadgeKey(row));
               const active =
                 row.kind === 'mock' ? selectedMock?.id === row.id : selected?.id === row.id;
               const isLive = row.kind === 'backend' && row.session.mode !== 'meeting';
               const title =
                 row.kind === 'mock'
-                  ? `Мок: ${row.session.vacancyAnalysis.targetRole || 'по вакансии'}`
+                  ? `${t('history.row.mock')} ${row.session.vacancyAnalysis.targetRole || t('history.row.forVacancy')}`
                   : row.session.title ||
-                    (row.session.mode === 'meeting' ? 'Разбор разговора' : 'Live-сессия');
+                    (row.session.mode === 'meeting' ? t('history.row.meeting') : t('shell.liveSession'));
               const subtitle =
                 row.kind === 'mock'
-                  ? `${badge.label} · ${new Date(row.startedAt).toLocaleDateString()} · ${
-                      row.session.report ? `${row.session.report.overallScore}/100` : 'без отчёта'
+                  ? `${badgeLabel} · ${new Date(row.startedAt).toLocaleDateString(loc)} · ${
+                      row.session.report ? `${row.session.report.overallScore}/100` : t('history.noReport')
                     }`
-                  : `${badge.label} · ${new Date(row.startedAt).toLocaleDateString()} · ${
+                  : `${badgeLabel} · ${new Date(row.startedAt).toLocaleDateString(loc)} · ${
                       row.session.answer_count ?? 0
-                    } ответов`;
+                    } ${t('history.answers')}`;
               return (
                 <div key={row.id} className={`prep-session-row ${active ? 'is-active' : ''}`}>
                   <button
@@ -392,8 +392,8 @@ export default function HistoryPage() {
                     onClick={() => void remove(row)}
                     disabled={deletingId === row.id}
                     className="prep-session-row-del"
-                    title="Удалить сессию"
-                    aria-label="Удалить сессию"
+                    title={t('history.deleteTitle')}
+                    aria-label={t('history.deleteTitle')}
                   >
                     <TrashIcon />
                   </button>
@@ -405,10 +405,8 @@ export default function HistoryPage() {
           <div className="prep-session-detail">
             {!selected && !selectedMock && (
               <div className="prep-empty-state h-full min-h-[420px]">
-                <p className="prep-h2">Выберите сессию слева</p>
-                <p className="prep-sub mt-1">
-                  Здесь появятся вопросы, ответы и транскрипт для разбора после интервью.
-                </p>
+                <p className="prep-h2">{t('history.detail.empty.title')}</p>
+                <p className="prep-sub mt-1">{t('history.detail.empty.sub')}</p>
               </div>
             )}
             {selectedMock && <MockSessionDetail session={selectedMock} />}
@@ -419,14 +417,14 @@ export default function HistoryPage() {
                   className="prep-btn prep-btn-sm"
                   onClick={() => navigate(`/prepare?session=${selectedMock.id}`)}
                 >
-                  Открыть карту готовности
+                  {t('home.action.openReadiness')}
                 </button>
                 <button
                   type="button"
                   className="prep-btn prep-btn-secondary prep-btn-sm"
                   onClick={() => navigate('/interview')}
                 >
-                  Начать live с этим контекстом
+                  {t('history.startLive')}
                 </button>
               </div>
             )}
@@ -434,11 +432,12 @@ export default function HistoryPage() {
               <div className="space-y-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <p className="prep-eyebrow">Разбор сессии</p>
+                    <p className="prep-eyebrow">{t('history.detail.eyebrow')}</p>
                     <h2 className="prep-h2 prep-section-title">{selected.title || selected.mode}</h2>
                   </div>
                   <p className="prep-faint">
-                    {selected.answers.length} ответов · {selected.transcripts.length} строк транскрипта
+                    {selected.answers.length} {t('history.answers')} · {selected.transcripts.length}{' '}
+                    {t('history.transcriptLines')}
                   </p>
                 </div>
 
@@ -463,7 +462,10 @@ export default function HistoryPage() {
                   <div className="prep-transcript-review">
                     {selected.transcripts.map((line, index) => (
                       <p key={index}>
-                        <span>{speakerLabel(line.speaker)}:</span> {line.text}
+                        <span>
+                          {line.speaker === 'me' ? t('history.speaker.me') : t('history.speaker.other')}:
+                        </span>{' '}
+                        {line.text}
                       </p>
                     ))}
                   </div>

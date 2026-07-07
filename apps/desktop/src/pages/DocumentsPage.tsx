@@ -1,18 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, DocumentItem } from '../lib/api';
+import { useI18n, type I18nKey } from '../lib/i18n';
 
-const KINDS = [
-  { value: 'resume', label: 'Резюме' },
-  { value: 'legend', label: 'История опыта' },
-  { value: 'vacancy', label: 'Вакансия' },
-  { value: 'notes', label: 'Заметки' },
+const KINDS: Array<{ value: string; labelKey: I18nKey }> = [
+  { value: 'resume', labelKey: 'docs.kind.resume' },
+  { value: 'legend', labelKey: 'docs.kind.legend' },
+  { value: 'vacancy', labelKey: 'docs.kind.vacancy' },
+  { value: 'notes', labelKey: 'docs.kind.notes' },
 ];
 
-const KIND_STYLE: Record<string, { label: string; tone: string }> = {
-  resume: { label: 'Резюме', tone: 'prep-tone-green' },
-  legend: { label: 'История опыта', tone: 'prep-tone-violet' },
-  vacancy: { label: 'Вакансия', tone: 'prep-tone-blue' },
-  notes: { label: 'Заметки', tone: '' },
+const KIND_STYLE: Record<string, { labelKey: I18nKey; tone: string }> = {
+  resume: { labelKey: 'docs.kind.resume', tone: 'prep-tone-green' },
+  legend: { labelKey: 'docs.kind.legend', tone: 'prep-tone-violet' },
+  vacancy: { labelKey: 'docs.kind.vacancy', tone: 'prep-tone-blue' },
+  notes: { labelKey: 'docs.kind.notes', tone: '' },
 };
 
 function FileIcon() {
@@ -54,44 +55,46 @@ function LegendIcon() {
 
 interface PillarProps {
   icon: React.ReactNode;
-  label: string;
+  variant: 'resume' | 'legend';
   title: string;
   connectedTitle: string;
   count: number;
   onAdd: () => void;
 }
 
-function SourcePillar({ icon, label, title, connectedTitle, count, onAdd }: PillarProps) {
+function SourcePillar({ icon, variant, title, connectedTitle, count, onAdd }: PillarProps) {
+  const { t } = useI18n();
   const on = count > 0;
+  const docWord = count === 1 ? t('docs.doc.one') : t('docs.doc.many');
   return (
     <div className={`prep-source-pillar ${on ? 'is-on' : ''}`}>
       <div className="prep-source-head">
         <span className="prep-source-icon">{icon}</span>
         <div className="min-w-0">
-          <p className="prep-eyebrow">{label === 'Resume' ? 'Резюме' : 'История опыта'}</p>
+          <p className="prep-eyebrow">{variant === 'resume' ? t('docs.kind.resume') : t('docs.kind.legend')}</p>
           <h3 className="text-[15px] font-bold" style={{ color: 'var(--prep-ink)' }}>
             {on ? connectedTitle : title}
           </h3>
         </div>
         <span className={`prep-source-state ${on ? 'is-on' : ''}`}>
           <span className="prep-source-dot" />
-          {on ? 'Подключено' : 'Пусто'}
+          {on ? t('docs.pillar.connected') : t('docs.pillar.empty')}
         </span>
       </div>
       <p className="prep-sub mt-3 flex-1">
-        {label === 'Resume' ? (
-          <>Реальные факты: роли, стек, проекты. Live-ответы держатся в этих рамках.</>
-        ) : (
-          <>Проекты, спорные места и безопасные формулировки — чтобы ответы звучали уверенно и связно.</>
-        )}
+        {variant === 'resume' ? t('docs.pillar.resumeDesc') : t('docs.pillar.legendDesc')}
       </p>
       <div className="mt-4 flex items-center gap-3">
         <button type="button" className="prep-btn prep-btn-sm" onClick={onAdd}>
-          {on ? 'Добавить ещё' : `Добавить ${label === 'Resume' ? 'резюме' : 'историю опыта'}`}
+          {on
+            ? t('docs.pillar.addMore')
+            : variant === 'resume'
+              ? t('docs.pillar.addResume')
+              : t('docs.pillar.addLegend')}
         </button>
         {on && (
           <span className="prep-faint">
-            <span className="prep-source-count">{count}</span> {count === 1 ? 'документ' : 'документа'}
+            <span className="prep-source-count">{count}</span> {docWord}
           </span>
         )}
       </div>
@@ -105,6 +108,7 @@ function SourcePillar({ icon, label, title, connectedTitle, count, onAdd }: Pill
  * генерацией) или пересобрать заново из документов.
  */
 function ProfilePackCard({ reloadKey }: { reloadKey: number }) {
+  const { t } = useI18n();
   const [content, setContent] = useState('');
   const [status, setStatus] = useState<{ exists: boolean; stale: boolean; userEdited?: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -130,9 +134,9 @@ function ProfilePackCard({ reloadKey }: { reloadKey: number }) {
     try {
       await api.profilePackSave(content);
       await load();
-      setNote('Сохранено. Live теперь отвечает по вашей версии профиля.');
+      setNote(t('docs.profile.saved'));
     } catch (e) {
-      setNote(e instanceof Error ? e.message : 'Не удалось сохранить.');
+      setNote(e instanceof Error ? e.message : t('docs.profile.saveError'));
     } finally {
       setBusy(false);
     }
@@ -144,39 +148,36 @@ function ProfilePackCard({ reloadKey }: { reloadKey: number }) {
     try {
       await api.profilePackRefresh();
       await load();
-      setNote('Профиль пересобран из документов.');
+      setNote(t('docs.profile.rebuilt'));
     } catch (e) {
-      setNote(e instanceof Error ? e.message : 'Не удалось пересобрать — проверьте AI-ключ.');
+      setNote(e instanceof Error ? e.message : t('docs.profile.rebuildError'));
     } finally {
       setBusy(false);
     }
   };
 
   const chip = !status?.exists
-    ? { text: 'не собран', tone: '' }
+    ? { text: t('docs.profile.chip.none'), tone: '' }
     : status.userEdited
-      ? { text: 'ваша редакция', tone: 'prep-tone-violet' }
+      ? { text: t('docs.profile.chip.edited'), tone: 'prep-tone-violet' }
       : status.stale
-        ? { text: 'устарел — документы менялись', tone: 'prep-tone-amber' }
-        : { text: 'актуален', tone: 'prep-tone-green' };
+        ? { text: t('docs.profile.chip.stale'), tone: 'prep-tone-amber' }
+        : { text: t('docs.profile.chip.fresh'), tone: 'prep-tone-green' };
 
   return (
     <section className="prep-action-card mt-5">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <p className="prep-eyebrow">Профиль кандидата</p>
-          <h2 className="prep-h2 prep-card-title">Что ИИ знает о вас — проверьте до собеседования.</h2>
+          <p className="prep-eyebrow">{t('docs.profile.eyebrow')}</p>
+          <h2 className="prep-h2 prep-card-title">{t('docs.profile.title')}</h2>
         </div>
         <span className={`prep-chip shrink-0 ${chip.tone}`}>{chip.text}</span>
       </div>
-      <p className="prep-sub mt-2">
-        Этими фактами live-подсказки отвечают на вопросы про ваш опыт. Профиль собирается из
-        резюме и истории опыта автоматически; если ИИ что-то понял не так — поправьте прямо здесь.
-      </p>
+      <p className="prep-sub mt-2">{t('docs.profile.desc')}</p>
       <textarea
         className="prep-textarea mt-3"
         rows={content ? 10 : 4}
-        placeholder="Профиль ещё не собран. Добавьте резюме ниже — он соберётся сам, или нажмите «Пересобрать»."
+        placeholder={t('docs.profile.placeholder')}
         value={content}
         onChange={(e) => setContent(e.target.value)}
       />
@@ -187,10 +188,10 @@ function ProfilePackCard({ reloadKey }: { reloadKey: number }) {
           disabled={busy || content.trim().length < 20}
           onClick={() => void save()}
         >
-          {busy ? 'Секунду…' : 'Сохранить правки'}
+          {busy ? t('docs.profile.saving') : t('docs.profile.saveEdits')}
         </button>
         <button type="button" className="prep-btn-ghost prep-btn-sm" disabled={busy} onClick={() => void rebuild()}>
-          Пересобрать из документов
+          {t('docs.profile.rebuild')}
         </button>
         {note && <span className="prep-faint">{note}</span>}
       </div>
@@ -199,6 +200,7 @@ function ProfilePackCard({ reloadKey }: { reloadKey: number }) {
 }
 
 export default function DocumentsPage() {
+  const { t } = useI18n();
   const [docs, setDocs] = useState<DocumentItem[]>([]);
   const [kind, setKind] = useState('resume');
   const [title, setTitle] = useState('');
@@ -213,12 +215,13 @@ export default function DocumentsPage() {
       const res = await api.listDocuments();
       setDocs(res.documents);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Ошибка загрузки документов');
+      setError(err instanceof Error ? err.message : t('docs.loadError'));
     }
   };
 
   useEffect(() => {
     void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const focusComposer = (into: string) => {
@@ -234,12 +237,12 @@ export default function DocumentsPage() {
     setBusy(true);
     setError('');
     try {
-      await api.uploadText(kind, title || KINDS.find((k) => k.value === kind)!.label, text);
+      await api.uploadText(kind, title || t(KINDS.find((k) => k.value === kind)!.labelKey), text);
       setText('');
       setTitle('');
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Не удалось добавить текст');
+      setError(err instanceof Error ? err.message : t('docs.addTextError'));
     } finally {
       setBusy(false);
     }
@@ -254,7 +257,7 @@ export default function DocumentsPage() {
       await api.uploadFile(kind, file, file.name);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Не удалось загрузить файл');
+      setError(err instanceof Error ? err.message : t('docs.uploadError'));
     } finally {
       setBusy(false);
       if (fileRef.current) fileRef.current.value = '';
@@ -278,28 +281,25 @@ export default function DocumentsPage() {
     <div className="prep h-full overflow-y-auto">
       <div className="prep-wrap prep-rise prep-home">
         <section>
-          <p className="prep-eyebrow">Источник ответов</p>
-          <h1 className="prep-h1 mt-1">Факты, на которые SkillCue может опираться.</h1>
-          <p className="prep-sub mt-1.5 max-w-2xl">
-            Live-подсказки опираются на две вещи: реальное резюме и историю вашего опыта.
-            Чем точнее источник, тем меньше общего AI-текста и больше ответов «от себя».
-          </p>
+          <p className="prep-eyebrow">{t('docs.eyebrow')}</p>
+          <h1 className="prep-h1 mt-1">{t('docs.title')}</h1>
+          <p className="prep-sub mt-1.5 max-w-2xl">{t('docs.sub')}</p>
         </section>
 
         <section className="prep-source-grid mt-5">
           <SourcePillar
             icon={<ResumeIcon />}
-            label="Resume"
-            title="Резюме не подключено"
-            connectedTitle="Резюме подключено"
+            variant="resume"
+            title={t('docs.pillar.resumeOff')}
+            connectedTitle={t('docs.pillar.resumeOn')}
             count={counts.resume ?? 0}
             onAdd={() => focusComposer('resume')}
           />
           <SourcePillar
             icon={<LegendIcon />}
-            label="Legend"
-            title="История опыта не подключена"
-            connectedTitle="История опыта подключена"
+            variant="legend"
+            title={t('docs.pillar.legendOff')}
+            connectedTitle={t('docs.pillar.legendOn')}
             count={counts.legend ?? 0}
             onAdd={() => focusComposer('legend')}
           />
@@ -307,18 +307,18 @@ export default function DocumentsPage() {
 
         <section className="prep-doc-grid mt-5">
           <div className="prep-action-card">
-            <p className="prep-eyebrow">Добавить контекст</p>
-            <h2 className="prep-h2 prep-card-title">Вставьте резюме, историю опыта или заметки.</h2>
+            <p className="prep-eyebrow">{t('docs.add.eyebrow')}</p>
+            <h2 className="prep-h2 prep-card-title">{t('docs.add.title')}</h2>
             <div className="mt-4 grid gap-3 sm:grid-cols-[180px_1fr]">
               <select value={kind} onChange={(e) => setKind(e.target.value)} className="prep-input">
                 {KINDS.map((k) => (
                   <option key={k.value} value={k.value}>
-                    {k.label}
+                    {t(k.labelKey)}
                   </option>
                 ))}
               </select>
               <input
-              placeholder="Название, например: QA Automation resume"
+                placeholder={t('docs.add.titlePlaceholder')}
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 className="prep-input"
@@ -326,7 +326,7 @@ export default function DocumentsPage() {
             </div>
             <textarea
               ref={composerRef}
-              placeholder="Вставьте текст резюме, истории опыта или заметок…"
+              placeholder={t('docs.add.textPlaceholder')}
               value={text}
               onChange={(e) => setText(e.target.value)}
               rows={7}
@@ -334,10 +334,10 @@ export default function DocumentsPage() {
             />
             <div className="mt-4 flex flex-wrap items-center gap-3">
               <button onClick={addText} disabled={busy || !text.trim()} className="prep-btn">
-                {busy ? 'Добавляю…' : 'Добавить текст'}
+                {busy ? t('docs.add.adding') : t('docs.add.addText')}
               </button>
               <label className="prep-btn prep-btn-secondary cursor-pointer">
-                Загрузить файл
+                {t('docs.add.uploadFile')}
                 <input
                   ref={fileRef}
                   type="file"
@@ -356,14 +356,14 @@ export default function DocumentsPage() {
           </div>
 
           <div className="prep-next-card">
-            <p className="prep-eyebrow">В live SkillCue использует</p>
+            <p className="prep-eyebrow">{t('docs.uses.eyebrow')}</p>
             <h2 className="prep-h2 prep-card-title">
-              {grounded ? 'Ваш контекст, а не общий AI.' : 'Пока только общий AI.'}
+              {grounded ? t('docs.uses.grounded') : t('docs.uses.generic')}
             </h2>
             <div className="prep-rule-list mt-4">
-              <span>Инструменты и стек из резюме</span>
-              <span>Проекты и зона ответственности</span>
-              <span>История опыта: где формулировать аккуратно</span>
+              <span>{t('docs.uses.rule1')}</span>
+              <span>{t('docs.uses.rule2')}</span>
+              <span>{t('docs.uses.rule3')}</span>
             </div>
           </div>
         </section>
@@ -373,39 +373,38 @@ export default function DocumentsPage() {
         <section>
           <div className="prep-section-head">
             <div>
-              <p className="prep-eyebrow">Библиотека</p>
-              <h2 className="prep-h2 prep-section-title">Подключённые материалы</h2>
+              <p className="prep-eyebrow">{t('docs.library.eyebrow')}</p>
+              <h2 className="prep-h2 prep-section-title">{t('docs.library.title')}</h2>
             </div>
-            {docs.length > 0 && <span className="prep-faint">{docs.length} всего</span>}
+            {docs.length > 0 && <span className="prep-faint">{docs.length} {t('home.analytics.total')}</span>}
           </div>
 
           <div className="prep-doc-list">
             {docs.length === 0 && (
               <div className="prep-empty-state">
-                <p className="prep-h2">Источников пока нет</p>
-                <p className="prep-sub mt-1">
-                  Добавьте резюме или историю опыта, чтобы live-ответы перестали быть общими.
-                </p>
+                <p className="prep-h2">{t('docs.empty.title')}</p>
+                <p className="prep-sub mt-1">{t('docs.empty.sub')}</p>
               </div>
             )}
             {docs.map((doc) => {
-              const style = KIND_STYLE[doc.kind] ?? { label: doc.kind.toUpperCase(), tone: '' };
+              const style = KIND_STYLE[doc.kind];
+              const label = style ? t(style.labelKey) : doc.kind.toUpperCase();
               return (
                 <div key={doc.id} className="prep-doc-row">
-                  <span className={`prep-doc-icon ${style.tone}`}>
+                  <span className={`prep-doc-icon ${style?.tone ?? ''}`}>
                     <FileIcon />
                   </span>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-[15px] font-semibold" style={{ color: 'var(--prep-ink)' }}>
                       {doc.title}
                     </p>
-                    <span className={`prep-chip mt-1 ${style.tone}`}>{style.label}</span>
+                    <span className={`prep-chip mt-1 ${style?.tone ?? ''}`}>{label}</span>
                   </div>
                   <button
                     onClick={() => void remove(doc.id)}
                     className="prep-btn prep-btn-ghost prep-btn-sm shrink-0"
                   >
-                    Удалить
+                    {t('common.delete')}
                   </button>
                 </div>
               );
