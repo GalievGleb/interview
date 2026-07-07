@@ -8,6 +8,7 @@
  * listen for the `skillcue:mock-sessions-synced` event to re-read.
  */
 import { api } from '../api';
+import { markMilestone } from '../activation';
 import type { SmokeReviewSession } from './types';
 
 const KEY = 'skillcue.vacancyReview.sessions.v1';
@@ -78,6 +79,10 @@ export function saveSession(session: SmokeReviewSession): void {
   const all = readAll().filter((s) => s.id !== session.id);
   all.unshift(stamped);
   writeAll(all);
+  // Вехи активации: любая сохранённая сессия = вакансия разобрана; статус
+  // completed = mock пройден. markMilestone фиксирует только первое прохождение.
+  markMilestone('vacancyAnalyzed');
+  if (session.status === 'completed') markMilestone('mockCompleted');
   // Пересохранение ранее удалённого id (тот же id снова в работе) снимает надгробие.
   const tombstones = readTombstones();
   if (tombstones.includes(session.id)) {

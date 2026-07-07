@@ -21,6 +21,7 @@ import {
 } from '../lib/answerLanguage';
 import { openSupportLink, SUPPORT_EMAIL, SUPPORT_TELEGRAM_URL } from '../lib/support';
 import { getErrorLog, isErrorLogEnabled, setErrorLogEnabled } from '../lib/errorLog';
+import { getActivation } from '../lib/activation';
 
 /**
  * Настройки — панель в стиле Cluely: слева разделы, справа контент
@@ -651,6 +652,8 @@ export default function SettingsPage() {
       if (errors.length) {
         extras.push({ name: 'errors.json', content: JSON.stringify(errors, null, 2) });
       }
+      // Воронка активации — докуда дошёл пользователь (разбор/mock/live).
+      extras.push({ name: 'activation.json', content: JSON.stringify(getActivation(), null, 2) });
       await collect(extras);
       openSupportLink(
         `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent('SkillCue: проблема')}&body=${encodeURIComponent(

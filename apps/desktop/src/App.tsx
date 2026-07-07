@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect } from 'react';
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { AppProvider, useApp } from './context/AppContext';
 import Layout from './components/Layout';
+import { markMilestone } from './lib/activation';
 
 // Route-level code splitting — keeps the initial bundle small and cold start fast.
 const OnboardingPage = lazy(() => import('./pages/OnboardingPage'));
@@ -46,6 +47,14 @@ function Gate({ children }: { children: React.ReactNode }) {
 function NavigationBridge() {
   const navigate = useNavigate();
   useEffect(() => window.electronAPI?.onNavigate?.((path) => navigate(path)), [navigate]);
+
+  // Вехи активации: установка (первый запуск) и старт первой live-сессии.
+  useEffect(() => {
+    markMilestone('firstRun');
+    const onLive = () => markMilestone('liveStarted');
+    window.addEventListener('skillcue:live-start', onLive);
+    return () => window.removeEventListener('skillcue:live-start', onLive);
+  }, []);
 
   // Warm the lazy route chunks once the app is idle so navigation feels instant
   // (keeps the small initial bundle, but no load flash on first visit to a route).
