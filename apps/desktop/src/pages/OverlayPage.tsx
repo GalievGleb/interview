@@ -8,6 +8,7 @@ import MarkdownText from '../components/MarkdownText';
 import { forceDarkTheme } from '../lib/theme';
 import { modeInstructionPrefix, useAnswerModes } from '../lib/answerModes';
 import { deriveLiveExchange } from '../lib/liveOverlaySync';
+import { useI18n, type I18nKey } from '../lib/i18n';
 
 /**
  * Плавающий оверлей SkillCue (вдохновлён Cluely, но в навы+зелёном стиле):
@@ -23,39 +24,39 @@ type ActionId = 'assist' | 'say' | 'followup' | 'recap' | 'screen';
 
 const ACTIONS: Record<
   ActionId,
-  { label: string; tip: string; needsContext: boolean; prompt: string }
+  { labelKey: I18nKey; tipKey: I18nKey; needsContext: boolean; prompt: string }
 > = {
   assist: {
-    label: 'Подсказка',
-    tip: 'Готовый ответ на последний вопрос интервьюера (Ctrl+Enter)',
+    labelKey: 'overlay.action.assist',
+    tipKey: 'overlay.tip.assist',
     needsContext: false,
     prompt:
       'Помоги ответить на последний вопрос интервьюера из разговора. Дай готовый ответ от первого лица, чтобы произнести вслух: 40–80 слов, по делу, без вступлений.',
   },
   say: {
-    label: 'Что сказать?',
-    tip: 'Подсказка, что сказать прямо сейчас по ходу разговора',
+    labelKey: 'overlay.action.say',
+    tipKey: 'overlay.tip.say',
     needsContext: true,
     prompt:
       'Подскажи, что мне сказать прямо сейчас, учитывая ход разговора. Готовая фраза/мини-ответ от первого лица, максимум 60 слов.',
   },
   followup: {
-    label: 'Доп. вопросы',
-    tip: 'Какие уточняющие вопросы, скорее всего, зададут дальше',
+    labelKey: 'overlay.action.followup',
+    tipKey: 'overlay.tip.followup',
     needsContext: true,
     prompt:
       'Какие уточняющие вопросы, скорее всего, задаст интервьюер после моего последнего ответа? Дай 3–5 вопросов и к каждому — краткую подсказку, как отвечать.',
   },
   recap: {
-    label: 'Резюме',
-    tip: 'Краткое резюме разговора: темы, мои ответы, открытые вопросы',
+    labelKey: 'overlay.action.recap',
+    tipKey: 'overlay.tip.recap',
     needsContext: true,
     prompt:
       'Сделай краткое резюме разговора: какие темы подняли, что я ответил, какие вопросы остались открытыми. 3–6 пунктов.',
   },
   screen: {
-    label: 'Экран',
-    tip: 'Скриншот экрана → разбор задачи/кода/вопроса и готовая подсказка',
+    labelKey: 'overlay.action.screen',
+    tipKey: 'overlay.tip.screen',
     needsContext: false,
     prompt: '', // vision-путь: скриншот + вопрос, см. runAction
   },
@@ -120,13 +121,14 @@ function Switch({ on, label }: { on: boolean; label: string }) {
 }
 
 function CopyButton({ text, label }: { text: string; label?: string }) {
+  const { t } = useI18n();
   const [copied, setCopied] = useState(false);
   return (
     <button
       type="button"
       className="overlay-icon-btn tip flex items-center gap-1.5 text-[12px]"
-      data-tip={copied ? 'Скопировано ✓' : 'Скопировать'}
-      aria-label="Скопировать"
+      data-tip={copied ? t('overlay.copiedTick') : t('overlay.copy')}
+      aria-label={t('overlay.copy')}
       onClick={() => {
         void navigator.clipboard.writeText(text).then(() => {
           setCopied(true);
@@ -139,19 +141,20 @@ function CopyButton({ text, label }: { text: string; label?: string }) {
       ) : (
         <Icon d="M8 8h12v12H8z|M16 8V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h2" />
       )}
-      {label && <span>{copied ? 'Скопировано' : label}</span>}
+      {label && <span>{copied ? t('overlay.copied') : label}</span>}
     </button>
   );
 }
 
-function buildTranscript(ls: TranscriptLine[]): string {
+function buildTranscript(ls: TranscriptLine[], me: string, other: string): string {
   return ls
     .filter((l) => l.isFinal)
-    .map((l) => `${l.speaker === 'me' ? 'Я' : 'Интервьюер'}: ${l.text}`)
+    .map((l) => `${l.speaker === 'me' ? me : other}: ${l.text}`)
     .join('\n');
 }
 
 export default function OverlayPage() {
+  const { t } = useI18n();
   const { hasStt } = useApp();
   const { active, lines, answerHistory, currentQuestion, streamText, streaming, start, stop } =
     useLiveCopilot();
@@ -231,29 +234,29 @@ export default function OverlayPage() {
   const transcriptContext = useCallback((): string => {
     const recent = lines.slice(-30).filter((l) => l.isFinal);
     return recent
-      .map((l) => `${l.speaker === 'me' ? 'Я' : 'Интервьюер'}: ${l.text}`)
+      .map((l) => `${l.speaker === 'me' ? t('overlay.me') : t('overlay.interviewer')}: ${l.text}`)
       .join('\n');
-  }, [lines]);
+  }, [lines, t]);
 
   const runScreenAssist = useCallback(
     async (customText: string) => {
       const capture = window.electronAPI?.overlay.captureScreen;
       if (!capture) {
-        setNotice('Анализ экрана доступен только в десктоп-приложении.');
+        setNotice(t('overlay.screenOnlyDesktop'));
         return;
       }
       setNotice('');
       cancelRef.current?.();
       manualBusyRef.current = true;
-      const request = customText || 'Что на экране?';
-      setExchange({ label: 'Экран', request, text: '', streaming: true });
+      const request = customText || t('overlay.whatOnScreen');
+      setExchange({ label: t('overlay.action.screen'), request, text: '', streaming: true });
       setInput('');
 
       const image = await capture().catch(() => '');
       if (!image) {
         manualBusyRef.current = false;
         setExchange(null);
-        setNotice('Не удалось сделать скриншот экрана.');
+        setNotice(t('overlay.screenshotFailed'));
         return;
       }
       setExchange((prev) => (prev ? { ...prev, image } : prev));
@@ -270,7 +273,7 @@ export default function OverlayPage() {
           onDone: () => {
             manualBusyRef.current = false;
             setExchange((prev) => (prev ? { ...prev, streaming: false } : prev));
-            setUsageLog((log) => [...log, { label: 'Экран', request, text: acc, image }]);
+            setUsageLog((log) => [...log, { label: t('overlay.action.screen'), request, text: acc, image }]);
           },
           onError: (msg) => {
             manualBusyRef.current = false;
@@ -285,7 +288,7 @@ export default function OverlayPage() {
         },
       );
     },
-    [smart, transcriptContext],
+    [smart, transcriptContext, t],
   );
 
   const runAction = useCallback(
@@ -312,11 +315,7 @@ export default function OverlayPage() {
       }
 
       if (!custom && !context) {
-        setNotice(
-          action.needsContext
-            ? 'Нет разговора: запустите запись (кнопка ● в пилле) — и действие заработает.'
-            : 'Введите вопрос или запустите запись — тогда я отвечу по разговору.',
-        );
+        setNotice(action.needsContext ? t('overlay.noConvContext') : t('overlay.noConvManual'));
         return;
       }
       setNotice('');
@@ -329,9 +328,9 @@ export default function OverlayPage() {
         (custom
           ? `${custom}${context ? '\n\n(Отвечай с учётом текущего разговора.)' : ''}`
           : action.prompt);
-      const request = custom || action.label;
+      const request = custom || t(action.labelKey);
 
-      setExchange({ label: action.label, request, text: '', streaming: true });
+      setExchange({ label: t(action.labelKey), request, text: '', streaming: true });
       setInput('');
 
       let acc = '';
@@ -345,7 +344,7 @@ export default function OverlayPage() {
           onDone: () => {
             manualBusyRef.current = false;
             setExchange((prev) => (prev ? { ...prev, streaming: false } : prev));
-            setUsageLog((log) => [...log, { label: action.label, request, text: acc }]);
+            setUsageLog((log) => [...log, { label: t(action.labelKey), request, text: acc }]);
           },
           onError: (msg) => {
             manualBusyRef.current = false;
@@ -360,7 +359,7 @@ export default function OverlayPage() {
         },
       );
     },
-    [runScreenAssist, smart, transcriptContext],
+    [runScreenAssist, smart, transcriptContext, t],
   );
 
   // Live-ответы (авто) — в ту же панель, пока нет ручного запроса.
@@ -369,7 +368,7 @@ export default function OverlayPage() {
     if (manualBusyRef.current) return;
     const view = deriveLiveExchange(streamText, streaming, lastEntry?.spoken);
     if (!view.show) return;
-    const question = currentQuestion || lastEntry?.question || 'Вопрос интервьюера';
+    const question = currentQuestion || lastEntry?.question || t('overlay.interviewerQuestion');
     setExchange({ label: 'Live', request: question, text: view.text, streaming });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [streamText, streaming, lastEntry?.id, lastEntry?.spoken, currentQuestion]);
@@ -388,10 +387,10 @@ export default function OverlayPage() {
 
   // ---------- Итоги сессии ----------
   const generateSummary = useCallback((ls: TranscriptLine[]) => {
-    const transcript = buildTranscript(ls);
+    const transcript = buildTranscript(ls, t('overlay.me'), t('overlay.interviewer'));
     summaryCancelRef.current?.();
     if (!transcript) {
-      setRecapSummary('Недостаточно реплик для резюме — запись была слишком короткой.');
+      setRecapSummary(t('overlay.summaryTooShort'));
       setRecapSummaryStreaming(false);
       return;
     }
@@ -405,7 +404,7 @@ export default function OverlayPage() {
         setRecapSummary((s) => s || `⚠ ${m}`);
       },
     });
-  }, []);
+  }, [t]);
 
   const openRecap = useCallback(
     (snapshot: TranscriptLine[]) => {
@@ -539,23 +538,23 @@ export default function OverlayPage() {
   useEffect(() => {
     if (!menuOpen && !hideMenuOpen) return;
     const onClick = (e: MouseEvent) => {
-      const t = e.target as Node;
-      if (menuOpen && menuRef.current && !menuRef.current.contains(t)) setMenuOpen(false);
-      if (hideMenuOpen && hideMenuRef.current && !hideMenuRef.current.contains(t))
+      const target = e.target as Node;
+      if (menuOpen && menuRef.current && !menuRef.current.contains(target)) setMenuOpen(false);
+      if (hideMenuOpen && hideMenuRef.current && !hideMenuRef.current.contains(target))
         setHideMenuOpen(false);
     };
     document.addEventListener('mousedown', onClick);
     return () => document.removeEventListener('mousedown', onClick);
   }, [menuOpen, hideMenuOpen]);
 
-  const KEYBINDS: Array<{ label: string; keys: string; d: string }> = [
-    { label: 'Показать / скрыть', keys: 'Ctrl+Shift+H', d: 'M2 4h20v13H2z|M8 20h8' },
-    { label: 'Спросить (Подсказка)', keys: 'Ctrl+↵', d: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z' },
-    { label: 'Очистить чат', keys: 'Ctrl+R', d: 'M3 6h18|M8 6V4h8v2|M6 6l1 14h10l1-14' },
-    { label: 'Остановить сессию', keys: 'Ctrl+Shift+\\', d: 'M6 6h12v12H6z' },
-    { label: 'Переместить оверлей', keys: 'Ctrl+↑↓←→', d: 'M5 9 2 12l3 3|M9 5l3-3 3 3|M15 19l-3 3-3-3|M19 9l3 3-3 3|M2 12h20|M12 2v20' },
-    { label: 'Прокрутка ответа', keys: 'Ctrl+Shift+↑↓', d: 'M8 7l4-4 4 4|M8 17l4 4 4-4' },
-    { label: 'Транскрипт', keys: 'Ctrl+/', d: 'M4 6h16|M4 12h16|M4 18h10' },
+  const KEYBINDS: Array<{ labelKey: I18nKey; keys: string; d: string }> = [
+    { labelKey: 'overlay.kb.toggle', keys: 'Ctrl+Shift+H', d: 'M2 4h20v13H2z|M8 20h8' },
+    { labelKey: 'overlay.kb.ask', keys: 'Ctrl+↵', d: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z' },
+    { labelKey: 'overlay.kb.clear', keys: 'Ctrl+R', d: 'M3 6h18|M8 6V4h8v2|M6 6l1 14h10l1-14' },
+    { labelKey: 'overlay.kb.stop', keys: 'Ctrl+Shift+\\', d: 'M6 6h12v12H6z' },
+    { labelKey: 'overlay.kb.move', keys: 'Ctrl+↑↓←→', d: 'M5 9 2 12l3 3|M9 5l3-3 3 3|M15 19l-3 3-3-3|M19 9l3 3-3 3|M2 12h20|M12 2v20' },
+    { labelKey: 'overlay.kb.scroll', keys: 'Ctrl+Shift+↑↓', d: 'M8 7l4-4 4 4|M8 17l4 4 4-4' },
+    { labelKey: 'overlay.kb.transcript', keys: 'Ctrl+/', d: 'M4 6h16|M4 12h16|M4 18h10' },
   ];
 
   return (
@@ -565,8 +564,8 @@ export default function OverlayPage() {
         <button
           type="button"
           className="ovl-logo tip"
-          data-tip={stealth ? 'Скрытый режим активен · Открыть SkillCue' : 'Открыть SkillCue'}
-          aria-label="Открыть SkillCue"
+          data-tip={stealth ? t('overlay.pill.openStealth') : t('overlay.pill.open')}
+          aria-label={t('overlay.pill.open')}
           onClick={() => void window.electronAPI?.overlay.openApp?.()}
         >
           {stealth ? (
@@ -584,8 +583,8 @@ export default function OverlayPage() {
           <button
             type="button"
             className="ovl-hide-caret overlay-no-drag tip"
-            data-tip="Что делает «Скрыть»"
-            aria-label="Меню скрытия"
+            data-tip={t('overlay.pill.hideMenuTip')}
+            aria-label={t('overlay.pill.hideMenuAria')}
             onClick={() => setHideMenuOpen((v) => !v)}
           >
             <Icon d="m6 9 6 6 6-6" size={12} />
@@ -595,15 +594,15 @@ export default function OverlayPage() {
             className="ovl-pill-btn tip"
             data-tip={
               hideHidesWidget
-                ? 'Скрыть оверлей (Ctrl+Shift+H вернёт)'
+                ? t('overlay.pill.hideTip')
                 : collapsed
-                  ? 'Развернуть панели'
-                  : 'Свернуть до пилла'
+                  ? t('overlay.pill.expandTip')
+                  : t('overlay.pill.collapseTip')
             }
             onClick={onHide}
           >
             <Icon d="M18 6 6 18|M6 6l12 12" size={12} />
-            {collapsed ? 'Показать' : 'Скрыть'}
+            {collapsed ? t('overlay.pill.show') : t('overlay.pill.hide')}
           </button>
 
           {hideMenuOpen && (
@@ -616,8 +615,8 @@ export default function OverlayPage() {
                 }}
               >
                 <Icon d="M2 4h20v13H2z|M8 20h8" />
-                <span className="flex-1 text-left">«Скрыть» прячет весь виджет</span>
-                <Switch on={hideHidesWidget} label="«Скрыть» прячет весь виджет" />
+                <span className="flex-1 text-left">{t('overlay.hideHidesWidget')}</span>
+                <Switch on={hideHidesWidget} label={t('overlay.hideHidesWidget')} />
               </button>
               <div className="ovl-menu-sep" />
               <button
@@ -628,7 +627,7 @@ export default function OverlayPage() {
                   void window.electronAPI?.overlay.hide();
                 }}
               >
-                Скрыть оверлей
+                {t('overlay.hideOverlay')}
                 <span className="ovl-kbd ml-auto">Ctrl+Shift+H</span>
               </button>
               {active && (
@@ -640,7 +639,7 @@ export default function OverlayPage() {
                     stopSession();
                   }}
                 >
-                  Остановить сессию
+                  {t('overlay.stopSession')}
                   <span className="ovl-kbd ml-auto">Ctrl+Shift+\</span>
                 </button>
               )}
@@ -653,12 +652,12 @@ export default function OverlayPage() {
           className={`ovl-rec tip ${active ? 'ovl-rec--live' : ''}`}
           data-tip={
             !hasStt && !active
-              ? 'Скачайте речевую модель: Настройки → «Речь и звук»'
+              ? t('overlay.rec.needModel')
               : active
-                ? 'Остановить запись → итоги сессии'
-                : 'Начать запись разговора (live-подсказки)'
+                ? t('overlay.rec.stopTip')
+                : t('overlay.rec.startTip')
           }
-          aria-label={active ? 'Остановить запись' : 'Начать запись'}
+          aria-label={active ? t('overlay.rec.stopAria') : t('overlay.rec.startAria')}
           disabled={!hasStt && !active}
           onClick={toggleSession}
         >
@@ -675,23 +674,24 @@ export default function OverlayPage() {
         <div className="ovl-card ovl-recap animate-scale-in">
           <div className="mb-3 flex items-start justify-between gap-3">
             <div>
-              <p className="text-[15px] font-semibold text-ink">Итоги сессии</p>
+              <p className="text-[15px] font-semibold text-ink">{t('overlay.recap.title')}</p>
               <p className="text-[11px] text-ink-faint">
-                {new Date(recap.at).toLocaleString('ru-RU', {
+                {new Date(recap.at).toLocaleString(undefined, {
                   hour: '2-digit',
                   minute: '2-digit',
                   day: '2-digit',
                   month: 'short',
                 })}
                 {' · '}
-                {recap.lines.filter((l) => l.isFinal).length} реплик · {usageLog.length} запросов
+                {recap.lines.filter((l) => l.isFinal).length} {t('overlay.linesWord')} ·{' '}
+                {usageLog.length} {t('overlay.requestsWord')}
               </p>
             </div>
             <button
               type="button"
               className="overlay-icon-btn tip"
-              data-tip="Закрыть итоги (Esc)"
-              aria-label="Закрыть итоги"
+              data-tip={t('overlay.recap.closeTip')}
+              aria-label={t('overlay.recap.close')}
               onClick={closeRecap}
             >
               <Icon d="M18 6 6 18|M6 6l12 12" />
@@ -701,9 +701,9 @@ export default function OverlayPage() {
           <div className="ovl-tabs">
             {(
               [
-                ['summary', 'Резюме'],
-                ['transcript', 'Транскрипт'],
-                ['usage', 'Запросы'],
+                ['summary', t('overlay.recap.tab.summary')],
+                ['transcript', t('overlay.recap.tab.transcript')],
+                ['usage', t('overlay.recap.tab.usage')],
               ] as const
             ).map(([id, label]) => (
               <button
@@ -723,7 +723,7 @@ export default function OverlayPage() {
                 {recapSummary ? (
                   <MarkdownText text={recapSummary} />
                 ) : (
-                  <span className="ovl-think-dot" aria-label="Готовлю резюме…" />
+                  <span className="ovl-think-dot" aria-label={t('overlay.recap.preparing')} />
                 )}
                 {recapSummaryStreaming && recapSummary && <span className="sc-caret" />}
               </div>
@@ -731,7 +731,7 @@ export default function OverlayPage() {
 
             {recapTab === 'transcript' &&
               (recap.lines.filter((l) => l.isFinal).length === 0 ? (
-                <p className="text-xs text-ink-faint">Реплик не было записано.</p>
+                <p className="text-xs text-ink-faint">{t('overlay.recap.noLines')}</p>
               ) : (
                 <div className="space-y-2 text-[13px]">
                   {recap.lines
@@ -745,7 +745,7 @@ export default function OverlayPage() {
                               : 'text-[11px] font-semibold text-emerald-400'
                           }
                         >
-                          {line.speaker === 'me' ? 'Я' : 'Интервьюер'}
+                          {line.speaker === 'me' ? t('overlay.me') : t('overlay.interviewer')}
                         </span>
                         <p className="text-ink">{line.text}</p>
                       </div>
@@ -755,10 +755,7 @@ export default function OverlayPage() {
 
             {recapTab === 'usage' &&
               (usageLog.length === 0 ? (
-                <p className="text-xs text-ink-faint">
-                  За сессию не было ручных запросов к ИИ. Нажимайте Подсказку/Экран во время
-                  разговора — они появятся здесь.
-                </p>
+                <p className="text-xs text-ink-faint">{t('overlay.recap.noUsage')}</p>
               ) : (
                 <div className="space-y-4">
                   {usageLog.map((u, i) => (
@@ -767,7 +764,7 @@ export default function OverlayPage() {
                         <span className="ovl-bubble">{u.request}</span>
                       </div>
                       <p className="ovl-answer-label">
-                        {u.image ? 'Смотрел экран' : u.label}
+                        {u.image ? t('overlay.viewedScreen') : u.label}
                       </p>
                       <div className="text-[13.5px] leading-relaxed text-ink">
                         <MarkdownText text={u.text} />
@@ -781,14 +778,14 @@ export default function OverlayPage() {
           <div className="mt-3 flex items-center gap-2 border-t border-white/10 pt-3">
             <button type="button" className="ovl-resume" onClick={resumeFromRecap}>
               <Icon d="m8 5 12 7-12 7z" size={13} />
-              Продолжить сессию
+              {t('overlay.resume')}
             </button>
             {recapTab === 'summary' && (
               <button
                 type="button"
                 className="overlay-icon-btn tip"
-                data-tip="Перегенерировать резюме"
-                aria-label="Перегенерировать резюме"
+                data-tip={t('overlay.regenSummary')}
+                aria-label={t('overlay.regenSummary')}
                 disabled={recapSummaryStreaming}
                 onClick={() => generateSummary(recap.lines)}
               >
@@ -797,10 +794,10 @@ export default function OverlayPage() {
             )}
             <div className="flex-1" />
             <CopyButton
-              label="Копировать"
+              label={t('overlay.copy')}
               text={
                 recapTab === 'transcript'
-                  ? buildTranscript(recap.lines)
+                  ? buildTranscript(recap.lines, t('overlay.me'), t('overlay.interviewer'))
                   : recapTab === 'usage'
                     ? usageLog.map((u) => `▸ ${u.request}\n${u.text}`).join('\n\n')
                     : recapSummary
@@ -818,8 +815,8 @@ export default function OverlayPage() {
                   <button
                     type="button"
                     className="overlay-icon-btn ovl-close tip"
-                    data-tip="Очистить чат (Ctrl+R)"
-                    aria-label="Очистить чат"
+                    data-tip={t('overlay.clearTip')}
+                    aria-label={t('overlay.clearAria')}
                     onClick={closeExchange}
                   >
                     <Icon d="M18 6 6 18|M6 6l12 12" />
@@ -829,28 +826,28 @@ export default function OverlayPage() {
 
                 {exchange.image ? (
                   <span className="ovl-viewed ovl-answer-label">
-                    Смотрел экран
+                    {t('overlay.viewedScreen')}
                     <span className="ovl-shot-pop">
-                      <img src={exchange.image} alt="Скриншот, отправленный модели" />
+                      <img src={exchange.image} alt={t('overlay.screenshotAlt')} />
                     </span>
                   </span>
                 ) : (
                   <p className="ovl-answer-label">
-                    {exchange.label === 'Live' ? 'Live-ответ по разговору' : exchange.label}
+                    {exchange.label === 'Live' ? t('overlay.liveAnswer') : exchange.label}
                   </p>
                 )}
                 <div ref={answerBodyRef} className="ovl-answer-body">
                   {exchange.text ? (
                     <MarkdownText text={exchange.text} />
                   ) : (
-                    <span className="ovl-think-dot" aria-label="Думаю…" />
+                    <span className="ovl-think-dot" aria-label={t('overlay.thinking')} />
                   )}
                   {exchange.streaming && exchange.text && <span className="sc-caret" />}
                 </div>
 
                 {!exchange.streaming && exchange.text && (
                   <div className="mt-2 flex justify-start">
-                    <CopyButton text={exchange.text} label="Копировать" />
+                    <CopyButton text={exchange.text} label={t('overlay.copy')} />
                   </div>
                 )}
               </div>
@@ -865,7 +862,7 @@ export default function OverlayPage() {
                     <button
                       type="button"
                       className="ovl-action tip"
-                      data-tip={ACTIONS[id].tip}
+                      data-tip={t(ACTIONS[id].tipKey)}
                       onClick={() => runAction(id)}
                     >
                       <Icon
@@ -881,7 +878,7 @@ export default function OverlayPage() {
                                   : 'M2 4h20v12H2z|M8 20h8|M12 16v4'
                         }
                       />
-                      {ACTIONS[id].label}
+                      {t(ACTIONS[id].labelKey)}
                     </button>
                   </span>
                 ))}
@@ -898,14 +895,14 @@ export default function OverlayPage() {
                       runAction('assist', input);
                     }
                   }}
-                  placeholder="Спросите о разговоре или экране — Ctrl+Enter для Подсказки"
+                  placeholder={t('overlay.inputPlaceholder')}
                   className="ovl-input"
                 />
                 <div className="mt-1.5 flex items-center gap-1.5">
                   <button
                     type="button"
                     className={`ovl-smart tip ${smart ? 'ovl-smart--on' : ''}`}
-                    data-tip="Smart: дольше думает перед ответом — глубже и точнее"
+                    data-tip={t('overlay.smartTip')}
                     onClick={toggleSmart}
                   >
                     Smart
@@ -915,19 +912,19 @@ export default function OverlayPage() {
                     <button
                       type="button"
                       className="overlay-icon-btn tip"
-                      data-tip="Горячие клавиши, скрытность, источник звука, настройки"
-                      aria-label="Меню"
+                      data-tip={t('overlay.menuTip')}
+                      aria-label={t('overlay.menuAria')}
                       onClick={() => setMenuOpen((v) => !v)}
                     >
                       <Icon d="M5 12h.01M12 12h.01M19 12h.01" />
                     </button>
                     {menuOpen && (
                       <div className="overlay-menu ovl-main-menu bottom-full left-0 mb-1.5">
-                        <p className="ovl-menu-head">Горячие клавиши</p>
+                        <p className="ovl-menu-head">{t('overlay.shortcutsHead')}</p>
                         {KEYBINDS.map((k) => (
-                          <div key={k.label} className="ovl-menu-row">
+                          <div key={k.labelKey} className="ovl-menu-row">
                             <Icon d={k.d} />
-                            <span className="flex-1">{k.label}</span>
+                            <span className="flex-1">{t(k.labelKey)}</span>
                             <span className="ovl-kbd">{k.keys}</span>
                           </div>
                         ))}
@@ -937,22 +934,22 @@ export default function OverlayPage() {
                         <button
                           type="button"
                           className="ovl-menu-toggle tip"
-                          data-tip="Прячет оверлей от скриншотов и записи экрана (демонстрация, OBS, Zoom)"
+                          data-tip={t('overlay.stealthTip')}
                           onClick={toggleStealth}
                         >
                           <Icon d="M3 3l18 18|M10.6 5.1A9 9 0 0 1 21 12c-.5 1-1.2 2-2 2.9M6.6 6.6A9 9 0 0 0 3 12c1.7 3.3 5 5 9 5 1 0 2-.1 2.9-.4" />
-                          <span className="flex-1 text-left">Скрытность (Undetectability)</span>
-                          <Switch on={stealth} label="Скрытность" />
+                          <span className="flex-1 text-left">{t('overlay.stealth')}</span>
+                          <Switch on={stealth} label={t('overlay.stealthAria')} />
                         </button>
                         <button
                           type="button"
                           className="ovl-menu-toggle tip"
-                          data-tip="Фокус остаётся в приложении под оверлеем. Внимание: ввод в поле оверлея станет недоступен"
+                          data-tip={t('overlay.avoidFocusTip')}
                           onClick={toggleAvoidFocus}
                         >
                           <Icon d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0-6 0|M12 2v3|M12 19v3|M2 12h3|M19 12h3" />
-                          <span className="flex-1 text-left">Не забирать фокус</span>
-                          <Switch on={avoidFocus} label="Не забирать фокус" />
+                          <span className="flex-1 text-left">{t('overlay.avoidFocus')}</span>
+                          <Switch on={avoidFocus} label={t('overlay.avoidFocus')} />
                         </button>
 
                         <div className="ovl-menu-sep" />
@@ -964,8 +961,10 @@ export default function OverlayPage() {
                           onClick={() => setModesOpen((v) => !v)}
                         >
                           <Icon d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-                          <span className="flex-1 text-left">Режимы</span>
-                          <span className="text-[11px] text-ink-faint">{activeMode.name}</span>
+                          <span className="flex-1 text-left">{t('overlay.modes')}</span>
+                          <span className="text-[11px] text-ink-faint">
+                            {activeMode.id === 'general' ? t('modes.general') : activeMode.name}
+                          </span>
                           <Icon d={modesOpen ? 'm6 15 6-6 6 6' : 'm9 6 6 6-6 6'} size={12} />
                         </button>
                         {modesOpen && (
@@ -987,7 +986,7 @@ export default function OverlayPage() {
                                 >
                                   ✓{' '}
                                 </span>
-                                {m.name}
+                                {m.id === 'general' ? t('modes.general') : m.name}
                               </button>
                             ))}
                             <button
@@ -998,7 +997,7 @@ export default function OverlayPage() {
                                 void window.electronAPI?.overlay.openSettings?.('modes');
                               }}
                             >
-                              ✎ Управлять режимами
+                              {t('overlay.manageModes')}
                             </button>
                           </div>
                         )}
@@ -1011,16 +1010,16 @@ export default function OverlayPage() {
                           }}
                         >
                           <Icon d="M4 6h16|M4 12h16|M4 18h10" />
-                          <span className="flex-1 text-left">Живой транскрипт</span>
-                          <Switch on={showTranscript} label="Живой транскрипт" />
+                          <span className="flex-1 text-left">{t('overlay.liveTranscript')}</span>
+                          <Switch on={showTranscript} label={t('overlay.liveTranscript')} />
                         </button>
 
-                        <p className="ovl-menu-head mt-1">Источник звука</p>
+                        <p className="ovl-menu-head mt-1">{t('overlay.audioSourceHead')}</p>
                         {(
                           [
-                            ['Микрофон + система', { mic: true, system: true }],
-                            ['Только микрофон', { mic: true, system: false }],
-                            ['Только звук системы', { mic: false, system: true }],
+                            [t('overlay.src.both'), { mic: true, system: true }],
+                            [t('overlay.src.micOnly'), { mic: true, system: false }],
+                            [t('overlay.src.sysOnly'), { mic: false, system: true }],
                           ] as const
                         ).map(([label, src]) => (
                           <button
@@ -1046,7 +1045,7 @@ export default function OverlayPage() {
                           className="btn-ghost w-full justify-start rounded-lg px-2 py-2 text-xs"
                           onClick={() => void window.electronAPI?.overlay.openSettings?.()}
                         >
-                          Настройки SkillCue
+                          {t('overlay.settings')}
                         </button>
                       </div>
                     )}
@@ -1056,8 +1055,8 @@ export default function OverlayPage() {
                   <button
                     type="button"
                     className="ovl-send tip"
-                    data-tip="Отправить: экран + разговор (Enter)"
-                    aria-label="Отправить"
+                    data-tip={t('overlay.sendTip')}
+                    aria-label={t('overlay.sendAria')}
                     disabled={
                       exchange?.streaming ||
                       (!input.trim() &&
@@ -1082,12 +1081,10 @@ export default function OverlayPage() {
             {showTranscript && (
               <div className="ovl-card mt-2 max-h-[30vh] overflow-y-auto p-3">
                 <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-ink-faint">
-                  Транскрипт
+                  {t('overlay.kb.transcript')}
                 </p>
                 {lines.length === 0 ? (
-                  <p className="text-xs text-ink-faint">
-                    Запустите запись (● в пилле) — реплики появятся здесь.
-                  </p>
+                  <p className="text-xs text-ink-faint">{t('overlay.transcriptEmpty')}</p>
                 ) : (
                   <div className="space-y-1 text-[12.5px]">
                     {lines.map((line, i) => (
@@ -1097,7 +1094,7 @@ export default function OverlayPage() {
                             line.speaker === 'me' ? 'text-violet-300' : 'text-emerald-400'
                           }
                         >
-                          {line.speaker === 'me' ? 'Я: ' : 'Интервьюер: '}
+                          {line.speaker === 'me' ? t('overlay.meColon') : t('overlay.interviewerColon')}
                         </span>
                         <span className={line.isFinal ? 'text-ink' : 'italic text-ink-muted'}>
                           {line.text}
