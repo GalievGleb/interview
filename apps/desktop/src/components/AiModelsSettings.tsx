@@ -52,6 +52,15 @@ export default function AiModelsSettings() {
       if (ai.models_cache_count > 0) {
         const cached = await api.listOpenRouterModels(true);
         setModels(cached.models);
+      } else if (ai.has_openrouter_key) {
+        // Автосинхронизация: ключ есть, но каталог ещё пуст — подтягиваем модели
+        // сами, чтобы селекторы не были пустыми при первом открытии настроек.
+        try {
+          const res = await api.listOpenRouterModels(false);
+          setModels(res.models);
+        } catch {
+          /* сеть/лимит — оставим пусто, останется ручная кнопка «Синхронизировать» */
+        }
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Не удалось загрузить AI-настройки');
