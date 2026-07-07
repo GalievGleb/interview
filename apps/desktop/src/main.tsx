@@ -4,9 +4,11 @@ import { HashRouter } from 'react-router-dom';
 import App from './App';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { initTheme } from './lib/theme';
+import { installGlobalErrorCapture } from './lib/errorLog';
 import './index.css';
 
 initTheme();
+installGlobalErrorCapture();
 
 const rootEl = document.getElementById('root');
 if (!rootEl) {

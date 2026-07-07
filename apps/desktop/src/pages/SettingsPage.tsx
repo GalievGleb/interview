@@ -1,13 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../lib/api';
-import { useApp } from '../context/AppContext';
 import Modal from '../components/Modal';
 import MicrophoneSettings from '../components/MicrophoneSettings';
 import AiModelsSettings from '../components/AiModelsSettings';
 import SpeechRecognitionSettings from '../components/SpeechRecognitionSettings';
 import DiagnosticsPanel from '../components/DiagnosticsPanel';
-import UsageCard from '../components/UsageCard';
 import LicenseCard from '../components/LicenseCard';
 import PlanPicker from '../components/PlanPicker';
 import AnswerModesSettings from '../components/AnswerModesSettings';
@@ -22,6 +20,7 @@ import {
   type AnswerLanguagePref,
 } from '../lib/answerLanguage';
 import { openSupportLink, SUPPORT_EMAIL, SUPPORT_TELEGRAM_URL } from '../lib/support';
+import { getErrorLog, isErrorLogEnabled, setErrorLogEnabled } from '../lib/errorLog';
 
 /**
  * Настройки — панель в стиле Cluely: слева разделы, справа контент
@@ -611,7 +610,6 @@ function ReleaseNotesSection() {
 /* ---------------- Страница ---------------- */
 
 export default function SettingsPage() {
-  const { keys, refreshKeys } = useApp();
   const navigate = useNavigate();
   // Deep link: /settings?tab=speech открывает нужный раздел из предупреждений.
   const [params] = useSearchParams();
@@ -619,11 +617,11 @@ export default function SettingsPage() {
   const [tab, setTab] = useState<SettingsTab>(
     requestedTab && SECTIONS.some((s) => s.id === requestedTab) ? requestedTab : 'general',
   );
-  const [openai, setOpenai] = useState('');
-  const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [reporting, setReporting] = useState(false);
+  const [errorLogOn, setErrorLogOn] = useState(isErrorLogEnabled);
+  const [errorLogCount, setErrorLogCount] = useState(() => getErrorLog().length);
 
   // «Сообщить о проблеме»: main собирает zip (логи бэкенда + system info +
   // эти prefs), показывает его в проводнике, а мы открываем письмо в поддержку.
@@ -647,7 +645,13 @@ export default function SettingsPage() {
         const v = localStorage.getItem(key);
         if (v !== null) prefs[key] = v;
       }
-      await collect([{ name: 'prefs.json', content: JSON.stringify(prefs, null, 2) }]);
+      const extras = [{ name: 'prefs.json', content: JSON.stringify(prefs, null, 2) }];
+      // Журнал ошибок — самое ценное в отчёте: реальные стеки крашей, а не «не работает».
+      const errors = getErrorLog();
+      if (errors.length) {
+        extras.push({ name: 'errors.json', content: JSON.stringify(errors, null, 2) });
+      }
+      await collect(extras);
       openSupportLink(
         `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent('SkillCue: проблема')}&body=${encodeURIComponent(
           'Опишите, что случилось и в какой момент.\n\nПриложите zip-архив отчёта — он уже открыт в проводнике.',
@@ -663,24 +667,6 @@ export default function SettingsPage() {
     if (requestedTab && SECTIONS.some((s) => s.id === requestedTab)) setTab(requestedTab);
   }, [requestedTab]);
 
-  const save = async () => {
-    if (!openai) {
-      setMessage('Нечего сохранять — введите ключ');
-      return;
-    }
-    setSaving(true);
-    setMessage('');
-    try {
-      await api.saveKeys({ openai_api_key: openai });
-      setOpenai('');
-      await refreshKeys();
-      setMessage('Ключ OpenAI обновлён');
-    } catch (err) {
-      setMessage(err instanceof Error ? err.message : 'Ошибка');
-    } finally {
-      setSaving(false);
-    }
-  };
 
   const deleteData = async () => {
     try {
@@ -754,11 +740,11 @@ export default function SettingsPage() {
         </h1>
         <p className="mb-5 text-sm text-ink-faint">
           {tab === 'general' && 'Версия, тема, язык и поведение оверлея.'}
-          {tab === 'ai' && 'Ключи, модели для live-подсказок и разбора вакансий.'}
+          {tab === 'ai' && 'Модели для live-подсказок и разбора вакансий.'}
           {tab === 'speech' && 'Whisper, качество записи и микрофон.'}
           {tab === 'modes' && 'Пресеты стиля ответов для оверлея.'}
           {tab === 'keybinds' && 'Все сочетания клавиш приложения и оверлея.'}
-          {tab === 'billing' && 'Тариф, лицензия и расход токенов.'}
+          {tab === 'billing' && 'Тариф и лицензия.'}
           {tab === 'privacy' && 'Данные, лицензии open-source, удаление.'}
           {tab === 'developer' && 'Отладка STT, задержек и voice-регрессий.'}
           {tab === 'notes' && 'История версий SkillCue.'}
@@ -766,39 +752,7 @@ export default function SettingsPage() {
 
         {tab === 'general' && <GeneralSection />}
 
-        {tab === 'ai' && (
-          <>
-            <AiModelsSettings />
-            <div className="card mb-5 space-y-4 p-5">
-              <div>
-                <h3 className="text-sm font-semibold text-ink">Дополнительный OpenAI-ключ</h3>
-                <p className="mt-0.5 text-sm text-ink-muted">
-                  Основной поток работает через OpenRouter. Этот ключ нужен только для отдельных
-                  fallback-сценариев.
-                </p>
-              </div>
-              <div>
-                <label className="label">OpenAI API Key</label>
-                <input
-                  type="password"
-                  name="openai_api_key"
-                  autoComplete="off"
-                  spellCheck={false}
-                  placeholder={keys?.openai ? '•••••••• (задан)' : 'sk-…'}
-                  value={openai}
-                  onChange={(e) => setOpenai(e.target.value)}
-                  className="field"
-                />
-              </div>
-              <div className="flex items-center gap-3 pt-1">
-                <button onClick={() => void save()} disabled={saving} className="btn-primary">
-                  {saving ? 'Сохраняю…' : 'Сохранить ключ'}
-                </button>
-                {message && <p className="text-sm text-emerald-400">{message}</p>}
-              </div>
-            </div>
-          </>
-        )}
+        {tab === 'ai' && <AiModelsSettings />}
 
         {tab === 'speech' && (
           <>
@@ -815,7 +769,6 @@ export default function SettingsPage() {
           <>
             <PlanPicker />
             <LicenseCard />
-            <UsageCard />
           </>
         )}
 
@@ -835,6 +788,25 @@ export default function SettingsPage() {
               >
                 Открыть
               </button>
+            </div>
+
+            <div className="card mb-5 flex items-center justify-between gap-4 p-5">
+              <div className="min-w-0">
+                <h3 className="text-sm font-semibold text-ink">Журнал ошибок для отчёта</h3>
+                <p className="mt-0.5 text-sm text-ink-muted">
+                  Ошибки копятся локально и уходят, только когда вы сами жмёте «Сообщить о
+                  проблеме». Никакой фоновой отправки. Сейчас накоплено: {errorLogCount}.
+                </p>
+              </div>
+              <Toggle
+                on={errorLogOn}
+                label="Журнал ошибок"
+                onChange={(v) => {
+                  setErrorLogEnabled(v);
+                  setErrorLogOn(v);
+                  if (!v) setErrorLogCount(0);
+                }}
+              />
             </div>
 
             <div className="rounded-2xl border border-red-900/40 bg-red-950/10 p-5">

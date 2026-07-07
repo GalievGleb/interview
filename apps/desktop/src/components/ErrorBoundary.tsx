@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
+import { recordError } from '../lib/errorLog';
 
 interface Props {
   children: ReactNode;
@@ -18,6 +19,8 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
     console.error('[ui] render crash:', error, info.componentStack);
+    // В локальный журнал — попадёт в отчёт «Сообщить о проблеме», если пользователь его соберёт.
+    recordError('render', error.message, `${error.stack ?? ''}\n${info.componentStack ?? ''}`);
   }
 
   render(): ReactNode {
