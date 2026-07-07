@@ -8,6 +8,7 @@
  */
 import { api } from '../api';
 import { cleanVoiceAnswerTranscriptText } from '../voiceAnswerTranscript';
+import { conceptSignalsForQuestion } from './conceptSignals';
 import { difficultyForIndex, detectRole, detectSeniority, extractTopics } from './topicExtraction';
 import { readinessLabelFromScore, topicStatusFromScore } from './readiness';
 import type {
@@ -349,70 +350,12 @@ function isPlatformSupportQuestionText(text: string): boolean {
 }
 
 /**
- * Сигналы под конкретный Python-концепт из текста вопроса. Без этого локальная
- * оценка грейдит, например, вопрос про контекстный менеджер по generic-пунктам
- * всей темы «Основы Python» («Базовые типы, ООП…») — и верный ответ про
- * `with/__enter__/__exit__` получает 0 покрытия. Ключ — сам ВОПРОС, а не тема.
+ * Обратно-совместимый реэкспорт: сигналы концепта из вопроса теперь живут в
+ * data-driven conceptSignals.ts и покрывают много ролей (Python, JS/Frontend,
+ * SQL, Docker, REST, system design), а не только Python.
  */
 export function pythonConceptSignals(question: string): string[] | null {
-  const q = norm(question);
-  // norm() уже привёл к нижнему регистру и ё→е. ВАЖНО: \w в JS не матчит
-  // кириллицу, поэтому у русских основ суффикс через [а-я]*, а не \w*.
-  if (/(контекстн[а-я]* менеджер|context manager|\bwith\b|__enter__|__exit__|contextlib)/.test(q)) {
-    return [
-      'протокол __enter__ / __exit__',
-      'оператор with',
-      'гарантированное освобождение ресурса (файлы, соединения, локи)',
-      'contextlib / @contextmanager',
-      'пример из практики',
-    ];
-  }
-  if (/(декоратор|decorator|@wraps|functools)/.test(q)) {
-    return [
-      'функция, оборачивающая другую функцию',
-      'синтаксис @ и замыкание',
-      'functools.wraps для сохранения метаданных',
-      'типичные применения (логирование, кэш, замер времени, доступ)',
-      'пример из практики',
-    ];
-  }
-  if (/(генератор|generator|\byield\b|итератор|iterator|__next__)/.test(q)) {
-    return [
-      'ленивая генерация значений (yield)',
-      'экономия памяти на больших данных',
-      'протокол итератора __iter__ / __next__',
-      'отличие от списка',
-      'пример из практики',
-    ];
-  }
-  if (/\bgil\b|глобальн[а-я]* блокировк|global interpreter lock/.test(q)) {
-    return [
-      'одна нить исполняет байткод в момент времени',
-      'потоки vs процессы',
-      'узкое место на CPU-bound задачах',
-      'обход через multiprocessing / нативные расширения / async для IO',
-      'пример из практики',
-    ];
-  }
-  if (/(изменяем[а-я]*|неизменяем[а-я]*|mutable|immutable|list.*tuple|tuple.*list)/.test(q)) {
-    return [
-      'изменяемые (list, dict, set) vs неизменяемые (tuple, str, frozenset)',
-      'последствия для передачи в функции',
-      'ловушка изменяемого аргумента по умолчанию',
-      'хешируемость и ключи словаря',
-      'пример из практики',
-    ];
-  }
-  if (/(исключени|exception|try.*except|обработк[а-я]* ошибок)/.test(q)) {
-    return [
-      'try / except / else / finally',
-      'иерархия исключений и точечный перехват',
-      'собственные классы исключений',
-      'подход EAFP vs LBYL',
-      'пример из практики',
-    ];
-  }
-  return null;
+  return conceptSignalsForQuestion(question);
 }
 
 function domainSignalsForQuestion(topic: InterviewTopic, question: string): string[] | null {
@@ -421,10 +364,10 @@ function domainSignalsForQuestion(topic: InterviewTopic, question: string): stri
   // question under a topic gets graded against the SAME generic signal list,
   // even when that topic's sample questions test genuinely different things.
   const text = norm(`${topic.title} ${question}`);
-  // Python-концепты определяем по самому вопросу (не по теме), иначе все вопросы
-  // под «Основы Python» грейдятся по одному generic-чеклисту.
-  const pySignals = pythonConceptSignals(question);
-  if (pySignals) return pySignals;
+  // Конкретный технический концепт определяем по самому ВОПРОСУ (не по теме),
+  // иначе все вопросы под темой грейдятся по одному generic-чеклисту.
+  const concept = conceptSignalsForQuestion(question);
+  if (concept) return concept;
   if (isPlaywrightVsSeleniumQuestion(text)) {
     return [
       'встроенный auto-wait вместо explicit wait',
