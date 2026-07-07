@@ -51,6 +51,17 @@ curl -X POST http://109.172.47.103:8787/gateway/issue \
 
 Планы: `basic` (5M токенов/мес) или `max` (20M). `days` опционально (без него — бессрочный).
 
+## Uptime-сторож (алерты в Telegram)
+
+`monitor.sh` каждые 5 минут (cron) проверяет гейтвей/сайт/лидбот/redis/nginx и
+пишет админу в Telegram **при смене состояния** (упало / восстановилось), без
+спама. Использует токен бота из `/opt/skillcue-leadbot/config.json`.
+
+```bash
+bash /opt/skillcue/apps/api/deploy/monitor.sh --test   # прислать тестовый алерт
+crontab -l | grep monitor.sh                            # проверить, что cron стоит
+```
+
 ## Мониторинг расхода (счёт OpenRouter)
 
 ```bash
