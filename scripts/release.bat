@@ -1,7 +1,7 @@
 @echo off
-REM Выпуск новой версии SkillCue двойным кликом.
-REM Поднимает версию (patch), коммитит, тегает и пушит — CI соберёт и опубликует
-REM установщик в ScillCue (кнопка «Скачать» получит новую версию).
+REM Release a new SkillCue version by double-clicking.
+REM Bumps version (patch), commits, tags and pushes - CI builds and publishes
+REM the installer to ScillCue (the Download button gets the new version).
 cd /d "%~dp0.."
 powershell -ExecutionPolicy Bypass -File "%~dp0release.ps1" %*
 echo.
