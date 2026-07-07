@@ -1,5 +1,6 @@
 /** Pure derivation of the live-session status shown on the Interview screen.
  * Extracted so it can be unit-tested without rendering React. */
+import { t } from './i18n';
 
 export type LiveTone = 'idle' | 'listening' | 'processing' | 'ready';
 
@@ -33,14 +34,14 @@ export function deriveLiveState({
         : 'idle';
 
   const label = streaming
-    ? 'Отвечаю'
+    ? t('live.answering')
     : isGenerating
-      ? 'Распознаю'
+      ? t('live.transcribing')
       : active
-        ? 'Слушаю'
+        ? t('live.listening')
         : hasAnswer
-          ? 'Ответ готов'
-          : 'Ожидание';
+          ? t('livestatus.answerReady')
+          : t('shell.idle');
 
   const flowStep = streaming ? 2 : isGenerating ? 1 : active ? 0 : -1;
 

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { api } from '../../lib/api';
+import { useI18n } from '../../lib/i18n';
 
 /** 👍/👎 на сгенерированный ответ — сырьё для тюнинга промптов и глоссария. */
 export default function FeedbackButtons({
@@ -13,6 +14,7 @@ export default function FeedbackButtons({
   rawTranscript?: string | null;
   source?: 'live' | 'manual';
 }) {
+  const { t } = useI18n();
   const [sent, setSent] = useState<'up' | 'down' | null>(null);
 
   const send = (verdict: 'up' | 'down') => {
@@ -29,12 +31,12 @@ export default function FeedbackButtons({
     'flex h-7 w-7 items-center justify-center rounded-lg border text-ink-faint transition-colors disabled:cursor-default';
 
   return (
-    <span className="inline-flex items-center gap-1" role="group" aria-label="Оценка ответа">
+    <span className="inline-flex items-center gap-1" role="group" aria-label={t('answer.feedbackAria')}>
       <button
         type="button"
         disabled={!!sent}
         onClick={() => send('up')}
-        title="Хороший ответ"
+        title={t('answer.good')}
         className={`${base} ${
           sent === 'up'
             ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-400'
@@ -49,7 +51,7 @@ export default function FeedbackButtons({
         type="button"
         disabled={!!sent}
         onClick={() => send('down')}
-        title="Плохой ответ — учтём при настройке"
+        title={t('answer.bad')}
         className={`${base} ${
           sent === 'down'
             ? 'border-red-500/40 bg-red-500/15 text-red-400'

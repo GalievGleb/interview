@@ -1,5 +1,6 @@
 import CopyAnswerButton from './CopyAnswerButton';
 import FeedbackButtons from './FeedbackButtons';
+import { useI18n } from '../../lib/i18n';
 import type { AnswerRevisionMode } from '../../lib/answerRevision';
 
 interface AnswerActionsProps {
@@ -20,6 +21,7 @@ export default function AnswerActions({
   onRevise,
   onEdit,
 }: AnswerActionsProps) {
+  const { t } = useI18n();
   const blocked = disabled || revising || !answer.trim();
 
   return (
@@ -34,9 +36,9 @@ export default function AnswerActions({
           className="btn-secondary btn-sm"
           disabled={blocked}
           onClick={onEdit}
-          title="Отредактировать ответ вручную"
+          title={t('answer.editTitle')}
         >
-          Изменить
+          {t('answer.edit')}
         </button>
       ) : null}
       {onRevise ? (
@@ -46,18 +48,18 @@ export default function AnswerActions({
             className="btn-secondary btn-sm"
             disabled={blocked}
             onClick={() => onRevise('shorter')}
-            title="Сократить ответ для устного ответа"
+            title={t('answer.shorterTitle')}
           >
-            Короче
+            {t('answer.shorter')}
           </button>
           <button
             type="button"
             className="btn-secondary btn-sm"
             disabled={blocked}
             onClick={() => onRevise('regenerate')}
-            title="Сгенерировать ответ заново"
+            title={t('answer.regenTitle')}
           >
-            Заново
+            {t('answer.regen')}
           </button>
         </>
       ) : null}

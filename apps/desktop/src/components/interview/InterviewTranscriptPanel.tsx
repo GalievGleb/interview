@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import type { TranscriptLine } from '../../hooks/useLiveCopilot';
+import { useI18n } from '../../lib/i18n';
 import SttDebugPanel, { SttDebugInfo } from '../SttDebugPanel';
 import CockpitEmptyState, { TranscriptEmptyIcon } from './CockpitEmptyState';
 
@@ -18,6 +19,7 @@ export default function InterviewTranscriptPanel({
   onDebugToggle,
   active,
 }: InterviewTranscriptPanelProps) {
+  const { t } = useI18n();
   const bottomRef = useRef<HTMLDivElement>(null);
   const hasInterim = lines.some((line) => !line.isFinal);
   const waitReason = debug?.waitReason;
@@ -29,15 +31,15 @@ export default function InterviewTranscriptPanel({
   return (
     <div className="cockpit-panel flex min-h-0 flex-col lg:min-w-0 lg:flex-1">
       <div className="cockpit-panel-head">
-        <h2 className="cockpit-panel-title">Live-транскрипт</h2>
+        <h2 className="cockpit-panel-title">{t('transcript.title')}</h2>
         {lines.length > 0 && (
           <span className="rounded-full border border-surface-border bg-surface-elevated px-2 py-0.5 text-[10px] text-ink-faint">
-            {lines.length} строк
+            {lines.length} {t('transcript.lines')}
           </span>
         )}
         {active && hasInterim && (
           <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-300">
-            Промежуточно
+            {t('transcript.interim')}
           </span>
         )}
       </div>
@@ -46,8 +48,8 @@ export default function InterviewTranscriptPanel({
         {lines.length === 0 && (
           <CockpitEmptyState
             icon={<TranscriptEmptyIcon />}
-            title={active ? 'Слушаю…' : 'Начните live-сессию, чтобы записывать вопросы интервью'}
-            hint="Вы и интервьюер выделены разными цветами."
+            title={active ? t('answer.listening') : t('transcript.emptyStart')}
+            hint={t('transcript.emptyHint')}
           />
         )}
 
@@ -66,9 +68,11 @@ export default function InterviewTranscriptPanel({
               }`}
             >
               <span className="transcript-speaker">
-                {line.speaker === 'me' ? 'Вы' : 'Интервьюер'}
+                {line.speaker === 'me' ? t('history.speaker.me') : t('history.speaker.other')}
                 {!line.isFinal && (
-                  <span className="ml-2 text-[10px] font-normal text-ink-faint">промежуточно</span>
+                  <span className="ml-2 text-[10px] font-normal text-ink-faint">
+                    {t('transcript.interimLower')}
+                  </span>
                 )}
               </span>
               <p className={`transcript-text ${line.isFinal ? '' : 'transcript-interim'}`}>
@@ -78,11 +82,11 @@ export default function InterviewTranscriptPanel({
                 )}
               </p>
               {line.isFinal && line.normalized && line.normalized !== line.text && (
-                <p className="transcript-normalized">Финально: {line.normalized}</p>
+                <p className="transcript-normalized">{t('transcript.final')} {line.normalized}</p>
               )}
               {line.isFinal && line.corrected && line.corrected !== line.text && (
                 <p className="transcript-normalized text-accent/90">
-                  Исправлено: {line.corrected}
+                  {t('transcript.corrected')} {line.corrected}
                 </p>
               )}
             </div>

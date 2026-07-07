@@ -2,13 +2,14 @@ import type { ReactNode } from 'react';
 import { LiveSources } from '../../hooks/useLiveCopilot';
 import { SttMode } from '../../lib/liveSession';
 import { AUDIO_RATE_LABELS, AudioSampleRateMode } from '../../lib/sttOptions';
+import { useI18n, type I18nKey } from '../../lib/i18n';
 import type { LiveTone } from '../../lib/liveStatus';
 
 const isElectron = typeof window !== 'undefined' && !!window.electronAPI;
 
 export type { LiveTone };
 
-const FLOW = ['Слушаю', 'Распознаю', 'Отвечаю'];
+const FLOW_KEYS: I18nKey[] = ['live.listening', 'live.transcribing', 'live.answering'];
 
 function secs(ms?: number): string {
   if (ms == null || !Number.isFinite(ms)) return '—';
@@ -65,6 +66,7 @@ const DOT_TONE: Record<LiveTone, string> = {
 };
 
 export default function LiveStatusBar(props: LiveStatusBarProps) {
+  const { t } = useI18n();
   const {
     active,
     statusLabel,
@@ -107,11 +109,11 @@ export default function LiveStatusBar(props: LiveStatusBarProps) {
         </span>
 
         <span className="sc-flow">
-          {FLOW.map((step, i) => (
-            <span key={step} className="inline-flex items-center gap-1.5">
+          {FLOW_KEYS.map((stepKey, i) => (
+            <span key={stepKey} className="inline-flex items-center gap-1.5">
               {i > 0 && <span className="sc-flow__sep">→</span>}
               <span className={`sc-flow__step ${i === flowStep ? 'sc-flow__step--active' : ''}`}>
-                {step}
+                {t(stepKey)}
               </span>
             </span>
           ))}
@@ -120,7 +122,7 @@ export default function LiveStatusBar(props: LiveStatusBarProps) {
         <div className="ml-auto flex flex-wrap items-center gap-2">
           {active ? (
             <button type="button" onClick={onStop} className="btn-danger btn-sm">
-              Стоп
+              {t('live.stop')}
             </button>
           ) : startBlocked ? (
             <button
@@ -135,10 +137,10 @@ export default function LiveStatusBar(props: LiveStatusBarProps) {
               type="button"
               onClick={onStart}
               disabled={!canStart || !hasStt || noSource}
-              title={noSource ? 'Выберите источник звука ниже' : undefined}
+              title={noSource ? t('live.chooseSourceBelow') : undefined}
               className="btn-primary btn-sm min-w-[110px]"
             >
-              Начать live
+              {t('live.start')}
             </button>
           )}
         </div>
@@ -146,24 +148,24 @@ export default function LiveStatusBar(props: LiveStatusBarProps) {
 
       {/* Row 2 — controls + utilities */}
       <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-surface-border/80 pt-3">
-        <div className="sc-segmented" role="group" aria-label="Источники звука">
+        <div className="sc-segmented" role="group" aria-label={t('live.sourcesAria')}>
           <button
             type="button"
             onClick={() => onToggleSource('mic')}
             className={`sc-segmented__item ${sources.mic ? 'sc-segmented__item--active' : ''}`}
           >
-            Микрофон
+            {t('live.microphone')}
           </button>
           <button
             type="button"
             onClick={() => onToggleSource('system')}
             disabled={!isElectron}
-            title={isElectron ? undefined : 'Только в desktop-приложении'}
+            title={isElectron ? undefined : t('live.desktopOnly')}
             className={`sc-segmented__item ${sources.system ? 'sc-segmented__item--active' : ''} ${
               isElectron ? '' : 'opacity-40'
             }`}
           >
-            Системный звук
+            {t('live.systemAudio')}
           </button>
         </div>
 
@@ -171,29 +173,29 @@ export default function LiveStatusBar(props: LiveStatusBarProps) {
           <div className="sc-statbar text-xs">
             <span className="sc-statchip">
               <span className="sc-statchip__label">STT</span>
-              <span className="sc-statchip__value">Локальный Whisper</span>
+              <span className="sc-statchip__value">{t('live.localWhisper')}</span>
             </span>
             <span className="sc-statchip">
-              <span className="sc-statchip__label">Режим</span>
-              <span className="sc-statchip__value">{mode === 'fast' ? 'Быстрый' : 'Стабильный'}</span>
+              <span className="sc-statchip__label">{t('live.modeLabel')}</span>
+              <span className="sc-statchip__value">{mode === 'fast' ? t('live.fast') : t('live.stable')}</span>
             </span>
             <span className="sc-statchip">
-              <span className="sc-statchip__label">Язык</span>
+              <span className="sc-statchip__label">{t('live.langLabel')}</span>
               <span className="sc-statchip__value uppercase">{language}</span>
             </span>
           </div>
         ) : (
           <>
-            <div className="sc-segmented" role="group" aria-label="Режим распознавания речи">
+            <div className="sc-segmented" role="group" aria-label={t('live.recModeAria')}>
               {(['fast', 'stable'] as SttMode[]).map((m) => (
                 <button
                   key={m}
                   type="button"
                   onClick={() => onModeChange(m)}
-                  title={m === 'fast' ? 'Быстрее, слабее на технических терминах' : 'Точнее (+~0.3с)'}
+                  title={m === 'fast' ? t('live.fastTitle') : t('live.stableTitle')}
                   className={`sc-segmented__item ${mode === m ? 'sc-segmented__item--active' : ''}`}
                 >
-                  {m === 'fast' ? 'Быстрый' : 'Стабильный'}
+                  {m === 'fast' ? t('live.fast') : t('live.stable')}
                 </button>
               ))}
             </div>
@@ -202,25 +204,25 @@ export default function LiveStatusBar(props: LiveStatusBarProps) {
               onChange={(e) => onLanguageChange(e.target.value)}
               className="select-compact min-w-[120px]"
             >
-              <option value="ru">Русский</option>
-              <option value="multi">Авто (ru+en)</option>
-              <option value="en">Английский</option>
+              <option value="ru">{t('settings.stt.optRu')}</option>
+              <option value="multi">{t('settings.stt.optAuto')}</option>
+              <option value="en">{t('settings.stt.optEn')}</option>
             </select>
           </>
         )}
 
         <details className="sc-live-more">
-          <summary>Диагностика</summary>
+          <summary>{t('live.diagnostics')}</summary>
           <div className="sc-live-more__panel">
             <Metric label="STT" value={secs(sttMs)} />
             <Metric label="LLM" value={secs(llmMs)} />
-            <Metric label="Всего" value={secs(totalMs)} accent />
+            <Metric label={t('live.total')} value={secs(totalMs)} accent />
             {/* Инженерная опция — обычному пользователю не нужна в тулбаре. */}
             {!active && (
               <select
                 value={audioRate}
                 onChange={(e) => onAudioRateChange(e.target.value as AudioSampleRateMode)}
-                title="Формат аудио для распознавания"
+                title={t('live.audioFormatTitle')}
                 className="select-compact min-w-[140px]"
               >
                 {(Object.keys(AUDIO_RATE_LABELS) as AudioSampleRateMode[]).map((id) => (
@@ -235,7 +237,7 @@ export default function LiveStatusBar(props: LiveStatusBarProps) {
 
         {utilities && (
           <details className="sc-live-more ml-auto">
-            <summary>Ещё</summary>
+            <summary>{t('live.more')}</summary>
             <div className="sc-live-more__panel sc-live-more__panel--stack">{utilities}</div>
           </details>
         )}

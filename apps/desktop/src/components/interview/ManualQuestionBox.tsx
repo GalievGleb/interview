@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { useI18n } from '../../lib/i18n';
 
 interface ManualQuestionBoxProps {
   value: string;
@@ -17,6 +18,7 @@ export default function ManualQuestionBox({
   disabled,
   error,
 }: ManualQuestionBoxProps) {
+  const { t } = useI18n();
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // Ctrl+L — мгновенный фокус на поле: Ctrl+K зарезервирован под палитру команд.
@@ -41,7 +43,7 @@ export default function ManualQuestionBox({
           onKeyDown={(e) => {
             if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) onSubmit();
           }}
-          placeholder="Введите вопрос вручную… (Ctrl+L — фокус)"
+          placeholder={t('manual.placeholder')}
           rows={2}
           className="cockpit-command-input"
         />
@@ -50,7 +52,7 @@ export default function ManualQuestionBox({
             <kbd className="cockpit-kbd !ml-0">Ctrl</kbd>
             <span className="mx-1">+</span>
             <kbd className="cockpit-kbd !ml-0">Enter</kbd>
-            <span className="ml-1.5 hidden sm:inline">чтобы отправить</span>
+            <span className="ml-1.5 hidden sm:inline">{t('manual.toSend')}</span>
           </span>
           <button
             type="button"
@@ -58,7 +60,7 @@ export default function ManualQuestionBox({
             disabled={loading || disabled || !value.trim()}
             className="btn-primary btn-sm"
           >
-            {loading ? 'Формирую…' : 'Получить ответ'}
+            {loading ? t('manual.composing') : t('manual.getAnswer')}
           </button>
         </div>
       </div>

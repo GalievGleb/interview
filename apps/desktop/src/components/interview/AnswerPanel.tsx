@@ -3,6 +3,7 @@ import type { CopilotAnswerEntry } from '../../lib/interviewSessionExport';
 import type { AnswerRevisionMode } from '../../lib/answerRevision';
 import type { LiveSessionStatus } from '../ui/StatusBadge';
 import { api, type AnswerVariantKind } from '../../lib/api';
+import { useI18n } from '../../lib/i18n';
 import AnswerActions from './AnswerActions';
 import AnswerTabs, { ANSWER_TABS, AnswerTab } from './AnswerTabs';
 import CockpitEmptyState, { AnswerEmptyIcon } from './CockpitEmptyState';
@@ -31,11 +32,12 @@ interface AnswerPanelProps {
 }
 
 function GeneratingHint() {
+  const { t } = useI18n();
   return (
     <div className="cockpit-empty py-6">
       <div className="mb-2 flex items-center gap-2 text-sm text-ink-muted">
         <span className="h-2 w-2 animate-pulse rounded-full bg-accent shadow-[0_0_8px_rgba(52,199,123,0.5)]" />
-        Формирую ответ…
+        {t('answer.generating')}
       </div>
     </div>
   );
@@ -51,6 +53,7 @@ function InlineAnswerEditor({
   onSave: (text: string) => void;
   onCancel: () => void;
 }) {
+  const { t } = useI18n();
   const [text, setText] = useState(initial);
   return (
     <div className="space-y-2">
@@ -63,7 +66,7 @@ function InlineAnswerEditor({
       />
       <div className="flex items-center justify-end gap-2">
         <button type="button" className="btn-secondary btn-sm" onClick={onCancel}>
-          Отменить
+          {t('answer.cancel')}
         </button>
         <button
           type="button"
@@ -71,7 +74,7 @@ function InlineAnswerEditor({
           disabled={!text.trim()}
           onClick={() => onSave(text.trim())}
         >
-          Сохранить
+          {t('common.save')}
         </button>
       </div>
     </div>
@@ -94,6 +97,7 @@ export default function AnswerPanel({
   onEditEntry,
   footer,
 }: AnswerPanelProps) {
+  const { t } = useI18n();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   // Ленивая генерация вариантов ответа по табам: кэш `${entryId}:${variant}`.
@@ -135,7 +139,7 @@ export default function AnswerPanel({
       })
       .catch((err) => {
         if (cancelled) return;
-        setVariantError(err instanceof Error ? err.message : 'Не удалось сгенерировать вариант');
+        setVariantError(err instanceof Error ? err.message : t('answer.variantError'));
       })
       .finally(() => {
         if (!cancelled) setVariantLoadingKey(null);
@@ -148,14 +152,15 @@ export default function AnswerPanel({
 
   const statusHint =
     status === 'processing'
-      ? 'Формирую ответ…'
+      ? t('answer.generating')
       : status === 'listening' && active
-        ? 'Слушаю…'
+        ? t('answer.listening')
         : revising
-          ? 'Переделываю ответ…'
+          ? t('answer.revising')
           : null;
 
-  const tabLabel = ANSWER_TABS.find((t) => t.key === tab)?.label ?? tab;
+  const tabDef = ANSWER_TABS.find((td) => td.key === tab);
+  const tabLabel = tabDef ? t(tabDef.labelKey) : tab;
 
   return (
     <div className="cockpit-panel cockpit-panel-focus flex min-h-0 flex-col lg:min-w-0 lg:flex-[1.15]">
@@ -166,7 +171,7 @@ export default function AnswerPanel({
           statusHint ? (
             <span>{statusHint}</span>
           ) : isGenerating && displayStream ? (
-            <span>Печатаю…</span>
+            <span>{t('answer.typing')}</span>
           ) : null
         }
       />
@@ -175,18 +180,8 @@ export default function AnswerPanel({
         {showEmpty && (
           <CockpitEmptyState
             icon={<AnswerEmptyIcon />}
-            title={
-              liveHint
-                ? liveHint
-                : active
-                  ? 'Жду вопрос…'
-                  : 'Здесь появится ваш ответ'
-            }
-            hint={
-              liveHint
-                ? 'Произнесите вопрос целиком одной фразой или используйте ручной ввод ниже.'
-                : 'Короткие, структурированные ответы — готовы к озвучиванию на интервью.'
-            }
+            title={liveHint ? liveHint : active ? t('answer.waiting') : t('answer.willAppear')}
+            hint={liveHint ? t('answer.hint.liveHint') : t('answer.hint.default')}
           />
         )}
 
@@ -195,19 +190,19 @@ export default function AnswerPanel({
             {!variantTarget && !showEmpty && (
               <CockpitEmptyState
                 icon={<AnswerEmptyIcon />}
-                title={`Вариант «${tabLabel}» появится после первого ответа`}
-                hint="Сначала получите основной ответ во вкладке «Озвучить»."
+                title={`${t('answer.variant.emptyPre')} «${tabLabel}» ${t('answer.variant.emptyPost')}`}
+                hint={`${t('answer.variant.hintPre')} «${t('answer.tab.spoken')}».`}
               />
             )}
             {variantTarget && (
               <article className="skillcue-answer-card skillcue-answer-card--active">
                 <div className="skillcue-answer-label">
                   <span>{tabLabel}</span>
-                  <span>По последнему ответу</span>
+                  <span>{t('answer.fromLast')}</span>
                 </div>
                 <div className="mb-3 flex items-start justify-between gap-3">
                   <p className="answer-question min-w-0 flex-1">
-                    Вопрос: {variantTarget.question}
+                    {t('answer.questionPrefix')} {variantTarget.question}
                   </p>
                   {variantText ? <AnswerActions answer={variantText} /> : null}
                 </div>
@@ -237,12 +232,12 @@ export default function AnswerPanel({
                 >
                   {latestCompleted && (
                     <div className="skillcue-answer-label">
-                      <span>Скажите это</span>
-                      <span>Готово к озвучиванию</span>
+                      <span>{t('answer.sayThis')}</span>
+                      <span>{t('answer.readyToSay')}</span>
                     </div>
                   )}
                   <div className="mb-3 flex items-start justify-between gap-3">
-                    <p className="answer-question min-w-0 flex-1">Вопрос: {item.question}</p>
+                    <p className="answer-question min-w-0 flex-1">{t('answer.questionPrefix')} {item.question}</p>
                     {!isEditing && (
                       <AnswerActions
                         answer={item.spoken}
@@ -283,12 +278,12 @@ export default function AnswerPanel({
                 }
               >
                 <div className="skillcue-answer-label">
-                  <span>Скажите это</span>
-                  <span>{displayStream ? 'Готово к озвучиванию' : 'Формирую ответ'}</span>
+                  <span>{t('answer.sayThis')}</span>
+                  <span>{displayStream ? t('answer.readyToSay') : t('answer.composing')}</span>
                 </div>
                 {activeQuestion && (
                   <div className="mb-3 flex items-start justify-between gap-3">
-                    <p className="answer-question min-w-0 flex-1">Вопрос: {activeQuestion}</p>
+                    <p className="answer-question min-w-0 flex-1">{t('answer.questionPrefix')} {activeQuestion}</p>
                     {displayStream ? (
                       <AnswerActions
                         answer={displayStream}

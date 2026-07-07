@@ -17,6 +17,7 @@ import { pipelineToStreamOpts, type AnswerRevisionMode, type PipelineStreamInput
 import { debugInfoToPipeline } from '../lib/interviewStreamHelpers';
 import { useAnswerRevision } from '../hooks/useAnswerRevision';
 import { useApp } from '../context/AppContext';
+import { useI18n } from '../lib/i18n';
 import { useLiveCopilot } from '../hooks/useLiveCopilot';
 import { useLiveCopilotPrefs } from '../hooks/useLiveCopilotPrefs';
 import { useManualInterviewAsk } from '../hooks/useManualInterviewAsk';
@@ -48,11 +49,12 @@ function FocusOverlay({
   answer: string;
   onExit: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <div className="fixed inset-0 z-[90] flex flex-col items-center justify-center bg-surface/95 px-8 backdrop-blur-md">
       <div className="absolute right-5 top-5">
         <button type="button" onClick={onExit} className="btn-secondary btn-sm">
-          Выход <span className="cockpit-kbd">Esc</span>
+          {t('interview.focus.exit')} <span className="cockpit-kbd">Esc</span>
         </button>
       </div>
       <div className="w-full max-w-3xl">
@@ -62,7 +64,7 @@ function FocusOverlay({
         </div>
         {question && <p className="mb-5 text-lg font-medium text-emerald-400">{question}</p>}
         <p className="whitespace-pre-wrap text-[26px] leading-[1.5] text-ink">
-          {answer || 'Слушаю вопрос…'}
+          {answer || t('interview.focus.listening')}
         </p>
       </div>
     </div>
@@ -82,15 +84,20 @@ function ReadinessStrip({
   sttWarm: 'warming' | 'ready';
   sources: { mic: boolean; system: boolean };
 }) {
+  const { t } = useI18n();
   const items = [
-    { label: 'LLM', ok: hasAnyKey, detail: hasAnyKey ? 'готово' : 'нужен ключ' },
-    { label: 'Речь', ok: hasStt && sttWarm === 'ready', detail: hasStt ? (sttWarm === 'ready' ? 'готово' : 'загрузка') : 'нет модели' },
+    { label: 'LLM', ok: hasAnyKey, detail: hasAnyKey ? t('interview.ready.ok') : t('interview.ready.keyNeeded') },
     {
-      label: 'Звук',
-      ok: sources.mic || sources.system,
-      detail: sources.system ? 'системный звук' : sources.mic ? 'только микрофон' : 'выберите источник',
+      label: t('interview.ready.speech'),
+      ok: hasStt && sttWarm === 'ready',
+      detail: hasStt ? (sttWarm === 'ready' ? t('interview.ready.ok') : t('interview.ready.loading')) : t('interview.ready.noModel'),
     },
-    { label: 'Приватность', ok: true, detail: 'локальный STT' },
+    {
+      label: t('interview.ready.audio'),
+      ok: sources.mic || sources.system,
+      detail: sources.system ? t('interview.ready.sysAudio') : sources.mic ? t('interview.ready.micOnly') : t('interview.ready.chooseSource'),
+    },
+    { label: t('interview.ready.privacy'), ok: true, detail: t('interview.ready.localStt') },
   ];
   const readyCount = items.filter((item) => item.ok).length;
   const ready = readyCount === items.length;
@@ -98,13 +105,13 @@ function ReadinessStrip({
   return (
     <div className="skillcue-readiness">
       <div className="min-w-0">
-        <p className="skillcue-readiness__eyebrow">Пульт live-интервью</p>
+        <p className="skillcue-readiness__eyebrow">{t('interview.ready.eyebrow')}</p>
         <p className="skillcue-readiness__title">
           {active
-            ? 'Слушаю следующий вопрос интервью'
+            ? t('interview.ready.titleActive')
             : ready
-              ? 'Готово к началу интервью'
-              : 'Завершите настройку перед началом интервью'}
+              ? t('interview.ready.titleReady')
+              : t('interview.ready.titleSetup')}
         </p>
       </div>
       <div className="skillcue-readiness__items">
@@ -126,6 +133,7 @@ function ReadinessStrip({
 }
 
 export default function InterviewPage() {
+  const { t } = useI18n();
   const { hasAnyKey, hasStt, license } = useApp();
   // Гейт live: тариф basic и сгоревший trial не стартуют live (сервер дублирует).
   const licenseOk = !license || license.live_allowed;
@@ -416,7 +424,7 @@ export default function InterviewPage() {
     const micCheck: Promise<void> = sources.mic
       ? navigator.mediaDevices
           .getUserMedia({ audio: true })
-          .then((stream) => stream.getTracks().forEach((t) => t.stop()))
+          .then((stream) => stream.getTracks().forEach((track) => track.stop()))
       : Promise.resolve();
 
     const [health, provider, mic] = await Promise.allSettled([
@@ -425,13 +433,13 @@ export default function InterviewPage() {
       micCheck,
     ]);
     if (health.status === 'rejected') {
-      problems.push('SkillCue ещё не готов к live-сессии. Повторите запуск через пару секунд.');
+      problems.push(t('interview.preflight.backend'));
     }
     if (provider.status === 'rejected' || (provider.status === 'fulfilled' && !provider.value.ok)) {
-      problems.push('LLM-ключ не отвечает — проверьте ключ и модель в Настройках.');
+      problems.push(t('interview.preflight.llm'));
     }
     if (mic.status === 'rejected') {
-      problems.push('Нет доступа к микрофону — разрешите доступ в системных настройках.');
+      problems.push(t('interview.preflight.mic'));
     }
 
     setPreflight('idle');
@@ -512,9 +520,9 @@ export default function InterviewPage() {
         noSource={noSource}
         startBlocked={
           !hasAnyKey
-            ? { label: 'Добавить API-ключ', onFix: () => navigate('/settings?tab=ai') }
+            ? { label: t('interview.addKey'), onFix: () => navigate('/settings?tab=ai') }
             : !hasStt
-              ? { label: 'Скачать модель речи', onFix: () => navigate('/settings?tab=speech') }
+              ? { label: t('interview.downloadSpeech'), onFix: () => navigate('/settings?tab=speech') }
               : null
         }
         onToggleSource={toggleSource}
@@ -532,7 +540,7 @@ export default function InterviewPage() {
                 showTranscript ? 'border-accent/50 text-accent' : ''
               }`}
             >
-              {showTranscript ? 'Скрыть транскрипт' : `Транскрипт (${lines.length})`}
+              {showTranscript ? t('interview.hideTranscript') : `${t('interview.transcript')} (${lines.length})`}
             </button>
             <FastAnswerToggle />
             <SpeculativeToggle />
@@ -564,10 +572,10 @@ export default function InterviewPage() {
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
             <span>
               {!hasAnyKey && !hasStt
-                ? 'Для live-режима не хватает API-ключа и речевой модели. Ручной ввод вопросов работает уже сейчас.'
+                ? t('interview.alert.missingBoth')
                 : !hasAnyKey
-                  ? 'Для live-ответов не хватает API-ключа.'
-                  : 'Для распознавания голоса нужна речевая модель. Ручной ввод работает и без неё.'}
+                  ? t('interview.alert.missingKey')
+                  : t('interview.alert.missingStt')}
             </span>
             {!hasAnyKey && (
               <button
@@ -575,7 +583,7 @@ export default function InterviewPage() {
                 className="btn-secondary btn-sm"
                 onClick={() => navigate('/settings?tab=ai')}
               >
-                Добавить ключ
+                {t('interview.alert.addKey')}
               </button>
             )}
             {!hasStt && (
@@ -584,7 +592,7 @@ export default function InterviewPage() {
                 className="btn-secondary btn-sm"
                 onClick={() => navigate('/settings?tab=speech')}
               >
-                Скачать модель
+                {t('interview.alert.downloadModel')}
               </button>
             )}
           </div>
@@ -592,23 +600,18 @@ export default function InterviewPage() {
       )}
 
       {hasStt && sttWarm === 'warming' && !active && (
-        <InterviewInlineAlert tone="info">
-          Готовлю модель распознавания… первый вопрос лучше задать через пару секунд — потом всё
-          мгновенно.
-        </InterviewInlineAlert>
+        <InterviewInlineAlert tone="info">{t('interview.alert.warming')}</InterviewInlineAlert>
       )}
 
       {isElectron && sources.mic && !sources.system && (
-        <InterviewInlineAlert tone="warn">
-          Включите системный звук — ответы строятся по вопросам интервьюера, а не по вашему микрофону.
-        </InterviewInlineAlert>
+        <InterviewInlineAlert tone="warn">{t('interview.alert.sysAudio')}</InterviewInlineAlert>
       )}
 
       {!licenseOk && (
         <InterviewInlineAlert tone="warn">
           {license?.plan === 'basic'
-            ? 'Тариф basic не включает live-режим и оверлей — обновитесь до max в «Настройках».'
-            : 'Пробные 15 минут live закончились. Активируйте лицензию в «Настройках» — подготовка и история продолжают работать.'}
+            ? t('interview.alert.licenseBasic')
+            : t('interview.alert.licenseTrial')}
         </InterviewInlineAlert>
       )}
 
@@ -617,9 +620,7 @@ export default function InterviewPage() {
       {reconnecting && <InterviewInlineAlert tone="warn">{reconnecting}</InterviewInlineAlert>}
 
       {preflight === 'running' && (
-        <InterviewInlineAlert tone="info">
-          Проверяю готовность: бэкенд, LLM-ключ, микрофон…
-        </InterviewInlineAlert>
+        <InterviewInlineAlert tone="info">{t('interview.preflight.running')}</InterviewInlineAlert>
       )}
 
       {preflightProblems.length > 0 && (
