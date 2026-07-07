@@ -1,5 +1,7 @@
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { pluralRu } from '../../lib/pluralRu';
+import { buildSmokePlan } from '../../lib/vacancyReview/vacancyReviewService';
 import type {
   Competency,
   ResumeMatch,
@@ -9,7 +11,8 @@ import type {
 
 interface Props {
   analysis: VacancyAnalysis;
-  onStart: () => void;
+  /** Запуск mock по отмеченным темам (по умолчанию — все). */
+  onStart: (topicIds: string[]) => void;
   onBack: () => void;
   questionCount: number;
 }
@@ -50,6 +53,23 @@ const EXPECTED_LEVEL_LABEL: Record<Competency['expectedLevel'], string> = {
 };
 
 export default function VacancyAnalysisView({ analysis, onStart, onBack, questionCount }: Props) {
+  // По умолчанию отмечены все темы; ученик снимает те, где уже уверен.
+  const [selected, setSelected] = useState<Set<string>>(
+    () => new Set(analysis.interviewTopics.map((t) => t.id)),
+  );
+  const toggleTopic = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const allSelected = selected.size === analysis.interviewTopics.length;
+  // Сколько вопросов даст выбранный набор тем (весь набор → исходный questionCount).
+  const plannedCount = useMemo(
+    () => (allSelected ? questionCount : buildSmokePlan(analysis, [...selected]).length),
+    [allSelected, analysis, selected, questionCount],
+  );
   return (
     <div className="prep-rise space-y-5">
       <div className="flex items-start justify-between gap-3">
@@ -153,28 +173,64 @@ export default function VacancyAnalysisView({ analysis, onStart, onBack, questio
 
       <div>
         <h2 className="prep-h2">Карта готовности к интервью</h2>
-        <p className="prep-faint mt-0.5">Темы извлечены из вакансии — именно это проверит mock-интервью.</p>
+        <p className="prep-faint mt-0.5">
+          Отметьте темы для mock-интервью — снимите те, где уже уверенно разбираетесь.
+        </p>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
-          {analysis.interviewTopics.map((t) => (
-            <div key={t.id} className="prep-card p-4">
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <p className="prep-faint">{t.category}</p>
-                  <p className="prep-h2 truncate">{t.title}</p>
+          {analysis.interviewTopics.map((t) => {
+            const on = selected.has(t.id);
+            return (
+              <div
+                key={t.id}
+                role="checkbox"
+                aria-checked={on}
+                tabIndex={0}
+                onClick={() => toggleTopic(t.id)}
+                onKeyDown={(e) => {
+                  if (e.key === ' ' || e.key === 'Enter') {
+                    e.preventDefault();
+                    toggleTopic(t.id);
+                  }
+                }}
+                className="prep-card cursor-pointer p-4 transition-all"
+                style={{
+                  opacity: on ? 1 : 0.5,
+                  borderColor: on ? 'var(--prep-green)' : undefined,
+                }}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex min-w-0 items-start gap-2.5">
+                    <span
+                      aria-hidden
+                      className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border"
+                      style={{
+                        borderColor: on ? 'var(--prep-green)' : 'var(--prep-border-strong)',
+                        background: on ? 'var(--prep-green)' : 'transparent',
+                      }}
+                    >
+                      {on && (
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#04240f" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M20 6 9 17l-5-5" />
+                        </svg>
+                      )}
+                    </span>
+                    <div className="min-w-0">
+                      <p className="prep-faint">{t.category}</p>
+                      <p className="prep-h2 truncate">{t.title}</p>
+                    </div>
+                  </div>
+                  <span className={`prep-chip shrink-0 ${IMPORTANCE_TONE[t.importance]}`}>
+                    {IMPORTANCE_LABEL[t.importance]}
+                  </span>
                 </div>
-                <span className={`prep-chip shrink-0 ${IMPORTANCE_TONE[t.importance]}`}>
-                  {IMPORTANCE_LABEL[t.importance]}
-                </span>
+                <p className="prep-sub mt-2">{t.expectedKnowledge}</p>
+                {t.whyAsked && <p className="prep-faint mt-1.5">{t.whyAsked}</p>}
+                <p className="mt-2 text-[12px] italic" style={{ color: 'var(--prep-ink-faint)' }}>
+                  “{t.vacancyEvidence}”
+                </p>
               </div>
-              <p className="prep-sub mt-2">{t.expectedKnowledge}</p>
-              {t.whyAsked && (
-                <p className="prep-faint mt-1.5">{t.whyAsked}</p>
-              )}
-              <p className="mt-2 text-[12px] italic" style={{ color: 'var(--prep-ink-faint)' }}>
-                “{t.vacancyEvidence}”
-              </p>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
@@ -196,11 +252,21 @@ export default function VacancyAnalysisView({ analysis, onStart, onBack, questio
         </div>
       )}
 
-      <div className="flex items-center gap-3">
-        <button type="button" className="prep-btn" onClick={onStart} disabled={questionCount === 0}>
-          Начать mock-интервью: {questionCount} вопросов
+      <div className="flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          className="prep-btn"
+          onClick={() => onStart([...selected])}
+          disabled={plannedCount === 0}
+        >
+          Начать mock-интервью: {plannedCount}{' '}
+          {pluralRu(plannedCount, 'вопрос', 'вопроса', 'вопросов')}
         </button>
-        <span className="prep-faint">~20–30 мин · сложность растёт</span>
+        <span className="prep-faint">
+          {selected.size === 0
+            ? 'Отметьте хотя бы одну тему'
+            : `${selected.size} из ${analysis.interviewTopics.length} тем · ~20–30 мин`}
+        </span>
       </div>
     </div>
   );

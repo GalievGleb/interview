@@ -62,13 +62,29 @@ export function useVacancyReview(initial?: SmokeReviewSession | null) {
     }
   }, [persist]);
 
-  const startInterview = useCallback(() => {
-    if (!session?.questions.length) {
-      setError('Не получилось собрать вопросы — вставьте более полную вакансию.');
-      return;
-    }
-    setPhase('interview');
-  }, [session]);
+  const startInterview = useCallback(
+    (selectedTopicIds?: string[]) => {
+      if (!session) return;
+      const allTopics = session.vacancyAnalysis.interviewTopics;
+      // Ученик отметил подмножество тем → пересобираем план только по ним.
+      const useSubset =
+        selectedTopicIds != null &&
+        selectedTopicIds.length > 0 &&
+        selectedTopicIds.length < allTopics.length;
+      const nextQuestions = useSubset
+        ? buildSmokePlan(session.vacancyAnalysis, selectedTopicIds)
+        : session.questions;
+      if (!nextQuestions.length) {
+        setError('Не получилось собрать вопросы — выберите хотя бы одну тему или вставьте более полную вакансию.');
+        return;
+      }
+      if (useSubset) {
+        persist({ ...session, questions: nextQuestions, answers: [], currentIndex: 0 });
+      }
+      setPhase('interview');
+    },
+    [session, persist],
+  );
 
   const submitAnswer = useCallback(
     async (text: string, source: 'voice' | 'text', skipped = false) => {

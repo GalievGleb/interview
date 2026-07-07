@@ -285,9 +285,17 @@ function expectedLevelFor(importance: TopicImportance, level: QuestionLevel): Co
 }
 
 /** Build an 8–15 question smoke plan, grouped by topic, gradually harder. */
-export function buildSmokePlan(analysis: VacancyAnalysis): SmokeQuestion[] {
+export function buildSmokePlan(
+  analysis: VacancyAnalysis,
+  selectedTopicIds?: string[],
+): SmokeQuestion[] {
   // TODO(real-ai): POST /vacancy/plan { analysisId } → grounded questions.
-  const topics = analysis.interviewTopics;
+  // Пустой/отсутствующий выбор = все темы; иначе тренируем только отмеченные
+  // (ученик снимает темы, где уже уверенно разбирается).
+  const topics =
+    selectedTopicIds && selectedTopicIds.length
+      ? analysis.interviewTopics.filter((t) => selectedTopicIds.includes(t.id))
+      : analysis.interviewTopics;
   if (!topics.length) return [];
   const target = Math.min(15, Math.max(8, topics.length + 3));
 
