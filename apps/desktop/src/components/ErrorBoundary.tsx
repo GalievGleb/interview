@@ -1,5 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { recordError } from '../lib/errorLog';
+import { t } from '../lib/i18n';
 
 interface Props {
   children: ReactNode;
@@ -35,16 +36,14 @@ export class ErrorBoundary extends Component<Props, State> {
           </svg>
         </div>
         <div>
-          <h1 className="text-lg font-semibold">Что-то пошло не так</h1>
-          <p className="mt-1 max-w-md text-sm text-ink-muted">
-            Экран упал с ошибкой. Перезагрузите приложение — данные хранятся локально и не потеряны.
-          </p>
+          <h1 className="text-lg font-semibold">{t('error.title')}</h1>
+          <p className="mt-1 max-w-md text-sm text-ink-muted">{t('error.body')}</p>
         </div>
         <pre className="sc-mono max-h-32 max-w-lg overflow-auto rounded-lg border border-surface-border bg-surface-card p-3 text-left text-xs text-ink-faint">
           {error.message}
         </pre>
         <button type="button" onClick={() => window.location.reload()} className="btn-primary">
-          Перезагрузить
+          {t('error.reload')}
         </button>
       </div>
     );

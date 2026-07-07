@@ -4,6 +4,7 @@ import Sidebar from './Sidebar';
 import CommandPalette from './CommandPalette';
 import UpdateToast from './UpdateToast';
 import { useApp } from '../context/AppContext';
+import { useI18n, type I18nKey } from '../lib/i18n';
 import { getBackendBannerKind } from './layout/backendBanner';
 
 const WIDE_ROUTES = new Set(['/interview', '/meeting']);
@@ -18,14 +19,15 @@ function elapsed(ms: number): string {
   return `${hh}:${mm}:${ss}`;
 }
 
-const CLOUD_STT_LABEL: Record<string, string> = {
-  speechkit: 'Облако · Яндекс',
-  deepgram: 'Облако · Deepgram',
+const CLOUD_STT_LABEL_KEY: Record<string, I18nKey> = {
+  speechkit: 'shell.cloud.speechkit',
+  deepgram: 'shell.cloud.deepgram',
 };
 
 function TitleBar({ onInterview }: { onInterview: boolean }) {
   const { sttEngine } = useApp();
-  const cloudLabel = CLOUD_STT_LABEL[sttEngine];
+  const { t } = useI18n();
+  const cloudLabel = CLOUD_STT_LABEL_KEY[sttEngine] ? t(CLOUD_STT_LABEL_KEY[sttEngine]) : '';
   const [live, setLive] = useState(false);
   const [liveStart, setLiveStart] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -70,7 +72,7 @@ function TitleBar({ onInterview }: { onInterview: boolean }) {
           <div className="h-5 w-px bg-surface-border" />
           <div className="flex items-center gap-2 text-[13px] text-ink-muted">
             <span className="sc-dot sc-dot--live" />
-            <span>Live-сессия</span>
+            <span>{t('shell.liveSession')}</span>
             {liveStart != null && (
               <span className="sc-mono text-ink-faint">{elapsed(now - liveStart)}</span>
             )}
@@ -97,13 +99,13 @@ function TitleBar({ onInterview }: { onInterview: boolean }) {
             >
               <path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3" />
             </svg>
-            Фокус
+            {t('shell.focus')}
           </button>
         )}
         {cloudLabel ? (
           <span
             className="skillcue-local-pill skillcue-local-pill--cloud"
-            title="Аудио распознаётся в облаке провайдера — не на устройстве."
+            title={t('shell.cloudTitle')}
           >
             <svg
               width="13"
@@ -122,8 +124,8 @@ function TitleBar({ onInterview }: { onInterview: boolean }) {
         ) : (
           <span
             className="skillcue-local-pill skillcue-local-pill--icon"
-            title="Распознавание речи работает на вашем устройстве — приватно."
-            aria-label="Локально и приватно"
+            title={t('shell.localTitle')}
+            aria-label={t('shell.localAria')}
           >
             <svg
               width="14"
@@ -146,6 +148,7 @@ function TitleBar({ onInterview }: { onInterview: boolean }) {
 
 export default function Layout({ children }: { children: ReactNode }) {
   const { backendOnline, backendStatus } = useApp();
+  const { t } = useI18n();
   const { pathname } = useLocation();
   const wide = WIDE_ROUTES.has(pathname);
   const prep = PREP_ROUTES.has(pathname);
@@ -167,15 +170,14 @@ export default function Layout({ children }: { children: ReactNode }) {
           {backendBannerKind === 'failed' ? (
             <div className="flex shrink-0 items-center gap-2 border-b border-red-900/40 bg-red-950/20 px-5 py-2 text-sm text-red-200/90">
               <span className="sc-dot sc-dot--error" />
-              Сервис не смог перезапуститься. Перезапустите приложение; если повторится —
-              соберите отчёт в «Настройки → Сообщить о проблеме».
+              {t('shell.backendFailed')}
             </div>
           ) : (
             backendBannerKind === 'dev-offline' && (
               <div className="flex shrink-0 items-center gap-2 border-b border-amber-900/30 bg-amber-950/20 px-5 py-2 text-sm text-amber-200/90">
                 <span className="sc-dot sc-dot--processing animate-pulse" />
                 <>
-                  Подключение к backend… Если он не поднялся автоматически, запустите:{' '}
+                  {t('shell.backendConnecting')}{' '}
                   <code className="rounded-md bg-black/30 px-1.5 py-0.5 text-amber-100">
                     cd apps/api-py; .\run_dev.ps1
                   </code>
@@ -195,7 +197,7 @@ export default function Layout({ children }: { children: ReactNode }) {
             <Suspense
               fallback={
                 <div className="flex min-h-[40vh] items-center justify-center text-sm text-ink-muted">
-                  Загрузка…
+                  {t('shell.loading')}
                 </div>
               }
             >

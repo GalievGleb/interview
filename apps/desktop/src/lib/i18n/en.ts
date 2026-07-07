@@ -14,12 +14,54 @@ export const en: Record<I18nKey, string> = {
   'nav.settings': 'Settings',
   'nav.search': 'Search',
 
+  // Sidebar
+  'sidebar.tagline': 'Interview console',
+  'sidebar.quickActions': 'Quick actions',
+  'sidebar.ready': 'SkillCue ready',
+  'sidebar.unavailable': 'Service unavailable',
+  'sidebar.stealthTitle': 'Hide during screen sharing',
+  'sidebar.hidden': 'Hidden',
+  'sidebar.visible': 'Visible',
+  'sidebar.taskbarTitle': 'Hide from the taskbar',
+  'sidebar.noTaskbar': 'No taskbar',
+  'sidebar.inTaskbar': 'In taskbar',
+
   'shell.liveSession': 'Live session',
   'shell.idle': 'Idle',
   'shell.focus': 'Focus',
   'shell.localPrivate': 'Local · Private',
   'shell.backendConnecting':
     'Connecting to backend… it starts automatically. If it does not come up, run manually:',
+  'shell.cloud.speechkit': 'Cloud · Yandex',
+  'shell.cloud.deepgram': 'Cloud · Deepgram',
+  'shell.cloudTitle': "Audio is recognized in the provider's cloud — not on your device.",
+  'shell.localTitle': 'Speech recognition runs on your device — private.',
+  'shell.localAria': 'Local and private',
+  'shell.backendFailed':
+    'The service could not restart. Restart the app; if it recurs, collect a report in "Settings → Report a problem".',
+  'shell.loading': 'Loading…',
+
+  // Command palette (Ctrl+K)
+  'cmd.placeholder': 'Command or screen…',
+  'cmd.empty': 'Nothing found',
+  'cmd.on': 'enable',
+  'cmd.off': 'disable',
+  'cmd.home': 'Open the prep dashboard',
+  'cmd.prepare': 'Review a vacancy',
+  'cmd.interview': 'Go to: Live interview',
+  'cmd.documents': 'Open resume & experience',
+  'cmd.history': 'Go to: History',
+  'cmd.settings': 'Go to: Settings',
+  'cmd.fast': 'Fast answer',
+  'cmd.chime': 'Answer-ready sound',
+  'cmd.speculative': 'Start answering before the question ends',
+  'cmd.lang': 'Interface language',
+  'cmd.overlay': 'Open overlay',
+  'cmd.meeting': 'Dev: conversation review',
+  'cmd.testlab': 'Dev: test lab',
+  'cmd.benchmark': 'Dev: STT benchmark',
+  'cmd.diagnostics': 'Dev: latency diagnostics',
+  'cmd.licenses': 'Dev: licenses',
 
   'common.copy': 'Copy',
   'common.delete': 'Delete',
@@ -27,6 +69,27 @@ export const en: Record<I18nKey, string> = {
   'common.save': 'Save',
   'common.loading': 'Loading…',
   'common.language': 'Interface language',
+  'common.close': 'Close',
+
+  // Update toast
+  'update.availablePre': 'Update available',
+  'update.downloadingInline': 'downloading…',
+  'update.downloading': 'Downloading update…',
+  'update.readyPre': 'Update',
+  'update.readyPost': 'is ready',
+  'update.restart': 'Restart',
+
+  // Error screen (ErrorBoundary)
+  'error.title': 'Something went wrong',
+  'error.body':
+    'The screen crashed with an error. Reload the app — your data is stored locally and not lost.',
+  'error.reload': 'Reload',
+
+  // Live session status
+  'livestatus.idle': 'Idle',
+  'livestatus.listening': 'Listening',
+  'livestatus.processing': 'Processing',
+  'livestatus.answerReady': 'Answer ready',
 
   'common.error': 'Error',
   'common.open': 'Open',

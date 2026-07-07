@@ -1,3 +1,5 @@
+import { useI18n, type I18nKey } from '../../lib/i18n';
+
 type StatusTone = 'idle' | 'listening' | 'processing' | 'success' | 'warning' | 'error';
 
 const TONE_DOT: Record<StatusTone, string> = {
@@ -36,11 +38,11 @@ export default function StatusBadge({
 
 export type LiveSessionStatus = 'idle' | 'listening' | 'processing' | 'answer_ready';
 
-const LIVE_STATUS_LABEL: Record<LiveSessionStatus, string> = {
-  idle: 'Ожидание',
-  listening: 'Слушаю',
-  processing: 'Обработка',
-  answer_ready: 'Ответ готов',
+const LIVE_STATUS_LABEL_KEY: Record<LiveSessionStatus, I18nKey> = {
+  idle: 'livestatus.idle',
+  listening: 'livestatus.listening',
+  processing: 'livestatus.processing',
+  answer_ready: 'livestatus.answerReady',
 };
 
 const LIVE_STATUS_TONE: Record<LiveSessionStatus, StatusTone> = {
@@ -65,6 +67,7 @@ const LIVE_PILL_TINT: Record<LiveSessionStatus, string> = {
 };
 
 export function LiveStatusBadge({ status }: { status: LiveSessionStatus }) {
+  const { t } = useI18n();
   const pulse = status === 'listening' || status === 'processing';
   return (
     <span className={`cockpit-status-pill ${LIVE_PILL_TINT[status]}`}>
@@ -78,7 +81,7 @@ export function LiveStatusBadge({ status }: { status: LiveSessionStatus }) {
           className={`relative inline-flex h-2 w-2 rounded-full ${TONE_DOT[LIVE_STATUS_TONE[status]]}`}
         />
       </span>
-      <span className="text-xs font-medium text-ink">{LIVE_STATUS_LABEL[status]}</span>
+      <span className="text-xs font-medium text-ink">{t(LIVE_STATUS_LABEL_KEY[status])}</span>
     </span>
   );
 }

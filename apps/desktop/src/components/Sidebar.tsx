@@ -191,7 +191,7 @@ export default function Sidebar() {
         <div className="skillcue-logo" aria-hidden />
         <div className="min-w-0 leading-tight">
           <p className="truncate text-sm font-semibold tracking-tight">SkillCue</p>
-          <p className="text-[11px] text-ink-faint">Пульт интервью</p>
+          <p className="text-[11px] text-ink-faint">{t('sidebar.tagline')}</p>
         </div>
       </div>
 
@@ -202,7 +202,7 @@ export default function Sidebar() {
           className="flex w-full items-center gap-2 rounded-xl border border-surface-border bg-surface/70 px-3 py-2 text-left text-sm text-ink-faint shadow-soft transition-colors hover:border-surface-border-strong hover:bg-surface-hover hover:text-ink-muted"
         >
           <Icon name="search" size={15} />
-          <span className="flex-1">Быстрые действия</span>
+          <span className="flex-1">{t('sidebar.quickActions')}</span>
           <span className="sc-mono rounded-md border border-surface-border bg-surface-elevated px-1.5 py-0.5 text-[10px] text-ink-faint">
             {navigator.platform.toLowerCase().includes('mac') ? '⌘K' : 'Ctrl+K'}
           </span>
@@ -249,9 +249,9 @@ export default function Sidebar() {
         {/* Ключ провайдера живёт на сервере (лицензионный гейтвей) — статус ключа
             пользователю не показываем, только готовность самого сервиса. */}
         {backendOnline ? (
-          <StatusBadge label="SkillCue готов" tone="success" />
+          <StatusBadge label={t('sidebar.ready')} tone="success" />
         ) : backendStatus?.state === 'failed' ? (
-          <StatusBadge label="Сервис недоступен" tone="error" />
+          <StatusBadge label={t('sidebar.unavailable')} tone="error" />
         ) : null}
         {isElectron && (
           <div className="flex gap-1.5 pt-1">
@@ -267,10 +267,10 @@ export default function Sidebar() {
                   ? 'border-accent/40 bg-accent-soft text-accent'
                   : 'border-surface-border text-ink-muted hover:bg-surface-hover'
               }`}
-              title="Скрыть при демонстрации экрана"
+              title={t('sidebar.stealthTitle')}
             >
               <Icon name="shield" size={13} />
-              {undetected ? 'Скрыто' : 'Видимо'}
+              {undetected ? t('sidebar.hidden') : t('sidebar.visible')}
             </button>
             <button
               type="button"
@@ -284,10 +284,10 @@ export default function Sidebar() {
                   ? 'border-amber-500/40 bg-amber-900/25 text-amber-300'
                   : 'border-surface-border text-ink-muted hover:bg-surface-hover'
               }`}
-              title="Скрыть из панели задач"
+              title={t('sidebar.taskbarTitle')}
             >
               <Icon name="eye" size={13} />
-              {hiddenTaskbar ? 'Без панели' : 'В панели'}
+              {hiddenTaskbar ? t('sidebar.noTaskbar') : t('sidebar.inTaskbar')}
             </button>
           </div>
         )}

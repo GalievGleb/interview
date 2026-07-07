@@ -16,6 +16,18 @@ export const ru = {
   'nav.settings': 'Настройки',
   'nav.search': 'Поиск',
 
+  // Сайдбар
+  'sidebar.tagline': 'Пульт интервью',
+  'sidebar.quickActions': 'Быстрые действия',
+  'sidebar.ready': 'SkillCue готов',
+  'sidebar.unavailable': 'Сервис недоступен',
+  'sidebar.stealthTitle': 'Скрыть при демонстрации экрана',
+  'sidebar.hidden': 'Скрыто',
+  'sidebar.visible': 'Видимо',
+  'sidebar.taskbarTitle': 'Скрыть из панели задач',
+  'sidebar.noTaskbar': 'Без панели',
+  'sidebar.inTaskbar': 'В панели',
+
   // Шелл (титул-бар, статусы)
   'shell.liveSession': 'Live-сессия',
   'shell.idle': 'Ожидание',
@@ -23,6 +35,36 @@ export const ru = {
   'shell.localPrivate': 'Локально · Приватно',
   'shell.backendConnecting':
     'Подключение к бэкенду… запускается автоматически. Если не поднимается — вручную:',
+  'shell.cloud.speechkit': 'Облако · Яндекс',
+  'shell.cloud.deepgram': 'Облако · Deepgram',
+  'shell.cloudTitle': 'Аудио распознаётся в облаке провайдера — не на устройстве.',
+  'shell.localTitle': 'Распознавание речи работает на вашем устройстве — приватно.',
+  'shell.localAria': 'Локально и приватно',
+  'shell.backendFailed':
+    'Сервис не смог перезапуститься. Перезапустите приложение; если повторится — соберите отчёт в «Настройки → Сообщить о проблеме».',
+  'shell.loading': 'Загрузка…',
+
+  // Командная палитра (Ctrl+K)
+  'cmd.placeholder': 'Команда или экран…',
+  'cmd.empty': 'Ничего не найдено',
+  'cmd.on': 'включить',
+  'cmd.off': 'выключить',
+  'cmd.home': 'Открыть пульт подготовки',
+  'cmd.prepare': 'Разобрать вакансию',
+  'cmd.interview': 'Перейти: Live-интервью',
+  'cmd.documents': 'Открыть резюме и опыт',
+  'cmd.history': 'Перейти: История',
+  'cmd.settings': 'Перейти: Настройки',
+  'cmd.fast': 'Быстрый ответ',
+  'cmd.chime': 'Звук «ответ готов»',
+  'cmd.speculative': 'Начинать ответ, не дожидаясь конца вопроса',
+  'cmd.lang': 'Язык интерфейса',
+  'cmd.overlay': 'Открыть overlay',
+  'cmd.meeting': 'Dev: разбор разговора',
+  'cmd.testlab': 'Dev: тестовая лаборатория',
+  'cmd.benchmark': 'Dev: STT-бенчмарк',
+  'cmd.diagnostics': 'Dev: диагностика задержек',
+  'cmd.licenses': 'Dev: лицензии',
 
   // Общие
   'common.copy': 'Копировать',
@@ -31,6 +73,27 @@ export const ru = {
   'common.save': 'Сохранить',
   'common.loading': 'Загрузка…',
   'common.language': 'Язык интерфейса',
+  'common.close': 'Закрыть',
+
+  // Тост обновления
+  'update.availablePre': 'Доступно обновление',
+  'update.downloadingInline': 'загружается…',
+  'update.downloading': 'Загрузка обновления…',
+  'update.readyPre': 'Обновление',
+  'update.readyPost': 'готово',
+  'update.restart': 'Перезапустить',
+
+  // Экран ошибки (ErrorBoundary)
+  'error.title': 'Что-то пошло не так',
+  'error.body':
+    'Экран упал с ошибкой. Перезагрузите приложение — данные хранятся локально и не потеряны.',
+  'error.reload': 'Перезагрузить',
+
+  // Статус live-сессии
+  'livestatus.idle': 'Ожидание',
+  'livestatus.listening': 'Слушаю',
+  'livestatus.processing': 'Обработка',
+  'livestatus.answerReady': 'Ответ готов',
 
   // Общее
   'common.error': 'Ошибка',

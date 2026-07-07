@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { getFastAnswer, setFastAnswer } from '../lib/api';
 import { answerChimeEnabled, setAnswerChime } from '../lib/notifySound';
 import { isSpeculativeEnabled, setSpeculative } from '../lib/speculativePref';
-import { getLang, setLang } from '../lib/i18n';
+import { getLang, setLang, useI18n } from '../lib/i18n';
 
 interface Command {
   id: string;
@@ -17,47 +17,51 @@ interface Command {
 /** App-wide Ctrl/Cmd+K command palette (Linear/Raycast style). */
 export default function CommandPalette() {
   const navigate = useNavigate();
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const commands: Command[] = useMemo(
-    () => [
-      { id: 'home', label: 'Открыть пульт подготовки', run: () => navigate('/home') },
-      { id: 'prepare', label: 'Разобрать вакансию', run: () => navigate('/prepare') },
-      { id: 'interview', label: 'Перейти: Live-интервью', run: () => navigate('/interview') },
-      { id: 'documents', label: 'Открыть резюме и опыт', run: () => navigate('/documents') },
-      { id: 'history', label: 'Перейти: История', run: () => navigate('/history') },
-      { id: 'settings', label: 'Перейти: Настройки', run: () => navigate('/settings') },
-      {
-        id: 'fast',
-        label: `Быстрый ответ: ${getFastAnswer() ? 'выключить' : 'включить'}`,
-        run: () => setFastAnswer(!getFastAnswer()),
-      },
-      {
-        id: 'chime',
-        label: `Звук «ответ готов»: ${answerChimeEnabled() ? 'выключить' : 'включить'}`,
-        run: () => setAnswerChime(!answerChimeEnabled()),
-      },
-      {
-        id: 'speculative',
-        label: `Начинать ответ, не дожидаясь конца вопроса: ${isSpeculativeEnabled() ? 'выключить' : 'включить'}`,
-        run: () => setSpeculative(!isSpeculativeEnabled()),
-      },
-      {
-        id: 'lang',
-        label: `Язык интерфейса: ${getLang() === 'ru' ? 'English' : 'Русский'}`,
-        run: () => setLang(getLang() === 'ru' ? 'en' : 'ru'),
-      },
-      { id: 'overlay', label: 'Открыть overlay', hint: 'Ctrl+Shift+H', run: () => void window.electronAPI?.overlay.show() },
-      { id: 'meeting', label: 'Dev: разбор разговора', dev: true, run: () => navigate('/meeting') },
-      { id: 'testlab', label: 'Dev: тестовая лаборатория', dev: true, run: () => navigate('/test-lab') },
-      { id: 'benchmark', label: 'Dev: STT-бенчмарк', dev: true, run: () => navigate('/benchmark') },
-      { id: 'diagnostics', label: 'Dev: диагностика задержек', dev: true, run: () => navigate('/diagnostics') },
-      { id: 'licenses', label: 'Dev: лицензии', dev: true, run: () => navigate('/licenses') },
-    ],
-    [navigate],
+    () => {
+      const onOff = (enabled: boolean) => (enabled ? t('cmd.off') : t('cmd.on'));
+      return [
+        { id: 'home', label: t('cmd.home'), run: () => navigate('/home') },
+        { id: 'prepare', label: t('cmd.prepare'), run: () => navigate('/prepare') },
+        { id: 'interview', label: t('cmd.interview'), run: () => navigate('/interview') },
+        { id: 'documents', label: t('cmd.documents'), run: () => navigate('/documents') },
+        { id: 'history', label: t('cmd.history'), run: () => navigate('/history') },
+        { id: 'settings', label: t('cmd.settings'), run: () => navigate('/settings') },
+        {
+          id: 'fast',
+          label: `${t('cmd.fast')}: ${onOff(getFastAnswer())}`,
+          run: () => setFastAnswer(!getFastAnswer()),
+        },
+        {
+          id: 'chime',
+          label: `${t('cmd.chime')}: ${onOff(answerChimeEnabled())}`,
+          run: () => setAnswerChime(!answerChimeEnabled()),
+        },
+        {
+          id: 'speculative',
+          label: `${t('cmd.speculative')}: ${onOff(isSpeculativeEnabled())}`,
+          run: () => setSpeculative(!isSpeculativeEnabled()),
+        },
+        {
+          id: 'lang',
+          label: `${t('cmd.lang')}: ${getLang() === 'ru' ? 'English' : 'Русский'}`,
+          run: () => setLang(getLang() === 'ru' ? 'en' : 'ru'),
+        },
+        { id: 'overlay', label: t('cmd.overlay'), hint: 'Ctrl+Shift+H', run: () => void window.electronAPI?.overlay.show() },
+        { id: 'meeting', label: t('cmd.meeting'), dev: true, run: () => navigate('/meeting') },
+        { id: 'testlab', label: t('cmd.testlab'), dev: true, run: () => navigate('/test-lab') },
+        { id: 'benchmark', label: t('cmd.benchmark'), dev: true, run: () => navigate('/benchmark') },
+        { id: 'diagnostics', label: t('cmd.diagnostics'), dev: true, run: () => navigate('/diagnostics') },
+        { id: 'licenses', label: t('cmd.licenses'), dev: true, run: () => navigate('/licenses') },
+      ];
+    },
+    [navigate, t],
   );
 
   const filtered = useMemo(() => {
@@ -132,12 +136,12 @@ export default function CommandPalette() {
               execute(filtered[active]);
             }
           }}
-          placeholder="Команда или экран…"
+          placeholder={t('cmd.placeholder')}
           className="w-full border-b border-surface-border bg-transparent px-4 py-3.5 text-[15px] text-ink outline-none placeholder:text-ink-faint focus-visible:ring-2 focus-visible:ring-accent-ring"
         />
         <div className="max-h-80 overflow-y-auto p-1.5">
           {filtered.length === 0 && (
-            <p className="px-3 py-6 text-center text-sm text-ink-faint">Ничего не найдено</p>
+            <p className="px-3 py-6 text-center text-sm text-ink-faint">{t('cmd.empty')}</p>
           )}
           {filtered.map((c, i) => (
             <button
