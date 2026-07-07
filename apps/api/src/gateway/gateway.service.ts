@@ -13,6 +13,27 @@ import { RedisService } from '../redis/redis.service';
 import { VerifiedLicense, mintLicenseKey, verifyLicenseKey } from './license.util';
 
 const OPENROUTER_BASE = process.env.GATEWAY_UPSTREAM_BASE ?? 'https://openrouter.ai/api/v1';
+
+// Egress-прокси для апстрима. OpenRouter (Cloudflare) блокирует часть IP по гео
+// (403 "Access denied by security policy"); с РФ-сервера прямой доступ закрыт.
+// Если задан OPENROUTER_PROXY (или HTTPS_PROXY) — все запросы к OpenRouter идут
+// через него. undici грузим лениво: нет пакета/прокси — работаем напрямую.
+const PROXY_URL = process.env.OPENROUTER_PROXY || process.env.HTTPS_PROXY || '';
+let proxyDispatcher: unknown = null;
+if (PROXY_URL) {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { ProxyAgent } = require('undici');
+    proxyDispatcher = new ProxyAgent(PROXY_URL);
+  } catch {
+    /* undici недоступен — прокси не активен, идём напрямую */
+  }
+}
+/** Добавляет egress-прокси к fetch-опциям, когда прокси настроен. */
+function upstreamInit(init: RequestInit): RequestInit {
+  return proxyDispatcher ? ({ ...init, dispatcher: proxyDispatcher } as RequestInit) : init;
+}
+
 const MODELS_CACHE_KEY = 'gw:models';
 const MODELS_CACHE_TTL_S = 600;
 // Ключ расхода живёт ~45 дней: текущий месяц + запас на чтение статистики.
@@ -216,9 +237,10 @@ export class GatewayService {
   async models(): Promise<unknown> {
     const cached = await this.redis.getClient().get(MODELS_CACHE_KEY);
     if (cached) return this.filterCatalog(JSON.parse(cached));
-    const resp = await fetch(`${OPENROUTER_BASE}/models`, {
-      headers: { Authorization: `Bearer ${this.upstreamKey()}` },
-    });
+    const resp = await fetch(
+      `${OPENROUTER_BASE}/models`,
+      upstreamInit({ headers: { Authorization: `Bearer ${this.upstreamKey()}` } }),
+    );
     if (!resp.ok) {
       throw new HttpException(
         { error: { message: `Upstream /models failed: ${resp.status}`, code: 'upstream_error' } },
@@ -262,19 +284,22 @@ export class GatewayService {
       upstreamBody.stream_options = { include_usage: true, ...(body.stream_options as object) };
     }
 
-    const resp = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${this.upstreamKey()}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://skillcue.app',
-        'X-Title': 'SkillCue',
-      },
-      body: JSON.stringify(upstreamBody),
-      // Клиент отключился посреди стрима → контроллер абортит апстрим, чтобы
-      // не платить OpenRouter за токены, которых покупатель уже не увидит.
-      signal,
-    });
+    const resp = await fetch(
+      `${OPENROUTER_BASE}/chat/completions`,
+      upstreamInit({
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.upstreamKey()}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': 'https://skillcue.app',
+          'X-Title': 'SkillCue',
+        },
+        body: JSON.stringify(upstreamBody),
+        // Клиент отключился посреди стрима → контроллер абортит апстрим, чтобы
+        // не платить OpenRouter за токены, которых покупатель уже не увидит.
+        signal,
+      }),
+    );
     return resp;
   }
 
