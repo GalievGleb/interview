@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import MarkdownText from '../MarkdownText';
 import { parseAnswerSections } from '../../lib/parseAnswerSections';
+import { useI18n } from '../../lib/i18n';
 
 interface StructuredAnswerProps {
   text: string;
@@ -36,6 +37,7 @@ function SectionBlock({
 }
 
 export default function StructuredAnswer({ text, className = '' }: StructuredAnswerProps) {
+  const { t } = useI18n();
   const sections = parseAnswerSections(text);
   const hasStructure =
     sections.keyPoints.length > 0 || sections.example || sections.avoid;
@@ -67,13 +69,13 @@ export default function StructuredAnswer({ text, className = '' }: StructuredAns
       )}
 
       {sections.example && (
-        <SectionBlock title="Пример" variant="muted">
+        <SectionBlock title={t('answer.section.example')} variant="muted">
           <MarkdownText text={sections.example} />
         </SectionBlock>
       )}
 
       {sections.avoid && (
-        <SectionBlock title="Риски" variant="warn">
+        <SectionBlock title={t('answer.tab.risk')} variant="warn">
           <MarkdownText text={sections.avoid} />
         </SectionBlock>
       )}

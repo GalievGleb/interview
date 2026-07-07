@@ -316,6 +316,11 @@ export const en: Record<I18nKey, string> = {
   'live.total': 'Total',
   'live.audioFormatTitle': 'Audio format for recognition',
   'live.more': 'More',
+  'live.reconnectLost': 'connection lost, reconnecting…',
+  'live.reconnectFailed':
+    'connection dropped. Check that the backend is running and the Whisper model is downloaded.',
+  'live.startNoSource': 'Could not start any audio source',
+  'live.startFailed': 'Could not start the session',
 
   // Manual question input
   'manual.placeholder': 'Type a question manually… (Ctrl+L to focus)',
@@ -399,6 +404,17 @@ export const en: Record<I18nKey, string> = {
   'answer.feedbackAria': 'Answer rating',
   'answer.good': 'Good answer',
   'answer.bad': "Bad answer — we'll take it into account",
+  'answer.copyTitle': 'Copy the answer to the clipboard',
+  'answer.fast': 'Fast answer',
+  'answer.fastTitle':
+    'Fast answer: skip the LLM transcript correction and route to the fastest provider (minimum time to first token)',
+  'answer.speculative': 'Speculative answer',
+  'answer.speculativeTitle':
+    'Speculative answer: start generating from a stable partial transcript before the final one. ~1s faster, but may waste tokens if the phrase changes',
+  'answer.section.example': 'Example',
+  'latency.speed': '⚡ Speed',
+  'latency.transcript': 'Transcript',
+  'latency.firstToken': 'First token',
 
   // Transcript panel
   'transcript.title': 'Live transcript',

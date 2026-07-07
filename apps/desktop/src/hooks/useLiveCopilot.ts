@@ -7,6 +7,7 @@ import { SttSessionOptions } from '../lib/sttOptions';
 import { getWeakTopicTitles } from '../lib/vacancyReview/weakTopics';
 import { isSpeculativeEnabled } from '../lib/speculativePref';
 import { recordSkipped } from '../lib/skippedLog';
+import { t } from '../lib/i18n';
 import {
   createEmptySessionContext,
   isOrphanComparativeTail,
@@ -928,7 +929,7 @@ export function useLiveCopilot() {
       timingRef.current.audioCaptureStartAt = performance.now();
 
       const startOne = async (source: 'mic' | 'system', speaker: Speaker) => {
-        const label = source === 'mic' ? 'Микрофон' : 'Системный звук';
+        const label = source === 'mic' ? t('live.microphone') : t('live.systemAudio');
         const live = await startLiveSession(
           {
             onTranscript: (text, isFinal, speechFinal) => {
@@ -1046,7 +1047,7 @@ export function useLiveCopilot() {
             },
             onReconnecting: (attempt, maxAttempts) => {
               setReconnecting(
-                `${label}: соединение потеряно, восстанавливаю… (${attempt}/${maxAttempts})`,
+                `${label}: ${t('live.reconnectLost')} (${attempt}/${maxAttempts})`,
               );
               debugRef.current.event('error', {
                 reason: `reconnecting ${attempt}/${maxAttempts}`,
@@ -1062,10 +1063,7 @@ export function useLiveCopilot() {
             },
             onClose: () => {
               if (liveRef.current.some((e) => e.source === source)) {
-                removeStream(
-                  source,
-                  `${label}: соединение прервано. Проверьте, что backend запущен и модель Whisper загружена.`,
-                );
+                removeStream(source, `${label}: ${t('live.reconnectFailed')}`);
               }
             },
           },
@@ -1090,11 +1088,11 @@ export function useLiveCopilot() {
         if (liveRef.current.length > 0) {
           setActive(true);
         } else {
-          setError('Не удалось запустить ни один источник звука');
+          setError(t('live.startNoSource'));
           await endInterviewSession();
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Не удалось запустить сессию');
+        setError(err instanceof Error ? err.message : t('live.startFailed'));
         liveRef.current.forEach((e) => e.session.stop());
         liveRef.current = [];
         await endInterviewSession();

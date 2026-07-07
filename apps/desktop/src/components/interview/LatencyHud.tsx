@@ -1,4 +1,5 @@
 import type { SttDebugInfo } from '../SttDebugPanel';
+import { useI18n } from '../../lib/i18n';
 
 function secs(ms?: number): string | null {
   if (ms == null || !Number.isFinite(ms)) return null;
@@ -7,14 +8,15 @@ function secs(ms?: number): string | null {
 
 /** Compact, always-visible latency readout — reinforces how fast the answer was. */
 export default function LatencyHud({ debug }: { debug: SttDebugInfo | null }) {
+  const { t } = useI18n();
   if (!debug) return null;
   const stt = secs(debug.timeToFinalMs); // server speech-end → final transcript
   const firstToken = secs(debug.timeToAnswerMs); // answer start → first token
   const items: { label: string; value: string; warn?: boolean }[] = [];
-  if (stt) items.push({ label: 'Транскрипт', value: stt, warn: (debug.timeToFinalMs ?? 0) > 2000 });
+  if (stt) items.push({ label: t('latency.transcript'), value: stt, warn: (debug.timeToFinalMs ?? 0) > 2000 });
   if (firstToken)
     items.push({
-      label: 'Первый токен',
+      label: t('latency.firstToken'),
       value: firstToken,
       warn: (debug.timeToAnswerMs ?? 0) > 3000,
     });
@@ -22,7 +24,7 @@ export default function LatencyHud({ debug }: { debug: SttDebugInfo | null }) {
 
   return (
     <div className="mb-3 flex flex-wrap items-center gap-1.5">
-      <span className="text-[11px] font-medium text-ink-faint">⚡ Скорость</span>
+      <span className="text-[11px] font-medium text-ink-faint">{t('latency.speed')}</span>
       {items.map((it) => (
         <span
           key={it.label}
