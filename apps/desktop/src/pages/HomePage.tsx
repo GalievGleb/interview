@@ -5,6 +5,7 @@ import OnboardingWizard, { isOnboardingDismissed } from '../components/Onboardin
 import ReadinessRing from '../components/prepare/ReadinessRing';
 import { api, type SessionStats } from '../lib/api';
 import { useApp } from '../context/AppContext';
+import { useI18n } from '../lib/i18n';
 import { pluralRu } from '../lib/pluralRu';
 import { readinessLabelText, readinessTone, topicStatusTone } from '../lib/vacancyReview/readiness';
 import {
@@ -41,6 +42,10 @@ function readMockStore() {
 
 export default function HomePage() {
   const navigate = useNavigate();
+  const { t, lang } = useI18n();
+  // Плюрализация: русские формы через pluralRu, английские — singular/plural.
+  const pl = (n: number, ru: [string, string, string], en: [string, string]) =>
+    lang === 'en' ? (n === 1 ? en[0] : en[1]) : pluralRu(n, ru[0], ru[1], ru[2]);
   const { backendOnline, hasAnyKey, hasStt } = useApp();
   const [mockStore, setMockStore] = useState(readMockStore);
   const { sessions, inProgress, completed } = mockStore;
@@ -110,21 +115,21 @@ export default function HomePage() {
   const hasContext = docCounts.resume > 0 || docCounts.legend > 0;
   const primaryAction = inProgress
     ? {
-        label: 'Продолжить mock',
+        label: t('home.action.continueMock'),
         onClick: () => navigate(`/prepare?session=${inProgress.id}`),
       }
     : report && weakest.length > 0
       ? {
-          label: 'Повторить слабые темы',
+          label: t('home.action.repeatWeak'),
           onClick: () => navigate(`/prepare?session=${completed!.id}&focusTopic=${weakest[0].topicId}`),
         }
       : report
         ? {
-            label: 'Открыть карту готовности',
+            label: t('home.action.openReadiness'),
             onClick: () => navigate(`/prepare?session=${completed!.id}`),
           }
         : {
-            label: 'Разобрать вакансию',
+            label: t('home.action.reviewVacancy'),
             onClick: () => navigate('/prepare'),
           };
 
@@ -149,18 +154,15 @@ export default function HomePage() {
         )}
         <section className="prep-hero-panel prep-cockpit-panel">
           <div className="prep-hero-copy">
-            <p className="prep-eyebrow">Пульт подготовки</p>
+            <p className="prep-eyebrow">{t('home.eyebrow')}</p>
             <h1 className="prep-h1 prep-hero-title">
               {inProgress
-                ? 'Продолжите тренировку по этой вакансии.'
+                ? t('home.title.inProgress')
                 : report
-                  ? 'Вы знаете, где уверенно, а где нужен повтор.'
-                  : 'Начните с вакансии, а не с пустого чата.'}
+                  ? t('home.title.report')
+                  : t('home.title.empty')}
             </h1>
-            <p className="prep-sub prep-hero-sub">
-              SkillCue ведёт по одному сценарию: разбирает вакансию, задаёт тренировочные
-              вопросы, показывает слабые темы и только потом помогает короткой live-подсказкой.
-            </p>
+            <p className="prep-sub prep-hero-sub">{t('home.hero.sub')}</p>
 
             <div className="prep-hero-actions">
               <button type="button" className="prep-btn" onClick={primaryAction.onClick}>
@@ -171,60 +173,70 @@ export default function HomePage() {
                 className="prep-btn prep-btn-secondary"
                 onClick={() => navigate('/documents')}
               >
-                Подключить резюме
+                {t('home.action.connectResume')}
               </button>
               <button
                 type="button"
                 className="prep-btn prep-btn-ghost"
                 onClick={() => navigate('/interview')}
               >
-                Открыть live
+                {t('home.action.openLive')}
               </button>
               <button
                 type="button"
                 className="prep-btn prep-btn-ghost"
                 onClick={() => navigate('/demo')}
-                title="Посмотреть сценарий live-подсказки без настройки — 60 секунд"
+                title={t('home.demo.title')}
               >
-                Демо за 60 секунд
+                {t('home.action.demo')}
               </button>
             </div>
 
             <div className="prep-flow-line" aria-label="SkillCue workflow">
-              <span>Вакансия</span>
-              <span>Mock</span>
-              <span>Карта готовности</span>
-              <span>Live-подсказка</span>
+              <span>{t('home.flow.vacancy')}</span>
+              <span>{t('home.flow.mock')}</span>
+              <span>{t('home.flow.readiness')}</span>
+              <span>{t('home.flow.liveHint')}</span>
             </div>
           </div>
 
-          <div className="prep-live-readiness" aria-label="Готовность к live-интервью">
+          <div className="prep-live-readiness" aria-label={t('home.readiness.aria')}>
             <div>
-              <p className="prep-eyebrow">Готовность</p>
-              <h2 className="prep-h2 prep-card-title">Перед live должно быть понятно, что уже собрано.</h2>
+              <p className="prep-eyebrow">{t('home.readiness.eyebrow')}</p>
+              <h2 className="prep-h2 prep-card-title">{t('home.readiness.title')}</h2>
             </div>
             <div className="prep-readiness-list">
               <ReadinessCheck
-                label="Вакансия"
-                detail={report ? 'разобрана, есть карта тем' : inProgress ? 'mock в процессе' : 'нужно вставить описание роли'}
+                label={t('home.check.vacancy')}
+                detail={
+                  report
+                    ? t('home.check.vacancy.done')
+                    : inProgress
+                      ? t('home.check.vacancy.inProgress')
+                      : t('home.check.vacancy.empty')
+                }
                 ok={Boolean(report || inProgress)}
                 onClick={() => navigate('/prepare')}
               />
               <ReadinessCheck
-                label="Резюме / опыт"
+                label={t('home.check.resume')}
                 detail={
                   hasContext
                     ? packReady
-                      ? 'профиль собран — live отвечает вашими фактами'
-                      : 'документы есть, профиль кандидата собирается'
-                    : 'лучше добавить до live'
+                      ? t('home.check.resume.packReady')
+                      : t('home.check.resume.docs')
+                    : t('home.check.resume.empty')
                 }
                 ok={hasContext}
                 onClick={() => navigate('/documents')}
               />
               <ReadinessCheck
-                label="Речь и AI"
-                detail={backendOnline && hasAnyKey && hasStt ? 'можно запускать live' : 'проверьте ключ, STT и backend'}
+                label={t('home.check.ai')}
+                detail={
+                  backendOnline && hasAnyKey && hasStt
+                    ? t('home.check.ai.ready')
+                    : t('home.check.ai.empty')
+                }
                 ok={backendOnline && hasAnyKey && hasStt}
                 onClick={() => navigate(hasAnyKey ? '/settings?tab=speech' : '/settings?tab=ai')}
               />
@@ -245,21 +257,24 @@ export default function HomePage() {
                   size={126}
                 />
                 <div className="min-w-0">
-                  <p className="prep-faint">Последний разбор вакансии</p>
+                  <p className="prep-faint">{t('home.report.last')}</p>
                   <h2 className="prep-h2 prep-card-title truncate">{completed?.vacancyAnalysis.targetRole}</h2>
                   <p className="prep-sub mt-2">
                     {/* topicScores — только темы, затронутые в mock; общее число тем
                         берём из разбора, иначе «1 тема» читается как потеря данных. */}
-                    Пройдено тем: {report.topicScores.length} из{' '}
+                    {t('home.report.topicsDone')} {report.topicScores.length} {t('home.report.of')}{' '}
                     {completed?.vacancyAnalysis.interviewTopics.length ?? report.topicScores.length},{' '}
                     {report.strengths.length}{' '}
-                    {pluralRu(report.strengths.length, 'сильная зона', 'сильные зоны', 'сильных зон')},{' '}
-                    {report.criticalGaps.length}{' '}
-                    {pluralRu(
+                    {pl(
+                      report.strengths.length,
+                      ['сильная зона', 'сильные зоны', 'сильных зон'],
+                      ['strong area', 'strong areas'],
+                    )}
+                    , {report.criticalGaps.length}{' '}
+                    {pl(
                       report.criticalGaps.length,
-                      'критичный пробел',
-                      'критичных пробела',
-                      'критичных пробелов',
+                      ['критичный пробел', 'критичных пробела', 'критичных пробелов'],
+                      ['critical gap', 'critical gaps'],
                     )}
                     .
                   </p>
@@ -269,14 +284,14 @@ export default function HomePage() {
                       className="prep-btn prep-btn-sm"
                       onClick={() => navigate(`/prepare?session=${completed!.id}`)}
                     >
-                      Открыть карту готовности
+                      {t('home.action.openReadiness')}
                     </button>
                     <button
                       type="button"
                       className="prep-btn-ghost prep-btn-sm"
                       onClick={() => removeSession(completed!.id, completed!.vacancyAnalysis.targetRole)}
                     >
-                      Удалить разбор
+                      {t('home.report.deleteReview')}
                     </button>
                   </div>
                 </div>
@@ -287,12 +302,13 @@ export default function HomePage() {
           </div>
 
           <div className="prep-next-card">
-            <p className="prep-faint">Следующий шаг</p>
+            <p className="prep-faint">{t('home.next.eyebrow')}</p>
             {inProgress ? (
               <>
                 <h2 className="prep-h2 prep-card-title truncate">{inProgress.vacancyAnalysis.targetRole}</h2>
                 <p className="prep-sub mt-2">
-                  {inProgress.answers.length} из {inProgress.questions.length} вопросов пройдено.
+                  {inProgress.answers.length} {t('home.report.of')} {inProgress.questions.length}{' '}
+                  {t('home.next.questionsDone')}
                 </p>
                 <div className="prep-bar prep-bar-green mt-4">
                   <span style={{ width: `${inProgressPct}%` }} />
@@ -302,18 +318,14 @@ export default function HomePage() {
                   className="prep-btn prep-btn-sm mt-5 self-start"
                   onClick={() => navigate(`/prepare?session=${inProgress.id}`)}
                 >
-                  Продолжить mock
+                  {t('home.action.continueMock')}
                 </button>
               </>
             ) : (
               <>
-                <h2 className="prep-h2 prep-card-title">Как это устроено</h2>
+                <h2 className="prep-h2 prep-card-title">{t('home.how.title')}</h2>
                 <ol className="mt-3 grid gap-2.5">
-                  {[
-                    'Вставьте вакансию — SkillCue выделит темы и вероятные вопросы',
-                    'Пройдите короткий mock и получите честную карту готовности',
-                    'На реальном созвоне включите live-подсказки с этим контекстом',
-                  ].map((step, i) => (
+                  {[t('home.how.step1'), t('home.how.step2'), t('home.how.step3')].map((step, i) => (
                     <li key={step} className="prep-sub flex gap-2.5">
                       <span
                         className="font-bold"
@@ -334,18 +346,18 @@ export default function HomePage() {
           <section className="mt-5">
             <div className="prep-preview-card">
               <div>
-                <p className="prep-eyebrow">Карта готовности</p>
-                <h2 className="prep-h2 prep-section-title">Понятно, где уверенно, а где нужен повтор.</h2>
+                <p className="prep-eyebrow">{t('home.flow.readiness')}</p>
+                <h2 className="prep-h2 prep-section-title">{t('home.map.title')}</h2>
               </div>
               <div className="prep-skill-list">
-                {report.topicScores.slice(0, 6).map((t) => (
-                  <div key={t.topicId} className="prep-skill-row">
+                {report.topicScores.slice(0, 6).map((topic) => (
+                  <div key={topic.topicId} className="prep-skill-row">
                     <div className="prep-skill-label">
-                      <span>{t.title}</span>
-                      <strong>{t.score}%</strong>
+                      <span>{topic.title}</span>
+                      <strong>{topic.score}%</strong>
                     </div>
-                    <div className={`prep-skill-track prep-skill-${topicStatusTone(t.status)}`}>
-                      <span style={{ width: `${t.score}%` }} />
+                    <div className={`prep-skill-track prep-skill-${topicStatusTone(topic.status)}`}>
+                      <span style={{ width: `${topic.score}%` }} />
                     </div>
                   </div>
                 ))}
@@ -358,35 +370,35 @@ export default function HomePage() {
           <section className="mt-5">
             <div className="prep-section-head">
               <div>
-                <p className="prep-eyebrow">Фокус тренировки</p>
-                <h2 className="prep-h2 prep-section-title">Самые слабые темы</h2>
+                <p className="prep-eyebrow">{t('home.focus.eyebrow')}</p>
+                <h2 className="prep-h2 prep-section-title">{t('home.focus.title')}</h2>
               </div>
               <button
                 type="button"
                 className="prep-btn prep-btn-ghost prep-btn-sm"
                 onClick={() => navigate(`/prepare?session=${completed!.id}`)}
               >
-                Тренироваться
+                {t('home.focus.practice')}
               </button>
             </div>
             <div className="prep-topic-grid">
-              {weakest.map((t) => {
-                const tone = topicStatusTone(t.status);
+              {weakest.map((topic) => {
+                const tone = topicStatusTone(topic.status);
                 return (
                   <div
-                    key={t.topicId}
+                    key={topic.topicId}
                     className={`prep-card prep-card-lift p-4 prep-topic prep-topic-${tone}`}
                   >
-                    <p className="prep-h2 pl-2 truncate">{t.title}</p>
+                    <p className="prep-h2 pl-2 truncate">{topic.title}</p>
                     <p className="pl-2 text-[22px] font-bold" style={{ color: `var(--prep-${tone})` }}>
-                      {t.score}%
+                      {topic.score}%
                     </p>
                     <button
                       type="button"
                       className="prep-btn prep-btn-ghost prep-btn-sm ml-2 mt-3"
-                      onClick={() => navigate(`/prepare?session=${completed!.id}&focusTopic=${t.topicId}`)}
+                      onClick={() => navigate(`/prepare?session=${completed!.id}&focusTopic=${topic.topicId}`)}
                     >
-                      Повторить тему
+                      {t('home.focus.repeatTopic')}
                     </button>
                   </div>
                 );
@@ -399,42 +411,42 @@ export default function HomePage() {
           <section className="mt-5">
             <div className="prep-section-head">
               <div>
-                <p className="prep-eyebrow">Аналитика</p>
-                <h2 className="prep-h2 prep-section-title">Ваша активность в live-сессиях</h2>
+                <p className="prep-eyebrow">{t('home.analytics.eyebrow')}</p>
+                <h2 className="prep-h2 prep-section-title">{t('home.analytics.title')}</h2>
               </div>
               <button
                 type="button"
                 className="prep-btn prep-btn-ghost prep-btn-sm"
                 onClick={() => navigate('/history')}
               >
-                Открыть историю
+                {t('home.analytics.openHistory')}
               </button>
             </div>
             <div className="prep-status-grid mt-3">
               <PrepStatusCard
-                label="Live-интервью"
-                title={`${stats.interview_sessions} ${pluralRu(stats.interview_sessions, 'сессия', 'сессии', 'сессий')}`}
-                body={`${stats.total_answers} ${pluralRu(stats.total_answers, 'ответ', 'ответа', 'ответов')} всего`}
+                label={t('home.analytics.liveLabel')}
+                title={`${stats.interview_sessions} ${pl(stats.interview_sessions, ['сессия', 'сессии', 'сессий'], ['session', 'sessions'])}`}
+                body={`${stats.total_answers} ${pl(stats.total_answers, ['ответ', 'ответа', 'ответов'], ['answer', 'answers'])} ${t('home.analytics.total')}`}
                 tone="green"
               />
               <PrepStatusCard
-                label="Темп"
-                title={`~${stats.avg_answers_per_session} вопросов за сессию`}
+                label={t('home.analytics.paceLabel')}
+                title={`~${stats.avg_answers_per_session} ${t('home.analytics.qPerSession')}`}
                 body={
                   stats.last_session_at
-                    ? `Последняя: ${new Date(stats.last_session_at).toLocaleDateString()}`
-                    : 'Ещё не было сессий'
+                    ? `${t('home.analytics.last')} ${new Date(stats.last_session_at).toLocaleDateString(lang === 'en' ? 'en-US' : 'ru-RU')}`
+                    : t('home.analytics.noSessions')
                 }
                 tone="blue"
               />
               <PrepStatusCard
-                label="Частые темы"
+                label={t('home.analytics.topicsLabel')}
                 title={
                   stats.top_topics.length > 0
-                    ? stats.top_topics.slice(0, 3).map((t) => t.topic).join(', ')
-                    : 'Пока мало данных'
+                    ? stats.top_topics.slice(0, 3).map((tt) => tt.topic).join(', ')
+                    : t('home.analytics.fewData')
                 }
-                body="По вопросам интервьюеров из ваших сессий"
+                body={t('home.analytics.fromQuestions')}
                 tone="violet"
               />
             </div>
@@ -445,8 +457,8 @@ export default function HomePage() {
           <section className="mt-5">
             <div className="prep-section-head">
               <div>
-                <p className="prep-eyebrow">История</p>
-                <h2 className="prep-h2 prep-section-title">Последние mock-сессии</h2>
+                <p className="prep-eyebrow">{t('nav.history')}</p>
+                <h2 className="prep-h2 prep-section-title">{t('home.history.title')}</h2>
               </div>
             </div>
             <div className="mt-3 grid gap-2.5">
@@ -462,8 +474,8 @@ export default function HomePage() {
                         {s.vacancyAnalysis.targetRole}
                       </p>
                       <p className="prep-faint">
-                        {new Date(s.startedAt).toLocaleDateString()} ·{' '}
-                        {s.status === 'completed' ? 'завершено' : 'в процессе'}
+                        {new Date(s.startedAt).toLocaleDateString(lang === 'en' ? 'en-US' : 'ru-RU')} ·{' '}
+                        {s.status === 'completed' ? t('home.session.completed') : t('home.session.inProgress')}
                       </p>
                     </div>
                     <span className="prep-chip shrink-0">
@@ -474,8 +486,8 @@ export default function HomePage() {
                     type="button"
                     onClick={() => removeSession(s.id, s.vacancyAnalysis.targetRole)}
                     className="prep-session-row-del"
-                    title="Удалить сессию"
-                    aria-label="Удалить сессию"
+                    title={t('home.session.deleteTitle')}
+                    aria-label={t('home.session.deleteTitle')}
                   >
                     <TrashIcon />
                   </button>
@@ -489,8 +501,8 @@ export default function HomePage() {
       <Modal
         open={deleteTarget !== null}
         onClose={() => setDeleteTarget(null)}
-        title="Удалить разбор?"
-        subtitle={deleteTarget ? `«${deleteTarget.title}» — действие необратимо.` : undefined}
+        title={t('home.deleteModal.title')}
+        subtitle={deleteTarget ? `«${deleteTarget.title}» — ${t('home.deleteModal.irreversible')}` : undefined}
         footer={
           <>
             <button
@@ -498,10 +510,10 @@ export default function HomePage() {
               className="prep-btn-ghost prep-btn-sm"
               onClick={() => setDeleteTarget(null)}
             >
-              Отмена
+              {t('common.cancel')}
             </button>
             <button type="button" className="prep-btn prep-btn-sm" onClick={confirmRemove}>
-              Удалить
+              {t('common.delete')}
             </button>
           </>
         }
@@ -557,23 +569,21 @@ function ReadinessCheck({
 }
 
 function EmptyReadiness({ onStart }: { onStart: () => void }) {
+  const { t } = useI18n();
   return (
     <div className="prep-empty">
-      <p className="prep-faint">Новая подготовка</p>
-      <h2 className="prep-h2 prep-card-title">Первый разбор занимает около 15 минут.</h2>
-      <p className="prep-sub">
-        SkillCue выделит требования, вероятные вопросы и темы риска, чтобы mock-интервью было
-        не общим, а под конкретную роль.
-      </p>
+      <p className="prep-faint">{t('home.empty.eyebrow')}</p>
+      <h2 className="prep-h2 prep-card-title">{t('home.empty.title')}</h2>
+      <p className="prep-sub">{t('home.empty.body')}</p>
       <div className="prep-mini-results">
-        <span>Вероятные вопросы</span>
-        <span>Слабые темы</span>
-        <span>План подготовки</span>
+        <span>{t('home.empty.likelyQ')}</span>
+        <span>{t('home.empty.weakTopics')}</span>
+        <span>{t('home.empty.plan')}</span>
       </div>
       {/* В пустом состоянии герой уже показывает «Разобрать вакансию» — здесь
           та же цель, но с ожиданием по времени, чтобы не дублировать кнопку. */}
       <button type="button" className="prep-btn prep-btn-sm" onClick={onStart}>
-        Начать первый разбор (~15 мин)
+        {t('home.empty.start')}
       </button>
     </div>
   );

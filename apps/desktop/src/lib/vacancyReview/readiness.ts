@@ -1,4 +1,5 @@
 import type { ReadinessLabel, TopicStatus } from './types';
+import { t, type I18nKey } from '../i18n';
 
 export function topicStatusFromScore(score: number): TopicStatus {
   if (score >= 75) return 'strong';
@@ -15,27 +16,27 @@ export function readinessLabelFromScore(score: number): ReadinessLabel {
   return 'not_ready';
 }
 
-const LABEL_TEXT: Record<ReadinessLabel, string> = {
-  not_ready: 'Не готовы',
-  weak: 'Слабо',
-  almost_ready: 'Почти готовы',
-  ready: 'Готовы',
-  strong: 'Уверенно',
+const LABEL_KEY: Record<ReadinessLabel, I18nKey> = {
+  not_ready: 'readiness.label.not_ready',
+  weak: 'readiness.label.weak',
+  almost_ready: 'readiness.label.almost_ready',
+  ready: 'readiness.label.ready',
+  strong: 'readiness.label.strong',
 };
 
 export function readinessLabelText(label: ReadinessLabel): string {
-  return LABEL_TEXT[label];
+  return t(LABEL_KEY[label]);
 }
 
-const STATUS_TEXT: Record<TopicStatus, string> = {
-  strong: 'Сильно',
-  medium: 'Средне',
-  weak: 'Слабо',
-  critical: 'Критично',
+const STATUS_KEY: Record<TopicStatus, I18nKey> = {
+  strong: 'readiness.status.strong',
+  medium: 'readiness.status.medium',
+  weak: 'readiness.status.weak',
+  critical: 'readiness.status.critical',
 };
 
 export function topicStatusText(status: TopicStatus): string {
-  return STATUS_TEXT[status];
+  return t(STATUS_KEY[status]);
 }
 
 /** Tone token for the Preparation palette (--prep-green/blue/amber/red). */
