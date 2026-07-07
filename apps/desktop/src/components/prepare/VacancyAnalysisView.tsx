@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { pluralRu } from '../../lib/pluralRu';
+import { useI18n, type I18nKey } from '../../lib/i18n';
 import { buildSmokePlan } from '../../lib/vacancyReview/vacancyReviewService';
 import type {
   Competency,
@@ -17,13 +18,13 @@ interface Props {
   questionCount: number;
 }
 
-const SENIORITY_LABEL: Record<VacancyAnalysis['seniorityLevel'], string> = {
-  intern: 'Intern',
-  junior: 'Junior',
-  middle: 'Middle',
-  senior: 'Senior',
-  lead: 'Lead',
-  unknown: 'Не указано',
+const SENIORITY_KEY: Record<VacancyAnalysis['seniorityLevel'], I18nKey> = {
+  intern: 'prep.seniority.intern',
+  junior: 'prep.seniority.junior',
+  middle: 'prep.seniority.middle',
+  senior: 'prep.seniority.senior',
+  lead: 'prep.seniority.lead',
+  unknown: 'prep.seniority.unknown',
 };
 
 const IMPORTANCE_TONE: Record<TopicImportance, string> = {
@@ -32,30 +33,33 @@ const IMPORTANCE_TONE: Record<TopicImportance, string> = {
   low: 'prep-tone-violet',
 };
 
-const IMPORTANCE_LABEL: Record<TopicImportance, string> = {
-  high: 'высокая важность',
-  medium: 'средняя важность',
-  low: 'низкая важность',
+const IMPORTANCE_KEY: Record<TopicImportance, I18nKey> = {
+  high: 'prep.importance.high',
+  medium: 'prep.importance.medium',
+  low: 'prep.importance.low',
 };
 
 /** Render order: gaps first — that is what the interview will drill into. */
-const MATCH_GROUPS: Array<{ match: ResumeMatch; title: string; color: string }> = [
-  { match: 'gap', title: 'Пробелы — спросят строже', color: 'var(--prep-red)' },
-  { match: 'partial', title: 'Смежный опыт', color: 'var(--prep-amber)' },
-  { match: 'strong', title: 'Резюме подтверждает', color: 'var(--prep-green)' },
+const MATCH_GROUPS: Array<{ match: ResumeMatch; titleKey: I18nKey; color: string }> = [
+  { match: 'gap', titleKey: 'prep.match.gap', color: 'var(--prep-red)' },
+  { match: 'partial', titleKey: 'prep.match.partial', color: 'var(--prep-amber)' },
+  { match: 'strong', titleKey: 'prep.match.strong', color: 'var(--prep-green)' },
 ];
 
-const EXPECTED_LEVEL_LABEL: Record<Competency['expectedLevel'], string> = {
-  basic: 'теория',
-  practical: 'руками',
-  advanced: 'проектировал',
-  lead: 'стратегия / люди',
+const EXPECTED_LEVEL_KEY: Record<Competency['expectedLevel'], I18nKey> = {
+  basic: 'prep.level.basic',
+  practical: 'prep.level.practical',
+  advanced: 'prep.level.advanced',
+  lead: 'prep.level.lead',
 };
 
 export default function VacancyAnalysisView({ analysis, onStart, onBack, questionCount }: Props) {
+  const { t, lang } = useI18n();
+  const pl = (n: number, ru: [I18nKey, I18nKey, I18nKey], en: [I18nKey, I18nKey]) =>
+    lang === 'en' ? (n === 1 ? t(en[0]) : t(en[1])) : pluralRu(n, t(ru[0]), t(ru[1]), t(ru[2]));
   // По умолчанию отмечены все темы; ученик снимает те, где уже уверен.
   const [selected, setSelected] = useState<Set<string>>(
-    () => new Set(analysis.interviewTopics.map((t) => t.id)),
+    () => new Set(analysis.interviewTopics.map((topic) => topic.id)),
   );
   const toggleTopic = (id: string) =>
     setSelected((prev) => {
@@ -74,33 +78,33 @@ export default function VacancyAnalysisView({ analysis, onStart, onBack, questio
     <div className="prep-rise space-y-5">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="prep-eyebrow">На основе этой вакансии</p>
+          <p className="prep-eyebrow">{t('prep.analysis.basedOn')}</p>
           <h1 className="prep-h1 mt-1">{analysis.targetRole}</h1>
           <div className="mt-2 flex flex-wrap gap-2">
-            <span className="prep-chip prep-tone-violet">{SENIORITY_LABEL[analysis.seniorityLevel]}</span>
+            <span className="prep-chip prep-tone-violet">{t(SENIORITY_KEY[analysis.seniorityLevel])}</span>
             <span className="prep-chip">
               {analysis.interviewTopics.length}{' '}
-              {pluralRu(analysis.interviewTopics.length, 'тема', 'темы', 'тем')}
+              {pl(
+                analysis.interviewTopics.length,
+                ['prep.topicOne', 'prep.topicFew', 'prep.topicMany'],
+                ['prep.topicOne', 'prep.topicFew'],
+              )}
             </span>
-            <span className="prep-chip">Ответы: {analysis.language.toUpperCase()}</span>
+            <span className="prep-chip">{t('prep.analysis.answers')} {analysis.language.toUpperCase()}</span>
           </div>
         </div>
         <button type="button" className="prep-btn-ghost prep-btn-sm" onClick={onBack}>
-          Изменить вакансию
+          {t('prep.analysis.changeVacancy')}
         </button>
       </div>
 
       {analysis.analysisSource === 'heuristic' && (
         <div className="prep-card prep-card-pad prep-topic prep-topic-amber">
-          <p className="prep-h2 pl-2">Упрощённый локальный разбор</p>
-          <p className="prep-sub mt-1.5 pl-2">
-            Не удалось получить AI-разбор (нет ключа, нет соединения или модель разбора
-            недоступна), поэтому темы выделены локальным алгоритмом: они точны по списку, но без
-            глубины — уровень, важность и пробелы оценены приблизительно.
-          </p>
+          <p className="prep-h2 pl-2">{t('prep.analysis.heuristicTitle')}</p>
+          <p className="prep-sub mt-1.5 pl-2">{t('prep.analysis.heuristicBody')}</p>
           <div className="mt-2.5 pl-2">
             <Link to="/settings?tab=ai" className="prep-btn prep-btn-sm inline-block">
-              Подключить AI-ключ
+              {t('prep.analysis.connectKey')}
             </Link>
           </div>
         </div>
@@ -108,7 +112,7 @@ export default function VacancyAnalysisView({ analysis, onStart, onBack, questio
 
       {analysis.riskAreas.length > 0 && (
         <div className="prep-card prep-card-pad prep-topic prep-topic-amber">
-          <p className="prep-h2 pl-2">Перед началом</p>
+          <p className="prep-h2 pl-2">{t('prep.analysis.beforeStart')}</p>
           <ul className="mt-2 space-y-1.5 pl-2">
             {analysis.riskAreas.map((r) => (
               <li key={r} className="prep-sub flex gap-2">
@@ -122,10 +126,8 @@ export default function VacancyAnalysisView({ analysis, onStart, onBack, questio
 
       {analysis.competencies && analysis.competencies.length > 0 && (
         <div>
-          <h2 className="prep-h2">Компетенции против резюме</h2>
-          <p className="prep-faint mt-0.5">
-            Что важно для роли и где вы это подтверждаете. Красное и жёлтое спросят строже.
-          </p>
+          <h2 className="prep-h2">{t('prep.analysis.competencies')}</h2>
+          <p className="prep-faint mt-0.5">{t('prep.analysis.competenciesDesc')}</p>
           <div className="mt-3 space-y-4">
             {MATCH_GROUPS.map((group) => {
               const items = analysis.competencies!.filter((c) => c.resumeMatch === group.match);
@@ -136,7 +138,7 @@ export default function VacancyAnalysisView({ analysis, onStart, onBack, questio
                     className="text-[11px] font-extrabold uppercase tracking-wider"
                     style={{ color: group.color }}
                   >
-                    {group.title} · {items.length}
+                    {t(group.titleKey)} · {items.length}
                   </p>
                   <div className="mt-2 grid gap-2">
                     {items.map((c) => (
@@ -145,7 +147,7 @@ export default function VacancyAnalysisView({ analysis, onStart, onBack, questio
                         className="prep-card flex flex-wrap items-center gap-x-3 gap-y-1.5 p-3"
                       >
                         <span className={`prep-chip shrink-0 ${IMPORTANCE_TONE[c.priority]}`}>
-                          {IMPORTANCE_LABEL[c.priority]}
+                          {t(IMPORTANCE_KEY[c.priority])}
                         </span>
                         <span
                           className="min-w-0 flex-1 truncate text-[14px] font-semibold"
@@ -154,7 +156,7 @@ export default function VacancyAnalysisView({ analysis, onStart, onBack, questio
                           {c.name}
                         </span>
                         <span className="prep-faint shrink-0">
-                          ждут: {EXPECTED_LEVEL_LABEL[c.expectedLevel]}
+                          {t('prep.analysis.expected')} {t(EXPECTED_LEVEL_KEY[c.expectedLevel])}
                         </span>
                         {c.note && (
                           <p className="w-full text-[12.5px]" style={{ color: 'var(--prep-ink-muted)' }}>
@@ -172,24 +174,22 @@ export default function VacancyAnalysisView({ analysis, onStart, onBack, questio
       )}
 
       <div>
-        <h2 className="prep-h2">Карта готовности к интервью</h2>
-        <p className="prep-faint mt-0.5">
-          Отметьте темы для mock-интервью — снимите те, где уже уверенно разбираетесь.
-        </p>
+        <h2 className="prep-h2">{t('prep.analysis.readinessMap')}</h2>
+        <p className="prep-faint mt-0.5">{t('prep.analysis.readinessDesc')}</p>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
-          {analysis.interviewTopics.map((t) => {
-            const on = selected.has(t.id);
+          {analysis.interviewTopics.map((topic) => {
+            const on = selected.has(topic.id);
             return (
               <div
-                key={t.id}
+                key={topic.id}
                 role="checkbox"
                 aria-checked={on}
                 tabIndex={0}
-                onClick={() => toggleTopic(t.id)}
+                onClick={() => toggleTopic(topic.id)}
                 onKeyDown={(e) => {
                   if (e.key === ' ' || e.key === 'Enter') {
                     e.preventDefault();
-                    toggleTopic(t.id);
+                    toggleTopic(topic.id);
                   }
                 }}
                 className="prep-card cursor-pointer p-4 transition-all"
@@ -215,18 +215,18 @@ export default function VacancyAnalysisView({ analysis, onStart, onBack, questio
                       )}
                     </span>
                     <div className="min-w-0">
-                      <p className="prep-faint">{t.category}</p>
-                      <p className="prep-h2 truncate">{t.title}</p>
+                      <p className="prep-faint">{topic.category}</p>
+                      <p className="prep-h2 truncate">{topic.title}</p>
                     </div>
                   </div>
-                  <span className={`prep-chip shrink-0 ${IMPORTANCE_TONE[t.importance]}`}>
-                    {IMPORTANCE_LABEL[t.importance]}
+                  <span className={`prep-chip shrink-0 ${IMPORTANCE_TONE[topic.importance]}`}>
+                    {t(IMPORTANCE_KEY[topic.importance])}
                   </span>
                 </div>
-                <p className="prep-sub mt-2">{t.expectedKnowledge}</p>
-                {t.whyAsked && <p className="prep-faint mt-1.5">{t.whyAsked}</p>}
+                <p className="prep-sub mt-2">{topic.expectedKnowledge}</p>
+                {topic.whyAsked && <p className="prep-faint mt-1.5">{topic.whyAsked}</p>}
                 <p className="mt-2 text-[12px] italic" style={{ color: 'var(--prep-ink-faint)' }}>
-                  “{t.vacancyEvidence}”
+                  “{topic.vacancyEvidence}”
                 </p>
               </div>
             );
@@ -236,7 +236,7 @@ export default function VacancyAnalysisView({ analysis, onStart, onBack, questio
 
       {analysis.extractedRequirements.length > 0 && (
         <div className="prep-card prep-card-pad">
-          <p className="prep-h2">Ключевые требования</p>
+          <p className="prep-h2">{t('prep.analysis.keyRequirements')}</p>
           <div className="mt-2 flex flex-wrap gap-2">
             {analysis.extractedRequirements.map((r) => (
               <span key={r} className="prep-chip">
@@ -245,7 +245,7 @@ export default function VacancyAnalysisView({ analysis, onStart, onBack, questio
             ))}
             {analysis.optionalSkills.map((r) => (
               <span key={r} className="prep-chip prep-tone-violet">
-                {r} · опционально
+                {r} · {t('prep.analysis.optional')}
               </span>
             ))}
           </div>
@@ -259,13 +259,17 @@ export default function VacancyAnalysisView({ analysis, onStart, onBack, questio
           onClick={() => onStart([...selected])}
           disabled={plannedCount === 0}
         >
-          Начать mock-интервью: {plannedCount}{' '}
-          {pluralRu(plannedCount, 'вопрос', 'вопроса', 'вопросов')}
+          {t('prep.analysis.startMock')} {plannedCount}{' '}
+          {pl(
+            plannedCount,
+            ['prep.questionOne', 'prep.questionFew', 'prep.questionMany'],
+            ['prep.questionOne', 'prep.questionFew'],
+          )}
         </button>
         <span className="prep-faint">
           {selected.size === 0
-            ? 'Отметьте хотя бы одну тему'
-            : `${selected.size} из ${analysis.interviewTopics.length} тем · ~20–30 мин`}
+            ? t('prep.analysis.selectAtLeastOne')
+            : `${selected.size} ${t('home.report.of')} ${analysis.interviewTopics.length} ${t('prep.analysis.topicsWord')} · ~20–30 ${t('prep.analysis.min')}`}
         </span>
       </div>
     </div>

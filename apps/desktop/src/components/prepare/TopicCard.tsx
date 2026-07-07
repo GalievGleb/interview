@@ -1,4 +1,5 @@
 import { topicStatusText, topicStatusTone } from '../../lib/vacancyReview/readiness';
+import { useI18n } from '../../lib/i18n';
 import type { TopicScore } from '../../lib/vacancyReview/types';
 
 interface Props {
@@ -8,6 +9,7 @@ interface Props {
 
 /** One card in the Interview Readiness Map — a vacancy-derived topic, not a generic skill. */
 export default function TopicCard({ topic, onPractice }: Props) {
+  const { t } = useI18n();
   const tone = topicStatusTone(topic.status);
   return (
     <div className={`prep-card prep-card-lift prep-topic prep-topic-${tone} p-4`}>
@@ -26,14 +28,14 @@ export default function TopicCard({ topic, onPractice }: Props) {
         <div className={`prep-bar prep-bar-${tone} flex-1`}>
           <span style={{ width: `${topic.score}%` }} />
         </div>
-        <span className="prep-faint shrink-0">{topic.questionsAsked} вопр.</span>
+        <span className="prep-faint shrink-0">{topic.questionsAsked} {t('prep.questionsShort')}</span>
       </div>
 
       <p className="prep-sub mt-3 pl-2">{topic.feedback}</p>
 
       {topic.missingPoints.length > 0 && (
         <p className="mt-2 pl-2 text-[12.5px]" style={{ color: 'var(--prep-ink-muted)' }}>
-          <span className="font-semibold">Не хватает: </span>
+          <span className="font-semibold">{t('prep.missing')}</span>
           {topic.missingPoints.join(', ')}
         </p>
       )}
@@ -48,7 +50,7 @@ export default function TopicCard({ topic, onPractice }: Props) {
             className="prep-btn-ghost prep-btn-sm shrink-0"
             onClick={() => onPractice(topic.topicId)}
           >
-            Потренировать тему
+            {t('prep.practiceTopic')}
           </button>
         )}
       </div>

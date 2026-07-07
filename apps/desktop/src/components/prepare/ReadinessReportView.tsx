@@ -1,6 +1,7 @@
 import ReadinessRing from './ReadinessRing';
 import TopicCard from './TopicCard';
 import { readinessLabelText, readinessTone } from '../../lib/vacancyReview/readiness';
+import { useI18n } from '../../lib/i18n';
 import type { ReadinessReport, VacancyAnalysis } from '../../lib/vacancyReview/types';
 
 interface Props {
@@ -27,6 +28,7 @@ export default function ReadinessReportView({
   onPracticeTopic,
   scoreHistory,
 }: Props) {
+  const { t } = useI18n();
   const tone = readinessTone(report.status);
   const hasWeak = report.weakAreas.length > 0 || report.criticalGaps.length > 0;
   return (
@@ -35,18 +37,18 @@ export default function ReadinessReportView({
         <div className="flex flex-col items-center gap-5 sm:flex-row sm:items-center">
           <ReadinessRing score={report.overallScore} label={readinessLabelText(report.status)} tone={tone} />
           <div className="min-w-0 flex-1 text-center sm:text-left">
-            <p className="prep-eyebrow">Готовность к вакансии</p>
+            <p className="prep-eyebrow">{t('prep.report.eyebrow')}</p>
             <h1 className="prep-h1 mt-1">{analysis.targetRole}</h1>
             <p className="prep-sub mt-1.5">
               {report.overallScore >= 70
-                ? 'Вы в хорошей форме для этой вакансии — подтяните пару слабых мест ниже.'
+                ? t('prep.report.verdictHigh')
                 : report.overallScore >= 50
-                  ? 'Почти готовы — паре тем не хватает более конкретных ответов.'
-                  : 'Часть ключевых тем пока не готова. Начните тренировку с критичных пробелов.'}
+                  ? t('prep.report.verdictMid')
+                  : t('prep.report.verdictLow')}
             </p>
             {scoreHistory && scoreHistory.length >= 2 && (
-              <p className="prep-faint mt-1.5" title="Общий балл по раундам этой вакансии">
-                Прогресс по этой вакансии:{' '}
+              <p className="prep-faint mt-1.5" title={t('prep.report.progressTitle')}>
+                {t('prep.report.progress')}{' '}
                 {scoreHistory.map((s, i) => (
                   <span key={`${i}-${s}`}>
                     {i > 0 && ' → '}
@@ -67,7 +69,7 @@ export default function ReadinessReportView({
             <div className="mt-3 flex flex-wrap justify-center gap-2 sm:justify-start">
               {onFollowUpRound && hasWeak && (
                 <button type="button" className="prep-btn prep-btn-sm" onClick={onFollowUpRound}>
-                  Ещё раунд по слабым темам (4 вопроса)
+                  {t('prep.report.anotherRound')}
                 </button>
               )}
               <button
@@ -75,18 +77,18 @@ export default function ReadinessReportView({
                 className={`prep-btn-sm ${onFollowUpRound && hasWeak ? 'prep-btn-secondary' : 'prep-btn'}`}
                 onClick={onStartLive}
               >
-                Начать live-интервью с этим контекстом
+                {t('prep.report.startLive')}
               </button>
               {onPrint && (
                 <button type="button" className="prep-btn-ghost prep-btn-sm" onClick={onPrint}>
-                  Распечатать / PDF
+                  {t('prep.report.print')}
                 </button>
               )}
               <button type="button" className="prep-btn-ghost prep-btn-sm" onClick={onSave}>
-                Сохранить отчёт
+                {t('prep.report.save')}
               </button>
               <button type="button" className="prep-btn-ghost prep-btn-sm" onClick={onNewReview}>
-                Новая вакансия
+                {t('prep.report.newVacancy')}
               </button>
             </div>
           </div>
@@ -96,54 +98,53 @@ export default function ReadinessReportView({
       {analysis.analysisSource === 'heuristic' && (
         <div className="prep-card prep-card-pad prep-topic prep-topic-amber">
           <p className="prep-sub pl-2">
-            <strong>Отчёт собран без AI</strong> — разбор и оценки посчитаны локальным алгоритмом,
-            проценты ориентировочные. Подключите AI-ключ в настройках и пройдите раунд ещё раз,
-            чтобы получить честную оценку готовности.
+            <strong>{t('prep.report.noAiTitle')}</strong>
+            {t('prep.report.noAiBody')}
           </p>
         </div>
       )}
 
       {report.narrativeVerdict && (
         <div className="prep-card prep-card-pad">
-          <p className="prep-eyebrow">Вердикт коуча</p>
+          <p className="prep-eyebrow">{t('prep.report.coachVerdict')}</p>
           <p className="prep-sub mt-1.5">{report.narrativeVerdict}</p>
           {report.interviewerImpression && (
             <p className="prep-faint mt-2">
-              Как вас видит интервьюер: {report.interviewerImpression}
+              {t('prep.report.impression')} {report.interviewerImpression}
             </p>
           )}
           {report.focusTopic && (
             <p className="prep-faint mt-1">
-              Начать стоит с темы: <span className="font-semibold">{report.focusTopic}</span>
+              {t('prep.report.startWith')} <span className="font-semibold">{report.focusTopic}</span>
             </p>
           )}
         </div>
       )}
 
       <div className="grid gap-3 sm:grid-cols-3">
-        <SummaryCard tone="green" title="Сильные стороны" items={report.strengths} empty="Пока нет уверенных тем" />
-        <SummaryCard tone="amber" title="Слабые места" items={report.weakAreas} empty="Слабых мест нет" />
+        <SummaryCard tone="green" title={t('history.mock.strengths')} items={report.strengths} empty={t('prep.report.strengthsEmpty')} />
+        <SummaryCard tone="amber" title={t('history.mock.weakAreas')} items={report.weakAreas} empty={t('prep.report.weakEmpty')} />
         <SummaryCard
           tone="red"
-          title="Критичные пробелы"
+          title={t('history.mock.criticalGaps')}
           items={report.criticalGaps}
-          empty={report.overallScore >= 50 ? 'Критичных пробелов нет 🎉' : 'Критичных пробелов нет'}
+          empty={report.overallScore >= 50 ? t('prep.report.gapsEmptyWin') : t('prep.report.gapsEmpty')}
         />
       </div>
 
       <div>
-        <h2 className="prep-h2">Карта готовности к интервью</h2>
-        <p className="prep-faint mt-0.5">Готовность по темам на основе ваших ответов.</p>
+        <h2 className="prep-h2">{t('prep.analysis.readinessMap')}</h2>
+        <p className="prep-faint mt-0.5">{t('prep.report.readinessByAnswers')}</p>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
-          {report.topicScores.map((t) => (
-            <TopicCard key={t.topicId} topic={t} onPractice={onPracticeTopic} />
+          {report.topicScores.map((topic) => (
+            <TopicCard key={topic.topicId} topic={topic} onPractice={onPracticeTopic} />
           ))}
         </div>
       </div>
 
       {report.nextPracticePlan.length > 0 && (
         <div className="prep-card prep-card-pad prep-topic prep-topic-green">
-          <p className="prep-h2 pl-2">Рекомендации по подготовке</p>
+          <p className="prep-h2 pl-2">{t('prep.report.recommendations')}</p>
           <ol className="mt-2 space-y-1.5 pl-2">
             {report.nextPracticePlan.map((step, i) => (
               <li key={step} className="prep-sub flex gap-2">

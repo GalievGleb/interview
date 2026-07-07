@@ -3,6 +3,7 @@ import { useApp } from '../../context/AppContext';
 import { topicStatusFromScore, topicStatusTone } from '../../lib/vacancyReview/readiness';
 import { useVoiceAnswer } from '../../lib/vacancyReview/useVoiceAnswer';
 import { MAX_DRILL_DEPTH, drillDepth } from '../../lib/vacancyReview/vacancyReviewService';
+import { useI18n, type I18nKey } from '../../lib/i18n';
 import type { Difficulty, QuestionLevel, SmokeReviewSession } from '../../lib/vacancyReview/types';
 
 /** Same thresholds as the readiness map, so scores read identically everywhere. */
@@ -26,17 +27,17 @@ const DIFF_TONE: Record<Difficulty, string> = {
   hard: 'prep-tone-amber',
 };
 
-const DIFF_LABEL: Record<Difficulty, string> = {
-  easy: 'лёгкий',
-  medium: 'средний',
-  hard: 'сложный',
+const DIFF_KEY: Record<Difficulty, I18nKey> = {
+  easy: 'prep.diff.easy',
+  medium: 'prep.diff.medium',
+  hard: 'prep.diff.hard',
 };
 
-const LEVEL_LABEL: Record<QuestionLevel, string> = {
-  junior: 'Junior',
-  middle: 'Middle',
-  senior: 'Senior',
-  lead: 'Lead',
+const LEVEL_KEY: Record<QuestionLevel, I18nKey> = {
+  junior: 'prep.seniority.junior',
+  middle: 'prep.seniority.middle',
+  senior: 'prep.seniority.senior',
+  lead: 'prep.seniority.lead',
 };
 
 export default function SmokeInterviewView({
@@ -47,6 +48,7 @@ export default function SmokeInterviewView({
   onFinish,
   onAskFollowUp,
 }: Props) {
+  const { t } = useI18n();
   const { hasAnyKey, backendOnline } = useApp();
   const { questions, currentIndex, vacancyAnalysis } = session;
   const question = questions[currentIndex];
@@ -58,7 +60,7 @@ export default function SmokeInterviewView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentIndex]);
 
-  const voice = useVoiceAnswer((t) => setText(t), vacancyAnalysis.language);
+  const voice = useVoiceAnswer((vt) => setText(vt), vacancyAnalysis.language);
 
   // Таймер ответа: лёгкое давление времени, как на реальном интервью.
   // Стартует при показе вопроса, замирает после оценки.
@@ -67,8 +69,8 @@ export default function SmokeInterviewView({
     setElapsedS(0);
     if (existing) return;
     const startedAt = Date.now();
-    const t = setInterval(() => setElapsedS(Math.floor((Date.now() - startedAt) / 1000)), 1000);
-    return () => clearInterval(t);
+    const timer = setInterval(() => setElapsedS(Math.floor((Date.now() - startedAt) / 1000)), 1000);
+    return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentIndex, Boolean(existing)]);
 
@@ -85,7 +87,7 @@ export default function SmokeInterviewView({
   }, [evaluating, currentEvaluation]);
 
   if (!question) return null;
-  const topic = vacancyAnalysis.interviewTopics.find((t) => t.id === question.topicId);
+  const topic = vacancyAnalysis.interviewTopics.find((top) => top.id === question.topicId);
   const evaluation = existing?.evaluation;
   const answered = Boolean(existing);
   const isLast = currentIndex === questions.length - 1;
@@ -108,10 +110,10 @@ export default function SmokeInterviewView({
         <div>
           <div className="flex items-center justify-between gap-2">
             <p className="prep-faint">
-              Вопрос {currentIndex + 1} из {questions.length}
+              {t('prep.smoke.question')} {currentIndex + 1} {t('home.report.of')} {questions.length}
               {!answered && elapsedS >= 5 && (
                 <span
-                  title="Время на этот ответ. На реальном интервью 2–3 минуты — норма."
+                  title={t('prep.smoke.timerTitle')}
                   style={elapsedS >= 180 ? { color: 'var(--prep-amber)' } : undefined}
                 >
                   {' '}
@@ -120,13 +122,13 @@ export default function SmokeInterviewView({
               )}
             </p>
             <div className="flex gap-1.5">
-              {question.isFollowUp && <span className="prep-chip prep-tone-amber">Дожим</span>}
+              {question.isFollowUp && <span className="prep-chip prep-tone-amber">{t('prep.smoke.followUpChip')}</span>}
               <span className="prep-chip prep-tone-violet">{topic?.title}</span>
               {question.level && (
-                <span className="prep-chip prep-tone-blue">{LEVEL_LABEL[question.level]}</span>
+                <span className="prep-chip prep-tone-blue">{t(LEVEL_KEY[question.level])}</span>
               )}
               <span className={`prep-chip ${DIFF_TONE[question.difficulty]}`}>
-                {DIFF_LABEL[question.difficulty]}
+                {t(DIFF_KEY[question.difficulty])}
               </span>
             </div>
           </div>
@@ -144,13 +146,13 @@ export default function SmokeInterviewView({
           </div>
 
           {question.whyAsked && (
-            <p className="prep-faint mt-2">Зачем спрашивают: {question.whyAsked}</p>
+            <p className="prep-faint mt-2">{t('prep.smoke.whyAsked')} {question.whyAsked}</p>
           )}
 
           {question.expectedAnswerPoints && question.expectedAnswerPoints.length > 0 && (
             <details className="mt-2">
               <summary className="cursor-pointer text-[12.5px] font-bold" style={{ color: 'var(--prep-green)' }}>
-                Что хочет услышать интервьюер
+                {t('prep.smoke.wantsToHear')}
               </summary>
               <ul className="mt-1.5 space-y-1 pl-1">
                 {question.expectedAnswerPoints.map((p) => (
@@ -166,7 +168,7 @@ export default function SmokeInterviewView({
           <textarea
             className="prep-textarea mt-3"
             style={{ minHeight: 150 }}
-            placeholder="Ответьте голосом или исправьте текст перед оценкой…"
+            placeholder={t('prep.smoke.answerPlaceholder')}
             value={text}
             onChange={(e) => setText(e.target.value)}
             disabled={answered}
@@ -176,13 +178,13 @@ export default function SmokeInterviewView({
             <div className={`prep-voice-strip mt-3 ${voice.recording ? 'is-recording' : ''}`}>
               <span className="prep-voice-dot" />
               <div className="min-w-0 flex-1">
-                <p>{voice.recording ? 'Идёт запись ответа' : 'Голосовой ответ'}</p>
+                <p>{voice.recording ? t('prep.smoke.recording') : t('prep.smoke.voiceAnswer')}</p>
                 <span>
                   {voice.error
                     ? voice.error
                     : voice.recording
-                      ? 'Говорите как на интервью. После остановки SkillCue оценит очищенный текст.'
-                      : 'Можно ответить голосом или вставить текст вручную.'}
+                      ? t('prep.smoke.recordingHint')
+                      : t('prep.smoke.voiceHint')}
                 </span>
               </div>
             </div>
@@ -198,29 +200,29 @@ export default function SmokeInterviewView({
                   onClick={submitCurrentAnswer}
                 >
                   {evaluating
-                    ? 'Оцениваю…'
+                    ? t('prep.smoke.evaluating')
                     : voice.recording
-                      ? 'Остановить и оценить'
-                      : 'Оценить ответ'}
+                      ? t('prep.smoke.stopAndScore')
+                      : t('prep.smoke.scoreAnswer')}
                 </button>
                 <button
                   type="button"
                   className={`prep-btn-sm ${voice.recording ? 'prep-btn' : 'prep-btn-ghost'}`}
                   onClick={voice.toggle}
-                  title="Ответить голосом"
+                  title={t('prep.smoke.voiceAnswerTitle')}
                 >
-                  {voice.recording ? 'Пауза записи' : 'Начать запись голосом'}
+                  {voice.recording ? t('prep.smoke.pauseRec') : t('prep.smoke.startRec')}
                 </button>
               </>
             ) : (
               <>
                 {isLast ? (
                   <button type="button" className="prep-btn" onClick={onFinish}>
-                    Завершить разбор
+                    {t('prep.smoke.finishReview')}
                   </button>
                 ) : (
                   <button type="button" className="prep-btn" onClick={onNext}>
-                    Следующий вопрос
+                    {t('prep.smoke.nextQuestion')}
                   </button>
                 )}
               </>
@@ -236,12 +238,12 @@ export default function SmokeInterviewView({
                   onSubmitAnswer('', 'text', true);
                 }}
               >
-                Пропустить вопрос
+                {t('prep.smoke.skipQuestion')}
               </button>
             )}
             {!(answered && isLast) && (
               <button type="button" className="prep-btn-ghost prep-btn-sm" onClick={onFinish}>
-                Завершить досрочно
+                {t('prep.smoke.finishEarly')}
               </button>
             )}
           </div>
@@ -257,19 +259,19 @@ export default function SmokeInterviewView({
                 {/* Причина падения важна: без ключа — одно, с ключом (значит,
                     сам вызов не удался) — другое. Не утверждаем «нет ключа», если он есть. */}
                 {!backendOnline
-                  ? '⚠ Локальная оценка — сервис ещё запускается. Проценты ориентировочные, полноценный разбор появится, когда backend поднимется.'
+                  ? t('prep.smoke.heuristic.backend')
                   : !hasAnyKey
-                    ? '⚠ Локальная оценка — AI не подключён. Проценты ориентировочные, полноценный разбор появится после подключения ключа в Настройках.'
+                    ? t('prep.smoke.heuristic.noKey')
                     : evaluation.evaluationError === 'timeout'
-                      ? '⚠ Локальная оценка — AI-разбор не успел ответить вовремя. Часто помогает более быстрая модель в Настройках → AI-модели; попробуйте ещё раз.'
+                      ? t('prep.smoke.heuristic.timeout')
                       : evaluation.evaluationError === 'quota'
-                        ? '⚠ Локальная оценка — исчерпан месячный лимит токенов тарифа. Разбор вернётся после обновления лимита.'
-                        : '⚠ Локальная оценка — не удалось получить разбор от AI. Проверьте, что для разбора выбрана рабочая модель в Настройках → AI-модели.'}
+                        ? t('prep.smoke.heuristic.quota')
+                        : t('prep.smoke.heuristic.generic')}
               </p>
             )}
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <p className="prep-h2">Оценка ответа</p>
+                <p className="prep-h2">{t('prep.smoke.answerEval')}</p>
                 {evaluation.verdict && <p className="prep-sub mt-0.5">{evaluation.verdict}</p>}
               </div>
               <div className="shrink-0 text-right">
@@ -282,7 +284,7 @@ export default function SmokeInterviewView({
                 {evaluation.levelEstimate && (
                   <p className="mt-1">
                     <span className="prep-chip prep-tone-violet">
-                      Звучит как {LEVEL_LABEL[evaluation.levelEstimate]}
+                      {t('prep.smoke.soundsLike')} {t(LEVEL_KEY[evaluation.levelEstimate])}
                     </span>
                   </p>
                 )}
@@ -293,26 +295,26 @@ export default function SmokeInterviewView({
                 без AI она вводит в заблуждение, поэтому показываем только AI-версию. */}
             {evaluation.suggestedBetterAnswer && evaluation.evaluationSource !== 'heuristic' && (
               <div className="prep-strong-answer">
-                <p className="prep-eyebrow">Сильная версия ответа</p>
+                <p className="prep-eyebrow">{t('prep.smoke.strongVersion')}</p>
                 <p className="mt-2 whitespace-pre-wrap">{evaluation.suggestedBetterAnswer}</p>
                 {evaluation.hallucinationGuard && evaluation.hallucinationGuard.length > 0 && (
                   <p className="mt-2 text-[11.5px]" style={{ color: 'var(--prep-ink-faint)' }}>
-                    Без выдумок: {evaluation.hallucinationGuard.join(' · ')}
+                    {t('prep.smoke.noFiction')} {evaluation.hallucinationGuard.join(' · ')}
                   </p>
                 )}
               </div>
             )}
 
             <div className="flex flex-wrap gap-x-4 gap-y-1">
-              <Metric label="Точность" value={evaluation.technicalAccuracyScore} />
+              <Metric label={t('prep.metric.accuracy')} value={evaluation.technicalAccuracyScore} />
               {typeof evaluation.coverageScore === 'number' && (
-                <Metric label="Покрытие темы" value={evaluation.coverageScore} />
+                <Metric label={t('prep.metric.coverage')} value={evaluation.coverageScore} />
               )}
-              <Metric label="Конкретика" value={evaluation.specificityScore} />
-              <Metric label="Структура" value={evaluation.clarityScore} />
-              <Metric label="Уверенность" value={evaluation.confidenceScore} />
+              <Metric label={t('prep.metric.specifics')} value={evaluation.specificityScore} />
+              <Metric label={t('prep.metric.structure')} value={evaluation.clarityScore} />
+              <Metric label={t('prep.metric.confidence')} value={evaluation.confidenceScore} />
               {typeof evaluation.ownershipScore === 'number' && evaluation.ownershipScore > 0 && (
-                <Metric label="Роль/ownership" value={evaluation.ownershipScore} />
+                <Metric label={t('prep.metric.ownership')} value={evaluation.ownershipScore} />
               )}
             </div>
 
@@ -321,13 +323,13 @@ export default function SmokeInterviewView({
             {evaluation.detectedNoiseOrAsrErrors && evaluation.detectedNoiseOrAsrErrors.length > 0 && (
               <div className="text-[12px]" style={{ color: 'var(--prep-ink-faint)' }}>
                 <p>
-                  🎙 В записи есть шум распознавания речи (не техническая ошибка): «
+                  {t('prep.smoke.noisePre')} «
                   {evaluation.detectedNoiseOrAsrErrors.join(' » · «')}»
                 </p>
                 {evaluation.normalizedAnswerSummary && (
                   <details className="mt-1">
                     <summary className="cursor-pointer font-semibold" style={{ color: 'var(--prep-green)' }}>
-                      Как поняли ваш ответ после очистки от шума
+                      {t('prep.smoke.howUnderstood')}
                     </summary>
                     <p className="mt-1 whitespace-pre-wrap">{evaluation.normalizedAnswerSummary}</p>
                   </details>
@@ -337,13 +339,13 @@ export default function SmokeInterviewView({
 
             {evaluation.overclaimed && (
               <p className="text-[12.5px] font-semibold" style={{ color: 'var(--prep-red)' }}>
-                ⚠ Заявлен опыт, не подтверждённый резюме — лучше честная формулировка.
+                {t('prep.smoke.overclaimed')}
               </p>
             )}
 
             {evaluation.extractedValidPoints && evaluation.extractedValidPoints.length > 0 && (
               <FeedbackList
-                label="Удалось разобрать из ответа"
+                label={t('prep.smoke.parsed')}
                 items={evaluation.extractedValidPoints}
                 color="var(--prep-ink-muted)"
                 mark="»"
@@ -351,22 +353,22 @@ export default function SmokeInterviewView({
             )}
 
             {evaluation.goodPoints.length > 0 && (
-              <FeedbackList label="Сильные стороны" items={evaluation.goodPoints} color="var(--prep-green)" mark="✓" />
+              <FeedbackList label={t('history.mock.strengths')} items={evaluation.goodPoints} color="var(--prep-green)" mark="✓" />
             )}
             {evaluation.weakPoints && evaluation.weakPoints.length > 0 && (
-              <FeedbackList label="Слабые места" items={evaluation.weakPoints} color="var(--prep-amber)" mark="•" />
+              <FeedbackList label={t('history.mock.weakAreas')} items={evaluation.weakPoints} color="var(--prep-amber)" mark="•" />
             )}
             {evaluation.missingPoints.length > 0 && (
-              <FeedbackList label="Обязательно добавить" items={evaluation.missingPoints} color="var(--prep-amber)" mark="+" />
+              <FeedbackList label={t('prep.smoke.mustAdd')} items={evaluation.missingPoints} color="var(--prep-amber)" mark="+" />
             )}
             {evaluation.technicalCorrections && evaluation.technicalCorrections.length > 0 && (
-              <FeedbackList label="Технические правки" items={evaluation.technicalCorrections} color="var(--prep-red)" mark="→" />
+              <FeedbackList label={t('prep.smoke.techCorrections')} items={evaluation.technicalCorrections} color="var(--prep-red)" mark="→" />
             )}
 
             {evaluation.betterStructure && evaluation.betterStructure.length > 0 && (
               <details>
                 <summary className="cursor-pointer text-[12.5px] font-bold" style={{ color: 'var(--prep-green)' }}>
-                  Как структурировать ответ
+                  {t('prep.smoke.howToStructure')}
                 </summary>
                 <ol className="mt-1.5 space-y-1 pl-1">
                   {evaluation.betterStructure.map((s, i) => (
@@ -387,7 +389,7 @@ export default function SmokeInterviewView({
                   className="text-[12px] font-bold uppercase tracking-wide"
                   style={{ color: 'var(--prep-ink-faint)' }}
                 >
-                  Чем докопается интервьюер
+                  {t('prep.smoke.interviewerDrill')}
                 </p>
                 <ul className="mt-1 space-y-1">
                   {evaluation.followUpQuestions.map((fq) => (
@@ -401,18 +403,16 @@ export default function SmokeInterviewView({
                           type="button"
                           className="prep-link-btn shrink-0"
                           onClick={() => onAskFollowUp(fq)}
-                          title="Ответить на этот дожим прямо сейчас"
+                          title={t('prep.smoke.answerDrillTitle')}
                         >
-                          Ответить →
+                          {t('prep.smoke.answerArrow')}
                         </button>
                       )}
                     </li>
                   ))}
                 </ul>
                 {canDrill && onAskFollowUp && (
-                  <p className="prep-faint mt-1.5">
-                    Кликните «Ответить» — дожим станет следующим вопросом и попадёт в отчёт по этой же теме.
-                  </p>
+                  <p className="prep-faint mt-1.5">{t('prep.smoke.drillHint')}</p>
                 )}
               </div>
             )}
@@ -420,7 +420,7 @@ export default function SmokeInterviewView({
             {evaluation.nextTrainingFocus && (
               <p className="text-[12.5px]" style={{ color: 'var(--prep-ink-muted)' }}>
                 <span className="font-bold" style={{ color: 'var(--prep-green)' }}>
-                  Что тренировать:{' '}
+                  {t('prep.smoke.trainWhat')}
                 </span>
                 {evaluation.nextTrainingFocus}
               </p>
@@ -430,27 +430,27 @@ export default function SmokeInterviewView({
       </div>
 
       <aside className="prep-card prep-card-pad h-fit">
-        <p className="prep-faint">Темы вакансии</p>
+        <p className="prep-faint">{t('prep.smoke.vacancyTopics')}</p>
         <div className="mt-2 space-y-1.5">
-          {vacancyAnalysis.interviewTopics.map((t) => {
-            const planned = questions.filter((q) => q.topicId === t.id).length;
+          {vacancyAnalysis.interviewTopics.map((top) => {
+            const planned = questions.filter((q) => q.topicId === top.id).length;
             const asked = session.answers.filter(
-              (a) => questions.find((q) => q.id === a.questionId)?.topicId === t.id,
+              (a) => questions.find((q) => q.id === a.questionId)?.topicId === top.id,
             ).length;
-            const active = t.id === question.topicId;
+            const active = top.id === question.topicId;
             const done = planned > 0 && asked >= planned;
             return (
               <div
-                key={t.id}
+                key={top.id}
                 className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5"
                 style={{ background: active ? 'var(--prep-green-soft)' : 'transparent' }}
               >
                 <span className="truncate text-[12.5px]" style={{ color: 'var(--prep-ink-muted)' }}>
-                  {t.title}
+                  {top.title}
                 </span>
                 <span
                   className="prep-faint shrink-0"
-                  title="Отвечено / запланировано вопросов по теме"
+                  title={t('prep.smoke.topicProgressTitle')}
                   style={done ? { color: 'var(--prep-green)' } : undefined}
                 >
                   {done ? '✓ ' : ''}
@@ -470,6 +470,7 @@ export default function SmokeInterviewView({
  * как на реальном интервью. Кнопка прячется, если синтез речи недоступен.
  */
 function SpeakButton({ text, lang }: { text: string; lang: 'ru' | 'en' }) {
+  const { t } = useI18n();
   const [speaking, setSpeaking] = useState(false);
 
   useEffect(() => {
@@ -501,9 +502,9 @@ function SpeakButton({ text, lang }: { text: string; lang: 'ru' | 'en' }) {
       type="button"
       className="prep-btn-ghost prep-btn-sm shrink-0"
       onClick={toggle}
-      title={speaking ? 'Остановить озвучку' : 'Озвучить вопрос — как будто его задал интервьюер'}
+      title={speaking ? t('prep.smoke.speakStop') : t('prep.smoke.speakTitle')}
     >
-      {speaking ? '■ Стоп' : '🔊 Озвучить'}
+      {speaking ? t('prep.smoke.speakStopBtn') : t('prep.smoke.speakBtn')}
     </button>
   );
 }
