@@ -105,6 +105,14 @@ def build_env() -> str:
         "REDIS_URL=redis://127.0.0.1:6379",
         f"OPENROUTER_API_KEY={read_openrouter_key()}",
         f"GATEWAY_ADMIN_SECRET={admin_secret()}",
+        # Блок-лист дорогих моделей: даже в рамках токен-лимита нельзя сливать
+        # деньги через премиум-тир (цена токена различается в ~100 раз). Матч по
+        # префиксу сырого id; gpt-4o/mini, sonnet, haiku, deepseek, gemini-flash
+        # остаются. Заблокированные скрыты и из /v1/models (AUTO их не выберет).
+        # Переопределяется env GATEWAY_BLOCKED_MODELS при запуске сервиса.
+        "GATEWAY_BLOCKED_MODELS="
+        "openai/o1,openai/o3,openai/gpt-4.5,openai/gpt-5,"
+        "anthropic/claude-3-opus,anthropic/claude-opus,google/gemini-2.5-pro",
     ]
     if signing:
         lines.append(f"LICENSE_PRIVATE_KEY_HEX={signing}")
