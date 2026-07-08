@@ -1,4 +1,4 @@
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 WORKDIR /app
 RUN corepack enable
 COPY package.json pnpm-workspace.yaml ./
@@ -11,7 +11,7 @@ RUN pnpm --filter @interview/shared build
 RUN pnpm --filter @interview/api db:generate
 RUN pnpm --filter @interview/api build
 
-FROM node:20-alpine
+FROM node:22-alpine
 WORKDIR /app
 RUN corepack enable
 COPY --from=builder /app/package.json /app/pnpm-workspace.yaml ./

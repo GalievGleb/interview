@@ -21,6 +21,7 @@ import asyncio
 import logging
 import time
 
+from app.config import get_settings
 from app.services import secrets
 
 from .base import (
@@ -130,14 +131,41 @@ def alternatives_text(event) -> str:
     return (alts[0].text or "").strip()
 
 
-async def run_speechkit_stream(
+def gateway_stt_ws_url(
+    gateway_root: str, license_key: str, *, language: str, sample_rate: int
+) -> str:
+    """HTTP(S)-корень шлюза (см. provider_adapter._gateway_root_url) → WS(S)-URL
+    /gateway/stt/stream. Выделено в чистую функцию ради юнит-тестов без сети."""
+    if gateway_root.startswith("https://"):
+        ws_root = "wss://" + gateway_root[len("https://") :]
+    elif gateway_root.startswith("http://"):
+        ws_root = "ws://" + gateway_root[len("http://") :]
+    else:
+        ws_root = gateway_root
+    return f"{ws_root}/gateway/stt/stream?key={license_key}&language={language}&sample_rate={sample_rate}"
+
+
+async def _run_gateway_relay(
     client_ws,
     *,
-    language: str = "ru",
-    sample_rate: int = 16000,
+    language: str,
+    sample_rate: int,
 ) -> None:
-    key = api_key()
-    if not key:
+    """Без своего ключа Яндекса, но с настроенным облачным шлюзом SkillCue —
+    аудио уходит через СЕРВЕР SkillCue вместо прямого gRPC в Yandex. Ключ
+    Яндекса живёт только на сервере (см. apps/api/src/gateway/gateway-stt.gateway.ts);
+    десктоп получает бесплатный триал/лицензию автоматически, тем же способом,
+    каким provider_adapter уже делает это для LLM (_gateway_license_key) — без
+    единого действия пользователя.
+
+    Протокол шлюза побайтово совпадает с локальным /stt/stream (см. модуль),
+    поэтому это почти прозрачный релей: бинарные чанки — туда, JSON-строки —
+    обратно, без трансляции событий.
+    """
+    from app.services.provider_adapter import _gateway_license_key, _gateway_root_url
+
+    gateway_url = get_settings().skillcue_gateway_url
+    if not gateway_url:
         await client_ws.send_json(
             {
                 "type": "error",
@@ -148,6 +176,94 @@ async def run_speechkit_stream(
                 ),
             }
         )
+        return
+
+    license_key = _gateway_license_key()
+    if not license_key:
+        await client_ws.send_json(
+            {
+                "type": "error",
+                "message": (
+                    "Не удалось подключиться к облачному распознаванию SkillCue "
+                    "(нет интернета или сервис недоступен). Переключитесь на "
+                    "локальный Whisper или вставьте свой ключ Яндекса в Настройках."
+                ),
+            }
+        )
+        return
+
+    try:
+        import websockets
+    except ImportError:
+        await client_ws.send_json(
+            {
+                "type": "error",
+                "message": "Модуль websockets не установлен (pip install websockets).",
+            }
+        )
+        return
+
+    root = _gateway_root_url(gateway_url)
+    url = gateway_stt_ws_url(root, license_key, language=language, sample_rate=sample_rate)
+
+    try:
+        upstream = await websockets.connect(url, max_size=2**22)
+    except Exception as exc:  # noqa: BLE001 — сеть/квота: пользователю нужен текст
+        logger.warning("Gateway STT connect failed: %s", exc)
+        await client_ws.send_json(
+            {"type": "error", "message": f"Не удалось подключиться к облачному STT SkillCue: {exc}"}
+        )
+        return
+
+    async def pump_audio() -> None:
+        try:
+            while True:
+                data = await client_ws.receive_bytes()
+                await upstream.send(data)
+        except Exception:  # noqa: BLE001 — клиент отключился
+            pass
+
+    async def pump_events() -> None:
+        async for raw in upstream:
+            if isinstance(raw, bytes):
+                continue
+            # Уже валидный JSON протокола (шлюз шлёт тот же формат, что и
+            # локальные движки) — пересылаем как есть, без разбора/пересборки.
+            await client_ws.send_text(raw)
+
+    try:
+        audio_task = asyncio.create_task(pump_audio())
+        events_task = asyncio.create_task(pump_events())
+        done, pending = await asyncio.wait(
+            {audio_task, events_task}, return_when=asyncio.FIRST_COMPLETED
+        )
+        for task in pending:
+            task.cancel()
+        for task in done:
+            task_exc = task.exception()
+            if task_exc and not isinstance(task_exc, asyncio.CancelledError):
+                raise task_exc
+    except Exception as exc:  # noqa: BLE001 — дисконнект клиента заканчивает стрим
+        logger.debug("Gateway STT relay ended: %s", exc)
+    finally:
+        try:
+            await upstream.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+async def run_speechkit_stream(
+    client_ws,
+    *,
+    language: str = "ru",
+    sample_rate: int = 16000,
+) -> None:
+    key = api_key()
+    if not key:
+        # Свой ключ не задан — не отказываем сразу: если настроен облачный
+        # шлюз SkillCue, аудио уходит через него (ключ Яндекса пользователь
+        # никогда не вводит). Иначе — прежняя явная ошибка внутри relay-функции.
+        await _run_gateway_relay(client_ws, language=language, sample_rate=sample_rate)
         return
 
     try:

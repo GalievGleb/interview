@@ -34,7 +34,9 @@
     "stripe": "^17.6.0",
     "undici": "^6.21.1",
     "uuid": "^11.0.5",
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "@yandex-cloud/nodejs-sdk": "^3.2.0",
+    "@grpc/grpc-js": "^1.6.12"
   },
   "devDependencies": {
     "@nestjs/cli": "^11.0.2",

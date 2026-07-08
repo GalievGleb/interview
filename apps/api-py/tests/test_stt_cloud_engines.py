@@ -2,6 +2,8 @@
 
 import json
 
+import pytest
+
 from app.services.stt import registry
 from app.services.stt.deepgram_stream import DeepgramProvider, build_ws_url, parse_deepgram_event
 from app.services.stt.settings_store import SttSettings
@@ -163,3 +165,93 @@ def test_speechkit_48k_byte_budget_expires_before_time_deadline():
     assert bytes_at_time_deadline > sk.SESSION_SOFT_BYTES
     # А при дефолтных 16 кГц (32 КБ/с) время истекает первым — как задумано.
     assert 32_000 * sk.SESSION_RECONNECT_S < sk.SESSION_SOFT_BYTES
+
+
+# --- gateway-relay fallback (без своего ключа Яндекса) --------------------
+# Пользователь не должен вводить свой ключ Яндекса вообще: без локального
+# ключа, но с настроенным gateway'ем аудио уходит через сервер SkillCue,
+# который держит ключ сам (см. apps/api/src/gateway/gateway-stt.gateway.ts).
+
+
+class _FakeClientWs:
+    """Минимальный клиентский WS для проверки веток _run_gateway_relay без сети."""
+
+    def __init__(self) -> None:
+        self.sent: list[dict] = []
+
+    async def send_json(self, msg: dict) -> None:
+        self.sent.append(msg)
+
+
+def test_gateway_stt_ws_url_maps_scheme_and_strips_nothing_extra():
+    from app.services.stt.speechkit_stream import gateway_stt_ws_url
+
+    url = gateway_stt_ws_url(
+        "https://api.skillcue.app", "SKILLCUE-abc.def", language="ru", sample_rate=16000
+    )
+    assert url == (
+        "wss://api.skillcue.app/gateway/stt/stream"
+        "?key=SKILLCUE-abc.def&language=ru&sample_rate=16000"
+    )
+    # http (local/dev gateway) -> ws, not wss.
+    assert gateway_stt_ws_url(
+        "http://localhost:8787", "k", language="en", sample_rate=48000
+    ).startswith("ws://localhost:8787/")
+    # Незнакомая схема — не трогаем (лучше явная ошибка соединения, чем угадывание).
+    assert gateway_stt_ws_url("ftp://x", "k", language="ru", sample_rate=16000).startswith(
+        "ftp://x/"
+    )
+
+
+@pytest.mark.asyncio
+async def test_gateway_relay_errors_clearly_when_no_gateway_configured(monkeypatch):
+    from app.config import get_settings
+    from app.services.stt import speechkit_stream as sk
+
+    monkeypatch.setattr(get_settings(), "skillcue_gateway_url", "", raising=False)
+    client_ws = _FakeClientWs()
+    await sk._run_gateway_relay(client_ws, language="ru", sample_rate=16000)
+
+    assert len(client_ws.sent) == 1
+    assert client_ws.sent[0]["type"] == "error"
+    assert "API-ключ" in client_ws.sent[0]["message"]
+
+
+@pytest.mark.asyncio
+async def test_gateway_relay_errors_clearly_when_trial_claim_fails(monkeypatch):
+    """Gateway настроен, но триал/лицензию получить не удалось (нет интернета
+    или сервис недоступен) — пользователь должен получить понятный текст, а не
+    зависание или трейсбек."""
+    from app.config import get_settings
+    from app.services.stt import speechkit_stream as sk
+
+    monkeypatch.setattr(
+        get_settings(), "skillcue_gateway_url", "https://gw.example.com", raising=False
+    )
+    monkeypatch.setattr("app.services.provider_adapter._gateway_license_key", lambda: "")
+
+    client_ws = _FakeClientWs()
+    await sk._run_gateway_relay(client_ws, language="ru", sample_rate=16000)
+
+    assert len(client_ws.sent) == 1
+    assert client_ws.sent[0]["type"] == "error"
+    assert "SkillCue" in client_ws.sent[0]["message"]
+
+
+@pytest.mark.asyncio
+async def test_run_speechkit_stream_delegates_to_gateway_relay_without_local_key(monkeypatch):
+    """Без своего ключа Яндекса run_speechkit_stream не должен сразу отказывать —
+    он обязан попытаться проксировать через gateway (см. _run_gateway_relay)."""
+    from app.services.stt import speechkit_stream as sk
+
+    monkeypatch.setattr(sk, "api_key", lambda: "")
+    called = {}
+
+    async def fake_relay(client_ws, *, language, sample_rate):
+        called["args"] = (language, sample_rate)
+
+    monkeypatch.setattr(sk, "_run_gateway_relay", fake_relay)
+
+    await sk.run_speechkit_stream(_FakeClientWs(), language="en", sample_rate=48000)
+
+    assert called["args"] == ("en", 48000)
