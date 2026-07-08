@@ -34,6 +34,27 @@ function upstreamInit(init: RequestInit): RequestInit {
   return proxyDispatcher ? ({ ...init, dispatcher: proxyDispatcher } as RequestInit) : init;
 }
 
+// Стиль апстрима: у OpenRouter ID моделей с префиксом провайдера
+// ("openai/gpt-4o-mini"), у OpenAI-совместимых (ProxyAPI, сам OpenAI) — голые
+// ("gpt-4o-mini"). Определяем по env, иначе по адресу: openrouter → openrouter.
+// ProxyAPI работает из РФ напрямую (в отличие от OpenRouter), поэтому это наш
+// активный апстрим; OpenRouter остаётся вариантом (сменить env + рестарт).
+const UPSTREAM_STYLE =
+  process.env.GATEWAY_UPSTREAM_STYLE ||
+  (OPENROUTER_BASE.includes('openrouter') ? 'openrouter' : 'openai');
+
+// Приводим модель к тому, что понимает активный апстрим. ProxyAPI отдаёт ТОЛЬКО
+// модели OpenAI, поэтому для openai-стиля сводим всё к двум: быстрая gpt-4o-mini
+// (live-подсказки) и качественная gpt-4o (разбор). Это и совпадает с задумкой
+// тарифов, и не даёт случайно уйти в дорогую модель на чужом ключе.
+function mapModelForUpstream(model: string): string {
+  const raw = (model || '').trim();
+  if (UPSTREAM_STYLE === 'openrouter') return raw || 'openai/gpt-4o-mini';
+  const low = raw.toLowerCase().replace(/^openai\//, '');
+  const FAST = ['mini', 'nano', 'haiku', 'flash', 'small', 'lite'];
+  return FAST.some((k) => low.includes(k)) ? 'gpt-4o-mini' : 'gpt-4o';
+}
+
 const MODELS_CACHE_KEY = 'gw:models';
 const MODELS_CACHE_TTL_S = 600;
 // Ключ расхода живёт ~45 дней: текущий месяц + запас на чтение статистики.
@@ -280,6 +301,8 @@ export class GatewayService {
     }
 
     const upstreamBody: Record<string, unknown> = { ...body };
+    // ID модели — под активный апстрим (OpenRouter «openai/…» vs ProxyAPI «…»).
+    upstreamBody.model = mapModelForUpstream(model);
     if (upstreamBody.stream) {
       upstreamBody.stream_options = { include_usage: true, ...(body.stream_options as object) };
     }
