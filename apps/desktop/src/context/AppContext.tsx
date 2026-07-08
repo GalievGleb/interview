@@ -67,9 +67,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // запись голосом (см. hasStt ниже).
     try {
       const diag = await api.sttProviders();
-      const READY = new Set(['ready', 'available']);
+      // reason: 'ready' (Whisper на диске) или 'available…' (облако/гейтвей, может
+      // иметь суффикс «управляемый SkillCue»).
+      const reasonReady = (r: string) => r === 'ready' || r.startsWith('available');
       const active = diag.providers.find((p) => p.id === diag.default);
-      const engineReady = !!active && active.available && READY.has(active.reason);
+      const engineReady = !!active && active.available && reasonReady(active.reason);
       // Локальный Whisper — фолбэк: если выбран облачный движок без ключа/гейтвея,
       // сервер прозрачно откатывается на Whisper (см. /stt/stream). Поэтому STT
       // «готов», когда готов активный движок ИЛИ доступен Whisper.

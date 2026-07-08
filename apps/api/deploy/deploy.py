@@ -85,6 +85,44 @@ def read_openrouter_key() -> str:
     return key
 
 
+def read_yandex_key() -> str:
+    """Ключ Яндекс SpeechKit v3 для управляемого STT-релея (/gateway/stt/stream).
+    Из env SKILLCUE_YANDEX_KEY или OS keyring (yandex_api_key). Без него выбор
+    Yandex в десктопе вернёт "STT gateway is not configured"."""
+    import os
+
+    key = os.environ.get("SKILLCUE_YANDEX_KEY", "").strip()
+    if not key:
+        try:
+            import keyring
+
+            key = keyring.get_password("interview-copilot", "yandex_api_key") or ""
+        except Exception:
+            key = ""
+    if not key:
+        print("!! Ключ Яндекс SpeechKit не найден — управляемый STT отдаст 'not configured'")
+    return key
+
+
+def read_yookassa_secret() -> str:
+    """Секретный ключ ЮKassa — из env SKILLCUE_YOOKASSA_SECRET или OS keyring.
+    Мы его НИКОГДА не коммитим; deploy лишь читает то, что положил владелец.
+    Без него /gateway/checkout вернёт 503, остальное работает."""
+    import os
+
+    key = os.environ.get("SKILLCUE_YOOKASSA_SECRET", "").strip()
+    if not key:
+        try:
+            import keyring
+
+            key = keyring.get_password("interview-copilot", "yookassa_secret_key") or ""
+        except Exception:
+            key = ""
+    if not key:
+        print("!! Секрет ЮKassa не найден — оплата (/gateway/checkout) отдаст 503, пока не добавишь ключ")
+    return key
+
+
 def admin_secret() -> str:
     if ADMIN_SECRET_FILE.exists():
         return ADMIN_SECRET_FILE.read_text(encoding="utf-8").strip()
@@ -120,6 +158,14 @@ def build_env() -> str:
         "GATEWAY_BLOCKED_MODELS="
         "openai/o1,openai/o3,openai/gpt-4.5,openai/gpt-5,"
         "anthropic/claude-3-opus,anthropic/claude-opus,google/gemini-2.5-pro",
+        # Управляемый STT: ключ Яндекс SpeechKit v3, с него идёт распознавание
+        # ВСЕХ покупателей через /gateway/stt/stream (см. gateway-stt.gateway.ts).
+        f"YANDEX_API_KEY={read_yandex_key()}",
+        # Оплата ЮKassa (billing.service.ts). Секрет — из keyring/env владельца,
+        # в репозиторий не попадает. Без секрета checkout отдаёт 503.
+        "YOOKASSA_SHOP_ID=1402744",
+        f"YOOKASSA_SECRET_KEY={read_yookassa_secret()}",
+        "YOOKASSA_RETURN_URL=https://skill-cue.ru/pay-success.html",
     ]
     if signing:
         lines.append(f"LICENSE_PRIVATE_KEY_HEX={signing}")

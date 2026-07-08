@@ -13,6 +13,7 @@ import {
   Headers,
   HttpException,
   Post,
+  Query,
   Req,
   Res,
   UnauthorizedException,
@@ -20,6 +21,7 @@ import {
 import { Request, Response } from 'express';
 import { IsEmail, IsIn, IsInt, IsOptional, IsString, Min } from 'class-validator';
 import { GatewayService } from './gateway.service';
+import { BillingService } from './billing.service';
 import { mintLicenseKey } from './license.util';
 
 class IssueDto {
@@ -46,9 +48,23 @@ class TrialDto {
   clientId!: string;
 }
 
+class CheckoutDto {
+  @IsIn(['basic', 'max'])
+  plan!: 'basic' | 'max';
+
+  @IsIn(['monthly', 'yearly'])
+  period!: 'monthly' | 'yearly';
+
+  @IsEmail()
+  email!: string;
+}
+
 @Controller()
 export class GatewayController {
-  constructor(private readonly gateway: GatewayService) {}
+  constructor(
+    private readonly gateway: GatewayService,
+    private readonly billing: BillingService,
+  ) {}
 
   @Get('health')
   async health() {
@@ -188,5 +204,26 @@ export class GatewayController {
       privateKeyHex,
     );
     return { key, email: dto.email, plan: dto.plan ?? 'max' };
+  }
+
+  // ---- Оплата ЮKassa --------------------------------------------------------
+
+  /** Создать платёж и вернуть ссылку на оплату (редирект на ЮKassa). */
+  @Post('gateway/checkout')
+  async checkout(@Body() dto: CheckoutDto) {
+    return this.billing.createCheckout(dto.plan, dto.period, dto.email);
+  }
+
+  /** Вебхук ЮKassa. Всегда отвечаем 200, чтобы не ловить бесконечные ретраи. */
+  @Post('gateway/yookassa/webhook')
+  async yookassaWebhook(@Body() body: Record<string, unknown>) {
+    await this.billing.handleWebhook(body);
+    return { ok: true };
+  }
+
+  /** Опрос страницей успеха: как только оплата подтверждена — вернём ключ. */
+  @Get('gateway/checkout/status')
+  async checkoutStatus(@Query('payment') paymentId: string) {
+    return this.billing.status(paymentId);
   }
 }

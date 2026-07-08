@@ -475,16 +475,19 @@ class SpeechKitProvider(BaseTranscriptionProvider):
     estimated_latency_ms = 400
 
     def is_available(self) -> bool:
-        # Доступность = наличие ключа. grpcio/yandexcloud нужны ТОЛЬКО прямому
-        # live-стримингу (gRPC); батч/бенчмарк идёт через REST v1 (httpx), а live
-        # без своего ключа — через gateway-релей. Поэтому не требуем grpc здесь,
-        # иначе бенчмарк ложно просит `pip install requirements-stt-cloud.txt`.
-        return bool(api_key())
+        # Доступен, если есть свой ключ (прямой REST/gRPC) ИЛИ настроен облачный
+        # гейтвей SkillCue (управляемый релей, ключ Яндекса на сервере). grpcio
+        # нужен ТОЛЬКО прямому live-стримингу; батч/бенчмарк — REST, gateway —
+        # websockets. Поэтому grpc здесь не требуем (иначе бенчмарк ложно просит
+        # `pip install requirements-stt-cloud.txt`).
+        return bool(api_key()) or bool(get_settings().skillcue_gateway_url)
 
     def _availability_reason(self) -> str:
-        if not api_key():
-            return "Нужен API-ключ Яндекс Cloud (Настройки)"
-        return "available"
+        if api_key():
+            return "available"
+        if get_settings().skillcue_gateway_url:
+            return "available (управляемый SkillCue)"
+        return "Нужен API-ключ Яндекс Cloud (Настройки)"
 
     def get_privacy_description(self) -> str:
         return PRIVACY_CLOUD + " Аудио уходит в Яндекс Cloud (Россия)."

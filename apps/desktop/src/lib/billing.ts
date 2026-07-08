@@ -1,12 +1,12 @@
 /**
- * Тарифы и покупка. Оплата на RU-старте — через Telegram-бота:
- * кнопка «Оплатить» открывает @SkillCue_support_bot с deep-link'ом плана,
- * бот присылает реквизиты, после оплаты админ выдаёт лицензионный ключ
- * (leadbot: /key), пользователь активирует его в настройках. Ключей API
- * в приложении нет.
+ * Тарифы и покупка. Оплата — через ЮKassa: кнопка «Оплатить» открывает в
+ * браузере страницу оплаты skill-cue.ru/pay?plan=…&period=…, оттуда редирект на
+ * ЮKassa. После оплаты сервер выпускает подписанный лицензионный ключ (гейтвей:
+ * billing.service.ts), страница успеха показывает его, пользователь вставляет
+ * ключ в Настройки → Лицензия. Приложению не нужен доступ к платёжке.
  *
- * Для EN-экспансии вернуть внешний checkout (LemonSqueezy) — вебхук уже
- * готов: apps/api-py/tools/license_webhook.py.
+ * Ручная выдача через Telegram-бота (@SkillCue_support_bot, leadbot /key) —
+ * остаётся резервным каналом поддержки, но основной путь теперь ЮKassa.
  */
 
 import type { I18nKey } from './i18n';
@@ -55,21 +55,13 @@ export const PLANS: PlanInfo[] = [
   },
 ];
 
-const SALES_BOT = 'https://t.me/SkillCue_support_bot';
-
-const CHECKOUT_URLS: Record<PlanId, Record<BillingPeriod, string>> = {
-  basic: {
-    monthly: `${SALES_BOT}?start=buy_basic_monthly`,
-    yearly: `${SALES_BOT}?start=buy_basic_yearly`,
-  },
-  max: {
-    monthly: `${SALES_BOT}?start=buy_max_monthly`,
-    yearly: `${SALES_BOT}?start=buy_max_yearly`,
-  },
-};
+// Страница оплаты на лендинге (ведёт на ЮKassa). Переопределяется на сборке
+// через VITE_PAY_BASE, если домен другой.
+const PAY_BASE = import.meta.env?.VITE_PAY_BASE ?? 'https://skill-cue.ru/pay';
 
 export function checkoutUrl(plan: PlanId, period: BillingPeriod): string {
-  return CHECKOUT_URLS[plan][period];
+  const qs = new URLSearchParams({ plan, period });
+  return `${PAY_BASE}?${qs.toString()}`;
 }
 
 export function formatRub(n: number): string {

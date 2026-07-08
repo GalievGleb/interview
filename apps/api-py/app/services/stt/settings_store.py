@@ -101,14 +101,15 @@ def _defaults() -> SttSettings:
             # partial обычно самый лёгкий (fast=tiny). Оставляем "fast", только
             # если tiny реально забандлен; иначе тоже офлайн-модель, что есть.
             partial = "fast" if "fast" in bundled else best
-    # Дефолтный движок: Яндекс SpeechKit, ЕСЛИ задан ключ сервисного аккаунта
-    # (тогда он реально работает — облачный, быстрый). Иначе локальный Whisper:
-    # он забандлен (tiny) и работает из коробки. Управляемый Яндекс без ключа
-    # (через гейтвей) пока не развёрнут, поэтому дефолтом его не ставим, иначе
-    # каждая сессия молча откатывалась бы на Whisper с ярлыком «облако».
+    # Дефолтный движок: Яндекс SpeechKit, когда он РЕАЛЬНО работает — либо задан
+    # свой ключ сервисного аккаунта (прямой путь), либо настроен облачный гейтвей
+    # SkillCue (управляемый STT-релей развёрнут на сервере, ключ Яндекса живёт
+    # там). Иначе локальный Whisper — он забандлен (tiny) и работает из коробки.
     from app.services import secrets
 
-    engine = "speechkit" if secrets.get_secret("yandex_api_key") else "whisper"
+    has_yandex = bool(secrets.get_secret("yandex_api_key"))
+    has_gateway = bool(s.skillcue_gateway_url)
+    engine = "speechkit" if (has_yandex or has_gateway) else "whisper"
     return SttSettings(
         local_model=final,
         partial_model=partial,
