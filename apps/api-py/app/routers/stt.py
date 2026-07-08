@@ -254,24 +254,35 @@ async def stt_stream(ws: WebSocket) -> None:
     if engine not in VALID_ENGINES:
         engine = "whisper"
 
+    from app.services.stt.base import SttEngineUnavailable
+
     try:
-        if engine == "deepgram":
-            from app.services.stt import deepgram_stream
+        try:
+            if engine == "deepgram":
+                from app.services.stt import deepgram_stream
 
-            await deepgram_stream.run_deepgram_stream(
-                ws, language=language, sample_rate=sample_rate
-            )
-        elif engine == "speechkit":
-            from app.services.stt import speechkit_stream
+                await deepgram_stream.run_deepgram_stream(
+                    ws, language=language, sample_rate=sample_rate
+                )
+            elif engine == "speechkit":
+                from app.services.stt import speechkit_stream
 
-            await speechkit_stream.run_speechkit_stream(
-                ws, language=language, sample_rate=sample_rate
-            )
-        else:
+                await speechkit_stream.run_speechkit_stream(
+                    ws, language=language, sample_rate=sample_rate
+                )
+            else:
+                await whisper_stream.run_whisper_stream(
+                    ws,
+                    language=language,
+                    sample_rate=sample_rate,
+                )
+        except SttEngineUnavailable as exc:
+            # Облачный движок не стартовал (нет ключа/гейтвея/зависимостей) —
+            # прозрачно продолжаем на локальном Whisper, чтобы выбор Яндекса/
+            # Deepgram без ключа не «ломал» распознавание, а просто работал.
+            logger.info("STT engine %s unavailable (%s) — falling back to Whisper", engine, exc)
             await whisper_stream.run_whisper_stream(
-                ws,
-                language=language,
-                sample_rate=sample_rate,
+                ws, language=language, sample_rate=sample_rate
             )
     except WebSocketDisconnect:
         pass

@@ -25,6 +25,7 @@ from .base import (
     PRIVACY_CLOUD,
     BaseTranscriptionProvider,
     ProviderMode,
+    SttEngineUnavailable,
 )
 from .whisper_stream import RECEIVE_POLL_S, quality_gate
 
@@ -108,24 +109,13 @@ async def run_deepgram_stream(
 ) -> None:
     key = api_key()
     if not key:
-        await client_ws.send_json(
-            {
-                "type": "error",
-                "message": (
-                    "Не задан API-ключ Deepgram. Откройте Настройки → Распознавание "
-                    "речи и вставьте ключ, либо переключитесь на локальный Whisper."
-                ),
-            }
-        )
-        return
+        # Нет ключа — не тупик: диспетчер откатится на локальный Whisper.
+        raise SttEngineUnavailable("Не задан API-ключ Deepgram")
 
     try:
         import websockets
-    except ImportError:
-        await client_ws.send_json(
-            {"type": "error", "message": "Модуль websockets не установлен (pip install websockets)."}
-        )
-        return
+    except ImportError as exc:
+        raise SttEngineUnavailable("Модуль websockets не установлен") from exc
 
     url = build_ws_url(language, sample_rate)
     try:

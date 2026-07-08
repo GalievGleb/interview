@@ -204,26 +204,27 @@ def test_gateway_stt_ws_url_maps_scheme_and_strips_nothing_extra():
 
 
 @pytest.mark.asyncio
-async def test_gateway_relay_errors_clearly_when_no_gateway_configured(monkeypatch):
+async def test_gateway_relay_unavailable_when_no_gateway_configured(monkeypatch):
+    # Нет ни ключа, ни гейтвея — не шлём клиенту error-простыню, а сигналим
+    # диспетчеру откатиться на Whisper (SttEngineUnavailable). См. /stt/stream.
     from app.config import get_settings
     from app.services.stt import speechkit_stream as sk
+    from app.services.stt.base import SttEngineUnavailable
 
     monkeypatch.setattr(get_settings(), "skillcue_gateway_url", "", raising=False)
     client_ws = _FakeClientWs()
-    await sk._run_gateway_relay(client_ws, language="ru", sample_rate=16000)
-
-    assert len(client_ws.sent) == 1
-    assert client_ws.sent[0]["type"] == "error"
-    assert "API-ключ" in client_ws.sent[0]["message"]
+    with pytest.raises(SttEngineUnavailable):
+        await sk._run_gateway_relay(client_ws, language="ru", sample_rate=16000)
+    assert client_ws.sent == []
 
 
 @pytest.mark.asyncio
-async def test_gateway_relay_errors_clearly_when_trial_claim_fails(monkeypatch):
-    """Gateway настроен, но триал/лицензию получить не удалось (нет интернета
-    или сервис недоступен) — пользователь должен получить понятный текст, а не
-    зависание или трейсбек."""
+async def test_gateway_relay_unavailable_when_trial_claim_fails(monkeypatch):
+    """Gateway настроен, но триал/лицензию получить не удалось — тоже не тупик:
+    поднимаем SttEngineUnavailable, диспетчер уходит на локальный Whisper."""
     from app.config import get_settings
     from app.services.stt import speechkit_stream as sk
+    from app.services.stt.base import SttEngineUnavailable
 
     monkeypatch.setattr(
         get_settings(), "skillcue_gateway_url", "https://gw.example.com", raising=False
@@ -231,11 +232,9 @@ async def test_gateway_relay_errors_clearly_when_trial_claim_fails(monkeypatch):
     monkeypatch.setattr("app.services.provider_adapter._gateway_license_key", lambda: "")
 
     client_ws = _FakeClientWs()
-    await sk._run_gateway_relay(client_ws, language="ru", sample_rate=16000)
-
-    assert len(client_ws.sent) == 1
-    assert client_ws.sent[0]["type"] == "error"
-    assert "SkillCue" in client_ws.sent[0]["message"]
+    with pytest.raises(SttEngineUnavailable):
+        await sk._run_gateway_relay(client_ws, language="ru", sample_rate=16000)
+    assert client_ws.sent == []
 
 
 @pytest.mark.asyncio

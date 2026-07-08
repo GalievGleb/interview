@@ -67,9 +67,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // запись голосом (см. hasStt ниже).
     try {
       const diag = await api.sttProviders();
-      const active = diag.providers.find((p) => p.id === diag.default);
       const READY = new Set(['ready', 'available']);
-      setSttReady(!!active && active.available && READY.has(active.reason));
+      const active = diag.providers.find((p) => p.id === diag.default);
+      const engineReady = !!active && active.available && READY.has(active.reason);
+      // Локальный Whisper — фолбэк: если выбран облачный движок без ключа/гейтвея,
+      // сервер прозрачно откатывается на Whisper (см. /stt/stream). Поэтому STT
+      // «готов», когда готов активный движок ИЛИ доступен Whisper.
+      const whisper = diag.providers.find((p) => p.id === 'whisper-local');
+      const whisperReady = !!whisper && whisper.available && whisper.reason === 'ready';
+      setSttReady(engineReady || whisperReady);
     } catch {
       setSttReady(false);
     }

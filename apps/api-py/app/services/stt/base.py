@@ -23,6 +23,13 @@ from enum import Enum
 from typing import Protocol, runtime_checkable
 
 
+class SttEngineUnavailable(Exception):
+    """Облачный движок не смог СТАРТОВАТЬ (нет ключа, гейтвей недоступен, нет
+    зависимостей) — до отправки клиенту ready/transcript. Диспетчер /stt/stream
+    ловит это и прозрачно откатывается на локальный Whisper, чтобы выбор Яндекса/
+    Deepgram без ключа не «ломал» распознавание, а просто работал через Whisper."""
+
+
 class ProviderMode(str, Enum):
     LOCAL = "local"
     CLOUD = "cloud"

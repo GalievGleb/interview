@@ -28,6 +28,7 @@ from .base import (
     PRIVACY_CLOUD,
     BaseTranscriptionProvider,
     ProviderMode,
+    SttEngineUnavailable,
 )
 from .whisper_stream import RECEIVE_POLL_S, quality_gate
 
@@ -166,54 +167,27 @@ async def _run_gateway_relay(
 
     gateway_url = get_settings().skillcue_gateway_url
     if not gateway_url:
-        await client_ws.send_json(
-            {
-                "type": "error",
-                "message": (
-                    "Не задан API-ключ Яндекс SpeechKit. Откройте Настройки → "
-                    "Распознавание речи и вставьте ключ сервисного аккаунта, "
-                    "либо переключитесь на локальный Whisper."
-                ),
-            }
-        )
-        return
+        # Ни своего ключа, ни гейтвея — не отдаём ошибку, а сигналим диспетчеру
+        # откатиться на Whisper (см. SttEngineUnavailable в /stt/stream).
+        raise SttEngineUnavailable("Яндекс SpeechKit не настроен (нет ключа и гейтвея)")
 
     license_key = _gateway_license_key()
     if not license_key:
-        await client_ws.send_json(
-            {
-                "type": "error",
-                "message": (
-                    "Не удалось подключиться к облачному распознаванию SkillCue "
-                    "(нет интернета или сервис недоступен). Переключитесь на "
-                    "локальный Whisper или вставьте свой ключ Яндекса в Настройках."
-                ),
-            }
-        )
-        return
+        raise SttEngineUnavailable("Нет лицензии SkillCue для облачного STT")
 
     try:
         import websockets
-    except ImportError:
-        await client_ws.send_json(
-            {
-                "type": "error",
-                "message": "Модуль websockets не установлен (pip install websockets).",
-            }
-        )
-        return
+    except ImportError as exc:
+        raise SttEngineUnavailable("Модуль websockets не установлен") from exc
 
     root = _gateway_root_url(gateway_url)
     url = gateway_stt_ws_url(root, license_key, language=language, sample_rate=sample_rate)
 
     try:
         upstream = await websockets.connect(url, max_size=2**22)
-    except Exception as exc:  # noqa: BLE001 — сеть/квота: пользователю нужен текст
+    except Exception as exc:  # noqa: BLE001 — гейтвей STT недоступен/не развёрнут
         logger.warning("Gateway STT connect failed: %s", exc)
-        await client_ws.send_json(
-            {"type": "error", "message": f"Не удалось подключиться к облачному STT SkillCue: {exc}"}
-        )
-        return
+        raise SttEngineUnavailable(f"Гейтвей STT недоступен: {exc}") from exc
 
     async def pump_audio() -> None:
         try:
@@ -268,9 +242,9 @@ async def run_speechkit_stream(
 
     try:
         grpc, stt_pb2, stt_service_pb2_grpc = _import_grpc()
-    except ImportError:
-        await client_ws.send_json({"type": "error", "message": DEPS_HINT})
-        return
+    except ImportError as exc:
+        # Есть ключ, но нет grpc-зависимостей — не тупик: откат на Whisper.
+        raise SttEngineUnavailable(DEPS_HINT) from exc
 
     from .settings_store import load_stt_settings
 
