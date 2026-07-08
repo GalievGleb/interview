@@ -4,6 +4,7 @@ import InterviewExportButtons from '../components/interview/InterviewExportButto
 import { api, SessionItem, SessionDetail } from '../lib/api';
 import { buildStoredSessionExport } from '../lib/interviewSessionExport';
 import { useI18n, type I18nKey } from '../lib/i18n';
+import { launchLive } from '../lib/launchLive';
 import {
   listSessions as listMockSessions,
   deleteSession as deleteMockSession,
@@ -422,7 +423,7 @@ export default function HistoryPage() {
                 <button
                   type="button"
                   className="prep-btn prep-btn-secondary prep-btn-sm"
-                  onClick={() => navigate('/interview')}
+                  onClick={() => launchLive(() => navigate('/overlay'))}
                 >
                   {t('history.startLive')}
                 </button>

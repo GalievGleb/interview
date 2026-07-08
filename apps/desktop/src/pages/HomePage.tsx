@@ -6,6 +6,7 @@ import ReadinessRing from '../components/prepare/ReadinessRing';
 import { api, type SessionStats } from '../lib/api';
 import { useApp } from '../context/AppContext';
 import { useI18n } from '../lib/i18n';
+import { launchLive } from '../lib/launchLive';
 import { pluralRu } from '../lib/pluralRu';
 import { readinessLabelText, readinessTone, topicStatusTone } from '../lib/vacancyReview/readiness';
 import {
@@ -177,8 +178,8 @@ export default function HomePage() {
               </button>
               <button
                 type="button"
-                className="prep-btn prep-btn-ghost"
-                onClick={() => navigate('/interview')}
+                className="prep-btn prep-btn-secondary"
+                onClick={() => launchLive(() => navigate('/overlay'))}
               >
                 {t('home.action.openLive')}
               </button>

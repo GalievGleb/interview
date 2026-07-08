@@ -23,11 +23,13 @@ export interface ElectronAPI {
     setContentProtection: (enable: boolean) => Promise<void>;
     move?: (dx: number, dy: number) => Promise<void>;
     setFocusable?: (focusable: boolean) => Promise<void>;
+    setLiveState?: (active: boolean) => Promise<void>;
   };
   window: {
     setSkipTaskbar: (skip: boolean) => Promise<void>;
   };
   onNavigate?: (cb: (path: string) => void) => () => void;
+  onLiveState?: (cb: (active: boolean) => void) => () => void;
   updater?: {
     onStatus: (cb: (status: UpdaterStatus) => void) => () => void;
     install: () => Promise<void>;

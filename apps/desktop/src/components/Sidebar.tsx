@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import { useI18n, type I18nKey } from '../lib/i18n';
 import { useApp } from '../context/AppContext';
+import { launchLive } from '../lib/launchLive';
 import StatusBadge from './ui/StatusBadge';
 
 const isElectron = typeof window !== 'undefined' && !!window.electronAPI;
@@ -134,7 +135,9 @@ function Icon({ name, size = 17 }: { name: IconName; size?: number }) {
   }
 }
 
-type NavItem = { to: string; label: I18nKey; icon: IconName; live?: boolean };
+// launch:true — не маршрут, а действие: показать плавающий оверлей (live-режим
+// больше не отдельная страница). to остаётся как fallback-маршрут для браузера.
+type NavItem = { to: string; label: I18nKey; icon: IconName; live?: boolean; launch?: boolean };
 type NavGroup = { title: I18nKey; items: NavItem[] };
 
 const GROUPS: NavGroup[] = [
@@ -147,7 +150,7 @@ const GROUPS: NavGroup[] = [
   },
   {
     title: 'nav.group.live',
-    items: [{ to: '/interview', label: 'nav.interview', icon: 'interview', live: true }],
+    items: [{ to: '/overlay', label: 'nav.interview', icon: 'interview', live: true, launch: true }],
   },
   {
     title: 'nav.group.context',
@@ -181,6 +184,7 @@ function useSessionLive(): boolean {
 export default function Sidebar() {
   const { backendOnline, backendStatus } = useApp();
   const { t } = useI18n();
+  const navigate = useNavigate();
   const sessionLive = useSessionLive();
   const [undetected, setUndetected] = useState(false);
   const [hiddenTaskbar, setHiddenTaskbar] = useState(false);
@@ -216,30 +220,53 @@ export default function Sidebar() {
               {t(group.title)}
             </p>
             <div className="space-y-1">
-              {group.items.map((item) => (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  className={({ isActive }) =>
-                    `nav-pill ${isActive ? 'nav-pill-active' : 'nav-pill-idle'}`
-                  }
-                >
-                  {({ isActive }) => (
-                    <>
-                      <span className={isActive ? 'text-accent' : 'text-ink-faint'}>
+              {group.items.map((item) => {
+                const liveDot = item.live && sessionLive && (
+                  <span className="sc-ping" aria-label="session live">
+                    <span className="sc-ping__halo bg-emerald-400" />
+                    <span className="sc-ping__core bg-emerald-400" />
+                  </span>
+                );
+                // Live-режим — плавающий оверлей, а не страница: рисуем кнопку,
+                // которая показывает его (в браузере — fallback-переход на маршрут).
+                if (item.launch) {
+                  return (
+                    <button
+                      key={item.to}
+                      type="button"
+                      onClick={() => launchLive(() => navigate(item.to))}
+                      className={`nav-pill w-full text-left ${
+                        sessionLive ? 'nav-pill-active' : 'nav-pill-idle'
+                      }`}
+                    >
+                      <span className={sessionLive ? 'text-accent' : 'text-ink-faint'}>
                         <Icon name={item.icon} />
                       </span>
                       <span className="flex-1 truncate">{t(item.label)}</span>
-                      {item.live && sessionLive && (
-                        <span className="sc-ping" aria-label="session live">
-                          <span className="sc-ping__halo bg-emerald-400" />
-                          <span className="sc-ping__core bg-emerald-400" />
+                      {liveDot}
+                    </button>
+                  );
+                }
+                return (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    className={({ isActive }) =>
+                      `nav-pill ${isActive ? 'nav-pill-active' : 'nav-pill-idle'}`
+                    }
+                  >
+                    {({ isActive }) => (
+                      <>
+                        <span className={isActive ? 'text-accent' : 'text-ink-faint'}>
+                          <Icon name={item.icon} />
                         </span>
-                      )}
-                    </>
-                  )}
-                </NavLink>
-              ))}
+                        <span className="flex-1 truncate">{t(item.label)}</span>
+                        {liveDot}
+                      </>
+                    )}
+                  </NavLink>
+                );
+              })}
             </div>
           </div>
         ))}

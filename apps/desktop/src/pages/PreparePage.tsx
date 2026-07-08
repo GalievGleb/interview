@@ -7,6 +7,7 @@ import ReadinessReportView from '../components/prepare/ReadinessReportView';
 import { printReadinessReport } from '../lib/vacancyReview/reportPrint';
 import { useVacancyReview } from '../lib/vacancyReview/useVacancyReview';
 import { getSession, listSessions } from '../lib/vacancyReview/vacancyReviewStore';
+import { launchLive } from '../lib/launchLive';
 
 export default function PreparePage() {
   const navigate = useNavigate();
@@ -75,7 +76,7 @@ export default function PreparePage() {
             analysis={session.vacancyAnalysis}
             onSave={downloadReport}
             onPrint={() => printReadinessReport(session.vacancyAnalysis, session.report!)}
-            onStartLive={() => navigate('/interview')}
+            onStartLive={() => launchLive(() => navigate('/overlay'))}
             onNewReview={review.restart}
             onFollowUpRound={() => review.startFollowUpRound()}
             onPracticeTopic={review.startFollowUpRound}

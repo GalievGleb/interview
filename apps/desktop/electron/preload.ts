@@ -32,6 +32,8 @@ const api = {
     move: (dx: number, dy: number) => ipcRenderer.invoke('overlay:move', dx, dy),
     setFocusable: (focusable: boolean) =>
       ipcRenderer.invoke('overlay:setFocusable', focusable),
+    // Оверлей → главное окно: live-сессия запущена/остановлена (сайдбар-таймер).
+    setLiveState: (active: boolean) => ipcRenderer.invoke('overlay:liveState', active),
   },
   window: {
     setSkipTaskbar: (skip: boolean) => ipcRenderer.invoke('window:setSkipTaskbar', skip),
@@ -41,6 +43,12 @@ const api = {
     const handler = (_e: unknown, path: string) => cb(path);
     ipcRenderer.on('app:navigate', handler);
     return () => ipcRenderer.removeListener('app:navigate', handler);
+  },
+  // Live-состояние из окна оверлея — чтобы главное окно показывало хронометр.
+  onLiveState: (cb: (active: boolean) => void) => {
+    const handler = (_e: unknown, active: boolean) => cb(active);
+    ipcRenderer.on('app:live-state', handler);
+    return () => ipcRenderer.removeListener('app:live-state', handler);
   },
   updater: {
     onStatus: (cb: (status: unknown) => void) => {

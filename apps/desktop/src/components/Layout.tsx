@@ -7,7 +7,7 @@ import { useApp } from '../context/AppContext';
 import { useI18n, type I18nKey } from '../lib/i18n';
 import { getBackendBannerKind } from './layout/backendBanner';
 
-const WIDE_ROUTES = new Set(['/interview', '/meeting']);
+const WIDE_ROUTES = new Set(['/meeting']);
 const PREP_ROUTES = new Set(['/home', '/prepare', '/documents', '/history']);
 const NO_TITLEBAR_ROUTES = new Set(['/meeting']);
 
@@ -24,7 +24,7 @@ const CLOUD_STT_LABEL_KEY: Record<string, I18nKey> = {
   deepgram: 'shell.cloud.deepgram',
 };
 
-function TitleBar({ onInterview }: { onInterview: boolean }) {
+function TitleBar() {
   const { sttEngine } = useApp();
   const { t } = useI18n();
   const cloudLabel = CLOUD_STT_LABEL_KEY[sttEngine] ? t(CLOUD_STT_LABEL_KEY[sttEngine]) : '';
@@ -88,27 +88,6 @@ function TitleBar({ onInterview }: { onInterview: boolean }) {
       )}
 
       <div className="ml-auto flex items-center gap-2">
-        {onInterview && (
-          <button
-            type="button"
-            onClick={() => window.dispatchEvent(new Event('skillcue:toggle-focus'))}
-            className="btn-secondary btn-sm"
-          >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.75"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3" />
-            </svg>
-            {t('shell.focus')}
-          </button>
-        )}
         {cloudLabel ? (
           <span
             className="skillcue-local-pill skillcue-local-pill--cloud"
@@ -170,7 +149,7 @@ export default function Layout({ children }: { children: ReactNode }) {
     <div className="flex h-screen flex-col overflow-hidden bg-surface text-ink">
       <CommandPalette />
       <UpdateToast />
-      {showTitleBar && <TitleBar onInterview={pathname === '/interview'} />}
+      {showTitleBar && <TitleBar />}
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <Sidebar />
         <main className="skillcue-main flex min-w-0 flex-1 flex-col overflow-hidden">

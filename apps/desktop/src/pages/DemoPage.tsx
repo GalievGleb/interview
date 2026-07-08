@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { useI18n, type I18nKey } from '../lib/i18n';
+import { launchLive } from '../lib/launchLive';
 
 /**
  * Демо «как это работает» — скриптованная live-сессия без микрофона, STT и
@@ -232,7 +233,9 @@ export default function DemoPage() {
           <button
             type="button"
             className="btn-primary btn-sm"
-            onClick={() => navigate(setupReady ? '/interview' : '/settings?tab=ai')}
+            onClick={() =>
+              setupReady ? launchLive(() => navigate('/overlay')) : navigate('/settings?tab=ai')
+            }
           >
             {setupReady ? t('demo.startLive') : t('demo.setup')}
           </button>

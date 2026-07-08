@@ -4,6 +4,7 @@ import { getFastAnswer, setFastAnswer } from '../lib/api';
 import { answerChimeEnabled, setAnswerChime } from '../lib/notifySound';
 import { isSpeculativeEnabled, setSpeculative } from '../lib/speculativePref';
 import { getLang, setLang, useI18n } from '../lib/i18n';
+import { launchLive } from '../lib/launchLive';
 
 interface Command {
   id: string;
@@ -29,7 +30,6 @@ export default function CommandPalette() {
       return [
         { id: 'home', label: t('cmd.home'), run: () => navigate('/home') },
         { id: 'prepare', label: t('cmd.prepare'), run: () => navigate('/prepare') },
-        { id: 'interview', label: t('cmd.interview'), run: () => navigate('/interview') },
         { id: 'documents', label: t('cmd.documents'), run: () => navigate('/documents') },
         { id: 'history', label: t('cmd.history'), run: () => navigate('/history') },
         { id: 'settings', label: t('cmd.settings'), run: () => navigate('/settings') },
@@ -53,7 +53,7 @@ export default function CommandPalette() {
           label: `${t('cmd.lang')}: ${getLang() === 'ru' ? 'English' : 'Русский'}`,
           run: () => setLang(getLang() === 'ru' ? 'en' : 'ru'),
         },
-        { id: 'overlay', label: t('cmd.overlay'), hint: 'Ctrl+Shift+H', run: () => void window.electronAPI?.overlay.show() },
+        { id: 'overlay', label: t('cmd.overlay'), hint: 'Ctrl+Shift+H', run: () => launchLive(() => navigate('/overlay')) },
         { id: 'meeting', label: t('cmd.meeting'), dev: true, run: () => navigate('/meeting') },
         { id: 'testlab', label: t('cmd.testlab'), dev: true, run: () => navigate('/test-lab') },
         { id: 'benchmark', label: t('cmd.benchmark'), dev: true, run: () => navigate('/benchmark') },

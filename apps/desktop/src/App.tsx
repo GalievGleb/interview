@@ -10,7 +10,6 @@ const HomePage = lazy(() => import('./pages/HomePage'));
 const PreparePage = lazy(() => import('./pages/PreparePage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const DocumentsPage = lazy(() => import('./pages/DocumentsPage'));
-const InterviewPage = lazy(() => import('./pages/InterviewPage'));
 const DemoPage = lazy(() => import('./pages/DemoPage'));
 const MeetingPage = lazy(() => import('./pages/MeetingPage'));
 const HistoryPage = lazy(() => import('./pages/HistoryPage'));
@@ -47,6 +46,17 @@ function Gate({ children }: { children: React.ReactNode }) {
 function NavigationBridge() {
   const navigate = useNavigate();
   useEffect(() => window.electronAPI?.onNavigate?.((path) => navigate(path)), [navigate]);
+
+  // Live-сессия крутится в окне оверлея (отдельный процесс) — его window-события
+  // сюда не долетают. Main-процесс пробрасывает состояние, а мы ре-диспатчим те
+  // же события в главном окне, чтобы TitleBar-хронометр и веха активации работали.
+  useEffect(
+    () =>
+      window.electronAPI?.onLiveState?.((active) => {
+        window.dispatchEvent(new Event(active ? 'skillcue:live-start' : 'skillcue:live-stop'));
+      }),
+    [],
+  );
 
   // Вехи активации: установка (первый запуск) и старт первой live-сессии.
   useEffect(() => {
@@ -91,7 +101,6 @@ export default function App() {
           <Route path="/overlay" element={<OverlayPage />} />
           <Route path="/home" element={<Gate><HomePage /></Gate>} />
           <Route path="/prepare" element={<Gate><PreparePage /></Gate>} />
-          <Route path="/interview" element={<Gate><InterviewPage /></Gate>} />
           <Route path="/demo" element={<Gate><DemoPage /></Gate>} />
           <Route path="/meeting" element={<Gate><MeetingPage /></Gate>} />
           <Route path="/documents" element={<Gate><DocumentsPage /></Gate>} />

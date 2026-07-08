@@ -1131,6 +1131,50 @@ export function useLiveCopilot() {
     [],
   );
 
+  // Сигнал о live-состоянии: сайдбар-хронометр и веха активации (App.tsx,
+  // Layout.tsx) слушают skillcue:live-start/stop. Хук теперь живёт в оверлее
+  // (отдельное окно), поэтому, помимо локального события, дублируем состояние в
+  // главное окно через main-процесс — там App.tsx ре-диспатчит те же события.
+  useEffect(() => {
+    window.dispatchEvent(new Event(active ? 'skillcue:live-start' : 'skillcue:live-stop'));
+    void window.electronAPI?.overlay?.setLiveState?.(active);
+  }, [active]);
+
+  // Телеметрия задержек завершённого обмена: локальный снимок для Diagnostics
+  // (у той страницы нет своей live-сессии) + серверный p50/p95-тренд с бюджетами.
+  // Раньше жила в InterviewPage; перенесена в хук, чтобы пережить удаление страницы.
+  useEffect(() => {
+    const dbg = sttDebug;
+    if (dbg?.totalEndToEndMs == null) return;
+    try {
+      localStorage.setItem(
+        'skillcue:lastTimings',
+        JSON.stringify({
+          firstPartialMs: dbg.timeToFirstPartialMs ?? null,
+          transcribeMs: dbg.finalTranscriptionMs ?? dbg.timeToFinalMs ?? null,
+          sttFinalMs: dbg.timeToFinalMs ?? null,
+          llmFirstMs: dbg.llmFirstTokenMs ?? dbg.timeToAnswerMs ?? null,
+          llmTotalMs: dbg.llmTotalMs ?? null,
+          totalMs: dbg.totalEndToEndMs,
+          at: Date.now(),
+        }),
+      );
+    } catch {
+      /* storage unavailable */
+    }
+    void api
+      .recordLatency({
+        stt_ms: dbg.timeToFinalMs != null ? Math.round(dbg.timeToFinalMs) : null,
+        llm_first_ms: dbg.llmFirstTokenMs != null ? Math.round(dbg.llmFirstTokenMs) : null,
+        llm_total_ms: dbg.llmTotalMs != null ? Math.round(dbg.llmTotalMs) : null,
+        total_ms: Math.round(dbg.totalEndToEndMs),
+      })
+      .catch(() => {
+        /* telemetry is best-effort */
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sttDebug?.totalEndToEndMs]);
+
   const updateAnswerEntry = useCallback((id: string, spoken: string) => {
     setAnswerHistory((prev) =>
       prev.map((entry) => (entry.id === id ? { ...entry, spoken, ts: Date.now() } : entry)),

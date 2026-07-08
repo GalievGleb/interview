@@ -514,6 +514,12 @@ function registerIpc(): void {
     overlayWindow?.setFocusable(focusable);
   });
 
+  ipcMain.handle('overlay:liveState', (_e, active: boolean) => {
+    // Live-сессия крутится в окне оверлея; главное окно не видит его событий,
+    // поэтому пробрасываем состояние туда — сайдбар-хронометр и веха активации.
+    mainWindow?.webContents.send('app:live-state', !!active);
+  });
+
   ipcMain.handle('window:setSkipTaskbar', (_e, skip: boolean) => {
     mainWindow?.setSkipTaskbar(skip);
   });
