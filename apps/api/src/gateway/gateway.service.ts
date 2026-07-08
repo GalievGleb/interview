@@ -61,10 +61,21 @@ const MODELS_CACHE_TTL_S = 600;
 const USAGE_TTL_S = 45 * 24 * 3600;
 const RATE_LIMIT_PER_MIN = 60;
 const TRIAL_LICENSE_TTL_S = 15 * 24 * 3600;
+// Анти-фарм триалов: без лимитов эндпоинт /gateway/trial (без авторизации,
+// дедуп по подконтрольному клиенту clientId) позволял намайнить бесконечно
+// подписанных trial-ключей по 300k токенов каждый и разорить владельца по счёту
+// апстрима. Ограничиваем выпуск НОВЫХ триалов по IP и глобально в день.
+const TRIAL_MAX_PER_IP_DAY = Number(process.env.GATEWAY_TRIAL_MAX_PER_IP_DAY ?? 3);
+const TRIAL_GLOBAL_DAILY_CAP = Number(process.env.GATEWAY_TRIAL_GLOBAL_DAILY_CAP ?? 500);
+const DAY_TTL_S = 25 * 3600;
 
 function monthStamp(): string {
   const d = new Date();
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+function dayStamp(): string {
+  return new Date().toISOString().slice(0, 10);
 }
 
 // Защита расходов: бюджет тарифа — в ТОКЕНАХ, но цена токена у моделей отличается
@@ -139,7 +150,46 @@ export class GatewayService {
     return license;
   }
 
-  async issueTrial(clientId: string | undefined): Promise<{ key: string; email: string; plan: 'trial' }> {
+  /**
+   * Анти-фарм НОВЫХ триалов: лимит по IP/день + глобальный дневной потолок.
+   * Redis недоступен → fail-closed 503 (лучше отказать, чем отдать безлимит).
+   * Считаем только реальные выпуски, cache-hit по clientId сюда не попадает.
+   */
+  private async assertTrialAllowed(ip: string): Promise<void> {
+    const day = dayStamp();
+    let ipOk: boolean;
+    let minted: number;
+    try {
+      const ipHash = createHash('sha256').update(ip || 'unknown').digest('hex').slice(0, 24);
+      ipOk = await this.redis.checkRateLimit(`gw:trialip:${ipHash}:${day}`, TRIAL_MAX_PER_IP_DAY, DAY_TTL_S);
+      const client = this.redis.getClient();
+      const capKey = `gw:trialcap:${day}`;
+      minted = await client.incr(capKey);
+      if (minted === 1) await client.expire(capKey, DAY_TTL_S);
+    } catch (e) {
+      this.logger.error(`Redis unavailable in assertTrialAllowed: ${e}`);
+      throw new HttpException(
+        { error: { message: 'Сервис временно недоступен, попробуйте позже.', code: 'service_unavailable' } },
+        503,
+      );
+    }
+    if (!ipOk || minted > TRIAL_GLOBAL_DAILY_CAP) {
+      throw new HttpException(
+        {
+          error: {
+            message: 'Лимит выдачи пробного доступа исчерпан — попробуйте позже или оформите тариф.',
+            code: 'trial_limit_reached',
+          },
+        },
+        429,
+      );
+    }
+  }
+
+  async issueTrial(
+    clientId: string | undefined,
+    ip = 'unknown',
+  ): Promise<{ key: string; email: string; plan: 'trial' }> {
     const normalized = (clientId ?? '').trim().slice(0, 200);
     if (!normalized) {
       throw new UnauthorizedException({
@@ -152,6 +202,9 @@ export class GatewayService {
     const email = `trial-${id}@skillcue.local`;
     const cached = await this.redis.getClient().get(redisKey);
     if (cached) return { key: cached, email, plan: 'trial' };
+
+    // Новый триал — сначала анти-фарм лимиты, потом дорогая крипта/подпись.
+    await this.assertTrialAllowed(ip);
 
     const privateKeyHex = process.env.LICENSE_PRIVATE_KEY_HEX ?? '';
     if (!privateKeyHex) {

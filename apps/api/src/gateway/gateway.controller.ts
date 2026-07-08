@@ -13,10 +13,11 @@ import {
   Headers,
   HttpException,
   Post,
+  Req,
   Res,
   UnauthorizedException,
 } from '@nestjs/common';
-import { Response } from 'express';
+import { Request, Response } from 'express';
 import { IsEmail, IsIn, IsInt, IsOptional, IsString, Min } from 'class-validator';
 import { GatewayService } from './gateway.service';
 import { mintLicenseKey } from './license.util';
@@ -162,8 +163,11 @@ export class GatewayController {
   }
 
   @Post('gateway/trial')
-  async trial(@Body() dto: TrialDto) {
-    return this.gateway.issueTrial(dto.clientId);
+  async trial(@Body() dto: TrialDto, @Req() req: Request) {
+    // За egress-прокси/nginx реальный адрес — в X-Forwarded-For (первый хоп).
+    const fwd = (req.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim();
+    const ip = fwd || req.socket?.remoteAddress || 'unknown';
+    return this.gateway.issueTrial(dto.clientId, ip);
   }
 
   @Post('gateway/issue')
