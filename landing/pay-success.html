@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Оплата принята — SkillCue</title>
+  <meta name="robots" content="noindex" />
+  <style>
+    :root {
+      --bg: #05070b; --panel: #0d1420; --panel-2: #111b2a;
+      --line: rgba(194,213,240,.13); --line-strong: rgba(194,213,240,.23);
+      --text: #f4f7fb; --soft: #c7d2e2; --muted: #7f8da3;
+      --green: #46d37d; --green-2: #7ee7a4; --danger: #ff7f7f;
+      --radius-lg: 24px; --radius-md: 16px;
+      --sans: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      --display: Manrope, Inter, ui-sans-serif, system-ui, sans-serif;
+      --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; background: var(--bg); color: var(--text);
+      font-family: var(--sans); display: flex; align-items: center; justify-content: center; padding: 24px;
+      background-image: radial-gradient(60% 50% at 50% 0%, rgba(70,211,125,.10), transparent 70%);
+    }
+    .card { width: 100%; max-width: 500px; background: linear-gradient(180deg, var(--panel), var(--panel-2)); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 32px; box-shadow: 0 34px 110px rgba(0,0,0,.46); }
+    .brand { display: flex; align-items: center; gap: 8px; font-family: var(--display); font-weight: 700; font-size: 18px; margin-bottom: 22px; text-decoration: none; color: var(--text); }
+    .brand span { color: var(--green-2); }
+    h1 { font-family: var(--display); font-size: 22px; margin: 0 0 6px; }
+    .sub { color: var(--soft); font-size: 14px; margin: 0 0 22px; line-height: 1.55; }
+    .spin { width: 30px; height: 30px; border: 3px solid rgba(126,231,164,.25); border-top-color: var(--green); border-radius: 50%; animation: r .8s linear infinite; margin: 12px auto 18px; }
+    @keyframes r { to { transform: rotate(360deg); } }
+    .keybox { border: 1px solid var(--line-strong); border-radius: var(--radius-md); background: rgba(70,211,125,.06); padding: 14px; display: flex; gap: 10px; align-items: center; }
+    .keybox code { font-family: var(--mono); font-size: 13px; color: var(--green-2); word-break: break-all; flex: 1; }
+    .copy { border: 1px solid var(--line-strong); background: rgba(255,255,255,.05); color: var(--text); border-radius: 10px; padding: 8px 12px; font: inherit; font-size: 13px; cursor: pointer; white-space: nowrap; }
+    ol { color: var(--soft); font-size: 14px; line-height: 1.7; padding-left: 20px; margin: 18px 0 0; }
+    .muted { color: var(--muted); font-size: 13px; margin-top: 18px; line-height: 1.55; }
+    .muted a { color: var(--green-2); }
+    .hide { display: none; }
+    .center { text-align: center; }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <a class="brand" href="/">Skill<span>Cue</span></a>
+
+    <!-- Ожидание подтверждения -->
+    <section id="pending">
+      <div class="spin"></div>
+      <h1 class="center">Подтверждаем оплату…</h1>
+      <p class="sub center">Обычно занимает несколько секунд. Не закрывайте страницу.</p>
+    </section>
+
+    <!-- Успех: ключ -->
+    <section id="done" class="hide">
+      <h1>✅ Оплата прошла. Спасибо!</h1>
+      <p class="sub">Ваш лицензионный ключ. Скопируйте его и активируйте в приложении:
+        <b>Настройки → Лицензия → Активировать</b>.</p>
+      <div class="keybox">
+        <code id="key">—</code>
+        <button class="copy" id="copyBtn" type="button">Копировать</button>
+      </div>
+      <ol>
+        <li>Откройте SkillCue (или <a href="/downloads/SkillCue-Setup.exe" style="color:var(--green-2)">скачайте</a>, если ещё не установлен).</li>
+        <li>Настройки → Лицензия → вставьте ключ → «Активировать».</li>
+        <li>Готово — тариф активен, ключ также продублирован на вашу почту в чеке.</li>
+      </ol>
+      <p class="muted">Ключ не приходит или ошибка активации? Напишите в
+        <a href="https://t.me/SkillCue_support_bot">Telegram-поддержку</a> — поможем.</p>
+    </section>
+
+    <!-- Оплата не подтвердилась / долго -->
+    <section id="fail" class="hide">
+      <h1>Оплата ещё обрабатывается</h1>
+      <p class="sub">ЮKassa пока не подтвердила платёж. Если деньги списаны, ключ придёт
+        на почту в течение пары минут. Можно обновить страницу или написать нам.</p>
+      <p class="muted"><a href="#" onclick="location.reload();return false" style="color:var(--green-2)">Обновить</a>
+        · <a href="https://t.me/SkillCue_support_bot">Поддержка в Telegram</a></p>
+    </section>
+  </main>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const params = new URLSearchParams(location.search);
+    let paymentId = params.get('payment');
+    if (!paymentId) { try { paymentId = localStorage.getItem('skillcue_payment'); } catch (e) {} }
+
+    function show(sec) {
+      ['pending', 'done', 'fail'].forEach((s) => $(s).classList.toggle('hide', s !== sec));
+    }
+    function showKey(key) {
+      $('key').textContent = key;
+      show('done');
+      try { localStorage.removeItem('skillcue_payment'); } catch (e) {}
+      if (window.ym) { try { ym(110472034, 'reachGoal', 'purchase'); } catch (e) {} }
+    }
+
+    $('copyBtn').addEventListener('click', () => {
+      navigator.clipboard.writeText($('key').textContent).then(() => {
+        $('copyBtn').textContent = 'Скопировано';
+        setTimeout(() => ($('copyBtn').textContent = 'Копировать'), 1600);
+      });
+    });
+
+    if (!paymentId) {
+      show('fail');
+    } else {
+      let tries = 0;
+      const MAX = 40; // ~2 минуты (40 × 3 c)
+      async function poll() {
+        tries++;
+        try {
+          const res = await fetch('/gateway/checkout/status?payment=' + encodeURIComponent(paymentId));
+          const data = await res.json().catch(() => ({}));
+          if (data.status === 'succeeded' && data.key) { showKey(data.key); return; }
+        } catch (e) { /* сеть — попробуем ещё */ }
+        if (tries >= MAX) { show('fail'); return; }
+        setTimeout(poll, 3000);
+      }
+      poll();
+    }
+  </script>
+
+  <!-- Yandex.Metrika counter -->
+  <script type="text/javascript">
+    (function(m,e,t,r,i,k,a){m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};
+    m[i].l=1*new Date();for(var j=0;j<document.scripts.length;j++){if(document.scripts[j].src===r){return;}}
+    k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,k.src=r,a.parentNode.insertBefore(k,a)})
+    (window,document,"script","https://mc.yandex.ru/metrika/tag.js","ym");
+    ym(110472034,"init",{clickmap:true,trackLinks:true,accurateTrackBounce:true});
+  </script>
+  <noscript><div><img src="https://mc.yandex.ru/watch/110472034" style="position:absolute;left:-9999px" alt="" /></div></noscript>
+</body>
+</html>

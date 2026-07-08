@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Оплата — SkillCue</title>
+  <meta name="robots" content="noindex" />
+  <link rel="canonical" href="https://skill-cue.ru/pay" />
+  <style>
+    :root {
+      --bg: #05070b; --panel: #0d1420; --panel-2: #111b2a; --panel-3: #162235;
+      --line: rgba(194,213,240,.13); --line-strong: rgba(194,213,240,.23);
+      --text: #f4f7fb; --soft: #c7d2e2; --muted: #7f8da3;
+      --green: #46d37d; --green-2: #7ee7a4; --danger: #ff7f7f;
+      --radius-lg: 24px; --radius-md: 16px;
+      --sans: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      --display: Manrope, Inter, ui-sans-serif, system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; background: var(--bg); color: var(--text);
+      font-family: var(--sans); display: flex; align-items: center; justify-content: center;
+      padding: 24px;
+      background-image: radial-gradient(60% 50% at 50% 0%, rgba(70,211,125,.10), transparent 70%);
+    }
+    .card {
+      width: 100%; max-width: 440px; background: linear-gradient(180deg, var(--panel), var(--panel-2));
+      border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 32px;
+      box-shadow: 0 34px 110px rgba(0,0,0,.46);
+    }
+    .brand { display: flex; align-items: center; gap: 8px; font-family: var(--display); font-weight: 700; font-size: 18px; margin-bottom: 22px; text-decoration: none; color: var(--text); }
+    .brand span { color: var(--green-2); }
+    h1 { font-family: var(--display); font-size: 22px; margin: 0 0 4px; }
+    .sub { color: var(--muted); font-size: 14px; margin: 0 0 22px; }
+    .seg { display: inline-flex; background: rgba(255,255,255,.04); border: 1px solid var(--line); border-radius: 12px; padding: 4px; gap: 4px; margin-bottom: 18px; }
+    .seg button { border: 0; background: transparent; color: var(--soft); font: inherit; font-size: 13px; padding: 8px 16px; border-radius: 9px; cursor: pointer; }
+    .seg button.on { background: rgba(70,211,125,.16); color: var(--green-2); font-weight: 600; }
+    .summary { display: flex; align-items: baseline; justify-content: space-between; padding: 16px; border: 1px solid var(--line); border-radius: var(--radius-md); background: rgba(255,255,255,.025); margin-bottom: 20px; }
+    .summary .plan { font-weight: 600; }
+    .summary .plan small { display: block; color: var(--muted); font-weight: 400; font-size: 12px; margin-top: 2px; }
+    .summary .amount { font-family: var(--display); font-size: 24px; font-weight: 700; }
+    .summary .amount small { font-size: 12px; color: var(--muted); font-weight: 400; }
+    label { display: block; font-size: 13px; color: var(--soft); margin-bottom: 6px; }
+    input[type=email] { width: 100%; padding: 13px 14px; border-radius: 12px; border: 1px solid var(--line-strong); background: rgba(255,255,255,.03); color: var(--text); font: inherit; font-size: 15px; }
+    input[type=email]:focus { outline: none; border-color: var(--green); }
+    .hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
+    .pay { width: 100%; margin-top: 20px; padding: 15px; border: 0; border-radius: 13px; background: linear-gradient(180deg, #65df91, #34c96f); color: #052013; font: inherit; font-weight: 700; font-size: 15px; cursor: pointer; }
+    .pay:disabled { opacity: .55; cursor: default; }
+    .err { color: var(--danger); font-size: 13px; margin-top: 12px; min-height: 18px; }
+    .legal { color: var(--muted); font-size: 11px; line-height: 1.5; margin-top: 16px; text-align: center; }
+    .legal a { color: var(--soft); }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <a class="brand" href="/">Skill<span>Cue</span></a>
+    <h1 id="planTitle">Оформление подписки</h1>
+    <p class="sub">Оплата картой через ЮKassa. Ключ придёт сразу после оплаты.</p>
+
+    <div class="seg" role="group" aria-label="Период">
+      <button type="button" data-period="monthly" class="on">Месяц</button>
+      <button type="button" data-period="yearly">Год <span style="opacity:.8">−2 мес</span></button>
+    </div>
+
+    <div class="summary">
+      <div class="plan" id="planLabel">Тариф</div>
+      <div class="amount"><span id="amount">—</span> <small id="per">₽</small></div>
+    </div>
+
+    <label for="email">E-mail для чека и ключа</label>
+    <input type="email" id="email" placeholder="you@example.com" autocomplete="email" inputmode="email" />
+    <p class="hint">На эту почту придёт чек. Ключ покажем на следующем шаге сразу после оплаты.</p>
+
+    <button class="pay" id="payBtn" type="button">Перейти к оплате</button>
+    <div class="err" id="err" role="alert"></div>
+
+    <p class="legal">
+      Нажимая «Перейти к оплате», вы принимаете
+      <a href="/oferta.html" target="_blank" rel="noopener">оферту</a> и
+      <a href="/privacy.html" target="_blank" rel="noopener">политику конфиденциальности</a>.
+      <a href="/requisites.html" target="_blank" rel="noopener">Реквизиты</a>.
+    </p>
+  </main>
+
+  <script>
+    // Прайс дублирует сервер (yookassa.util.ts) — здесь только для показа суммы;
+    // реальную сумму считает сервер, клиенту не доверяем.
+    const PRICES = {
+      basic: { monthly: 1490, yearly: 14900, name: '«Базовый»' },
+      max:   { monthly: 2990, yearly: 29900, name: '«Максимум»' },
+    };
+    const params = new URLSearchParams(location.search);
+    let plan = params.get('plan') === 'basic' ? 'basic' : 'max';
+    let period = params.get('period') === 'yearly' ? 'yearly' : 'monthly';
+
+    const $ = (id) => document.getElementById(id);
+    function render() {
+      const p = PRICES[plan];
+      $('planTitle').textContent = 'Подписка SkillCue ' + p.name;
+      $('planLabel').innerHTML = 'Тариф SkillCue ' + p.name +
+        '<small>' + (period === 'yearly' ? 'на год' : 'на месяц') + '</small>';
+      $('amount').textContent = p[period].toLocaleString('ru-RU');
+      $('per').textContent = period === 'yearly' ? '₽ / год' : '₽ / мес';
+      document.querySelectorAll('.seg button').forEach((b) =>
+        b.classList.toggle('on', b.dataset.period === period));
+    }
+    document.querySelectorAll('.seg button').forEach((b) =>
+      b.addEventListener('click', () => { period = b.dataset.period; render(); }));
+    render();
+
+    const btn = $('payBtn');
+    btn.addEventListener('click', async () => {
+      const email = $('email').value.trim();
+      $('err').textContent = '';
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        $('err').textContent = 'Введите корректный e-mail.';
+        return;
+      }
+      btn.disabled = true;
+      btn.textContent = 'Создаём платёж…';
+      try {
+        const res = await fetch('/gateway/checkout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ plan, period, email }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.confirmationUrl) {
+          const msg = data?.error?.message || 'Не удалось создать платёж. Попробуйте позже.';
+          throw new Error(msg);
+        }
+        // Сохраняем id платежа — страница успеха по нему получит ключ.
+        try { localStorage.setItem('skillcue_payment', data.paymentId); } catch (e) {}
+        if (window.ym) { try { ym(110472034, 'reachGoal', 'checkout_start'); } catch (e) {} }
+        location.href = data.confirmationUrl;
+      } catch (e) {
+        $('err').textContent = e.message || 'Ошибка. Попробуйте позже.';
+        btn.disabled = false;
+        btn.textContent = 'Перейти к оплате';
+      }
+    });
+  </script>
+
+  <!-- Yandex.Metrika counter -->
+  <script type="text/javascript">
+    (function(m,e,t,r,i,k,a){m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};
+    m[i].l=1*new Date();for(var j=0;j<document.scripts.length;j++){if(document.scripts[j].src===r){return;}}
+    k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,k.src=r,a.parentNode.insertBefore(k,a)})
+    (window,document,"script","https://mc.yandex.ru/metrika/tag.js","ym");
+    ym(110472034,"init",{clickmap:true,trackLinks:true,accurateTrackBounce:true});
+  </script>
+  <noscript><div><img src="https://mc.yandex.ru/watch/110472034" style="position:absolute;left:-9999px" alt="" /></div></noscript>
+</body>
+</html>
