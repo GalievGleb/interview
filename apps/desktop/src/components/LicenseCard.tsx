@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api';
 import { useApp } from '../context/AppContext';
 import { useI18n, type I18nKey } from '../lib/i18n';
@@ -9,36 +9,55 @@ const PLAN_LABEL_KEYS: Record<string, I18nKey> = {
   max: 'license.plan.max',
 };
 
-/** Лицензия: 15-мин live-trial, тариф, месячный токен-бюджет + активация ключа. */
-export default function LicenseCard() {
+/** Лицензия: 15-мин live-trial, тариф, месячный токен-бюджет + активация ключа.
+ *
+ * `autoActivateKey` приходит по deep-link skillcue://activate?key=… (после оплаты
+ * на сайте) — активируем его автоматически с тем же фидбэком, что и ручной ввод,
+ * в любом статусе (в т.ч. апгрейд basic→max, когда поля ввода не видно). */
+export default function LicenseCard({ autoActivateKey }: { autoActivateKey?: string }) {
   const { license, refreshLicense } = useApp();
   const { t } = useI18n();
   const [key, setKey] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const autoDone = useRef<string | null>(null);
+
+  const planLabel = useCallback(
+    (plan: string) => (PLAN_LABEL_KEYS[plan] ? t(PLAN_LABEL_KEYS[plan]) : plan),
+    [t],
+  );
+
+  const activateKey = useCallback(
+    async (raw: string) => {
+      const k = raw.trim();
+      if (!k) return;
+      setBusy(true);
+      setError('');
+      setMessage('');
+      try {
+        const res = await api.activateLicense(k);
+        setMessage(`${t('license.activated')} (${planLabel(res.plan)})`);
+        setKey('');
+        await refreshLicense();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : t('license.activateError'));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [planLabel, refreshLicense, t],
+  );
+
+  // Активация по deep-link — ровно один раз на каждый пришедший ключ.
+  useEffect(() => {
+    if (autoActivateKey && autoDone.current !== autoActivateKey) {
+      autoDone.current = autoActivateKey;
+      void activateKey(autoActivateKey);
+    }
+  }, [autoActivateKey, activateKey]);
 
   if (!license) return null;
-
-  const planLabel = (plan: string) =>
-    PLAN_LABEL_KEYS[plan] ? t(PLAN_LABEL_KEYS[plan]) : plan;
-
-  const activate = async () => {
-    if (!key.trim()) return;
-    setBusy(true);
-    setError('');
-    setMessage('');
-    try {
-      const res = await api.activateLicense(key.trim());
-      setMessage(`${t('license.activated')} (${planLabel(res.plan)})`);
-      setKey('');
-      await refreshLicense();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t('license.activateError'));
-    } finally {
-      setBusy(false);
-    }
-  };
 
   const minutesLeft =
     license.live_seconds_left != null ? Math.ceil(license.live_seconds_left / 60) : null;
@@ -82,17 +101,20 @@ export default function LicenseCard() {
             />
             <button
               type="button"
-              onClick={() => void activate()}
+              onClick={() => void activateKey(key)}
               disabled={busy || !key.trim()}
               className="btn-primary btn-sm shrink-0"
             >
               {busy ? t('common.checking') : t('license.activate')}
             </button>
           </div>
-          {message && <p className="mt-2 text-xs text-emerald-400">{message}</p>}
-          {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
         </>
       )}
+
+      {/* Результат активации (ручной или по deep-link) — виден в любом статусе,
+          чтобы фидбэк не терялся при апгрейде уже активной лицензии. */}
+      {message && <p className="mt-2 text-xs text-emerald-400">{message}</p>}
+      {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
 
       {/* Токены пользователю не показываем — только мягкое уведомление, если
           серверный месячный лимит тарифа исчерпан и AI временно недоступен. */}

@@ -59,8 +59,9 @@
     <!-- Успех: ключ -->
     <section id="done" class="hide">
       <h1>✅ Оплата прошла. Спасибо!</h1>
-      <p class="sub">Сохраните лицензионный ключ — он включает платные функции в приложении.
-        Копия ключа продублирована в чеке на вашу почту.</p>
+      <p class="sub">Сохраните лицензионный ключ — он активирует платные функции.
+        Чек об оплате придёт на вашу почту. Потеряете ключ — вернитесь на эту
+        страницу в том же браузере (доступен 3 дня) или напишите в поддержку.</p>
       <div class="keybox">
         <code id="key">—</code>
         <button class="copy" id="copyBtn" type="button">Копировать</button>
@@ -108,7 +109,8 @@
       // Ссылка авто-активации в установленном приложении (protocol skillcue://).
       $('activateApp').href = 'skillcue://activate?key=' + encodeURIComponent(key);
       show('done');
-      try { localStorage.removeItem('skillcue_payment'); } catch (e) {}
+      // localStorage НЕ чистим: пользователь может вернуться на эту страницу в
+      // том же браузере и снова увидеть ключ (status перепроверяет платёж 3 дня).
       if (window.ym) { try { ym(110472034, 'reachGoal', 'purchase'); } catch (e) {} }
     }
 

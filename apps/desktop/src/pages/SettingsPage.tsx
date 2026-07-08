@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../lib/api';
 import Modal from '../components/Modal';
 import MicrophoneSettings from '../components/MicrophoneSettings';
@@ -605,6 +605,13 @@ export default function SettingsPage() {
   const [tab, setTab] = useState<SettingsTab>(
     requestedTab && SECTIONS.some((s) => s.id === requestedTab) ? requestedTab : 'general',
   );
+  // Deep-link активация skillcue://activate?key=… приносит ключ через navigation
+  // state и раскрывает раздел «Тарифы», даже если Settings уже был открыт.
+  const location = useLocation();
+  const activateKey = (location.state as { activateKey?: string } | null)?.activateKey;
+  useEffect(() => {
+    if (activateKey) setTab('billing');
+  }, [activateKey]);
   const [message, setMessage] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [reporting, setReporting] = useState(false);
@@ -750,7 +757,7 @@ export default function SettingsPage() {
         {tab === 'billing' && (
           <>
             <PlanPicker />
-            <LicenseCard />
+            <LicenseCard autoActivateKey={activateKey} />
           </>
         )}
 
