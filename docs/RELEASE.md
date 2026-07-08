@@ -58,3 +58,46 @@ git push origin main --tags
   нет прав Contents:write на ScillCue.
 - `tag уже существует` → релиз с этим тегом уже был; подними версию.
 - Сборка бэкенда упала на hidden-imports → см. `apps/api-py/PACKAGING.md`.
+- `Cannot compute electron version` → должно быть `build.electronVersion` в
+  `apps/desktop/package.json` (иначе electron-builder не соберётся в pnpm-монорепо).
+
+## TL;DR выпустить обновление (для будущих сессий / ИИ)
+
+Одной командой из корня репозитория (дерево должно быть чистым, ветка `main`):
+
+```
+powershell -ExecutionPolicy Bypass -File scripts\release.ps1        # bump patch + tag + push
+# или двойной клик: scripts\release.bat
+```
+
+Скрипт поднимает версию в `apps/desktop/package.json`, коммитит, ставит тег
+`vX.Y.Z`, пушит — CI сам собирает и публикует установщик в `ScillCue`.
+Мониторинг (если есть gh): `gh run watch <id>` — токен берётся из git credential:
+`GH_TOKEN=$(printf 'protocol=https\nhost=github.com\n\n' | git credential fill | sed -n 's/^password=//p')`.
+Установщик называется стабильно `SkillCue-Setup.exe` (`nsis.artifactName`), релиз
+публикуется сразу (`publish.releaseType: release`).
+
+## Как сайт отдаёт установщик (ВАЖНО — почему «скачивалась старая версия»)
+
+Кнопки «Скачать» на лендинге ведут на `/downloads/SkillCue-Setup.exe`. Раньше это
+был **статический файл на сервере** (`/opt/skillcue/landing/downloads/…`), который
+НЕ обновлялся при новом релизе → пользователи качали старую сборку.
+
+Теперь в nginx стоит редирект (файл `/etc/nginx/sites-enabled/skillcue.conf`,
+внутри HTTPS-server-блока):
+
+```nginx
+location = /downloads/SkillCue-Setup.exe {
+    return 302 https://github.com/GalievGleb/ScillCue/releases/latest/download/SkillCue-Setup.exe;
+}
+```
+
+То есть `skill-cue.ru/downloads/SkillCue-Setup.exe` всегда редиректит на **последний
+релиз GitHub**. Копировать `.exe` на сервер вручную больше НЕ нужно. Лидбот
+(`tools/leadbot/config.json → download_url`) уже указывает на тот же
+`…/releases/latest/download/SkillCue-Setup.exe`. Проверка после релиза:
+`curl -sIL https://skill-cue.ru/downloads/SkillCue-Setup.exe` → 302 → github → 200.
+
+⚠️ Версия намеренно сброшена на `0.0.1` (перезапуск нумерации перед публичным
+стартом). Авто-апдейт с более старших сборок (0.1.x) на 0.0.1 НЕ придёт — это ок,
+реальной базы установок ещё нет; дальше катим 0.0.2, 0.0.3, …
