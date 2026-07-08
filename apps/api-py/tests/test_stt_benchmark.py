@@ -162,6 +162,48 @@ async def test_run_case_with_fake_provider():
     assert res["errorType"] in {"ok", "partial", "low", "empty"}
 
 
+class _FailingProvider:
+    """Simulates a cloud engine (SpeechKit/Deepgram) whose network call fails —
+    e.g. an expired key or a network hiccup on one clip."""
+
+    id = "yandex-speechkit-v3"
+
+    def _active_model(self) -> str:
+        return "speechkit-v3-general"
+
+    async def transcribe_audio_file(self, audio, *, language=None, sample_rate=16000):
+        raise RuntimeError('SpeechKit 401: {"error_code": "UNAUTHENTICATED"}')
+
+
+@pytest.mark.asyncio
+async def test_run_case_reports_provider_failure_instead_of_raising():
+    # Regression: a cloud-engine network/auth failure on one case must not
+    # crash the whole run (500) — it must come back as a scored error result.
+    cases = benchmark.load_cases()
+    case = next((c for c in cases if c["id"] == "04_flaky_tests"), None)
+    if case is None:
+        pytest.skip("benchmark case missing")
+    audio = benchmark.resolve_audio_path(case["audioFile"])
+    if not audio.is_file():
+        pytest.skip("audio missing")
+
+    res = await benchmark.run_case(case, _FailingProvider())
+    assert res["errorType"] == "transcribe_failed"
+    assert "401" in res["error"]
+    assert res["engine"] == "yandex-speechkit-v3"
+    assert "raw" not in res  # excluded from score averaging, like audio_missing
+
+
+@pytest.mark.asyncio
+async def test_run_all_survives_one_failing_case():
+    cases = benchmark.load_cases()
+    report = await benchmark.run_all(_FailingProvider())
+    assert report["caseCount"] == len(cases)
+    assert report["errorTypes"].get("transcribe_failed") == len(cases)
+    # No case scored -> averages default to 0 rather than raising ZeroDivisionError.
+    assert report["avgKeywordMatchCorrected"] == 0.0
+
+
 # --- endpoints (model-independent ones) ----------------------------------
 def test_cases_endpoint():
     r = client.get("/stt/benchmark/cases")

@@ -208,7 +208,22 @@ async def run_case(case: dict, provider: BaseTranscriptionProvider) -> dict:
             "error": f"Audio not found: {audio_path}",
         }
     audio = audio_path.read_bytes()
-    result = await provider.transcribe_audio_file(audio, language="multi")
+    try:
+        result = await provider.transcribe_audio_file(audio, language="multi")
+    except Exception as exc:  # noqa: BLE001
+        # Whisper runs locally and effectively never throws here, but cloud
+        # engines (SpeechKit/Deepgram) make a real network call per case — an
+        # expired key or network hiccup must fail just this one case, not crash
+        # the whole batch with an opaque 500 (see run_all's list comprehension).
+        logger.warning("STT benchmark case %s failed on %s: %s", case.get("id"), provider.id, exc)
+        return {
+            "caseId": case.get("id"),
+            "title": case.get("title"),
+            "engine": provider.id,
+            "model": provider._active_model(),
+            "errorType": "transcribe_failed",
+            "error": str(exc),
+        }
     scored = score_case(case, result.text, result.latency_ms)
     scored["engine"] = provider.id
     scored["model"] = provider._active_model()
