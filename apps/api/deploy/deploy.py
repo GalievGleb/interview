@@ -153,17 +153,30 @@ def main() -> None:
 
     import paramiko
 
-    password = (
-        args.password
-        or os.environ.get("SKILLCUE_SSH_PASSWORD")
-        or input(f"SSH-пароль {args.user}@{args.host}: ")
-    )
+    # Пароль опционален: если не задан (флагом/env) — ходим по SSH-ключу
+    # (~/.ssh/id_*, уже в authorized_keys VPS). input() спрашиваем ТОЛЬКО в
+    # интерактивном терминале, иначе (CI/агент) не вешаем деплой на промпт.
+    password = args.password or os.environ.get("SKILLCUE_SSH_PASSWORD")
+    if not password:
+        # Спрашиваем пароль в терминале; неинтерактивно (CI/агент, stdin закрыт)
+        # input() бросает EOFError — тогда идём по SSH-ключу без промпта.
+        try:
+            password = input(f"SSH-пароль {args.user}@{args.host} (пусто — по ключу): ").strip() or None
+        except EOFError:
+            password = None
 
     ssh = paramiko.SSHClient()
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    print(f"подключаюсь к {args.user}@{args.host}…")
+    auth_kind = "паролю" if password else "SSH-ключу"
+    print(f"подключаюсь к {args.user}@{args.host} по {auth_kind}…")
     ssh.connect(
-        args.host, port=args.port, username=args.user, password=password, timeout=20
+        args.host,
+        port=args.port,
+        username=args.user,
+        password=password,
+        timeout=20,
+        look_for_keys=password is None,
+        allow_agent=password is None,
     )
     sudo_pass = None if args.user == "root" else password
 
