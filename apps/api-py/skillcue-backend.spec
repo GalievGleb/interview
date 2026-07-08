@@ -30,7 +30,13 @@ for _pack in os.listdir(_packs_root) if os.path.isdir(_packs_root) else []:
         if os.path.exists(_src):
             datas.append((_src, _pack_rel))
 
-for pkg in ("faster_whisper", "ctranslate2", "tokenizers", "onnxruntime", "av", "huggingface_hub", "cryptography", "cffi"):
+# onnxruntime НЕ включаем: единственный его потребитель в faster-whisper — Silero
+# VAD, а он импортируется лениво внутри get_vad_model()/__init__ и срабатывает
+# только при vad_filter=True. Мы везде гоним vad_filter=False (энерго-VAD), так
+# что onnxruntime (одна из самых тяжёлых зависимостей, ~200 МБ распакованный)
+# при импорте faster_whisper не трогается. Явно в excludes ниже, чтобы статик-
+# анализ PyInstaller не потащил его транзитивно и не раздул установщик.
+for pkg in ("faster_whisper", "ctranslate2", "tokenizers", "av", "huggingface_hub", "cryptography", "cffi"):
     try:
         pkg_datas, pkg_binaries, pkg_hidden = collect_all(pkg)
         datas += pkg_datas
@@ -69,7 +75,11 @@ a = Analysis(
     hiddenimports=hiddenimports,
     hookspath=[],
     runtime_hooks=[],
-    excludes=[],
+    # onnxruntime тянет за собой Silero VAD, которым мы не пользуемся (vad_filter=
+    # False везде). Явный exclude гарантирует, что PyInstaller не положит его в
+    # бандл из-за ленивого `import onnxruntime` в faster_whisper/vad.py — это
+    # заметно уменьшает установщик и ускоряет первый холодный старт бэкенда.
+    excludes=["onnxruntime"],
     noarchive=False,
 )
 

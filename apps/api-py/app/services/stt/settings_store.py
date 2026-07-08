@@ -8,10 +8,14 @@ defaults at runtime.
 from __future__ import annotations
 
 import json
+import os
+from pathlib import Path
 
 from pydantic import BaseModel
 
 from app.config import DATA_DIR, get_settings
+
+from .whisper_models import WHISPER_MODELS
 
 STT_SETTINGS_PATH = DATA_DIR / "stt_settings.json"
 
@@ -56,12 +60,51 @@ class SttSettings(BaseModel):
         )
 
 
+# Порядок предпочтения при выборе забандленной модели по умолчанию: если в
+# установщик положили несколько, берём лучшую по качеству.
+_QUALITY_PREFERENCE = ("max", "quality", "balanced", "fast")
+
+
+def _bundled_qualities() -> list[str]:
+    """Качества, чья модель ФИЗИЧЕСКИ лежит в SKILLCUE_MODELS_DIR (офлайн-кэш,
+    вшитый в установщик; см. predownload_models.py и skillcue-backend.spec).
+
+    Пусто в dev-режиме и когда ничего не забандлено — тогда дефолты берутся из
+    env как раньше. Смысл: первый запуск упакованного приложения должен работать
+    БЕЗ докачки модели с HuggingFace, поэтому дефолтное качество приравниваем к
+    той модели, что уже есть на диске.
+    """
+    root = os.environ.get("SKILLCUE_MODELS_DIR")
+    if not root:
+        return []
+    base = Path(root)
+    if not base.is_dir():
+        return []
+    found: list[str] = []
+    for spec in WHISPER_MODELS:
+        cache = base / ("models--" + spec.download_repo.replace("/", "--"))
+        # Настоящий снапшот с model.bin, а не пустая папка/.gitkeep.
+        if cache.is_dir() and any(cache.glob("snapshots/*/model.bin")):
+            found.append(spec.quality.value)
+    return found
+
+
 def _defaults() -> SttSettings:
     s = get_settings()
+    final = s.stt_local_model
+    partial = "fast"
+    bundled = _bundled_qualities()
+    if bundled:
+        best = next((q for q in _QUALITY_PREFERENCE if q in bundled), None)
+        if best:
+            final = best
+            # partial обычно самый лёгкий (fast=tiny). Оставляем "fast", только
+            # если tiny реально забандлен; иначе тоже офлайн-модель, что есть.
+            partial = "fast" if "fast" in bundled else best
     return SttSettings(
-        local_model=s.stt_local_model,
-        partial_model="fast",
-        final_model=s.stt_local_model,
+        local_model=final,
+        partial_model=partial,
+        final_model=final,
         device=s.stt_device,
     )
 
