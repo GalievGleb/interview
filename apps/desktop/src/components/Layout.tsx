@@ -31,6 +31,11 @@ function TitleBar({ onInterview }: { onInterview: boolean }) {
   const [live, setLive] = useState(false);
   const [liveStart, setLiveStart] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const [version, setVersion] = useState('');
+
+  useEffect(() => {
+    void window.electronAPI?.getVersion?.().then((v) => setVersion(v));
+  }, []);
 
   useEffect(() => {
     const onStart = () => {
@@ -60,9 +65,11 @@ function TitleBar({ onInterview }: { onInterview: boolean }) {
       <div className="flex items-center gap-2">
         <div className="skillcue-logo skillcue-logo--small" aria-hidden />
         <span className="text-sm font-semibold tracking-tight text-ink">SkillCue</span>
-        <span className="sc-mono rounded-md border border-surface-border bg-surface-elevated px-1.5 py-0.5 text-[10px] text-ink-faint">
-          2.0
-        </span>
+        {version && (
+          <span className="sc-mono rounded-md border border-surface-border bg-surface-elevated px-1.5 py-0.5 text-[10px] text-ink-faint">
+            v{version}
+          </span>
+        )}
       </div>
 
       {/* Статус-хронометр показываем только во время live-сессии;
