@@ -32,6 +32,8 @@ export interface ElectronAPI {
   };
   onNavigate?: (cb: (path: string) => void) => () => void;
   onLiveState?: (cb: (active: boolean) => void) => () => void;
+  /** Ключ лицензии из ссылки skillcue://activate?key=… (авто-активация после оплаты). */
+  onActivateLicense?: (cb: (key: string) => void) => () => void;
   updater?: {
     onStatus: (cb: (status: UpdaterStatus) => void) => () => void;
     install: () => Promise<void>;

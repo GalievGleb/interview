@@ -3,6 +3,7 @@ import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { AppProvider, useApp } from './context/AppContext';
 import Layout from './components/Layout';
 import { markMilestone } from './lib/activation';
+import { api } from './lib/api';
 
 // Route-level code splitting — keeps the initial bundle small and cold start fast.
 const OnboardingPage = lazy(() => import('./pages/OnboardingPage'));
@@ -45,7 +46,28 @@ function Gate({ children }: { children: React.ReactNode }) {
 /** Lets the main window respond to navigation requested from the overlay. */
 function NavigationBridge() {
   const navigate = useNavigate();
+  const { refreshLicense } = useApp();
   useEffect(() => window.electronAPI?.onNavigate?.((path) => navigate(path)), [navigate]);
+
+  // Авто-активация лицензии по ссылке skillcue://activate?key=… (кнопка на
+  // странице успеха ЮKassa). Активируем, обновляем статус и ведём на «Лицензию»,
+  // где пользователь видит активный тариф. Ошибку не глотаем шумно — просто
+  // приводим на экран лицензии, где можно вставить ключ вручную.
+  useEffect(
+    () =>
+      window.electronAPI?.onActivateLicense?.((key) => {
+        void (async () => {
+          try {
+            await api.activateLicense(key);
+          } catch {
+            /* невалидный/просроченный ключ — покажем экран лицензии для ручного ввода */
+          }
+          await refreshLicense();
+          navigate('/licenses');
+        })();
+      }),
+    [navigate, refreshLicense],
+  );
 
   // Live-сессия крутится в окне оверлея (отдельный процесс) — его window-события
   // сюда не долетают. Main-процесс пробрасывает состояние, а мы ре-диспатчим те

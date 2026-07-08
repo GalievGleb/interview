@@ -37,6 +37,12 @@
     .muted a { color: var(--green-2); }
     .hide { display: none; }
     .center { text-align: center; }
+    .download { display: block; text-align: center; margin: 18px 0 4px; padding: 15px; border-radius: 13px; background: linear-gradient(180deg, #65df91, #34c96f); color: #052013; font-weight: 700; font-size: 15px; text-decoration: none; }
+    .branches { display: grid; gap: 10px; margin-top: 16px; }
+    .branch { border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,.025); padding: 12px 14px; }
+    .branch b { display: block; color: var(--text); font-size: 13.5px; margin-bottom: 3px; }
+    .branch p { margin: 0; color: var(--soft); font-size: 13px; line-height: 1.5; }
+    .branch span { color: var(--green-2); font-weight: 600; }
   </style>
 </head>
 <body>
@@ -53,18 +59,28 @@
     <!-- Успех: ключ -->
     <section id="done" class="hide">
       <h1>✅ Оплата прошла. Спасибо!</h1>
-      <p class="sub">Ваш лицензионный ключ. Скопируйте его и активируйте в приложении:
-        <b>Настройки → Лицензия → Активировать</b>.</p>
+      <p class="sub">Сохраните лицензионный ключ — он включает платные функции в приложении.
+        Копия ключа продублирована в чеке на вашу почту.</p>
       <div class="keybox">
         <code id="key">—</code>
         <button class="copy" id="copyBtn" type="button">Копировать</button>
       </div>
-      <ol>
-        <li>Откройте SkillCue (или <a href="/downloads/SkillCue-Setup.exe" style="color:var(--green-2)">скачайте</a>, если ещё не установлен).</li>
-        <li>Настройки → Лицензия → вставьте ключ → «Активировать».</li>
-        <li>Готово — тариф активен, ключ также продублирован на вашу почту в чеке.</li>
-      </ol>
-      <p class="muted">Ключ не приходит или ошибка активации? Напишите в
+
+      <a class="download" href="/downloads/SkillCue-Setup.exe">⬇&nbsp;&nbsp;Скачать SkillCue для Windows</a>
+
+      <div class="branches">
+        <div class="branch">
+          <b>Приложение уже установлено</b>
+          <p><a id="activateApp" href="#"><span>Активировать в один клик</span></a> — или вручную:
+            Настройки → Лицензия → вставьте ключ.</p>
+        </div>
+        <div class="branch">
+          <b>Ещё не установлено</b>
+          <p>Скачайте кнопкой выше → установите → вставьте ключ в <span>Настройки → Лицензия</span>.</p>
+        </div>
+      </div>
+
+      <p class="muted">Ошибка активации или ключ не подошёл? Напишите в
         <a href="https://t.me/SkillCue_support_bot">Telegram-поддержку</a> — поможем.</p>
     </section>
 
@@ -89,6 +105,8 @@
     }
     function showKey(key) {
       $('key').textContent = key;
+      // Ссылка авто-активации в установленном приложении (protocol skillcue://).
+      $('activateApp').href = 'skillcue://activate?key=' + encodeURIComponent(key);
       show('done');
       try { localStorage.removeItem('skillcue_payment'); } catch (e) {}
       if (window.ym) { try { ym(110472034, 'reachGoal', 'purchase'); } catch (e) {} }

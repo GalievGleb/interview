@@ -45,6 +45,9 @@ let backendLogStream: fs.WriteStream | null = null;
 let backendRestartAttempts = 0;
 let backendRestartTimer: NodeJS.Timeout | null = null;
 let quitting = false;
+// Ключ лицензии из ссылки skillcue://activate?key=… ждёт здесь, пока окно
+// не догрузится (холодный старт по ссылке), затем уходит в рендерер.
+let pendingDeepLinkKey: string | null = null;
 
 // Живой процесс не перезапускаем бесконечно: 3 попытки, дальше баннер «не в сети».
 const MAX_BACKEND_RESTARTS = 3;
@@ -307,6 +310,9 @@ function createMainWindow(): BrowserWindow {
   win.webContents.on('did-fail-load', (_e, code, desc, url) => {
     console.error('[electron] did-fail-load', code, desc, url);
   });
+
+  // Рендерер догрузился — отдаём отложенный ключ активации (холодный старт).
+  win.webContents.on('did-finish-load', () => flushDeepLink());
 
   hardenWindow(win);
 
@@ -672,32 +678,91 @@ function setupDisplayMedia(): void {
   );
 }
 
-app.whenReady().then(() => {
-  Menu.setApplicationMenu(null);
-  void ensureBackend();
-  setupContentSecurityPolicy();
-  setupDisplayMedia();
-  registerIpc();
-  mainWindow = createMainWindow();
-  overlayWindow = createOverlayWindow();
-  registerShortcuts();
-  createTray();
-  setupAutoUpdater();
-});
+// --- Deep link skillcue://activate?key=… — авто-активация лицензии после
+// оплаты на сайте (страница успеха ЮKassa ведёт на эту ссылку). ------------
+const DEEP_LINK_PROTOCOL = 'skillcue';
+if (isDev && process.argv.length >= 2) {
+  // Dev (electron .): регистрируем с явным путём к процессу и точке входа.
+  app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL, process.execPath, [
+    path.resolve(process.argv[1]),
+  ]);
+} else {
+  app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL);
+}
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
-});
+function extractActivationKey(url: string | undefined): string | null {
+  if (!url || !url.startsWith(`${DEEP_LINK_PROTOCOL}://`)) return null;
+  try {
+    const parsed = new URL(url);
+    const action = parsed.hostname || parsed.pathname.replace(/\//g, '');
+    return action === 'activate' ? parsed.searchParams.get('key') : null;
+  } catch {
+    return null;
+  }
+}
 
-app.on('before-quit', () => {
-  // Плановый выход: 'exit' убитого бэкенда не должен запускать рестарт.
-  quitting = true;
-  if (backendRestartTimer) clearTimeout(backendRestartTimer);
-});
+function flushDeepLink(): void {
+  if (!pendingDeepLinkKey || !mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindow.webContents.isLoading()) return; // окно грузится — дошлём на did-finish-load
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+  mainWindow.webContents.send('deeplink:activate', pendingDeepLinkKey);
+  pendingDeepLinkKey = null;
+}
 
-app.on('will-quit', () => {
-  quitting = true;
-  globalShortcut.unregisterAll();
-  stopBackend();
-  backendLogStream?.end();
-});
+function deliverDeepLink(url: string | undefined): void {
+  const key = extractActivationKey(url);
+  if (!key) return;
+  pendingDeepLinkKey = key;
+  flushDeepLink();
+}
+
+// Одна копия приложения: повторный запуск (в т.ч. по ссылке активации)
+// фокусирует уже открытое окно, а не плодит вторую копию.
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+if (!hasSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', (_event, argv) => {
+    // Windows/Linux: URL приходит в argv второго процесса.
+    deliverDeepLink(argv.find((a) => a.startsWith(`${DEEP_LINK_PROTOCOL}://`)));
+  });
+  // macOS доставляет протокол отдельным событием.
+  app.on('open-url', (event, url) => {
+    event.preventDefault();
+    deliverDeepLink(url);
+  });
+
+  app.whenReady().then(() => {
+    Menu.setApplicationMenu(null);
+    void ensureBackend();
+    setupContentSecurityPolicy();
+    setupDisplayMedia();
+    registerIpc();
+    mainWindow = createMainWindow();
+    overlayWindow = createOverlayWindow();
+    registerShortcuts();
+    createTray();
+    setupAutoUpdater();
+    // Холодный старт по ссылке (Windows/Linux): URL лежит в argv запуска.
+    deliverDeepLink(process.argv.find((a) => a.startsWith(`${DEEP_LINK_PROTOCOL}://`)));
+  });
+
+  app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') app.quit();
+  });
+
+  app.on('before-quit', () => {
+    // Плановый выход: 'exit' убитого бэкенда не должен запускать рестарт.
+    quitting = true;
+    if (backendRestartTimer) clearTimeout(backendRestartTimer);
+  });
+
+  app.on('will-quit', () => {
+    quitting = true;
+    globalShortcut.unregisterAll();
+    stopBackend();
+    backendLogStream?.end();
+  });
+}

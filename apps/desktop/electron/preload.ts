@@ -55,6 +55,12 @@ const api = {
     ipcRenderer.on('app:live-state', handler);
     return () => ipcRenderer.removeListener('app:live-state', handler);
   },
+  // Ключ лицензии из ссылки skillcue://activate?key=… (после оплаты на сайте).
+  onActivateLicense: (cb: (key: string) => void) => {
+    const handler = (_e: unknown, key: string) => cb(key);
+    ipcRenderer.on('deeplink:activate', handler);
+    return () => ipcRenderer.removeListener('deeplink:activate', handler);
+  },
   updater: {
     onStatus: (cb: (status: unknown) => void) => {
       const handler = (_e: unknown, status: unknown) => cb(status);
