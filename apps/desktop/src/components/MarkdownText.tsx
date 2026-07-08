@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 
 /** Разбивает сплошной текст LLM на абзацы (без форсирования «во-первых»). */
 export function formatLiveMarkdown(text: string): string {
@@ -22,16 +22,53 @@ function isDashListLine(line: string): boolean {
 const FENCED_CODE_REGEX = /```([a-zA-Z0-9+#_-]*)\n?([\s\S]*?)```/g;
 
 function CodeBlock({ language, code }: { language: string; code: string }) {
+  const clean = code.replace(/\n+$/, '');
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    void navigator.clipboard.writeText(clean).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    });
+  };
   return (
-    <div className="overflow-hidden rounded-xl border border-surface-border bg-surface-elevated">
-      {language && (
-        <div className="border-b border-surface-border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
-          {language}
-        </div>
-      )}
+    <div className="group relative overflow-hidden rounded-xl border border-surface-border bg-surface-elevated">
+      <div className="flex items-center justify-between border-b border-surface-border px-3 py-1.5">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
+          {language || 'code'}
+        </span>
+        {/* Отдельная кнопка «Копировать» на самом блоке — общая кнопка ответа
+            копирует markdown с ```, а из кода нужен чистый текст (SQL/Python). */}
+        <button
+          type="button"
+          onClick={copy}
+          className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-ink-faint transition-colors hover:bg-surface-hover hover:text-ink"
+          aria-label="Копировать код"
+        >
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.9"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            {copied ? (
+              <path d="M20 6 9 17l-5-5" />
+            ) : (
+              <>
+                <path d="M8 8h12v12H8z" />
+                <path d="M16 8V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h2" />
+              </>
+            )}
+          </svg>
+          {copied ? 'Скопировано' : 'Копировать'}
+        </button>
+      </div>
       <pre className="overflow-x-auto px-3.5 py-3">
         <code className="sc-mono block whitespace-pre text-[13px] leading-relaxed text-emerald-200">
-          {code.replace(/\n+$/, '')}
+          {clean}
         </code>
       </pre>
     </div>

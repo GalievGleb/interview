@@ -51,6 +51,30 @@ def _resolve(mode: str = "general") -> tuple[str, str]:
     return provider, model
 
 
+# Быстрый проверенный fallback: тот же движок, что работает в оверлее. Гейтвей
+# может не отдавать выбранную модель (403/404 на дорогую) или отвечать слишком
+# долго — вместо отката в ЛОКАЛЬНЫЙ разбор (клиент делал это на 502) сначала
+# повторяем запрос этой моделью, чтобы разбор/оценка оставались AI.
+FALLBACK_MODEL = "openai/gpt-4o-mini"
+
+
+async def _complete_or_fallback(
+    messages: list[dict], provider: str, model: str, **kwargs
+) -> tuple[str, str]:
+    """(raw, model_used). На ошибке основной модели повторяет запрос быстрым
+    fallback-ом — чтобы AI-разбор не падал в детерминированную эвристику."""
+    try:
+        return await provider_adapter.complete(messages, provider, model, **kwargs), model
+    except Exception as exc:  # noqa: BLE001
+        if model == FALLBACK_MODEL:
+            raise
+        logger.warning(
+            "Vacancy model %s failed (%s) — retrying with %s", model, exc, FALLBACK_MODEL
+        )
+        raw = await provider_adapter.complete(messages, provider, FALLBACK_MODEL, **kwargs)
+        return raw, FALLBACK_MODEL
+
+
 def _parse_json(raw: str) -> dict:
     cleaned = (raw or "").strip()
     if cleaned.startswith("```"):
@@ -152,11 +176,13 @@ async def analyze(payload: AnalyzePayload, db=Depends(get_db)) -> dict:
         language="Russian" if payload.language == "ru" else "English",
     )
     try:
-        raw = await provider_adapter.complete(
+        # 2200 (было 1600): полный разбор с темами/компетенциями упирался в лимит,
+        # JSON обрывался → _parse_json падал 502 → клиент показывал локальный разбор.
+        raw, model = await _complete_or_fallback(
             [{"role": "user", "content": prompt}],
             provider,
             model,
-            max_tokens=1600,
+            max_tokens=2200,
             temperature=0.3,
         )
     except Exception as exc:  # noqa: BLE001 — surface as 502 so desktop falls back
@@ -183,7 +209,7 @@ async def analyze(payload: AnalyzePayload, db=Depends(get_db)) -> dict:
                 "sampleQuestions": _as_list(t.get("sampleQuestions"), 4)
                 or ["Расскажи про эту тему."],
                 "whyAsked": str(t.get("whyAsked", "")).strip()[:240],
-                "expectedAnswerPoints": _as_list(t.get("expectedAnswerPoints"), 7),
+                "expectedAnswerPoints": _as_list(t.get("expectedAnswerPoints"), 3),
                 "relatedVacancyTopics": _as_list(t.get("relatedVacancyTopics"), 6),
                 "relatedResumeEvidence": _as_list(t.get("relatedResumeEvidence"), 6),
                 "vacancyEvidence": str(t.get("vacancyEvidence", "")).strip()[:160],
@@ -262,7 +288,7 @@ async def report(payload: ReportPayload, db=Depends(get_db)) -> dict:
         language="Russian" if payload.language == "ru" else "English",
     )
     try:
-        raw = await provider_adapter.complete(
+        raw, model = await _complete_or_fallback(
             [{"role": "user", "content": prompt}],
             provider,
             model,
@@ -307,7 +333,7 @@ async def evaluate(payload: EvaluatePayload, db=Depends(get_db)) -> dict:
     # live path's live_stream_options).
     max_tokens, reasoning = vacancy_eval_options(model)
     try:
-        raw = await provider_adapter.complete(
+        raw, model = await _complete_or_fallback(
             [{"role": "user", "content": prompt}],
             provider,
             model,

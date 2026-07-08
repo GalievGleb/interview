@@ -39,7 +39,7 @@ Output STRICT JSON ONLY (no markdown, no prose, no code fences) with exactly thi
       "expectedKnowledge": "one sentence: what a candidate must be able to explain",
       "sampleQuestions": ["specific question tied to the vacancy", "..."],
       "whyAsked": "why THIS question matters for THIS vacancy",
-      "expectedAnswerPoints": ["4 to 7 points a strong answer must cover", "..."],
+      "expectedAnswerPoints": ["2 to 3 KEY points a strong answer must cover, most important first, specific to THIS topic — no generic filler", "..."],
       "relatedVacancyTopics": ["vacancy topic", "..."],
       "relatedResumeEvidence": ["résumé item that lets the candidate answer", "..."],
       "vacancyEvidence": "the exact phrase from the vacancy this topic comes from"
@@ -57,7 +57,7 @@ Competency analysis rules:
 
 Topic & question rules:
 - Everything MUST be derived from THIS vacancy. Use real phrases as vacancyEvidence. NEVER output generic skills ("System design", "Algorithms") unless the vacancy requires them.
-- 5–10 topics, ordered by importance (high first). 1–4 sampleQuestions per topic. expectedAnswerPoints: 4–7 concrete items.
+- 5–10 topics, ordered by importance (high first). 1–4 sampleQuestions per topic. expectedAnswerPoints: 2–3 concrete, topic-specific items — the essence an interviewer listens for, NOT a catalogue. Never pad with tangential skills (e.g. do not list "OOP" or "error handling" for a "list vs tuple" question).
 - Match the required stack. If the vacancy is Playwright / REST / GitLab CI, do NOT introduce unrelated tools (e.g. TestNG) without reason.
 - For a Lead / Team Lead vacancy, go beyond hands-on skills: ask about strategy for the domain's core work, evolving the platform/architecture the team owns, quality and stability of deliverables, code/work review, prioritization, mentoring, managing the team, and communication with adjacent roles. Set level="lead" for these.
 - Example for a QA Automation Lead vacancy specifically: automation strategy (UI/API/integration/E2E), evolving the autotest platform & framework architecture, test stability & flaky tests, test-data management, CI/CD, reporting/artifacts, code review of autotests, mentoring, communication with manual QA / devs / analysts. Add JMeter/performance or RPA topics only if the vacancy mentions them. Build the equivalent domain-correct list for other professions.

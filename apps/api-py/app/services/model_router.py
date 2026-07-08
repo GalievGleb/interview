@@ -62,20 +62,19 @@ DEEP_PATTERNS = [
     "deepseek-reasoner",
 ]
 
+# Приоритет — БЫСТРЫЕ модели высокого качества. Тяжёлые reasoning-модели
+# (gpt-5.x, o3, claude-sonnet-4/3.7 thinking, gemini-2.5-pro) убраны: они давали
+# ответ по 20–30 с при разборе ответа на вакансию (пользователь ждёт вживую) и
+# часть из них заблокирована на гейтвейе (→ 502 → откат в локальный разбор).
+# gpt-4o/gpt-4.1/claude-3.5-sonnet пишут ответ уровня senior за ~5–8 с.
 VACANCY_PATTERNS = [
-    "gpt-5.5",
-    "gpt-5-5",
-    "gpt-5.4",
-    "gpt-5-4",
-    "gpt-5",
-    "gpt-4.1",
     "gpt-4o",
-    "claude-sonnet-4",
-    "claude-3.7-sonnet",
+    "gpt-4.1",
     "claude-3.5-sonnet",
     "claude-sonnet",
-    "gemini-2.5-pro",
-    "o3",
+    "gemini-2.5-flash",
+    "gpt-4o-mini",
+    "gpt-4.1-mini",
 ]
 
 FALLBACK_IDS = [

@@ -67,6 +67,11 @@ const STEALTH_KEY = 'skillcue.overlayStealth';
 const AVOID_FOCUS_KEY = 'skillcue.overlayAvoidFocus';
 const HIDE_WIDGET_KEY = 'skillcue.overlayHideWidget';
 const USE_SCREEN_KEY = 'skillcue.overlayUseScreen';
+const OPACITY_KEY = 'skillcue.overlayOpacity';
+
+function clampOpacity(v: number): number {
+  return Number.isFinite(v) && v >= 40 && v <= 100 ? v : 100;
+}
 
 type RecapTab = 'summary' | 'transcript' | 'usage';
 
@@ -155,7 +160,7 @@ function buildTranscript(ls: TranscriptLine[], me: string, other: string): strin
 
 export default function OverlayPage() {
   const { t } = useI18n();
-  const { hasStt } = useApp();
+  const { hasStt, sttEngine } = useApp();
   const { active, lines, answerHistory, currentQuestion, streamText, streaming, start, stop } =
     useLiveCopilot();
   const { sources, sttOptions, setSources } = useLiveCopilotPrefs();
@@ -175,6 +180,9 @@ export default function OverlayPage() {
   const [avoidFocus, setAvoidFocus] = useState(() => localStorage.getItem(AVOID_FOCUS_KEY) === '1');
   const [hideHidesWidget, setHideHidesWidget] = useState(
     () => localStorage.getItem(HIDE_WIDGET_KEY) !== '0',
+  );
+  const [opacity, setOpacity] = useState(() =>
+    clampOpacity(Number(localStorage.getItem(OPACITY_KEY))),
   );
   const [collapsed, setCollapsed] = useState(false);
 
@@ -222,6 +230,36 @@ export default function OverlayPage() {
     void window.electronAPI?.overlay.setFocusable?.(!avoidFocus);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // «Работать под панелью»: при «не забирать фокус» делаем оверлей click-through —
+  // клики уходят в приложение под ним, панель не перехватывает мышь. При
+  // наведении курсора на интерактив оверлея временно возвращаем ему мышь
+  // (Electron forward:true шлёт mousemove, даже когда клики игнорируются).
+  useEffect(() => {
+    const ct = window.electronAPI?.overlay.setClickThrough;
+    if (!ct) return;
+    if (!avoidFocus) {
+      void ct(false);
+      return;
+    }
+    const SEL =
+      'button, a, input, textarea, select, [role="switch"], .ovl-answer-body, .ovl-recap-body';
+    let over = false;
+    void ct(true);
+    const onMove = (e: MouseEvent) => {
+      const el = document.elementFromPoint(e.clientX, e.clientY) as Element | null;
+      const nowOver = !!el && !!el.closest(SEL);
+      if (nowOver !== over) {
+        over = nowOver;
+        void ct(!nowOver);
+      }
+    };
+    window.addEventListener('mousemove', onMove);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      void ct(false);
+    };
+  }, [avoidFocus]);
 
   useEffect(
     () => () => {
@@ -465,6 +503,12 @@ export default function OverlayPage() {
     localStorage.setItem(HIDE_WIDGET_KEY, next ? '1' : '0');
   };
 
+  const changeOpacity = (v: number) => {
+    const next = clampOpacity(v);
+    setOpacity(next);
+    localStorage.setItem(OPACITY_KEY, String(next));
+  };
+
   const onHide = () => {
     setHideMenuOpen(false);
     if (hideHidesWidget) void window.electronAPI?.overlay.hide();
@@ -490,6 +534,17 @@ export default function OverlayPage() {
           void window.electronAPI.overlay.move(d[0], d[1]);
           return;
         }
+      }
+      // Размер панели: Ctrl+= (больше) / Ctrl+- (меньше).
+      if (mod && !e.shiftKey && (e.key === '=' || e.key === '+')) {
+        e.preventDefault();
+        void window.electronAPI?.overlay.resize?.(80, 60);
+        return;
+      }
+      if (mod && !e.shiftKey && (e.key === '-' || e.key === '_')) {
+        e.preventDefault();
+        void window.electronAPI?.overlay.resize?.(-80, -60);
+        return;
       }
       // Прокрутка ответа: Ctrl+Shift+↑/↓.
       if (mod && e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
@@ -554,11 +609,15 @@ export default function OverlayPage() {
     { labelKey: 'overlay.kb.stop', keys: 'Ctrl+Shift+\\', d: 'M6 6h12v12H6z' },
     { labelKey: 'overlay.kb.move', keys: 'Ctrl+↑↓←→', d: 'M5 9 2 12l3 3|M9 5l3-3 3 3|M15 19l-3 3-3-3|M19 9l3 3-3 3|M2 12h20|M12 2v20' },
     { labelKey: 'overlay.kb.scroll', keys: 'Ctrl+Shift+↑↓', d: 'M8 7l4-4 4 4|M8 17l4 4 4-4' },
+    { labelKey: 'overlay.kb.resize', keys: 'Ctrl +/−', d: 'M15 3h6v6|M9 21H3v-6|M21 3l-7 7|M3 21l7-7' },
     { labelKey: 'overlay.kb.transcript', keys: 'Ctrl+/', d: 'M4 6h16|M4 12h16|M4 18h10' },
   ];
 
   return (
-    <div className={`ovl-root ${stealth ? 'ovl-root--stealth' : ''}`}>
+    <div
+      className={`ovl-root ${stealth ? 'ovl-root--stealth' : ''}`}
+      style={{ opacity: opacity / 100 }}
+    >
       {/* ---------- Пилл ---------- */}
       <div className="ovl-pill">
         <button
@@ -652,7 +711,9 @@ export default function OverlayPage() {
           className={`ovl-rec tip ${active ? 'ovl-rec--live' : ''}`}
           data-tip={
             !hasStt && !active
-              ? t('overlay.rec.needModel')
+              ? sttEngine === 'whisper'
+                ? t('overlay.rec.needModel')
+                : t('overlay.rec.needStt')
               : active
                 ? t('overlay.rec.stopTip')
                 : t('overlay.rec.startTip')
@@ -951,6 +1012,23 @@ export default function OverlayPage() {
                           <span className="flex-1 text-left">{t('overlay.avoidFocus')}</span>
                           <Switch on={avoidFocus} label={t('overlay.avoidFocus')} />
                         </button>
+
+                        {/* Прозрачность панели — чтобы видеть, что под ней. */}
+                        <div className="ovl-menu-toggle" style={{ cursor: 'default' }}>
+                          <Icon d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z|M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6" />
+                          <span className="flex-1 text-left">{t('overlay.opacity')}</span>
+                          <span className="mr-1 text-[11px] tabular-nums text-ink-faint">{opacity}%</span>
+                          <input
+                            type="range"
+                            min={40}
+                            max={100}
+                            step={5}
+                            value={opacity}
+                            onChange={(e) => changeOpacity(Number(e.target.value))}
+                            className="w-20 accent-emerald-400"
+                            aria-label={t('overlay.opacity')}
+                          />
+                        </div>
 
                         <div className="ovl-menu-sep" />
 

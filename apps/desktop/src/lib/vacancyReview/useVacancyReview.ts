@@ -93,13 +93,37 @@ export function useVacancyReview(initial?: SmokeReviewSession | null) {
       if (!question) return;
       const others = session.answers.filter((a) => a.questionId !== question.id);
       if (skipped) {
-        persist({
+        // Пропуск обязан ПЕРЕВЕСТИ на следующий вопрос. Раньше он лишь помечал
+        // текущий как «отвеченный» (skipped), оставаясь на нём — и поле ввода
+        // становилось disabled, из-за чего «на следующем вопросе нельзя печатать».
+        const withSkip: SmokeReviewSession = {
           ...session,
           answers: [
             ...others,
             { questionId: question.id, text: '', source, skipped: true, answeredAt: Date.now() },
           ],
-        });
+        };
+        const nextIndex = session.currentIndex + 1;
+        if (nextIndex >= session.questions.length) {
+          // Пропущен последний вопрос — сразу к отчёту, а не в тупик.
+          const completed: SmokeReviewSession = {
+            ...withSkip,
+            status: 'completed',
+            completedAt: Date.now(),
+          };
+          const report = buildReadinessReport(completed);
+          completed.report = report;
+          persist(completed);
+          setPhase('report');
+          void enrichReadinessReport(completed, report).then((enriched) => {
+            if (enriched === report) return;
+            const next = { ...completed, report: enriched };
+            saveSession(next);
+            setSession((cur) => (cur && cur.id === completed.id ? next : cur));
+          });
+        } else {
+          persist({ ...withSkip, currentIndex: nextIndex });
+        }
         return;
       }
       setEvaluating(true);

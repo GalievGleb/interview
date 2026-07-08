@@ -23,6 +23,8 @@ export interface ElectronAPI {
     setContentProtection: (enable: boolean) => Promise<void>;
     move?: (dx: number, dy: number) => Promise<void>;
     setFocusable?: (focusable: boolean) => Promise<void>;
+    setClickThrough?: (enable: boolean) => Promise<void>;
+    resize?: (dw: number, dh: number) => Promise<void>;
     setLiveState?: (active: boolean) => Promise<void>;
   };
   window: {

@@ -279,9 +279,12 @@
        контент не заезжал. В браузере env() = 0, отступ схлопывается до 16px. */
     -webkit-app-region: drag;
     padding-right: calc(16px + (100vw - env(titlebar-area-width, 100vw) - env(titlebar-area-x, 0px)));
+    /* Плоский #0c1726 = ровно цвет нативных кнопок окна (titleBarOverlay.color),
+       иначе верхний-правый угол под кнопками отличался фоном и «терял» линию.
+       Зелёное свечение — слева, вдали от кнопок, поэтому шва не создаёт. */
     background:
       radial-gradient(circle at 12% 0%, rgba(52, 199, 123, 0.1), transparent 28rem),
-      linear-gradient(180deg, #0c1726 0%, #08111f 100%);
+      #0c1726;
   }
   /* Интерактивные элементы тайтлбара должны кликаться, а не таскать окно. */
   .skillcue-titlebar button,

@@ -32,6 +32,11 @@ const api = {
     move: (dx: number, dy: number) => ipcRenderer.invoke('overlay:move', dx, dy),
     setFocusable: (focusable: boolean) =>
       ipcRenderer.invoke('overlay:setFocusable', focusable),
+    // Клики «сквозь» оверлей: работать в приложении под панелью, не задевая её.
+    setClickThrough: (enable: boolean) =>
+      ipcRenderer.invoke('overlay:setClickThrough', enable),
+    // Увеличить/уменьшить окно оверлея (dw/dh в px).
+    resize: (dw: number, dh: number) => ipcRenderer.invoke('overlay:resize', dw, dh),
     // Оверлей → главное окно: live-сессия запущена/остановлена (сайдбар-таймер).
     setLiveState: (active: boolean) => ipcRenderer.invoke('overlay:liveState', active),
   },

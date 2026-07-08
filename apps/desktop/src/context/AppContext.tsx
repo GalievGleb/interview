@@ -60,11 +60,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setBackendOnline(false);
       setKeys(null);
     }
-    // Local STT readiness: the configured Whisper model must be downloaded.
+    // STT readiness must reflect the ACTIVE engine, not always Whisper. If the
+    // user picked a cloud engine (Yandex SpeechKit / Deepgram), «готовность» =
+    // тот провайдер доступен (ключ или гейтвей), а не «скачан ли Whisper».
+    // Иначе выбор Яндекса ложно требует докачать локальную модель и блокирует
+    // запись голосом (см. hasStt ниже).
     try {
       const diag = await api.sttProviders();
-      const whisper = diag.providers.find((p) => p.id === 'whisper-local');
-      setSttReady(!!whisper && whisper.available && whisper.reason === 'ready');
+      const active = diag.providers.find((p) => p.id === diag.default);
+      const READY = new Set(['ready', 'available']);
+      setSttReady(!!active && active.available && READY.has(active.reason));
     } catch {
       setSttReady(false);
     }

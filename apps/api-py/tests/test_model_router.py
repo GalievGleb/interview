@@ -24,14 +24,17 @@ def test_pick_auto_fast():
     assert "flash" in model or "mini" in model
 
 
-def test_pick_auto_vacancy_prefers_strong_gpt_over_fast_model():
+def test_pick_auto_vacancy_prefers_fast_quality_over_slow_reasoning():
+    # Разбор/оценку ждут вживую: быстрые качественные модели (gpt-4o) важнее
+    # тяжёлых reasoning-моделей (gpt-5.x / claude-sonnet-4 thinking), которые
+    # давали ответ по 25–30 с и часть из них заблокирована на гейтвейе.
     available = {
-        "openai/gpt-4o-mini",
+        "openai/gpt-4o",
         "openai/gpt-5.4",
         "anthropic/claude-sonnet-4",
     }
     model = pick_auto_model("vacancy", available)
-    assert model == "openai/gpt-5.4"
+    assert model == "openai/gpt-4o"
 
 
 def test_pick_auto_vacancy_empty_cache_uses_strong_default():
@@ -64,9 +67,9 @@ def test_resolve_vacancy_ignores_deep_setting_when_vacancy_setting_is_auto():
     model, source = resolve_model(
         "vacancy",
         prefs=prefs,
-        available={"openai/gpt-5.4", "anthropic/claude-sonnet-4"},
+        available={"openai/gpt-4o", "anthropic/claude-sonnet-4"},
     )
-    assert model == "openai/gpt-5.4"
+    assert model == "openai/gpt-4o"
     assert source == "auto"
 
 

@@ -49,7 +49,7 @@ export default function SmokeInterviewView({
   onAskFollowUp,
 }: Props) {
   const { t } = useI18n();
-  const { hasAnyKey, backendOnline } = useApp();
+  const { hasAnyKey, backendOnline, hasStt } = useApp();
   const { questions, currentIndex, vacancyAnalysis } = session;
   const question = questions[currentIndex];
   const existing = session.answers.find((a) => a.questionId === question?.id);
@@ -182,9 +182,11 @@ export default function SmokeInterviewView({
                 <span>
                   {voice.error
                     ? voice.error
-                    : voice.recording
-                      ? t('prep.smoke.recordingHint')
-                      : t('prep.smoke.voiceHint')}
+                    : !hasStt
+                      ? t('prep.smoke.voiceNotReady')
+                      : voice.recording
+                        ? t('prep.smoke.recordingHint')
+                        : t('prep.smoke.voiceHint')}
                 </span>
               </div>
             </div>
@@ -209,7 +211,12 @@ export default function SmokeInterviewView({
                   type="button"
                   className={`prep-btn-sm ${voice.recording ? 'prep-btn' : 'prep-btn-ghost'}`}
                   onClick={voice.toggle}
-                  title={t('prep.smoke.voiceAnswerTitle')}
+                  disabled={!hasStt && !voice.recording}
+                  title={
+                    !hasStt && !voice.recording
+                      ? t('prep.smoke.voiceNotReady')
+                      : t('prep.smoke.voiceAnswerTitle')
+                  }
                 >
                   {voice.recording ? t('prep.smoke.pauseRec') : t('prep.smoke.startRec')}
                 </button>

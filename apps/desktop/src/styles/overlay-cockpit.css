@@ -63,11 +63,28 @@
 }
 
 /* ---------- Карточки (панель ответа + командная панель) ---------- */
+/* Вся карточка — draggable «задняя часть» (перетаскивание мышью), а
+   интерактив внутри помечен no-drag ниже. Раньше тащить можно было только за
+   пилл. Ширина адаптивная (следует за размером окна), чтобы работал ресайз. */
 .ovl-card {
-  @apply overlay-no-drag w-[640px] max-w-[94vw] rounded-2xl;
+  @apply overlay-drag w-[94vw] max-w-[900px] rounded-2xl;
   background: rgba(13, 19, 28, 0.97);
   border: 1px solid rgba(255, 255, 255, 0.09);
   box-shadow: 0 18px 50px -18px rgba(0, 0, 0, 0.75);
+}
+
+/* Кликабельные/скроллируемые элементы внутри карточки не должны перетаскивать
+   окно — иначе клик по кнопке/полю воспринимается как drag. */
+.ovl-card button,
+.ovl-card a,
+.ovl-card input,
+.ovl-card textarea,
+.ovl-card select,
+.ovl-card [role='switch'],
+.ovl-card .ovl-answer-body,
+.ovl-card .ovl-recap-body,
+.ovl-card .ovl-bubble {
+  -webkit-app-region: no-drag;
 }
 
 /* Панель ответа */
@@ -129,8 +146,11 @@
   height: 24px;
   transition: height 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 }
-/* Чат «раскрывается», когда в него кликнули (как в референсе). */
-.ovl-input-wrap:focus-within .ovl-input {
+/* Чат «раскрывается», когда сфокусировано САМО поле (не любой сосед в строке).
+   Раньше было :focus-within — фокус на кнопке «…»/Smart в той же строке growил
+   поле, слой сдвигался между mousedown и mouseup, и первый клик по «…» не
+   срабатывал (меню открывалось лишь со второго раза). */
+.ovl-input:focus {
   height: 68px;
 }
 

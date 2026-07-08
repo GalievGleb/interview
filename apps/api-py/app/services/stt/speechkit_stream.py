@@ -501,21 +501,15 @@ class SpeechKitProvider(BaseTranscriptionProvider):
     estimated_latency_ms = 400
 
     def is_available(self) -> bool:
-        if not api_key():
-            return False
-        try:
-            _import_grpc()
-        except ImportError:
-            return False
-        return True
+        # Доступность = наличие ключа. grpcio/yandexcloud нужны ТОЛЬКО прямому
+        # live-стримингу (gRPC); батч/бенчмарк идёт через REST v1 (httpx), а live
+        # без своего ключа — через gateway-релей. Поэтому не требуем grpc здесь,
+        # иначе бенчмарк ложно просит `pip install requirements-stt-cloud.txt`.
+        return bool(api_key())
 
     def _availability_reason(self) -> str:
         if not api_key():
             return "Нужен API-ключ Яндекс Cloud (Настройки)"
-        try:
-            _import_grpc()
-        except ImportError:
-            return DEPS_HINT
         return "available"
 
     def get_privacy_description(self) -> str:

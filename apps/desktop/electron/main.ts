@@ -338,6 +338,9 @@ function createOverlayWindow(): BrowserWindow {
     resizable: true,
     show: false,
     focusable: true,
+    // Первый клик по неактивному оверлею (когда пользователь работает в другом
+    // приложении) сразу уходит в контент, а не тратится на активацию окна.
+    acceptFirstMouse: true,
     webPreferences: {
       preload: getPreloadPath(),
       contextIsolation: true,
@@ -512,6 +515,21 @@ function registerIpc(): void {
     // остаётся в приложении под ним. Внимание: при false ввод в поле
     // оверлея недоступен, поэтому включается осознанно из меню.
     overlayWindow?.setFocusable(focusable);
+  });
+
+  ipcMain.handle('overlay:setClickThrough', (_e, enable: boolean) => {
+    // Клики проходят «сквозь» оверлей в приложение под ним. forward:true шлёт
+    // события движения курсора в рендерер, чтобы он мог временно вернуть
+    // интерактивность при наведении на свои элементы (см. OverlayPage).
+    overlayWindow?.setIgnoreMouseEvents(enable, { forward: true });
+  });
+
+  ipcMain.handle('overlay:resize', (_e, dw: number, dh: number) => {
+    if (!overlayWindow) return;
+    const [w, h] = overlayWindow.getSize();
+    const nw = Math.max(420, Math.min(1400, Math.round(w + (dw || 0))));
+    const nh = Math.max(360, Math.min(1200, Math.round(h + (dh || 0))));
+    overlayWindow.setSize(nw, nh, false);
   });
 
   ipcMain.handle('overlay:liveState', (_e, active: boolean) => {
