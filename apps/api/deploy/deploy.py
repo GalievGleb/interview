@@ -105,6 +105,13 @@ def build_env() -> str:
         "REDIS_URL=redis://127.0.0.1:6379",
         f"OPENROUTER_API_KEY={read_openrouter_key()}",
         f"GATEWAY_ADMIN_SECRET={admin_secret()}",
+        # Апстрим — ProxyAPI (OpenAI-совместимый, работает из РФ напрямую, в отличие
+        # от OpenRouter, который Cloudflare гео-блочит с IP VPS: "Access denied by
+        # security policy"). Ключ OPENROUTER_API_KEY выше — это ключ ProxyAPI (sk-...).
+        # openai-стиль → mapModelForUpstream сводит любую модель к gpt-4o/gpt-4o-mini,
+        # что заодно жёстко ограничивает цену. Сменить апстрим — env при запуске.
+        "GATEWAY_UPSTREAM_BASE=https://api.proxyapi.ru/openai/v1",
+        "GATEWAY_UPSTREAM_STYLE=openai",
         # Блок-лист дорогих моделей: даже в рамках токен-лимита нельзя сливать
         # деньги через премиум-тир (цена токена различается в ~100 раз). Матч по
         # префиксу сырого id; gpt-4o/mini, sonnet, haiku, deepseek, gemini-flash
