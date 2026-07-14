@@ -69,12 +69,17 @@ def test_whisper_is_local_and_default_id():
 
 
 def test_registry_exposes_local_plus_optional_cloud():
-    # Local Whisper — обязателен и первый; облачные (Deepgram/SpeechKit) —
+    # Local Whisper — обязателен и первый; облачные (Deepgram/SpeechKit/Soniox) —
     # опциональные, без ключа помечаются unavailable, но в реестре видны.
     providers = registry.all_providers()
     ids = [p.id for p in providers]
     assert ids[0] == "whisper-local"
-    assert set(ids) == {"whisper-local", "deepgram-nova3", "yandex-speechkit-v3"}
+    assert set(ids) == {
+        "whisper-local",
+        "deepgram-nova3",
+        "yandex-speechkit-v3",
+        "soniox-stt-rt",
+    }
 
 
 def test_unknown_provider_id_resolves_to_whisper():

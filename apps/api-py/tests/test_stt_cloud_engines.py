@@ -12,6 +12,7 @@ from app.services.stt.settings_store import SttSettings
 def test_engine_setting_sanitized():
     assert SttSettings(engine="deepgram").sanitized().engine == "deepgram"
     assert SttSettings(engine="speechkit").sanitized().engine == "speechkit"
+    assert SttSettings(engine="soniox").sanitized().engine == "soniox"
     assert SttSettings(engine="nonsense").sanitized().engine == "whisper"
     assert SttSettings().sanitized().engine == "whisper"
 
@@ -97,6 +98,47 @@ def test_parse_deepgram_events():
     )
     assert parse_deepgram_event(empty) is None
     assert parse_deepgram_event("not json") is None
+
+
+def test_soniox_parse_message():
+    from app.services.stt.soniox_stream import build_config, parse_soniox_message
+
+    # Финальные токены копятся, нефинальные образуют хвост, <end> — endpoint.
+    out = parse_soniox_message(
+        json.dumps(
+            {
+                "tokens": [
+                    {"text": "Что", "is_final": True},
+                    {"text": " такое", "is_final": True},
+                    {"text": " pyt", "is_final": False},
+                    {"text": "est", "is_final": False},
+                ]
+            }
+        )
+    )
+    assert out["finals"] == ["Что", " такое"]
+    assert out["tail"] == " pytest"
+    assert out["saw_end"] is False
+    assert out["finished"] is False
+
+    end = parse_soniox_message(
+        json.dumps({"tokens": [{"text": "<end>", "is_final": True}], "finished": False})
+    )
+    assert end["saw_end"] is True and end["finals"] == []
+
+    err = parse_soniox_message(json.dumps({"error_code": 401, "error_message": "bad key"}))
+    assert "401" in err["error"] and "bad key" in err["error"]
+
+    fin = parse_soniox_message(json.dumps({"tokens": [], "finished": True}))
+    assert fin["finished"] is True
+
+    assert parse_soniox_message("not json") is None
+
+    # Конфиг: русский всегда с en-хинтом (термины), endpoint detection включён.
+    cfg = build_config(language="ru", sample_rate=16000, key="k")
+    assert cfg["language_hints"] == ["ru", "en"]
+    assert cfg["enable_endpoint_detection"] is True
+    assert cfg["audio_format"] == "s16le" and cfg["sample_rate"] == 16000
 
 
 def test_speechkit_language_codes():

@@ -32,6 +32,13 @@ def _provider_or_503(engine: str = "whisper"):
         if not provider.is_available():
             raise HTTPException(status_code=409, detail=provider._availability_reason())
         return provider
+    if engine == "soniox":
+        from app.services.stt.soniox_stream import SonioxProvider
+
+        provider = SonioxProvider()
+        if not provider.is_available():
+            raise HTTPException(status_code=409, detail=provider._availability_reason())
+        return provider
 
     provider = build_whisper_provider()
     if not provider.is_available():

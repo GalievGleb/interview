@@ -24,6 +24,12 @@ def test_ai_settings_roundtrip_includes_vacancy_review_model(client, tmp_path, m
 def test_keys_status_treats_configured_gateway_as_ai_ready(client, monkeypatch):
     s = settings_router.get_settings()
     monkeypatch.setattr(s, "skillcue_gateway_url", "https://skill-cue.ru/v1")
+    # managed_openrouter = «гейтвей есть И своего ключа нет». На дев-машине в
+    # OS-keyring может лежать настоящий ключ — мокаем секреты, иначе тест
+    # зависит от окружения разработчика.
+    from app.services import secrets
+
+    monkeypatch.setattr(secrets, "has_secret", lambda name: False)
 
     res = client.get("/settings/keys")
     assert res.status_code == 200

@@ -19,7 +19,7 @@ const ENGINES: Array<{
   labelKey?: I18nKey;
   taglineKey: I18nKey;
   privacyKey: I18nKey;
-  keyField?: 'deepgram_api_key' | 'yandex_api_key';
+  keyField?: 'deepgram_api_key' | 'yandex_api_key' | 'soniox_api_key';
   keyPlaceholderKey?: I18nKey;
 }> = [
   {
@@ -44,6 +44,14 @@ const ENGINES: Array<{
     privacyKey: 'stt.speechkit.privacy',
     keyField: 'yandex_api_key',
     keyPlaceholderKey: 'stt.speechkit.keyPlaceholder',
+  },
+  {
+    id: 'soniox',
+    label: 'Soniox',
+    taglineKey: 'stt.soniox.tagline',
+    privacyKey: 'stt.soniox.privacy',
+    keyField: 'soniox_api_key',
+    keyPlaceholderKey: 'stt.soniox.keyPlaceholder',
   },
 ];
 
@@ -113,7 +121,7 @@ export default function SpeechRecognitionSettings() {
   const [busy, setBusy] = useState<WhisperQualityId | null>(null);
   const [error, setError] = useState('');
   const [note, setNote] = useState('');
-  const [cloudKeys, setCloudKeys] = useState({ deepgram: false, yandex: false });
+  const [cloudKeys, setCloudKeys] = useState({ deepgram: false, yandex: false, soniox: false });
   const [keyDraft, setKeyDraft] = useState('');
   const [savingKey, setSavingKey] = useState(false);
 
@@ -139,7 +147,10 @@ export default function SpeechRecognitionSettings() {
         api.sttDevice().then((d) => alive && setDevice(d)).catch(() => undefined);
         api
           .getKeys()
-          .then((k) => alive && setCloudKeys({ deepgram: k.deepgram, yandex: k.yandex }))
+          .then(
+            (k) =>
+              alive && setCloudKeys({ deepgram: k.deepgram, yandex: k.yandex, soniox: k.soniox }),
+          )
           .catch(() => undefined);
       } catch (err) {
         if (alive) setError(err instanceof Error ? err.message : t('stt.loadError'));
@@ -234,8 +245,15 @@ export default function SpeechRecognitionSettings() {
 
   const engine = settings.engine ?? 'whisper';
   const activeEngine = ENGINES.find((e) => e.id === engine) ?? ENGINES[0];
-  const engineKeySaved =
-    engine === 'deepgram' ? cloudKeys.deepgram : engine === 'speechkit' ? cloudKeys.yandex : true;
+  const keySavedFor = (id: SttEngineId): boolean =>
+    id === 'deepgram'
+      ? cloudKeys.deepgram
+      : id === 'speechkit'
+        ? cloudKeys.yandex
+        : id === 'soniox'
+          ? cloudKeys.soniox
+          : true;
+  const engineKeySaved = keySavedFor(engine);
 
   const saveCloudKey = async () => {
     if (!activeEngine.keyField || !keyDraft.trim()) return;
@@ -243,7 +261,7 @@ export default function SpeechRecognitionSettings() {
     setError('');
     try {
       const status = await api.saveKeys({ [activeEngine.keyField]: keyDraft.trim() });
-      setCloudKeys({ deepgram: status.deepgram, yandex: status.yandex });
+      setCloudKeys({ deepgram: status.deepgram, yandex: status.yandex, soniox: status.soniox });
       setKeyDraft('');
       setNote(t('stt.keySaved'));
     } catch (err) {
@@ -264,7 +282,7 @@ export default function SpeechRecognitionSettings() {
       <div className="space-y-2.5">
         {ENGINES.map((e) => {
           const selected = engine === e.id;
-          const keySaved = e.id === 'deepgram' ? cloudKeys.deepgram : e.id === 'speechkit' ? cloudKeys.yandex : true;
+          const keySaved = keySavedFor(e.id);
           return (
             <div
               key={e.id}

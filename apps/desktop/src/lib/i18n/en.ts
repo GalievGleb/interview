@@ -34,6 +34,7 @@ export const en: Record<I18nKey, string> = {
     'Connecting to backend… it starts automatically. If it does not come up, run manually:',
   'shell.cloud.speechkit': 'Cloud · Yandex',
   'shell.cloud.deepgram': 'Cloud · Deepgram',
+  'shell.cloud.soniox': 'Cloud · Soniox',
   'shell.cloudTitle': "Audio is recognized in the provider's cloud — not on your device.",
   'shell.localTitle': 'Speech recognition runs on your device — private.',
   'shell.localAria': 'Local and private',
@@ -1007,6 +1008,10 @@ export const en: Record<I18nKey, string> = {
   'stt.speechkit.keyPlaceholder': 'Yandex Cloud service-account API key',
   'stt.skModel.general': 'Stable',
   'stt.skModel.rc': 'Candidate (rc)',
+  'stt.soniox.tagline':
+    'Multilingual real-time (60+ languages, auto RU/EN code-switching). ~$0.12/hour, requires an API key.',
+  'stt.soniox.privacy': 'Audio goes to the Soniox cloud (USA/EU).',
+  'stt.soniox.keyPlaceholder': 'Soniox API key',
   'stt.loadError': 'Could not load STT settings',
   'stt.saveError': 'Could not save settings',
   'stt.downloadError': 'Could not start the download',

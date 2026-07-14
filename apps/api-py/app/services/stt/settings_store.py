@@ -22,8 +22,8 @@ STT_SETTINGS_PATH = DATA_DIR / "stt_settings.json"
 VALID_MODELS = {"fast", "balanced", "quality", "max"}
 VALID_DEVICES = {"auto", "cpu", "gpu"}
 # Live-движок: локальный Whisper (приватно, бесплатно) или облачный стриминг
-# (Deepgram Nova-3 / Яндекс SpeechKit v3 — быстрее, нужен API-ключ).
-VALID_ENGINES = {"whisper", "deepgram", "speechkit"}
+# (Deepgram Nova-3 / Яндекс SpeechKit v3 / Soniox stt-rt — быстрее, нужен API-ключ).
+VALID_ENGINES = {"whisper", "deepgram", "speechkit", "soniox"}
 # Модель SpeechKit: general — стабильная, general:rc — кандидат следующего
 # релиза (улучшения качества русского по релиз-нотам приходят туда первыми).
 VALID_SPEECHKIT_MODELS = {"general", "general:rc"}

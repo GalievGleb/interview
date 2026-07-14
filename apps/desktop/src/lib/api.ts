@@ -28,7 +28,7 @@ export interface SttDeviceInfo {
   recommendedDevice: 'cpu' | 'gpu';
 }
 
-export type SttEngineId = 'whisper' | 'deepgram' | 'speechkit';
+export type SttEngineId = 'whisper' | 'deepgram' | 'speechkit' | 'soniox';
 
 export type SpeechKitModelId = 'general' | 'general:rc';
 
@@ -367,6 +367,7 @@ export interface KeysStatus {
   managed_openrouter?: boolean;
   deepgram: boolean;
   yandex: boolean;
+  soniox: boolean;
   default_provider: string;
   default_model: string;
 }
@@ -458,6 +459,7 @@ export const api = {
     openrouter_api_key?: string;
     deepgram_api_key?: string;
     yandex_api_key?: string;
+    soniox_api_key?: string;
   }) =>
     request<KeysStatus>('/settings/keys', {
       method: 'POST',

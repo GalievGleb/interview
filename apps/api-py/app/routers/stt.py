@@ -270,6 +270,12 @@ async def stt_stream(ws: WebSocket) -> None:
                 await speechkit_stream.run_speechkit_stream(
                     ws, language=language, sample_rate=sample_rate
                 )
+            elif engine == "soniox":
+                from app.services.stt import soniox_stream
+
+                await soniox_stream.run_soniox_stream(
+                    ws, language=language, sample_rate=sample_rate
+                )
             else:
                 await whisper_stream.run_whisper_stream(
                     ws,

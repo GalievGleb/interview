@@ -9,9 +9,10 @@ SERVICE_NAME = "interview-copilot"
 _VALID_KEYS = {
     "openai_api_key",
     "openrouter_api_key",
-    # Облачные STT-движки (см. services/stt/deepgram_stream, speechkit_stream).
+    # Облачные STT-движки (см. services/stt/{deepgram,speechkit,soniox}_stream).
     "deepgram_api_key",
     "yandex_api_key",
+    "soniox_api_key",
 }
 
 # Кэш в памяти на случай, если OS keyring недоступен (headless/CI).

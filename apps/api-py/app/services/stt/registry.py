@@ -66,9 +66,10 @@ def reset_cached_providers() -> None:
 
 def _cloud_providers() -> list[TranscriptionProvider]:
     from .deepgram_stream import DeepgramProvider
+    from .soniox_stream import SonioxProvider
     from .speechkit_stream import SpeechKitProvider
 
-    return [DeepgramProvider(), SpeechKitProvider()]
+    return [DeepgramProvider(), SpeechKitProvider(), SonioxProvider()]
 
 
 def get_provider(provider_id: str) -> TranscriptionProvider:
@@ -86,6 +87,7 @@ def all_providers() -> list[TranscriptionProvider]:
 ENGINE_PROVIDER_IDS = {
     "deepgram": "deepgram-nova3",
     "speechkit": "yandex-speechkit-v3",
+    "soniox": "soniox-stt-rt",
 }
 
 

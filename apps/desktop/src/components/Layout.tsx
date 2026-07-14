@@ -22,6 +22,7 @@ function elapsed(ms: number): string {
 const CLOUD_STT_LABEL_KEY: Record<string, I18nKey> = {
   speechkit: 'shell.cloud.speechkit',
   deepgram: 'shell.cloud.deepgram',
+  soniox: 'shell.cloud.soniox',
 };
 
 function TitleBar() {

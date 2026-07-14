@@ -37,6 +37,7 @@ export const ru = {
     'Подключение к бэкенду… запускается автоматически. Если не поднимается — вручную:',
   'shell.cloud.speechkit': 'Облако · Яндекс',
   'shell.cloud.deepgram': 'Облако · Deepgram',
+  'shell.cloud.soniox': 'Облако · Soniox',
   'shell.cloudTitle': 'Аудио распознаётся в облаке провайдера — не на устройстве.',
   'shell.localTitle': 'Распознавание речи работает на вашем устройстве — приватно.',
   'shell.localAria': 'Локально и приватно',
@@ -1012,6 +1013,10 @@ export const ru = {
   'stt.speechkit.keyPlaceholder': 'API-ключ сервисного аккаунта Яндекс Cloud',
   'stt.skModel.general': 'Стабильная',
   'stt.skModel.rc': 'Кандидат (rc)',
+  'stt.soniox.tagline':
+    'Мультиязычный реалтайм (60+ языков, авто-переключение RU/EN). ~$0.12/час — дешевле всех, нужен API-ключ.',
+  'stt.soniox.privacy': 'Аудио уходит в облако Soniox (США/ЕС).',
+  'stt.soniox.keyPlaceholder': 'API-ключ Soniox',
   'stt.loadError': 'Не удалось загрузить настройки STT',
   'stt.saveError': 'Не удалось сохранить настройки',
   'stt.downloadError': 'Не удалось начать загрузку',
