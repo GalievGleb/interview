@@ -11,7 +11,7 @@ import { stripExperienceFooter } from '../lib/normalizeTranscript';
 export async function transcribeAudioFile(caseId: string): Promise<{
   transcript: string;
   sttLatencyMs: number;
-  timings?: { modelLoadMs: number; whisperInferenceMs: number; audioBytes: number; modelReused: boolean };
+  timings?: { modelLoadMs: number; openaiInferenceMs: number; audioBytes: number; modelReused: boolean };
 }> {
   const data = await api.voiceTestTranscribe(caseId);
   return { transcript: data.transcript, sttLatencyMs: data.sttLatencyMs, timings: data.timings };
@@ -42,8 +42,8 @@ export function generateAnswerFromTranscript(
           const llmLatencyMs = Math.round(performance.now() - started);
           const nextContext = updateSessionContextAfterAnswer(sessionContext, {
             rawQuestion: prepared.rawTranscript,
-            correctedQuestion: prepared.corrected,
-            intentCorrectedQuestion: prepared.intentCorrected,
+            correctedQuestion: prepared.normalized,
+            intentCorrectedQuestion: prepared.normalized,
             resolvedQuestion: prepared.resolvedQuestion,
             questionIntent: prepared.answerStrategy.questionIntent,
             canonicalTopic: prepared.canonicalTopic,
@@ -56,20 +56,12 @@ export function generateAnswerFromTranscript(
       },
       {
         rawQuestion: prepared.rawTranscript,
-        glossaryCorrected: prepared.corrected,
-        intentCorrected: prepared.intentCorrected,
         resolvedQuestion: prepared.resolvedQuestion,
         previousTopic: sessionContext.lastCanonicalTopic,
         isFollowUp: prepared.followUp.isFollowUp,
         usedPreviousContext: prepared.followUp.usedPreviousContext,
         followUpReason: prepared.followUp.reason,
         currentCanonicalTopic: prepared.canonicalTopic ?? undefined,
-        ambiguity: prepared.intent.ambiguity,
-        corrections: prepared.correction.corrections,
-        intentCorrections: prepared.intent.intentCorrections,
-        intentConfidence: prepared.intent.confidence !== 'none' ? prepared.intent.confidence : undefined,
-        intentReason: prepared.intent.reason,
-        needsLlmCorrection: prepared.correction.needsLlmCorrection,
         questionIntent: prepared.answerStrategy.questionIntent,
         answerStrategy: prepared.answerStrategy.answerStrategy,
         resumeContextUsed: prepared.answerStrategy.resumeContextUsed,

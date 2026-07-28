@@ -2,11 +2,14 @@ import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
-import { WsAdapter } from '@nestjs/platform-ws';
+import express from 'express';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { rawBody: true });
-  app.useWebSocketAdapter(new WsAdapter(app));
+  app.use(
+    '/gateway/stt/transcribe',
+    express.raw({ type: ['audio/wav', 'application/octet-stream'], limit: '15mb' }),
+  );
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

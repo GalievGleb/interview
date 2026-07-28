@@ -83,7 +83,7 @@ export default function DiagnosticsPanel() {
     };
   }, []);
 
-  const ready = diag?.reason === 'ready';
+  const ready = Boolean(diag?.available);
 
   const stages = timings
     ? [
@@ -166,13 +166,8 @@ export default function DiagnosticsPanel() {
             Распознавание речи
           </h4>
           <DiagRow label="Провайдер" value={diag?.provider ?? '—'} />
-          <DiagRow label="Модель" value={diag?.model ?? diag?.localModel ?? '—'} />
-          <DiagRow label="Устройство" value={(diag?.device ?? '—').toUpperCase()} />
-          <DiagRow
-            label="Средняя задержка STT"
-            value={diag?.avgBenchmarkLatencyMs != null ? secs(diag.avgBenchmarkLatencyMs) : '—'}
-            ok={diag?.avgBenchmarkLatencyMs != null && diag.avgBenchmarkLatencyMs < 1500}
-          />
+          <DiagRow label="Модель" value={diag?.model ?? '—'} />
+          <DiagRow label="Режим" value="Облачный" />
           <DiagRow label="Время до первого partial" value={secs(timings?.firstPartialMs)} />
           <DiagRow label="Конец речи → финал" value={secs(timings?.sttFinalMs)} />
         </div>
@@ -206,19 +201,15 @@ export default function DiagnosticsPanel() {
             value={mic ? `устройств: ${mic.count} · ${mic.permission}` : '—'}
             ok={mic ? mic.count > 0 && mic.permission !== 'denied' : undefined}
           />
-          <DiagRow label="Приватность" value="Локально" ok />
+          <DiagRow label="Обработка" value="OpenAI Cloud" ok={ready} />
           <DiagRow label="Статус модели" value={diag ? (ready ? 'готова' : diag.reason) : '—'} ok={ready} />
-          <DiagRow label="Использование ресурсов" value={diag?.resourceUsage || '—'} />
+          <DiagRow label="Передача аудио" value={diag?.privacyDescription || '—'} />
         </div>
 
         <div className="sc-card p-5">
           <h4 className="mb-3 text-sm font-semibold text-ink">Последние ошибки</h4>
           <DiagRow label="Backend" value={backendOnline ? 'в сети' : 'не в сети'} ok={backendOnline} />
           <DiagRow label="Последняя ошибка STT" value={diag?.lastError ?? 'нет'} ok={!diag?.lastError} />
-          <DiagRow
-            label="Последний бенчмарк"
-            value={diag?.lastBenchmarkAt ? new Date(diag.lastBenchmarkAt).toLocaleString() : '—'}
-          />
         </div>
       </div>
 

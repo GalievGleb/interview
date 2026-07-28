@@ -11,6 +11,7 @@ import {
   Controller,
   Get,
   Headers,
+  HttpCode,
   HttpException,
   Post,
   Query,
@@ -23,6 +24,8 @@ import { IsEmail, IsIn, IsInt, IsOptional, IsString, Min } from 'class-validator
 import { GatewayService } from './gateway.service';
 import { BillingService } from './billing.service';
 import { mintLicenseKey } from './license.util';
+import { GatewaySttQuotaService } from './gateway-stt-quota.util';
+import { GatewaySttService, wavDurationSeconds } from './gateway-stt.service';
 
 class IssueDto {
   @IsEmail()
@@ -64,6 +67,8 @@ export class GatewayController {
   constructor(
     private readonly gateway: GatewayService,
     private readonly billing: BillingService,
+    private readonly stt: GatewaySttService,
+    private readonly sttQuota: GatewaySttQuotaService,
   ) {}
 
   @Get('health')
@@ -184,6 +189,49 @@ export class GatewayController {
     const fwd = (req.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim();
     const ip = fwd || req.socket?.remoteAddress || 'unknown';
     return this.gateway.issueTrial(dto.clientId, ip);
+  }
+
+  @Post('gateway/stt/transcribe')
+  @HttpCode(200)
+  async transcribe(
+    @Headers('authorization') auth: string | undefined,
+    @Query('language') language: string | undefined,
+    @Req() req: Request,
+  ) {
+    const license = this.gateway.authorize(auth);
+    await this.sttQuota.assertCanStart(license);
+
+    const audio = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+    if (audio.length < 44) {
+      throw new HttpException(
+        { error: { message: 'Valid WAV audio is required', code: 'invalid_audio' } },
+        400,
+      );
+    }
+
+    // Dedicated OpenAI credentials are preferred. Existing installations may
+    // use an OpenAI-compatible upstream key; the model remains fixed below.
+    const apiKey = process.env.OPENAI_API_KEY || process.env.OPENROUTER_API_KEY || '';
+    const baseURL =
+      process.env.OPENAI_STT_BASE_URL ||
+      process.env.GATEWAY_UPSTREAM_BASE ||
+      'https://api.openai.com/v1';
+    if (!apiKey) {
+      throw new HttpException(
+        {
+          error: {
+            message: 'Speech recognition is temporarily unavailable',
+            code: 'gateway_unconfigured',
+          },
+        },
+        503,
+      );
+    }
+
+    const result = await this.stt.transcribe(apiKey, baseURL, audio, language || 'ru');
+    const seconds = Math.max(1, Math.ceil(wavDurationSeconds(audio)));
+    await this.sttQuota.recordUsage(license.id, seconds);
+    return result;
   }
 
   @Post('gateway/issue')

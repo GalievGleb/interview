@@ -466,7 +466,7 @@ describe('evaluation + report', () => {
     expect(gitEval.suggestedBetterAnswer).not.toContain('Одна из сложных ситуаций');
   });
 
-  it('normalizes garbled ASR terms before evaluating, without leaking Cyrillic suffixes', () => {
+  it('does not rewrite garbled technical terms with an STT dictionary', () => {
     const analysis: VacancyAnalysis = {
       id: 'asr-normalization',
       vacancyText: 'QA Automation: Playwright, UI tests, Allure.',
@@ -505,23 +505,9 @@ describe('evaluation + report', () => {
       analysis,
     );
 
-    const normalized = evaluation.normalizedAnswerSummary ?? '';
-    expect(normalized).toContain('flaky tests');
-    expect(normalized).toContain('locators');
-    expect(normalized).toContain('waits');
-    expect(normalized).toContain('Allure Report');
-    expect(normalized).toContain('diff');
-    expect(normalized).toContain('expected');
-    // Garbled originals are gone…
-    expect(normalized).not.toMatch(/филокит|Альурочот|ДИВ|Xpef/i);
-    // …and JS ASCII-only \w/\b must not leave Cyrillic suffixes on replacements.
-    expect(normalized).not.toMatch(/tests-тестами|locatorsы|waitsя|Reportов/);
-
-    // Evaluation runs on the normalized meaning: locators + waits are covered,
-    // so they are not "missing" and accuracy is never zeroed out.
-    expect(evaluation.missingPoints.join(' ')).not.toMatch(/locators|waits/i);
-    expect(evaluation.technicalAccuracyScore).toBeGreaterThan(0);
-    expect(evaluation.coverageScore ?? 0).toBeGreaterThan(0);
+    // The removed correction dictionary must not create a rewritten transcript.
+    expect(evaluation.normalizedAnswerSummary).toBeUndefined();
+    expect(evaluation.detectedNoiseOrAsrErrors).toBeUndefined();
   });
 
   it('gives a Playwright-vs-Selenium answer, not the flaky-UI answer, for that specific question', () => {

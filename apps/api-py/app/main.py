@@ -1,10 +1,4 @@
-import os
-
-# hf-xet can stall Hugging Face downloads on some Windows routes; disable before
-# huggingface_hub is imported anywhere in this process.
-os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
-os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
-
+import asyncio
 import logging
 
 from fastapi import FastAPI
@@ -90,16 +84,28 @@ app.include_router(vacancy.router)
 
 
 @app.on_event("startup")
-def on_startup() -> None:
+async def on_startup() -> None:
     init_db()
     logger.info("Database initialized")
+    from app.services.stt.registry import resolve_default_provider
+
+    async def warm_stt() -> None:
+        try:
+            await resolve_default_provider().prewarm_model_async()
+            logger.info("OpenAI Mini STT connection is ready")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("OpenAI Mini STT background warmup failed: %s", exc)
+
+    asyncio.create_task(warm_stt())
 
 
 @app.on_event("shutdown")
 async def on_shutdown() -> None:
     from app.services import provider_adapter
+    from app.services.stt.registry import resolve_default_provider
 
     await provider_adapter.aclose_client()
+    await resolve_default_provider().aclose()
 
 
 @app.get("/health")

@@ -1,5 +1,0 @@
-# Опциональные зависимости облачного STT.
-# Deepgram Nova-3 работает на базовом `websockets` (уже в requirements.txt).
-# Яндекс SpeechKit v3 — gRPC-стриминг, нужны стабы из yandexcloud:
-grpcio>=1.62
-yandexcloud>=0.300

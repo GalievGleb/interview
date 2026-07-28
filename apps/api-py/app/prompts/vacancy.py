@@ -123,14 +123,9 @@ Do NOT evaluate the raw ASR text directly. Always normalize first, then evaluate
 
 STEP 1 — preprocess the answer before scoring:
 - Detect ASR/noise fragments: random websites, ad-like inserts, phrases clearly unrelated to the question, broken bits that ruin the meaning (e.g. "Экспериментальный сайт www.patreon.com", "Ваши вопросы по QA-автоматизации"). List them in detectedNoiseOrAsrErrors. These are NOT the candidate's technical mistakes — treat them as speech/recording quality, and only they lower speechClarityScore.
-- Reconstruct distorted technical terms from context (Whisper/ASR regularly mangles jargon). Common Russian ASR distortions and their correct terms:
-  UI automation: "филокит"/"флаки"/"флакитесты"/"флаги тесты" → flaky tests; "плейврайт"/"плэйрайт"/"play right" → Playwright; "селениум" → Selenium; "пейджобджект"/"пейдж объект"/"питчпасс"/"пейдж класс" → Page Object / Page Object Model (when the context is UI-test structure); "локаторы"/"надежные локаторы"/"селекторы" → locators; "явные ожидания"/"ожидания"/"ждать элемент"/"ждать состояние" → waits / explicit waits; "sleep"/"слипы"/"тайм слип" → hard waits / sleep.
-  Reporting/debug: "алюр"/"аллюр"/"альур"/"альурочот"/"алюр отчет" → Allure Report; "див"/"диф"/"дифф" → diff; "экспектед"/"xpef"/"икспектед" → expected; "экчуал"/"актуальный скриншот" → actual; "скриншот падения" → failure screenshot; "трейс"/"трейсбек" → traceback / trace; "логи"/"логирование" → logs / logging; "артефакты" → artifacts.
-  API: "пайдентик"/"пидантик"/"пайдентик модель" → Pydantic; "схема"/"модель ответа"/"валидация полей"/"типы данных" → schema/body validation; "заголовки" → headers; "токен"/"права"/"авторизация" → auth/authz.
-  CI/CD: "гитлаб ямл"/"yaml файл" → .gitlab-ci.yml; "пайплайн" → pipeline; "джоба"/"джоб" → job; "стейдж" → stage; "по расписанию"/"ночью"/"каждую ночь" → scheduled pipeline; "вручную кнопкой" → manual job.
-  These examples are from the QA Automation domain; apply the same reconstruct-by-context approach to garbled terms in whatever domain THIS vacancy belongs to.
-- Write the corrected text as normalizedAnswerSummary (rewrite ONLY the ASR-distorted terms — never improve, add to, or change the candidate's actual content/meaning).
-- Extract what the candidate actually claimed from normalizedAnswerSummary into extractedValidPoints — this is valid_claims: real technical points, regardless of how garbled the raw audio was.
+- Do not rewrite, transliterate, or replace technical terms. Evaluate the wording returned by STT as-is.
+- normalizedAnswerSummary may only collapse whitespace and omit fragments already listed as obvious recording noise; it must not substitute words.
+- Extract what the candidate actually claimed into extractedValidPoints using semantic understanding without changing candidate_answer.
 
 STEP 2 — semantic_mapping: match extractedValidPoints against the expected signals BY MEANING, not exact words, then score by that mapping. Each expected signal is exactly one of: covered (candidate clearly addressed it) / partially covered (related content present but incomplete, e.g. mentions symptoms/tools for diagnosing flaky tests but not the full diagnostic algorithm) / missing (no related content at all). Put "partially covered" items in weakPoints with a note on what to sharpen — NEVER in missingPoints, and NEVER phrase it as "add X" when X is already partially covered by meaning. Score by MEANING, not by speech quality. But if the question is about leadership/project experience and the candidate gave no problem, no responsibility, and no result, the score can be LOW even with correct terminology.
 
@@ -217,7 +212,7 @@ Output STRICT JSON ONLY (no markdown, no code fences) with exactly this shape:
   "levelEstimate": "junior|middle|senior|lead",
   "verdict": "one short, honest sentence about level and what's missing",
   "feedback": "1-2 sentences, direct and specific",
-  "normalizedAnswerSummary": "the candidate's answer with ONLY ASR-distorted terms corrected, meaning unchanged",
+  "normalizedAnswerSummary": "the raw candidate answer with whitespace normalized and obvious recording noise excluded; no term substitutions",
   "detectedNoiseOrAsrErrors": ["noise/ASR fragment", "..."],
   "extractedValidPoints": ["valid point recovered from the answer", "..."],
   "goodPoints": ["what was genuinely good"],

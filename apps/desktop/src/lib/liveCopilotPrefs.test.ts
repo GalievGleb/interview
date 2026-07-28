@@ -35,18 +35,16 @@ describe('liveCopilotPrefs', () => {
 
   it('returns defaults when storage is empty', () => {
     const prefs = loadLiveCopilotPrefs();
-    expect(prefs.mode).toBe('stable');
+    expect(prefs).not.toHaveProperty('mode');
     expect(prefs.language).toBe('ru');
-    expect(prefs.sttEngine).toBe('nova3-multi');
+    expect(prefs).not.toHaveProperty('sttEngine');
     expect(prefs.sources.mic).toBe(true);
   });
 
   it('persists and restores valid prefs', () => {
     const prefs = {
       ...defaultLiveCopilotPrefs(),
-      mode: 'fast' as const,
       language: 'en',
-      sttEngine: 'flux-multi' as const,
       audioRate: '48k-native' as const,
       sources: { mic: false, system: true },
     };
@@ -57,26 +55,22 @@ describe('liveCopilotPrefs', () => {
   it('ignores invalid stored values', () => {
     localStorage.setItem(
       'copilot-live-prefs',
-      JSON.stringify({ mode: 'broken', sttEngine: 'unknown', language: '' }),
+      JSON.stringify({ mode: 'broken', sttEngine: 'nova3-multi', language: '' }),
     );
     const prefs = loadLiveCopilotPrefs();
-    expect(prefs.mode).toBe('stable');
-    expect(prefs.sttEngine).toBe('nova3-multi');
+    expect(prefs).not.toHaveProperty('mode');
+    expect(prefs).not.toHaveProperty('sttEngine');
     expect(prefs.language).toBe('ru');
   });
 
   it('maps prefs to STT session options', () => {
     const options = prefsToSttOptions({
       ...defaultLiveCopilotPrefs(),
-      mode: 'fast',
       language: 'en',
-      sttEngine: 'nova2-ru-legacy',
       audioRate: '48k-native',
     });
     expect(options).toEqual({
-      mode: 'fast',
       language: 'en',
-      engine: 'nova2-ru-legacy',
       audioSampleRate: '48k-native',
     });
   });

@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from 'react';
-import { api, KeysStatus, type SttEngineId } from '../lib/api';
+import { api, KeysStatus } from '../lib/api';
 import { syncMockSessionsFromBackend } from '../lib/vacancyReview/vacancyReviewStore';
 import type { BackendStatus } from '../types/electron';
 
@@ -13,8 +13,6 @@ interface AppContextValue {
   backendStatus: BackendStatus | null;
   hasAnyKey: boolean;
   hasStt: boolean;
-  /** Активный движок распознавания — определяет, уходит ли аудио в облако. */
-  sttEngine: SttEngineId;
   onboardingDone: boolean;
   /** null пока не загрузили; expired → live-режим мягко блокируется. */
   license: LicenseInfo | null;
@@ -36,7 +34,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const [sttReady, setSttReady] = useState(false);
-  const [sttEngine, setSttEngine] = useState<SttEngineId>('whisper');
   const [license, setLicense] = useState<LicenseInfo | null>(null);
   const [backendStatus, setBackendStatus] = useState<BackendStatus | null>(null);
 
@@ -60,32 +57,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setBackendOnline(false);
       setKeys(null);
     }
-    // STT readiness must reflect the ACTIVE engine, not always Whisper. If the
-    // user picked a cloud engine (Yandex SpeechKit / Deepgram), «готовность» =
-    // тот провайдер доступен (ключ или гейтвей), а не «скачан ли Whisper».
-    // Иначе выбор Яндекса ложно требует докачать локальную модель и блокирует
-    // запись голосом (см. hasStt ниже).
     try {
       const diag = await api.sttProviders();
-      // reason: 'ready' (Whisper на диске) или 'available…' (облако/гейтвей, может
-      // иметь суффикс «управляемый SkillCue»).
-      const reasonReady = (r: string) => r === 'ready' || r.startsWith('available');
       const active = diag.providers.find((p) => p.id === diag.default);
-      const engineReady = !!active && active.available && reasonReady(active.reason);
-      // Локальный Whisper — фолбэк: если выбран облачный движок без ключа/гейтвея,
-      // сервер прозрачно откатывается на Whisper (см. /stt/stream). Поэтому STT
-      // «готов», когда готов активный движок ИЛИ доступен Whisper.
-      const whisper = diag.providers.find((p) => p.id === 'whisper-local');
-      const whisperReady = !!whisper && whisper.available && whisper.reason === 'ready';
-      setSttReady(engineReady || whisperReady);
+      setSttReady(Boolean(active?.available));
     } catch {
       setSttReady(false);
-    }
-    // Active engine drives the privacy pill (local Whisper vs cloud STT).
-    try {
-      setSttEngine((await api.getSttSettings()).engine);
-    } catch {
-      /* backend offline — keep the last known engine */
     }
   }, []);
 
@@ -130,7 +107,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         backendStatus,
         hasAnyKey,
         hasStt,
-        sttEngine,
         onboardingDone,
         license,
         completeOnboarding,

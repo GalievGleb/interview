@@ -22,7 +22,7 @@ from app.prompts.interview_fast import (
 )
 from app.prompts.meeting import INTERVIEW_REVIEW_PROMPT, MEETING_PROMPT
 from app.prompts.system import SYSTEM_PROMPT
-from app.services import model_router, provider_adapter, rag_service, transcript_correction
+from app.services import model_router, provider_adapter, rag_service
 from app.services.candidate_profile import get_profile_block
 from app.services.domain_answer_hints import resolve_domain_answer_hints
 from app.services.knowledge_pack import build_injection as build_python_pack_injection
@@ -162,14 +162,13 @@ _VARIANT_PROMPTS: dict[str, str] = {
 
 async def _finalize_question(payload: InterviewPayload) -> tuple[str, str, str, dict]:
     raw = (payload.raw_question or payload.question or "").strip()
-    glossary = (payload.glossary_corrected or payload.question or raw).strip()
-    intent = (payload.intent_corrected or payload.question or glossary).strip()
     resolved = (payload.resolved_follow_up_question or "").strip()
+    final = resolved or raw
     meta: dict = {
         "raw_question": raw,
-        "glossary_corrected": glossary,
-        "intent_corrected": intent,
-        "llm_corrected": intent,
+        "glossary_corrected": raw,
+        "intent_corrected": raw,
+        "llm_corrected": raw,
         "resolved_follow_up_question": resolved or None,
         "previous_topic": payload.previous_topic,
         "used_previous_context": payload.used_previous_context,
@@ -177,32 +176,13 @@ async def _finalize_question(payload: InterviewPayload) -> tuple[str, str, str, 
         "follow_up_reason": payload.follow_up_reason,
         "current_canonical_topic": payload.current_canonical_topic,
         "ambiguity": payload.ambiguity,
-        "corrections": payload.corrections or [],
-        "intent_corrections": payload.intent_corrections or [],
-        "intent_confidence": payload.intent_confidence,
-        "intent_reason": payload.intent_reason,
+        "corrections": [],
+        "intent_corrections": [],
+        "intent_confidence": None,
+        "intent_reason": None,
         "llm_correction_applied": False,
     }
-
-    final = resolved if payload.used_previous_context and resolved else intent
-    # Fast mode (default): skip the serial LLM correction round-trip and rely on
-    # the deterministic glossary. Turn it off for the slower, more robust pass.
-    if not payload.fast_answer and transcript_correction.should_llm_correct(
-        raw_question=raw,
-        glossary_corrected=glossary,
-        corrections=payload.corrections,
-        needs_llm_correction=payload.needs_llm_correction,
-    ):
-        llm_result = await transcript_correction.llm_correct_transcript(raw, intent)
-        corrected = str(llm_result.get("corrected") or intent).strip()
-        if corrected:
-            final = corrected
-            meta["llm_corrected"] = corrected
-            meta["llm_correction_applied"] = True
-            meta["llm_confidence"] = llm_result.get("confidence")
-            meta["llm_reason"] = llm_result.get("reason")
-
-    return final, raw, glossary, meta
+    return final, raw, raw, meta
 
 
 def _chat_usage(provider: str, prompt_text: str = "", completion_text: str = "") -> ApiUsage:

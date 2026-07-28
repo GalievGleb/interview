@@ -42,7 +42,7 @@ export interface VoiceTestMetrics {
   forbiddenPhrasesFound: string[];
   /** STT stage breakdown (optional — only present for newer runs). */
   modelLoadMs?: number;
-  whisperInferenceMs?: number;
+  openaiInferenceMs?: number;
 }
 
 /**

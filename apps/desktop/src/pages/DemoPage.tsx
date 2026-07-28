@@ -87,7 +87,7 @@ export default function DemoPage() {
       setQuestion('');
       setAnswer('');
 
-      // Реплика интервьюера приходит частями, как partial'ы из Whisper.
+      // Реплика интервьюера приходит частями, как промежуточный live-текст.
       for (let i = 0; i < turn.speech.length; i += 1) {
         if (!alive()) return;
         const text = turn.speech[i];

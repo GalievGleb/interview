@@ -6,7 +6,6 @@ import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { SubscriptionsModule } from './subscriptions/subscriptions.module';
 import { BillingModule } from './billing/billing.module';
-import { SttModule } from './stt/stt.module';
 import { LlmModule } from './llm/llm.module';
 import { GatewayModule } from './gateway/gateway.module';
 
@@ -19,7 +18,6 @@ import { GatewayModule } from './gateway/gateway.module';
     UsersModule,
     SubscriptionsModule,
     BillingModule,
-    SttModule,
     LlmModule,
     GatewayModule,
   ],

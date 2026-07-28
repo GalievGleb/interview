@@ -1,9 +1,7 @@
 """Voice regression test assets — read cases, transcribe audio files, save reports."""
 
-import asyncio
 import json
 import logging
-import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -11,7 +9,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from app.config import BASE_DIR
-from app.services.stt.registry import get_cached_whisper_provider
+from app.services.stt.registry import resolve_default_provider
 
 logger = logging.getLogger("voice_tests")
 
@@ -85,31 +83,12 @@ async def transcribe_case(case_id: str) -> dict:
         )
 
     audio_bytes = audio_path.read_bytes()
-    # Shared, cached provider: the Whisper model is loaded once for the whole run
-    # instead of being reloaded (and re-timed) on every case. Without this the
-    # per-case model load dominated sttLatencyMs at a fixed ~16s.
-    provider = get_cached_whisper_provider()
+    provider = resolve_default_provider()
     if not provider.is_available():
         raise HTTPException(
             status_code=502,
-            detail="Whisper не установлен (pip install -r requirements-whisper.txt)",
+            detail="OpenAI Mini STT недоступен",
         )
-    if not provider.is_model_downloaded():
-        raise HTTPException(
-            status_code=409,
-            detail="Модель Whisper не загружена — откройте Настройки → Распознавание речи",
-        )
-
-    # Warm the model OUTSIDE the inference timer. prepare() is a no-op once the
-    # model is loaded, so only the very first case pays modelLoadMs; the rest
-    # measure pure inference.
-    load_started = time.perf_counter()
-    already_loaded = getattr(provider, "_model", None) is not None
-    try:
-        await asyncio.to_thread(provider.prepare)
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
-    model_load_ms = 0 if already_loaded else int((time.perf_counter() - load_started) * 1000)
 
     try:
         result = await provider.transcribe_audio_file(audio_bytes, language="multi")
@@ -119,14 +98,12 @@ async def transcribe_case(case_id: str) -> dict:
     return {
         "caseId": case_id,
         "transcript": result.text,
-        # sttLatencyMs is now pure inference (model already warm), so it reflects
-        # real STT cost and no longer carries the one-time model-load overhead.
         "sttLatencyMs": result.latency_ms,
         "timings": {
-            "modelLoadMs": model_load_ms,
-            "whisperInferenceMs": result.latency_ms,
+            "modelLoadMs": 0,
+            "openaiInferenceMs": result.latency_ms,
             "audioBytes": len(audio_bytes),
-            "modelReused": already_loaded,
+            "modelReused": True,
         },
         "audioPath": str(audio_path),
     }

@@ -17,6 +17,7 @@ import os from 'os';
 import crypto from 'crypto';
 import { spawn, type ChildProcess } from 'child_process';
 import { autoUpdater } from 'electron-updater';
+import { isReservedOverlayShortcut } from './shortcutPolicy';
 
 const API_URL = process.env.API_URL ?? 'http://127.0.0.1:8000';
 const isDev = !app.isPackaged;
@@ -135,10 +136,6 @@ async function ensureBackend(): Promise<void> {
       // Бэкенд подхватит как settings.skillcue_gateway_url (BYOK-фолбэк на гейтвей).
       SKILLCUE_GATEWAY_URL,
     };
-    if (app.isPackaged) {
-      // Use the bundled, pre-downloaded Whisper cache so the first run is offline.
-      env.SKILLCUE_MODELS_DIR = path.join(process.resourcesPath, 'models');
-    }
     backendProcess = spawn(cfg.cmd, cfg.args, {
       cwd: cfg.cwd,
       env,
@@ -165,8 +162,7 @@ async function ensureBackend(): Promise<void> {
   }
 }
 
-/** После запуска ждём health (модель Whisper грузится не мгновенно) и
- *  сообщаем renderer'у «ок» — счётчик рестартов обнуляется. */
+/** После запуска ждём health и сообщаем renderer'у «ок». */
 async function confirmBackendUp(): Promise<void> {
   for (let i = 0; i < 40; i += 1) {
     if (quitting) return;
@@ -378,6 +374,13 @@ function registerIpc(): void {
 
   ipcMain.handle('keybinds:setToggleOverlay', (_e, acc: string) => {
     const next = typeof acc === 'string' && acc.trim() ? acc.trim() : DEFAULT_TOGGLE_SHORTCUT;
+    if (isReservedOverlayShortcut(next)) {
+      return {
+        ok: false,
+        shortcut: toggleOverlayShortcut,
+        error: 'Ctrl+Enter is reserved for sending the current live question',
+      };
+    }
     if (next === toggleOverlayShortcut) return { ok: true, shortcut: toggleOverlayShortcut };
     globalShortcut.unregister(toggleOverlayShortcut);
     if (!registerToggleShortcut(next)) {
@@ -574,6 +577,7 @@ function registerIpc(): void {
 /* ---- Настройки main-процесса (нужны до готовности renderer'а) ---- */
 
 const DEFAULT_TOGGLE_SHORTCUT = 'CommandOrControl+Shift+H';
+const FORCE_ANSWER_SHORTCUT = 'CommandOrControl+Enter';
 let toggleOverlayShortcut = DEFAULT_TOGGLE_SHORTCUT;
 
 function mainSettingsPath(): string {
@@ -606,6 +610,7 @@ function toggleOverlay(): void {
 }
 
 function registerToggleShortcut(acc: string): boolean {
+  if (isReservedOverlayShortcut(acc)) return false;
   try {
     return globalShortcut.register(acc, toggleOverlay);
   } catch {
@@ -622,16 +627,25 @@ function registerShortcuts(): void {
     toggleOverlayShortcut = DEFAULT_TOGGLE_SHORTCUT;
   }
 
-  // Escape прячет оверлей, но глобальный хук живёт ТОЛЬКО пока оверлей виден —
-  // постоянная регистрация отбирала Esc у всех остальных приложений системы.
+  // Session shortcuts live only while the overlay is visible so Ctrl+Enter and
+  // Escape keep working in the call window without being stolen system-wide.
   overlayWindow?.on('show', () => {
     try {
       globalShortcut.register('Escape', () => hideOverlay());
+      const registered = globalShortcut.register(FORCE_ANSWER_SHORTCUT, () => {
+        overlayWindow?.webContents.send('overlay:force-answer');
+      });
+      if (!registered) {
+        console.warn(`[overlay] global shortcut unavailable: ${FORCE_ANSWER_SHORTCUT}`);
+      }
     } catch {
       /* занято другим приложением — не критично */
     }
   });
-  overlayWindow?.on('hide', () => globalShortcut.unregister('Escape'));
+  overlayWindow?.on('hide', () => {
+    globalShortcut.unregister('Escape');
+    globalShortcut.unregister(FORCE_ANSWER_SHORTCUT);
+  });
 }
 
 function createTray(): void {

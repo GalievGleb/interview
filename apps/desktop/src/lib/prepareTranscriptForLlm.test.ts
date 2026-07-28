@@ -3,10 +3,23 @@ import { describe, expect, it } from 'vitest';
 import { prepareTranscriptForLlm } from './prepareTranscriptForLlm';
 
 describe('prepareTranscriptForLlm', () => {
-  it('corrects list vs tuple STT errors', () => {
-    const prepared = prepareTranscriptForLlm('Чем лист отличает от typo?');
-    expect(prepared.resolvedQuestion.toLowerCase()).toContain('list');
-    expect(prepared.resolvedQuestion.toLowerCase()).toContain('tuple');
+  it('preserves the final STT transcript without correction metadata', () => {
+    const raw = 'гейммикс си ди докер пятесты дизайнаа';
+
+    const prepared = prepareTranscriptForLlm(raw);
+
+    expect(prepared.normalized).toBe(raw);
+    expect(prepared).not.toHaveProperty('corrected');
+    expect(prepared).not.toHaveProperty('intentCorrected');
+    expect(prepared).not.toHaveProperty('correction');
+    expect(prepared).not.toHaveProperty('intent');
+  });
+
+  it('does not reinterpret phonetic Python terms', () => {
+    const raw = 'Чем лист отличает от typo?';
+    const prepared = prepareTranscriptForLlm(raw);
+
+    expect(prepared.normalized).toBe(raw);
   });
 
   it('resets topic when a new canonical term appears', () => {
@@ -14,8 +27,8 @@ describe('prepareTranscriptForLlm', () => {
     const jenkins = prepareTranscriptForLlm('Что такое Jenkins?', ctx);
     ctx = updateSessionContextAfterAnswer(ctx, {
       rawQuestion: jenkins.rawTranscript,
-      correctedQuestion: jenkins.corrected,
-      intentCorrectedQuestion: jenkins.intentCorrected,
+      correctedQuestion: jenkins.normalized,
+      intentCorrectedQuestion: jenkins.normalized,
       resolvedQuestion: jenkins.resolvedQuestion,
       questionIntent: jenkins.answerStrategy.questionIntent,
       canonicalTopic: jenkins.canonicalTopic,
@@ -34,8 +47,8 @@ describe('prepareTranscriptForLlm', () => {
     const fixtures = prepareTranscriptForLlm('Что такое pytest fixtures?', ctx);
     ctx = updateSessionContextAfterAnswer(ctx, {
       rawQuestion: fixtures.rawTranscript,
-      correctedQuestion: fixtures.corrected,
-      intentCorrectedQuestion: fixtures.intentCorrected,
+      correctedQuestion: fixtures.normalized,
+      intentCorrectedQuestion: fixtures.normalized,
       resolvedQuestion: fixtures.resolvedQuestion,
       questionIntent: fixtures.answerStrategy.questionIntent,
       canonicalTopic: fixtures.canonicalTopic,
@@ -53,8 +66,8 @@ describe('prepareTranscriptForLlm', () => {
     const smoke = prepareTranscriptForLlm('Что такое smoke testing?', ctx);
     ctx = updateSessionContextAfterAnswer(ctx, {
       rawQuestion: smoke.rawTranscript,
-      correctedQuestion: smoke.corrected,
-      intentCorrectedQuestion: smoke.intentCorrected,
+      correctedQuestion: smoke.normalized,
+      intentCorrectedQuestion: smoke.normalized,
       resolvedQuestion: smoke.resolvedQuestion,
       questionIntent: smoke.answerStrategy.questionIntent,
       canonicalTopic: smoke.canonicalTopic,

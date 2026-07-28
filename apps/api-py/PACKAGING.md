@@ -25,36 +25,11 @@ Use `pnpm --filter @interview/desktop dist:app` only when you intentionally want
 an app-only installer without rebuilding the backend.
 
 ## Notes / tuning
+
 - `run_server.py` is the frozen entry point (`uvicorn.run(app, port=$SKILLCUE_PORT)`).
-- `skillcue-backend.spec` `collect_all`s faster-whisper / ctranslate2 / tokenizers /
-  onnxruntime / av / huggingface_hub. Native STT deps are finicky — if the frozen
-  binary fails to import a module, add it to `hiddenimports` (or `collect_all` the
-  offending package) and rebuild.
-- Whisper **model files** are downloaded at runtime into the user cache; they are
-  not bundled, so the first run still needs network (or a pre-downloaded model).
-- **Облачный STT (опционально):** Deepgram Nova-3 работает на базовом `websockets`
-  и попадает в сборку всегда. Яндекс SpeechKit v3 требует `grpcio` + `yandexcloud`
-  (`pip install -r requirements-stt-cloud.txt` в build-окружении ДО pyinstaller) —
-  без них движок в реестре помечается unavailable с подсказкой, всё остальное
-  работает. Если frozen-бинарь не находит `yandex.cloud.ai.stt.v3`, добавьте
-  `collect_submodules("yandex.cloud.ai.stt.v3")` в hiddenimports.
-- macOS/Linux: same flow; the binary is `skillcue-backend` (no `.exe`).
-
-## Offline first-run (bundle a Whisper model)
-
-By default the first run downloads a model from HuggingFace. To ship an installer
-that works with no network, pre-download a model and bundle it:
-
-```bash
-# Pick a size: tiny (Fast) · small (Balanced, default) · medium (Quality)
-python apps/api-py/predownload_models.py small      # → apps/api-py/dist/models/
-pnpm --filter @interview/desktop dist:offline       # = predownload + dist:full
-```
-
-`dist/models/` ships as `resources/models`; the packaged backend reads it via
-`SKILLCUE_MODELS_DIR` (set by Electron in `main.ts`). This adds the model size
-(~75 MB / ~480 MB / ~1.5 GB) to the installer. Plain `dist:full` skips it (smaller
-installer, downloads on first run).
+- Speech recognition uses the managed `gpt-4o-mini-transcribe` gateway. No speech model is bundled or downloaded.
+- The packaged backend contains no alternative STT providers or transcript dictionaries.
+- macOS/Linux use the same flow; the backend binary has no `.exe` suffix.
 
 ## App icon
 

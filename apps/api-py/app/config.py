@@ -33,12 +33,6 @@ class Settings(BaseSettings):
     stt_enabled: bool = True
     stt_language: str = "multi"
 
-    # --- Speech-to-text (on-device Whisper only) -------------------------
-    # local model quality: "fast" | "balanced" | "quality"
-    stt_local_model: str = "balanced"
-    # device preference: "auto" | "cpu" | "gpu"
-    stt_device: str = "auto"
-
     log_level: str = "info"
 
     # Local backend bound to 127.0.0.1; no cookies/credentials are used (API

@@ -26,6 +26,7 @@ export interface ElectronAPI {
     setClickThrough?: (enable: boolean) => Promise<void>;
     resize?: (dw: number, dh: number) => Promise<void>;
     setLiveState?: (active: boolean) => Promise<void>;
+    onForceAnswer?: (cb: () => void) => () => void;
   };
   window: {
     setSkipTaskbar: (skip: boolean) => Promise<void>;

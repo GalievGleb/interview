@@ -29,22 +29,9 @@ jobs:
         working-directory: apps/api-py
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt -r requirements-whisper.txt pyinstaller
+          pip install -r requirements.txt pyinstaller
           pyinstaller skillcue-backend.spec
           test -f dist/skillcue-backend/skillcue-backend.exe
-      - name: Bundle Whisper tiny model (мгновенный офлайн первый запуск)
-        working-directory: apps/api-py
-        # Кладём tiny (~75 МБ) в dist/models — electron-builder копирует его в
-        # resources/models (extraResources), и первый запуск не качает модель с
-        # HuggingFace. Более крупные качаются по требованию из приложения.
-        # НЕблокирующе: транзитный сбой HF не должен рушить весь релиз —
-        # без модели просто вернётся старое поведение (докачка при 1-м запуске).
-        run: |
-          if python predownload_models.py tiny; then
-            echo "tiny bundled: $(find dist/models -name model.bin | head -1)"
-          else
-            echo "::warning::Не удалось скачать tiny-модель — установщик соберётся без неё (докачка при первом запуске)"
-          fi
       - name: Smoke-test frozen backend (health + auth + core endpoints)
         working-directory: apps/api-py
         env:

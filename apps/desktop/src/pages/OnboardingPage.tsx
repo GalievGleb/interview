@@ -55,13 +55,14 @@ export default function OnboardingPage() {
         {step === 1 ? (
           <>
             <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-accent">
-              {t('onboarding.stt.eyebrow')}
+              Первый запуск
             </p>
             <h1 className="text-[32px] font-semibold leading-tight tracking-tight">
-              {t('onboarding.stt.title')}
+              Проверьте голосовой ввод
             </h1>
             <p className="mt-2 max-w-xl text-sm leading-relaxed text-ink-muted">
-              {t('onboarding.stt.subtitle')}
+              SkillCue распознает вопрос после окончания реплики и сразу передает текст в
+              генерацию ответа.
             </p>
 
             <div className="mt-7 grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -72,44 +73,41 @@ export default function OnboardingPage() {
                   </span>
                   <div>
                     <p className="text-[15px] font-semibold text-ink">
-                      {t('onboarding.stt.whisperTitle')}
+                      OpenAI Mini Transcribe
                     </p>
                     <p className="text-xs font-medium text-accent">
-                      {t('onboarding.stt.recommended')}
+                      Настроено по умолчанию
                     </p>
                   </div>
                 </div>
                 <p className="text-sm leading-relaxed text-ink-muted">
-                  {t('onboarding.stt.whisperDesc.pre')}
-                  <strong className="font-semibold text-ink">
-                    {t('onboarding.stt.whisperDesc.strong')}
-                  </strong>
-                  {t('onboarding.stt.whisperDesc.post')}
+                  Один облачный движок для русского языка и англоязычных технических терминов.
+                  Никаких моделей для скачивания и переключателей провайдера.
                 </p>
               </div>
 
               <div className="sc-card p-5">
                 <p className="mb-3 text-[10px] font-semibold uppercase tracking-wide text-ink-faint">
-                  {t('onboarding.stt.expect')}
+                  Как это работает
                 </p>
                 <ul className="space-y-2.5 text-sm text-ink-muted">
                   <li className="flex items-start gap-2.5">
                     <span className="mt-0.5 text-emerald-400">
                       <Stroke d="M20 6 9 17l-5-5" />
                     </span>
-                    {t('onboarding.stt.expect.offline')}
+                    SkillCue фиксирует окончание реплики локально.
                   </li>
                   <li className="flex items-start gap-2.5">
                     <span className="mt-0.5 text-amber-400">
                       <Stroke d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z|M12 9v4|M12 17h.01" />
                     </span>
-                    {t('onboarding.stt.expect.cpu')}
+                    Готовый аудиофрагмент отправляется в OpenAI.
                   </li>
                   <li className="flex items-start gap-2.5">
                     <span className="mt-0.5 text-accent">
                       <Stroke d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4|M7 10l5 5 5-5|M12 15V3" />
                     </span>
-                    {t('onboarding.stt.expect.download')}
+                    Транскрипт используется без словарных замен.
                   </li>
                 </ul>
               </div>
@@ -121,7 +119,7 @@ export default function OnboardingPage() {
             </div>
 
             <button onClick={() => setStep(2)} className="btn-primary mt-6 w-full py-3 sm:w-auto sm:px-8">
-              {t('onboarding.stt.choose')}
+              Проверить настройку
             </button>
           </>
         ) : step === 2 ? (

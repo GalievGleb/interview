@@ -1,5 +1,5 @@
 import type { QuestionIntent } from './classifyInterviewQuestionIntent';
-import type { AppliedCorrection } from './correctTranscriptWithGlossary';
+import type { AppliedCorrection } from './transcriptMetadata';
 import type { InterviewSessionContext } from './interviewSessionContext';
 import { assessHallucinationRisk, extractExplicitCanonicalTopic, shouldResetPreviousTopic } from './topicReset';
 import { isStandaloneDefinitionQuestion, resolveStandaloneTopic } from './standaloneQuestion';

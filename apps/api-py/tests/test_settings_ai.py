@@ -40,3 +40,25 @@ def test_keys_status_treats_configured_gateway_as_ai_ready(client, monkeypatch):
     ai = client.get("/settings/ai")
     assert ai.status_code == 200
     assert ai.json()["has_openrouter_key"] is True
+
+
+def test_settings_ignores_removed_stt_credentials(client, monkeypatch):
+    from app.services import secrets
+
+    stored: dict[str, str] = {}
+    monkeypatch.setattr(secrets, "set_secret", lambda name, value: stored.__setitem__(name, value))
+    monkeypatch.setattr(secrets, "has_secret", lambda name: bool(stored.get(name)))
+
+    response = client.post(
+        "/settings/keys",
+        json={
+            "aws_access_key_id": "AKIA_TEST",
+            "aws_secret_access_key": "secret",
+            "aws_session_token": "session",
+            "aws_region": "ap-southeast-2",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "amazon" not in response.json()
+    assert stored == {}

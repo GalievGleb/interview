@@ -7,13 +7,7 @@ interface OssComponent {
   url: string;
 }
 
-// Bundled / runtime open-source components. This satisfies the attribution
-// requirement for shipping a commercial desktop app that embeds local Whisper.
 const COMPONENTS: OssComponent[] = [
-  { name: 'OpenAI Whisper', license: 'MIT', use: 'Speech recognition model & architecture', url: 'https://github.com/openai/whisper' },
-  { name: 'faster-whisper', license: 'MIT', use: 'CTranslate2 Whisper inference', url: 'https://github.com/SYSTRAN/faster-whisper' },
-  { name: 'CTranslate2', license: 'MIT', use: 'Optimized local model runtime (CPU/GPU)', url: 'https://github.com/OpenNMT/CTranslate2' },
-  { name: 'Hugging Face Hub', license: 'Apache-2.0', use: 'Model download & caching', url: 'https://github.com/huggingface/huggingface_hub' },
   { name: 'FastAPI', license: 'MIT', use: 'Local backend API', url: 'https://github.com/fastapi/fastapi' },
   { name: 'Starlette', license: 'BSD-3-Clause', use: 'ASGI framework / WebSockets', url: 'https://github.com/encode/starlette' },
   { name: 'Uvicorn', license: 'BSD-3-Clause', use: 'ASGI server', url: 'https://github.com/encode/uvicorn' },
@@ -66,8 +60,7 @@ export default function LicensesPage() {
       </div>
 
       <p className="mt-4 text-xs text-ink-faint">
-        Whisper-модели распространяются на условиях MIT (OpenAI). Локальная транскрипция выполняется
-        на вашем устройстве; аудио не отправляется на наши серверы.
+        Распознавание речи выполняется через OpenAI API и регулируется условиями сервиса OpenAI.
       </p>
     </div>
   );

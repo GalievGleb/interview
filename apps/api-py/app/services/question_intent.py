@@ -243,13 +243,7 @@ def resolve_answer_strategy(payload) -> AnswerStrategy:
             "suggest_unclear_prefix": bool(payload.suggest_unclear_prefix),
         }
     return classify_interview_question_intent(
-        (payload.resolved_follow_up_question if payload.used_previous_context else None)
-        or payload.intent_corrected
-        or payload.question
-        or "",
+        payload.resolved_follow_up_question or payload.question or "",
         raw_question=payload.raw_question,
-        glossary_corrected=payload.glossary_corrected,
-        intent_changed=bool(payload.intent_corrections) or bool(payload.used_previous_context),
-        intent_confidence=payload.intent_confidence,
-        ambiguity=payload.ambiguity,
+        intent_changed=bool(payload.used_previous_context),
     )

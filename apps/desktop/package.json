@@ -1,6 +1,6 @@
 {
   "name": "@interview/desktop",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "private": true,
   "main": "dist-electron/main.js",
   "scripts": {
@@ -9,10 +9,7 @@
     "dist": "pnpm dist:full",
     "dist:app": "pnpm build && electron-builder",
     "build:backend": "cd ../api-py && pyinstaller skillcue-backend.spec",
-    "predownload:model": "cd ../api-py && python predownload_models.py",
-    "predownload:model:tiny": "cd ../api-py && python predownload_models.py tiny",
-    "dist:full": "pnpm build:backend && pnpm predownload:model:tiny && pnpm build && electron-builder",
-    "dist:offline": "pnpm predownload:model && pnpm dist:full",
+    "dist:full": "pnpm build:backend && pnpm build && electron-builder",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -23,16 +20,15 @@
     "@interview/shared": "workspace:*",
     "electron-updater": "^6.3.9",
     "keytar": "^7.9.0",
+    "lucide-react": "^0.468.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "react-router-dom": "^7.1.1",
-    "ws": "^8.18.0"
+    "react-router-dom": "^7.1.1"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/react": "^19.0.7",
     "@types/react-dom": "^19.0.3",
-    "@types/ws": "^8.5.14",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
     "concurrently": "^9.1.2",
@@ -65,13 +61,6 @@
       {
         "from": "../api-py/dist/skillcue-backend",
         "to": "backend",
-        "filter": [
-          "**/*"
-        ]
-      },
-      {
-        "from": "../api-py/dist/models",
-        "to": "models",
         "filter": [
           "**/*"
         ]

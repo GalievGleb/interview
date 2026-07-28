@@ -1,113 +1,60 @@
-import type { AppliedCorrection } from './correctTranscriptWithGlossary';
-import { QA_GLOSSARY } from './qaGlossary';
-import {
-  resolveStandaloneTopic,
-} from './standaloneQuestion';
+import type { AppliedCorrection } from './transcriptMetadata';
+import { resolveStandaloneTopic } from './standaloneQuestion';
 
-/** Canonical terms that start a new topic — never combine with previous topic. */
 export const TOPIC_RESET_CANONICAL_TERMS = [
-  'Jenkins',
   'Page Object Model',
+  'GitLab CI',
+  'REST API',
+  'smoke testing',
+  'sanity testing',
+  'regression testing',
+  'equivalence classes',
+  'boundary values',
+  'pairwise testing',
   'pytest fixtures',
+  'flaky tests',
+  'HTTP methods',
+  'Jenkins',
   'CI/CD',
   'Kafka',
   'Docker',
-  'Allure Report',
+  'Allure',
   'Kubernetes',
   'Selenium',
   'Playwright',
-  'PUT',
-  'PATCH',
+  'HTTPX',
+  'Requests',
   'Linux',
-  'HTTP methods',
+  'pytest',
   'OOP',
   'полиморфизм',
   'инкапсуляция',
   'наследование',
   'абстракция',
-  'GitLab CI',
-  'REST API',
-  'pipeline',
-  'flaky tests',
-  'smoke testing',
-  'sanity testing',
-  'regression testing',
-  'test case',
-  'checklist',
-  'bug report',
-  'severity',
-  'priority',
-  'pytest',
-  'equivalence classes',
-  'boundary values',
-  'pairwise testing',
-  'retest',
+  'API',
+  'PUT',
+  'PATCH',
 ] as const;
 
 const NEW_TOPIC_QUESTION_RE =
   /(?:^|\s)(?:что\s+такое|расскаж\w*\s+про|в\s+ч(?:е|ё)м\s+разниц|чем\s+отлича|какие\s+бывают|ты\s+настраивал|как\s+использовал|как\s+применял|скаж\w*\s+про)/iu;
 
-const INCIDENTAL_PIPELINE_RE = /\s(?:в|in)\s+pipeline(?:[?.!,]|$|\s)/iu;
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
 function termInText(term: string, text: string): boolean {
-  const pattern = new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(term)}(?![\\p{L}\\p{N}])`, 'iu');
-  return pattern.test(text);
+  const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, 'iu').test(text);
 }
 
-function isIncidentalPipeline(text: string): boolean {
-  return INCIDENTAL_PIPELINE_RE.test(text) && !/(?:что\s+такое|расскаж\w*\s+про)\s+pipeline/i.test(text);
-}
-
-/** Extracts the primary canonical topic from a corrected question. */
 export function extractExplicitCanonicalTopic(
   question: string,
-  corrections: AppliedCorrection[] = [],
+  _corrections: AppliedCorrection[] = [],
 ): string | null {
   const q = question.trim();
   if (!q) return null;
-
-  if (isIncidentalPipeline(q)) {
-    return null;
+  const terms = [...TOPIC_RESET_CANONICAL_TERMS].sort((a, b) => b.length - a.length);
+  for (const term of terms) {
+    if (termInText(term, q)) return term;
   }
-
-  const correctionTargets = corrections
-    .map((c) => c.to.trim())
-    .filter(
-      (t) =>
-        TOPIC_RESET_CANONICAL_TERMS.includes(t as (typeof TOPIC_RESET_CANONICAL_TERMS)[number]) &&
-        t.toLowerCase() !== 'pipeline',
-    )
-    .sort((a, b) => b.length - a.length);
-  for (const term of correctionTargets) {
-    return term;
-  }
-
-  const sorted = [...QA_GLOSSARY]
-    .filter((e) => TOPIC_RESET_CANONICAL_TERMS.includes(e.canonical as (typeof TOPIC_RESET_CANONICAL_TERMS)[number]))
-    .sort((a, b) => b.canonical.length - a.canonical.length);
-
-  for (const entry of sorted) {
-    if (entry.canonical === 'pipeline' && isIncidentalPipeline(q)) continue;
-    if (termInText(entry.canonical, q)) {
-      return entry.canonical;
-    }
-    for (const alias of entry.aliases) {
-      if (termInText(alias, q)) {
-        return entry.canonical;
-      }
-    }
-  }
-
-  const standalone = resolveStandaloneTopic(q, corrections);
-  if (standalone && NEW_TOPIC_QUESTION_RE.test(q)) {
-    return standalone;
-  }
-
-  return null;
+  return NEW_TOPIC_QUESTION_RE.test(q) ? resolveStandaloneTopic(q) : null;
 }
 
 export interface TopicResetResult {
@@ -117,69 +64,36 @@ export interface TopicResetResult {
   wasPreviousTopicUsed: boolean;
 }
 
-/** True when a new explicit topic must replace previous context. */
 export function shouldResetPreviousTopic(
   question: string,
   corrections: AppliedCorrection[] = [],
   previousTopic?: string | null,
 ): TopicResetResult {
-  const prev = previousTopic?.trim() || null;
   const currentTopic = extractExplicitCanonicalTopic(question, corrections);
-
+  const previous = previousTopic?.trim() || null;
   if (!currentTopic) {
     return { reset: false, currentTopic: null, wasPreviousTopicUsed: false };
   }
-
-  if (!prev) {
-    return {
-      reset: false,
-      currentTopic,
-      wasPreviousTopicUsed: false,
-      reason: 'new explicit topic, no previous topic',
-    };
-  }
-
-  if (currentTopic.toLowerCase() !== prev.toLowerCase()) {
-    const reason = NEW_TOPIC_QUESTION_RE.test(question)
-      ? 'Standalone technical term detected, previous context ignored'
-      : `new explicit topic «${currentTopic}» differs from previous «${prev}»`;
-    return {
-      reset: true,
-      currentTopic,
-      wasPreviousTopicUsed: false,
-      reason,
-    };
-  }
-
-  if (NEW_TOPIC_QUESTION_RE.test(question)) {
-    return {
-      reset: true,
-      currentTopic,
-      wasPreviousTopicUsed: false,
-      reason: `same term «${currentTopic}» but new-topic question starter — do not merge context`,
-    };
-  }
-
+  const reset =
+    Boolean(previous && currentTopic.toLowerCase() !== previous.toLowerCase()) ||
+    NEW_TOPIC_QUESTION_RE.test(question);
   return {
-    reset: false,
+    reset,
     currentTopic,
     wasPreviousTopicUsed: false,
-    reason: 'explicit topic matches previous topic',
+    reason: reset ? 'explicit technical topic in current question' : undefined,
   };
 }
 
 export type HallucinationRisk = 'low' | 'medium' | 'high';
 
 const HIGH_RISK_RE =
-  /(?:много\s+баг|сколько\s+баг|находил[\p{L}]*\s+(?:ли\s+)?(?:ваши\s+)?автотест[\p{L}]*\s+баг|сколько\s+автоматизатор|сколько\s+.+\s+в\s+команд|глубок[\p{L}]+.*kafka|kafka.*глубок|rest\s*assured|restassured|все\s+600|написал[\p{L}]*\s+.{0,20}600\s+(?:авто)?тест|сам\s+написал[\p{L}]*\s+.{0,15}тест)/iu;
-
+  /(?:много\s+баг|сколько\s+баг|сколько\s+автоматизатор|сколько\s+.+\s+в\s+команд|глубок[\p{L}]+.*kafka|kafka.*глубок|rest\s*assured|все\s+600|сам\s+написал[\p{L}]*\s+.{0,15}тест)/iu;
 const MEDIUM_RISK_RE =
-  /(?:ты\s+сам\s+настраивал|как\s+ты\s+(?:применял|использовал)|опыт\s+(?:с\s+)?kafka|kubernetes|критичн[\p{L}]+\s+баг|selenium.{0,20}playwright|playwright.{0,20}selenium)/iu;
+  /(?:ты\s+сам\s+настраивал|как\s+ты\s+(?:применял|использовал)|опыт\s+(?:с\s+)?kafka|kubernetes|критичн[\p{L}]+\s+баг)/iu;
 
 export function assessHallucinationRisk(question: string): HallucinationRisk {
-  const q = question.trim();
-  if (!q) return 'low';
-  if (HIGH_RISK_RE.test(q)) return 'high';
-  if (MEDIUM_RISK_RE.test(q)) return 'medium';
+  if (HIGH_RISK_RE.test(question)) return 'high';
+  if (MEDIUM_RISK_RE.test(question)) return 'medium';
   return 'low';
 }

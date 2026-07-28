@@ -3,7 +3,6 @@ import { startCapture, AudioCapture, AudioSource } from './audioCapture';
 import {
   AudioSampleRateMode,
   probeOutputSampleRate,
-  SttEngine,
   SttSessionOptions,
 } from './sttOptions';
 
@@ -20,6 +19,12 @@ export function captureIsStale(
   return stopped || !myWs || currentWs !== myWs || myWs.readyState !== WebSocket.OPEN;
 }
 
+export function sendFinalizeControl(ws: WebSocket | null, requestId: string): boolean {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+  ws.send(JSON.stringify({ type: 'finalize', request_id: requestId }));
+  return true;
+}
+
 /** Server-measured timing breakdown for one utterance (ms). */
 export interface SttTimings {
   speechMs?: number;
@@ -30,8 +35,13 @@ export interface SttTimings {
 }
 
 export interface LiveHandlers {
-  onTranscript: (text: string, isFinal: boolean, speechFinal: boolean) => void;
-  onUtteranceEnd?: (timings?: SttTimings) => void;
+  onTranscript: (
+    text: string,
+    isFinal: boolean,
+    speechFinal: boolean,
+    forceRequestId?: string,
+  ) => void;
+  onUtteranceEnd?: (timings?: SttTimings, forceRequestId?: string) => void;
   onTurnResumed?: () => void;
   onSpeechStarted?: () => void;
   /** Connection dropped — reconnect attempt N of M is scheduled. */
@@ -39,12 +49,12 @@ export interface LiveHandlers {
   /** Connection restored after a reconnect (server sent `ready` again). */
   onReconnected?: () => void;
   /** Final transcript rejected by the server quality gate (no LLM call). */
-  onLowQuality?: (text: string, reason: string) => void;
+  onLowQuality?: (text: string, reason: string, forceRequestId?: string) => void;
+  /** Manual finalize reached the server, but there was no buffered audio. */
+  onForceEmpty?: (forceRequestId?: string) => void;
   onReady?: (info: {
     engine: string;
     model: string;
-    partialModel?: string;
-    finalModel?: string;
     sampleRate: number;
   }) => void;
   onError: (message: string) => void;
@@ -54,14 +64,13 @@ export interface LiveHandlers {
 }
 
 export interface LiveSession {
+  flush: (requestId: string) => boolean;
   stop: () => void;
 }
 
 function toWsUrl(httpUrl: string): string {
   return httpUrl.replace(/^http/, 'ws');
 }
-
-export type SttMode = 'fast' | 'stable';
 
 export async function startLiveSession(
   handlers: LiveHandlers,
@@ -72,7 +81,6 @@ export async function startLiveSession(
   } & SttSessionOptions = {},
 ): Promise<LiveSession> {
   const source: AudioSource = opts.source ?? 'mic';
-  const engine: SttEngine = opts.engine ?? 'nova3-multi';
   const audioMode: AudioSampleRateMode = opts.audioSampleRate ?? '16k';
   const sampleRate = await probeOutputSampleRate(audioMode);
 
@@ -80,8 +88,6 @@ export async function startLiveSession(
   if (opts.sessionId) params.set('session_id', opts.sessionId);
   if (opts.speaker) params.set('speaker', opts.speaker);
   if (opts.language) params.set('language', opts.language);
-  if (opts.mode) params.set('mode', opts.mode);
-  params.set('engine', engine);
   params.set('sample_rate', String(sampleRate));
   // Локальная аутентификация: браузерный WebSocket не умеет заголовки.
   const apiToken = await getApiToken();
@@ -164,11 +170,25 @@ export async function startLiveSession(
       try {
         const evt = JSON.parse(event.data as string);
         if (evt.type === 'transcript') {
-          handlers.onTranscript(evt.text, Boolean(evt.is_final), Boolean(evt.speech_final));
+          handlers.onTranscript(
+            evt.text,
+            Boolean(evt.is_final),
+            Boolean(evt.speech_final),
+            evt.force_request_id,
+          );
         } else if (evt.type === 'utterance_end') {
-          handlers.onUtteranceEnd?.(evt.timings as SttTimings | undefined);
+          handlers.onUtteranceEnd?.(
+            evt.timings as SttTimings | undefined,
+            evt.force_request_id,
+          );
         } else if (evt.type === 'low_quality') {
-          handlers.onLowQuality?.(evt.text ?? '', evt.reason ?? 'low_quality');
+          handlers.onLowQuality?.(
+            evt.text ?? '',
+            evt.reason ?? 'low_quality',
+            evt.force_request_id,
+          );
+        } else if (evt.type === 'force_empty') {
+          handlers.onForceEmpty?.(evt.force_request_id);
         } else if (evt.type === 'speech_started') {
           handlers.onSpeechStarted?.();
         } else if (evt.type === 'turn_resumed') {
@@ -178,10 +198,8 @@ export async function startLiveSession(
           attempts = 0; // healthy connection — reset the backoff
           if (wasReconnect) handlers.onReconnected?.();
           handlers.onReady?.({
-            engine: evt.engine ?? engine,
-            model: evt.model ?? evt.final_model ?? engine,
-            partialModel: evt.partial_model,
-            finalModel: evt.final_model ?? evt.model,
+            engine: evt.engine ?? 'openai-mini',
+            model: evt.model ?? 'gpt-4o-mini-transcribe',
             sampleRate: evt.sample_rate ?? sampleRate,
           });
         } else if (evt.type === 'error') {
@@ -205,5 +223,8 @@ export async function startLiveSession(
 
   connect();
 
-  return { stop: cleanup };
+  return {
+    flush: (requestId) => sendFinalizeControl(ws, requestId),
+    stop: cleanup,
+  };
 }

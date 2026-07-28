@@ -2,7 +2,6 @@
  * Manual regression tests for follow-up resolution and topic reset.
  * Run: npx tsx packages/shared/src/resolveFollowUpQuestion.test.ts
  */
-import { correctTranscriptWithGlossary } from './correctTranscriptWithGlossary';
 import { createEmptySessionContext, updateSessionContextAfterAnswer } from './interviewSessionContext';
 import { extractCanonicalTopic } from './extractCanonicalTopic';
 import { assessHallucinationRisk } from './topicReset';
@@ -23,10 +22,9 @@ interface Scenario {
 }
 
 function pipeline(input: string) {
-  const correction = correctTranscriptWithGlossary(input, { interviewMode: true, isShort: true });
   return {
-    corrected: correction.corrected,
-    corrections: correction.corrections,
+    corrected: input,
+    corrections: [],
   };
 }
 
@@ -64,7 +62,7 @@ const SCENARIOS: Scenario[] = [
         expectFollowUp: true,
       },
       {
-        input: 'Что такое CICD?',
+        input: 'Что такое CI/CD?',
         expectedTopic: 'CI/CD',
         expectedResolved: 'Что такое CI/CD?',
         expectReset: true,
@@ -104,7 +102,7 @@ const SCENARIOS: Scenario[] = [
   {
     name: 'sequence 5: Allure → Kubernetes no contamination',
     steps: [
-      { input: 'Что такое аллюр-репорт?', expectedTopic: 'Allure Report' },
+      { input: 'Что такое аллюр-репорт?', expectedTopic: 'аллюр-репорт' },
       {
         input: 'Ты настраивал Kubernetes?',
         expectedTopic: 'Kubernetes',
@@ -120,7 +118,7 @@ const SCENARIOS: Scenario[] = [
       { input: 'Что такое Jenkins?', expectedTopic: 'Jenkins' },
       {
         input: 'Что такое page object model?',
-        expectedResolved: 'Что такое Page Object Model?',
+        expectedResolved: 'Что такое page object model?',
         expectReset: true,
         expectNoContamination: 'Jenkins',
       },
@@ -132,8 +130,8 @@ const SCENARIOS: Scenario[] = [
       { input: 'Что такое smoke testing?', expectedTopic: 'smoke testing' },
       {
         input: 'Что такое тест-кейс?',
-        expectedTopic: 'test case',
-        expectedResolved: 'Что такое test case?',
+        expectedTopic: 'тест-кейс',
+        expectedResolved: 'Что такое тест-кейс?',
         expectReset: true,
         expectFollowUp: false,
         expectNoContamination: 'smoke',
@@ -147,8 +145,8 @@ const SCENARIOS: Scenario[] = [
       { input: 'Что такое test case?', expectedTopic: 'test case' },
       {
         input: 'Что такое чек-лист?',
-        expectedTopic: 'checklist',
-        expectedResolved: 'Что такое checklist?',
+        expectedTopic: 'чек-лист',
+        expectedResolved: 'Что такое чек-лист?',
         expectReset: true,
         expectFollowUp: false,
         expectNoContamination: 'test case',

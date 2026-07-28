@@ -3,11 +3,7 @@
 Deliberately separate from voice regression:
   * No LLM is called.
   * No *answer* keywords are used — only *transcript* keywords.
-  * It compares Whisper **raw** vs Whisper **corrected** (deterministic glossary)
-    plus latency, keyword match, intent match, and an error type.
-
-Works with any registry provider (local Whisper, Deepgram Nova-3, Yandex
-SpeechKit) — which is what lets the benchmark compare engines on the same clips.
+  * It scores the raw OpenAI Mini transcript without changing its text.
 """
 
 from __future__ import annotations
@@ -21,7 +17,6 @@ from pathlib import Path
 
 from app.config import BASE_DIR
 
-from . import glossary
 from .base import BaseTranscriptionProvider
 
 logger = logging.getLogger("stt.benchmark")
@@ -150,23 +145,12 @@ def classify_error(raw_transcript: str, best_match: float) -> str:
 
 
 def score_case(case: dict, raw_transcript: str, latency_ms: int) -> dict:
-    """Per-case benchmark result: raw vs corrected, keyword AND semantic match.
-
-    Reports correctionGain on both keyword and semantic axes, which rules fired,
-    whether correction did anything, and false negatives (meaning is right but
-    exact keyword match is low).
-    """
+    """Score the provider transcript without modifying it."""
     keywords = case.get("transcriptKeywords") or []
-    # Semantic intent = canonical terms + free-form meaning phrases.
     sem_terms = (case.get("expectedTerms") or []) + (case.get("expectedMeaning") or [])
-    corrected, corrections = glossary.correct_transcript(raw_transcript)
-
-    raw_kw, _, _ = match_keywords(raw_transcript, keywords)
-    corr_kw, hit_keys, miss_keys = match_keywords(corrected, keywords)
-    raw_sem, _, _ = match_terms(raw_transcript, sem_terms)
-    corr_sem, sem_hit, sem_miss = match_terms(corrected, sem_terms)
-
-    best = max(corr_kw, corr_sem)
+    raw_kw, hit_keys, miss_keys = match_keywords(raw_transcript, keywords)
+    raw_sem, sem_hit, sem_miss = match_terms(raw_transcript, sem_terms)
+    best = max(raw_kw, raw_sem)
     return {
         "caseId": case.get("id"),
         "title": case.get("title"),
@@ -175,24 +159,13 @@ def score_case(case: dict, raw_transcript: str, latency_ms: int) -> dict:
             "latencyMs": latency_ms,
             "keywordMatch": raw_kw,
             "semanticMatch": raw_sem,
-        },
-        "corrected": {
-            "transcript": corrected,
-            "keywordMatch": corr_kw,
-            "semanticMatch": corr_sem,
-            "corrections": [c.as_dict() for c in corrections],
-            "correctionActive": bool(corrections),
             "keywordsHit": hit_keys,
             "keywordsMissed": miss_keys,
             "meaningHit": sem_hit,
             "meaningMissed": sem_miss,
         },
-        "keywordGain": round(corr_kw - raw_kw, 3),
-        "semanticGain": round(corr_sem - raw_sem, 3),
-        "intentMatch": corr_sem,
-        # Meaning is clearly present but exact keywords scored low — the kind of
-        # "unfair" miss the old benchmark over-penalised.
-        "falseNegative": corr_sem >= 0.6 and corr_kw < 0.5,
+        "intentMatch": raw_sem,
+        "falseNegative": raw_sem >= 0.6 and raw_kw < 0.5,
         "errorType": classify_error(raw_transcript, best),
     }
 
@@ -211,10 +184,6 @@ async def run_case(case: dict, provider: BaseTranscriptionProvider) -> dict:
     try:
         result = await provider.transcribe_audio_file(audio, language="multi")
     except Exception as exc:  # noqa: BLE001
-        # Whisper runs locally and effectively never throws here, but cloud
-        # engines (SpeechKit/Deepgram) make a real network call per case — an
-        # expired key or network hiccup must fail just this one case, not crash
-        # the whole batch with an opaque 500 (see run_all's list comprehension).
         logger.warning("STT benchmark case %s failed on %s: %s", case.get("id"), provider.id, exc)
         return {
             "caseId": case.get("id"),
@@ -242,10 +211,7 @@ def _aggregate(cases: list[dict], provider: BaseTranscriptionProvider) -> dict:
         et = c.get("errorType", "unknown")
         error_types[et] = error_types.get(et, 0) + 1
     avg_raw = avg("keywordMatch", "raw")
-    avg_corrected = avg("keywordMatch", "corrected")
     avg_sem_raw = avg("semanticMatch", "raw")
-    avg_sem_corr = avg("semanticMatch", "corrected")
-    corrections_active = sum(1 for c in scored if c["corrected"].get("correctionActive"))
     false_negatives = sum(1 for c in scored if c.get("falseNegative"))
     return {
         "generatedAt": datetime.now(UTC).isoformat(),
@@ -254,17 +220,11 @@ def _aggregate(cases: list[dict], provider: BaseTranscriptionProvider) -> dict:
         "caseCount": len(cases),
         "avgLatencyMs": int(sum(c["raw"]["latencyMs"] for c in scored) / n) if scored else 0,
         "avgKeywordMatchRaw": avg_raw,
-        "avgKeywordMatchCorrected": avg_corrected,
-        "correctionGain": round(avg_corrected - avg_raw, 3),
         "avgSemanticMatchRaw": avg_sem_raw,
-        "avgSemanticMatchCorrected": avg_sem_corr,
-        "semanticCorrectionGain": round(avg_sem_corr - avg_sem_raw, 3),
         "avgIntentMatch": round(sum(c.get("intentMatch", 0) for c in scored) / n, 3)
         if scored
         else 0.0,
-        "casesWithCorrections": corrections_active,
         "falseNegatives": false_negatives,
-        "correctionInactive": len(scored) - corrections_active,
         "errorTypes": error_types,
         "cases": cases,
     }

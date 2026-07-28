@@ -77,10 +77,10 @@ describe('voice-test-scoring', () => {
   it('records STT stage timings when provided', () => {
     const metrics = computeVoiceTestMetrics(baseCase, 'pytest', 'fixture scope conftest setup', 800, 200, {
       modelLoadMs: 15000,
-      whisperInferenceMs: 800,
+      openaiInferenceMs: 800,
     });
     expect(metrics.modelLoadMs).toBe(15000);
-    expect(metrics.whisperInferenceMs).toBe(800);
+    expect(metrics.openaiInferenceMs).toBe(800);
     expect(metrics.sttLatencyMs).toBe(800);
   });
 });

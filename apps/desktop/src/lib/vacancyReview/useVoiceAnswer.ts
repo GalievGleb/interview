@@ -4,7 +4,7 @@ import { createVoiceAnswerTranscript, flushVoiceAnswerTranscript } from '../voic
 
 /**
  * Lightweight voice capture for a single mock-interview answer. Reuses the live
- * STT WebSocket (mic → Whisper) but accumulates only the final transcript and
+ * STT WebSocket (mic -> OpenAI Mini) but accumulates only the final transcript and
  * streams it back via `onText`, so the answer textarea fills as you speak.
  */
 export function useVoiceAnswer(onText: (text: string) => void, language = 'ru') {
@@ -37,7 +37,7 @@ export function useVoiceAnswer(onText: (text: string) => void, language = 'ru') 
             stop();
           },
         },
-        { source: 'mic', speaker: 'me', mode: 'stable', language },
+        { source: 'mic', speaker: 'me', language },
       );
       sessionRef.current = session;
       setRecording(true);

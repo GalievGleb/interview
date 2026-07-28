@@ -8,7 +8,7 @@ import type {
 
 export interface SttStageTimings {
   modelLoadMs?: number;
-  whisperInferenceMs?: number;
+  openaiInferenceMs?: number;
 }
 
 const OPTIONAL_SCORE_WEIGHT = 0.25;
@@ -82,7 +82,7 @@ export function computeVoiceTestMetrics(
     answerWordCount: countWords(answer),
     forbiddenPhrasesFound,
     modelLoadMs: stageTimings.modelLoadMs,
-    whisperInferenceMs: stageTimings.whisperInferenceMs,
+    openaiInferenceMs: stageTimings.openaiInferenceMs,
   };
 }
 

@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getFastAnswer, setFastAnswer } from '../lib/api';
 import { answerChimeEnabled, setAnswerChime } from '../lib/notifySound';
-import { isSpeculativeEnabled, setSpeculative } from '../lib/speculativePref';
 import { getLang, setLang, useI18n } from '../lib/i18n';
 import { launchLive } from '../lib/launchLive';
 
@@ -42,11 +41,6 @@ export default function CommandPalette() {
           id: 'chime',
           label: `${t('cmd.chime')}: ${onOff(answerChimeEnabled())}`,
           run: () => setAnswerChime(!answerChimeEnabled()),
-        },
-        {
-          id: 'speculative',
-          label: `${t('cmd.speculative')}: ${onOff(isSpeculativeEnabled())}`,
-          run: () => setSpeculative(!isSpeculativeEnabled()),
         },
         {
           id: 'lang',

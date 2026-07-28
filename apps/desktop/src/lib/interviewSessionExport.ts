@@ -1,4 +1,3 @@
-import type { AppliedCorrection, IntentCorrection } from '@interview/shared';
 import type { PreparedTranscript } from './prepareTranscriptForLlm';
 import type { SessionDetail } from './api';
 
@@ -31,8 +30,7 @@ export interface ExchangeLatency {
 
 export interface CopilotAnswerPipeline {
   rawTranscript: string;
-  glossaryCorrected: string;
-  intentCorrected: string;
+  normalizedTranscript: string;
   resolvedQuestion: string;
   previousTopic?: string | null;
   currentCanonicalTopic?: string | null;
@@ -45,15 +43,9 @@ export interface CopilotAnswerPipeline {
   questionIntent?: string;
   answerStrategy?: string;
   hallucinationRisk?: string;
-  corrections?: AppliedCorrection[];
-  intentCorrections?: IntentCorrection[];
-  intentConfidence?: string;
-  intentReason?: string;
-  ambiguity?: string;
   resumeContextUsed?: boolean;
   resumeContextLevel?: string;
   resumeContextReason?: string;
-  llmCorrectedTranscript?: string;
   /** Python Knowledge Pack usage for this exchange (server-reported). */
   knowledge?: {
     knowledgePackUsed?: boolean;
@@ -103,9 +95,7 @@ export interface InterviewSessionExport {
     question: {
       resolved: string;
       raw?: string;
-      glossaryCorrected?: string;
-      intentCorrected?: string;
-      llmCorrected?: string;
+      normalized?: string;
     };
     answer: {
       spoken: string;
@@ -125,8 +115,7 @@ export function buildPipelineFromPrepared(
 ): CopilotAnswerPipeline {
   return {
     rawTranscript: prepared.rawTranscript,
-    glossaryCorrected: prepared.corrected,
-    intentCorrected: prepared.intentCorrected,
+    normalizedTranscript: prepared.normalized,
     resolvedQuestion: prepared.resolvedQuestion,
     previousTopic: extra.previousTopic ?? null,
     currentCanonicalTopic: prepared.canonicalTopic ?? null,
@@ -139,11 +128,6 @@ export function buildPipelineFromPrepared(
     questionIntent: prepared.answerStrategy.questionIntent,
     answerStrategy: prepared.answerStrategy.answerStrategy,
     hallucinationRisk: prepared.followUp.hallucinationRisk,
-    corrections: prepared.correction.corrections,
-    intentCorrections: prepared.intent.intentCorrections,
-    intentConfidence: prepared.intent.confidence !== 'none' ? prepared.intent.confidence : undefined,
-    intentReason: prepared.intent.reason,
-    ambiguity: prepared.intent.ambiguity,
     resumeContextUsed: prepared.answerStrategy.resumeContextUsed,
     resumeContextLevel: prepared.answerStrategy.resumeContextLevel,
     resumeContextReason: prepared.answerStrategy.resumeContextReason,
@@ -160,9 +144,7 @@ function exchangeFromEntry(entry: CopilotAnswerEntry): InterviewSessionExport['e
     question: {
       resolved: entry.question,
       raw: pipeline?.rawTranscript,
-      glossaryCorrected: pipeline?.glossaryCorrected,
-      intentCorrected: pipeline?.intentCorrected,
-      llmCorrected: pipeline?.llmCorrectedTranscript,
+      normalized: pipeline?.normalizedTranscript,
     },
     answer: { spoken: entry.spoken },
     latency: entry.latency,
@@ -266,16 +248,13 @@ function formatPipelineTxt(pipeline: CopilotAnswerPipeline | undefined): string[
   if (!pipeline) return [];
   const lines: string[] = [];
   if (pipeline.rawTranscript) lines.push(`Raw transcript: ${pipeline.rawTranscript}`);
-  if (pipeline.glossaryCorrected && pipeline.glossaryCorrected !== pipeline.rawTranscript) {
-    lines.push(`Glossary corrected: ${pipeline.glossaryCorrected}`);
+  if (
+    pipeline.normalizedTranscript &&
+    pipeline.normalizedTranscript !== pipeline.rawTranscript
+  ) {
+    lines.push(`Normalized transcript: ${pipeline.normalizedTranscript}`);
   }
-  if (pipeline.intentCorrected && pipeline.intentCorrected !== pipeline.glossaryCorrected) {
-    lines.push(`Intent corrected: ${pipeline.intentCorrected}`);
-  }
-  if (pipeline.llmCorrectedTranscript && pipeline.llmCorrectedTranscript !== pipeline.intentCorrected) {
-    lines.push(`LLM corrected: ${pipeline.llmCorrectedTranscript}`);
-  }
-  if (pipeline.resolvedQuestion && pipeline.resolvedQuestion !== pipeline.intentCorrected) {
+  if (pipeline.resolvedQuestion && pipeline.resolvedQuestion !== pipeline.normalizedTranscript) {
     lines.push(`Resolved question: ${pipeline.resolvedQuestion}`);
   }
   if (pipeline.previousTopic) lines.push(`Previous topic: ${pipeline.previousTopic}`);
@@ -288,11 +267,6 @@ function formatPipelineTxt(pipeline: CopilotAnswerPipeline | undefined): string[
   if (pipeline.questionIntent) lines.push(`Question intent: ${pipeline.questionIntent}`);
   if (pipeline.answerStrategy) lines.push(`Answer strategy: ${pipeline.answerStrategy}`);
   if (pipeline.hallucinationRisk) lines.push(`Hallucination risk: ${pipeline.hallucinationRisk}`);
-  if (pipeline.corrections?.length) {
-    lines.push(
-      `Glossary fixes: ${pipeline.corrections.map((c) => `${c.from} → ${c.to}`).join('; ')}`,
-    );
-  }
   return lines;
 }
 

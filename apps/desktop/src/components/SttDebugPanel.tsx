@@ -1,20 +1,7 @@
-import type { AppliedCorrection, IntentCorrection } from '@interview/shared';
-
 export interface SttDebugInfo {
   rawTranscript: string;
-  glossaryCorrected: string;
-  intentCorrected: string;
-  /** @deprecated use intentCorrected */
-  correctedTranscript: string;
-  interimTranscript?: string;
+  normalizedTranscript: string;
   finalTranscript?: string;
-  correctedFinalTranscript?: string;
-  llmCorrectedTranscript?: string;
-  corrections: AppliedCorrection[];
-  intentCorrections: IntentCorrection[];
-  intentConfidence?: string;
-  intentReason?: string;
-  ambiguity?: string;
   questionIntent?: string;
   answerStrategy?: string;
   resumeContextUsed?: boolean;
@@ -35,13 +22,10 @@ export interface SttDebugInfo {
   resumeFactSource?: string;
   sttEngine?: string;
   sttModel?: string;
-  partialSttModel?: string;
   sampleRate?: number;
   timeToFinalMs?: number;
   timeToAnswerMs?: number;
-  timeToFirstPartialMs?: number;
   finalTranscriptionMs?: number;
-  correctionMs?: number;
   llmFirstTokenMs?: number;
   llmTotalMs?: number;
   totalEndToEndMs?: number;
@@ -70,18 +54,12 @@ export default function SttDebugPanel({ debug, show, onToggle }: SttDebugPanelPr
             <p className="text-ink-faint">Нет данных — задайте вопрос в live-режиме.</p>
           ) : (
             <>
-              {debug.interimTranscript && (
-                <Row label="Промежуточный транскрипт" value={debug.interimTranscript} />
-              )}
               <Row label="Сырой транскрипт" value={debug.rawTranscript} />
               <Row label="Финальный транскрипт" value={debug.finalTranscript ?? debug.rawTranscript} />
-              <Row label="Исправлено по глоссарию" value={debug.glossaryCorrected} />
-              <Row
-                label="Исправленный финал"
-                value={debug.correctedFinalTranscript ?? debug.glossaryCorrected}
-              />
-              <Row label="Исправлено по смыслу" value={debug.intentCorrected} />
-              {debug.resolvedQuestion && debug.resolvedQuestion !== debug.intentCorrected && (
+              {debug.normalizedTranscript !== debug.rawTranscript && (
+                <Row label="Нормализованный текст" value={debug.normalizedTranscript} />
+              )}
+              {debug.resolvedQuestion && debug.resolvedQuestion !== debug.normalizedTranscript && (
                 <Row label="Распознанный вопрос" value={debug.resolvedQuestion} />
               )}
               <Row label="Предыдущая тема" value={debug.previousTopic ?? '—'} />
@@ -108,46 +86,6 @@ export default function SttDebugPanel({ debug, show, onToggle }: SttDebugPanelPr
                 value={debug.answerTriggered != null ? String(debug.answerTriggered) : '—'}
               />
               <Row label="Причина ожидания" value={debug.waitReason ?? '—'} />
-              {debug.llmCorrectedTranscript &&
-                debug.llmCorrectedTranscript !== debug.intentCorrected && (
-                  <Row label="Исправлено LLM" value={debug.llmCorrectedTranscript} />
-                )}
-              <div>
-                <p className="mb-1 font-medium text-ink-muted">Исправления терминов</p>
-                {debug.corrections.length === 0 ? (
-                  <p className="text-ink-faint">—</p>
-                ) : (
-                  <ul className="space-y-0.5 text-ink">
-                    {debug.corrections.map((c, i) => (
-                      <li key={i}>
-                        «{c.from}» → <span className="text-accent">{c.to}</span>{' '}
-                        <span className="text-ink-faint">({c.confidence})</span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-              <div>
-                <p className="mb-1 font-medium text-ink-muted">Исправления по смыслу</p>
-                {debug.intentCorrections.length === 0 ? (
-                  <p className="text-ink-faint">—</p>
-                ) : (
-                  <ul className="space-y-0.5 text-ink">
-                    {debug.intentCorrections.map((c, i) => (
-                      <li key={i}>
-                        «{c.from}» → <span className="text-accent">{c.to}</span>{' '}
-                        <span className="text-ink-faint">({c.confidence})</span>
-                        {c.reason ? (
-                          <span className="block text-ink-faint">{c.reason}</span>
-                        ) : null}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-              <Row label="Уверенность" value={debug.intentConfidence ?? '—'} />
-              <Row label="Причина (смысл)" value={debug.intentReason ?? '—'} />
-              <Row label="Неоднозначность" value={debug.ambiguity ?? '—'} />
               <Row label="Смысл вопроса" value={debug.questionIntent ?? '—'} />
               <Row label="Стратегия ответа" value={debug.answerStrategy ?? '—'} />
               <Row
@@ -162,17 +100,8 @@ export default function SttDebugPanel({ debug, show, onToggle }: SttDebugPanelPr
               />
               <Row label="Причина (контекст резюме)" value={debug.resumeContextReason ?? '—'} />
               <Row label="Движок STT" value={debug.sttEngine ?? '—'} />
-              <Row label="Финальная модель STT" value={debug.sttModel ?? '—'} />
-              <Row label="Промежуточная модель STT" value={debug.partialSttModel ?? '—'} />
+              <Row label="Модель STT" value={debug.sttModel ?? '—'} />
               <Row label="Частота дискретизации" value={debug.sampleRate ? `${debug.sampleRate} Гц` : '—'} />
-              <Row
-                label="Время до первого partial"
-                value={
-                  debug.timeToFirstPartialMs != null
-                    ? `${Math.round(debug.timeToFirstPartialMs)} мс`
-                    : '—'
-                }
-              />
               <Row
                 label="Финальное распознавание"
                 value={
@@ -180,10 +109,6 @@ export default function SttDebugPanel({ debug, show, onToggle }: SttDebugPanelPr
                     ? `${Math.round(debug.finalTranscriptionMs)} мс`
                     : '—'
                 }
-              />
-              <Row
-                label="Коррекция по глоссарию"
-                value={debug.correctionMs != null ? `${Math.round(debug.correctionMs)} мс` : '—'}
               />
               <Row
                 label="Время до финала"

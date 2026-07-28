@@ -11,8 +11,7 @@ const sampleEntry: CopilotAnswerEntry = {
   latency: buildExchangeLatency(4917, 4412),
   pipeline: {
     rawTranscript: 'Что такое smoke testing?',
-    glossaryCorrected: 'Что такое smoke testing?',
-    intentCorrected: 'Что такое smoke testing?',
+    normalizedTranscript: 'Что такое smoke testing?',
     resolvedQuestion: 'Что такое smoke testing?',
     questionIntent: 'technical_definition',
   },
@@ -39,5 +38,6 @@ describe('interviewSessionExport', () => {
     const txt = formatInterviewSessionTxt(exportData);
     expect(txt).toContain('STT: 4917 ms');
     expect(txt).toContain('Total: 9329 ms');
+    expect(txt).not.toContain('Glossary');
   });
 });

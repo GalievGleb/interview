@@ -8,7 +8,7 @@
 import { NestFactory } from '@nestjs/core';
 import { Module, ValidationPipe } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { WsAdapter } from '@nestjs/platform-ws';
+import express from 'express';
 import { GatewayModule } from './gateway/gateway.module';
 
 @Module({
@@ -18,11 +18,10 @@ class GatewayStandaloneModule {}
 
 async function bootstrap() {
   const app = await NestFactory.create(GatewayStandaloneModule);
-  // Без этого @WebSocketGateway поднимается на socket.io по умолчанию, а
-  // /gateway/stt/stream (gateway-stt.gateway.ts) — простой WS-релей, с которым
-  // desktop-бэкенд говорит через голый `websockets` (Python). Тот же адаптер,
-  // что и в main.ts (полный AppModule) для существующего SttGateway/Deepgram.
-  app.useWebSocketAdapter(new WsAdapter(app));
+  app.use(
+    '/gateway/stt/transcribe',
+    express.raw({ type: ['audio/wav', 'application/octet-stream'], limit: '15mb' }),
+  );
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
   app.enableCors({ origin: '*' }); // ключ — в Authorization, cookies не используются
   const port = Number(process.env.GATEWAY_PORT ?? 8787);

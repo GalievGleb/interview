@@ -35,9 +35,6 @@ export const ru = {
   'shell.localPrivate': 'Локально · Приватно',
   'shell.backendConnecting':
     'Подключение к бэкенду… запускается автоматически. Если не поднимается — вручную:',
-  'shell.cloud.speechkit': 'Облако · Яндекс',
-  'shell.cloud.deepgram': 'Облако · Deepgram',
-  'shell.cloud.soniox': 'Облако · Soniox',
   'shell.cloudTitle': 'Аудио распознаётся в облаке провайдера — не на устройстве.',
   'shell.localTitle': 'Распознавание речи работает на вашем устройстве — приватно.',
   'shell.localAria': 'Локально и приватно',
@@ -58,7 +55,6 @@ export const ru = {
   'cmd.settings': 'Перейти: Настройки',
   'cmd.fast': 'Быстрый ответ',
   'cmd.chime': 'Звук «ответ готов»',
-  'cmd.speculative': 'Начинать ответ, не дожидаясь конца вопроса',
   'cmd.lang': 'Язык интерфейса',
   'cmd.overlay': 'Открыть overlay',
   'cmd.meeting': 'Dev: разбор разговора',
@@ -309,7 +305,6 @@ export const ru = {
   'live.microphone': 'Микрофон',
   'live.systemAudio': 'Системный звук',
   'live.desktopOnly': 'Только в desktop-приложении',
-  'live.localWhisper': 'Локальный Whisper',
   'live.modeLabel': 'Режим',
   'live.langLabel': 'Язык',
   'live.fast': 'Быстрый',
@@ -323,8 +318,10 @@ export const ru = {
   'live.more': 'Ещё',
   'live.reconnectLost': 'соединение потеряно, восстанавливаю…',
   'live.reconnectFailed':
-    'соединение прервано. Проверьте, что backend запущен и модель Whisper загружена.',
+    'Соединение прервано. Проверьте backend и доступность OpenAI Mini.',
   'live.startNoSource': 'Не удалось запустить ни один источник звука',
+  'live.forceNoAudio': 'Не нашёл записанной реплики — продолжайте говорить и нажмите Ctrl+Enter ещё раз',
+  'live.forceTimeout': 'Не удалось отправить реплику — проверьте подключение и повторите Ctrl+Enter',
   'live.startFailed': 'Не удалось запустить сессию',
 
   // Ручной ввод вопроса
@@ -412,10 +409,7 @@ export const ru = {
   'answer.copyTitle': 'Скопировать ответ в буфер обмена',
   'answer.fast': 'Быстрый ответ',
   'answer.fastTitle':
-    'Быстрый ответ: пропустить LLM-коррекцию транскрипта и маршрутизировать на самый быстрый провайдер (минимальная задержка до первого токена)',
-  'answer.speculative': 'Опережающий ответ',
-  'answer.speculativeTitle':
-    'Опережающий ответ: начать генерацию по стабильному промежуточному транскрипту, не дожидаясь финального. Быстрее на ~1с, но может тратить токены впустую, если фраза изменится',
+    'Быстрый ответ: использовать live-модель с минимальной задержкой до первого токена',
   'answer.section.example': 'Пример',
   'latency.speed': '⚡ Скорость',
   'latency.transcript': 'Транскрипт',
@@ -673,7 +667,7 @@ export const ru = {
   'licenses.colLicense': 'Лицензия',
   'licenses.colUse': 'Использование',
   'licenses.footer':
-    'Whisper-модели распространяются на условиях MIT (OpenAI). Локальная транскрипция выполняется на вашем устройстве; аудио не отправляется на наши серверы.',
+    'Live-транскрипция использует OpenAI gpt-4o-mini-transcribe. Аудио отправляется только для распознавания речи.',
 
   // Экспорт сессии (InterviewExportButtons)
   'export.jsonTitle': 'Скачать JSON для анализа в AI',
@@ -717,7 +711,7 @@ export const ru = {
   'overlay.tip.recap': 'Краткое резюме разговора: темы, мои ответы, открытые вопросы',
   'overlay.tip.screen': 'Скриншот экрана → разбор задачи/кода/вопроса и готовая подсказка',
   'overlay.kb.toggle': 'Показать / скрыть',
-  'overlay.kb.ask': 'Спросить (Подсказка)',
+  'overlay.kb.ask': 'Отправить текущий вопрос',
   'overlay.kb.clear': 'Очистить чат',
   'overlay.kb.stop': 'Остановить сессию',
   'overlay.kb.move': 'Переместить оверлей',
@@ -727,6 +721,8 @@ export const ru = {
   'overlay.copy': 'Скопировать',
   'overlay.copied': 'Скопировано',
   'overlay.copiedTick': 'Скопировано ✓',
+  'overlay.forceSent': 'Реплика отправлена — готовлю ответ',
+  'overlay.forceUnavailable': 'Нет новой реплики для отправки',
   'overlay.me': 'Я',
   'overlay.interviewer': 'Интервьюер',
   'overlay.meColon': 'Я: ',
@@ -825,7 +821,7 @@ export const ru = {
   // Настройки — подзаголовки разделов
   'settings.sub.general': 'Версия, тема, язык и поведение оверлея.',
   'settings.sub.ai': 'Модели для live-подсказок и разбора вакансий.',
-  'settings.sub.speech': 'Whisper, качество записи и микрофон.',
+  'settings.sub.speech': 'OpenAI Mini, качество записи и микрофон.',
   'settings.sub.modes': 'Пресеты стиля ответов для оверлея.',
   'settings.sub.keybinds': 'Все сочетания клавиш приложения и оверлея.',
   'settings.sub.billing': 'Тариф и лицензия.',
@@ -1000,67 +996,6 @@ export const ru = {
   'modes.general': 'Общий',
 
   // Настройки — Распознавание речи (STT)
-  'stt.whisper.tagline':
-    'Приватно и бесплатно: аудио не покидает устройство. Задержка зависит от железа.',
-  'stt.whisper.privacy': 'Звук обрабатывается локально.',
-  'stt.deepgram.tagline': 'Самый быстрый: слова на экране через ~300 мс. ~0.66₽/мин, нужен API-ключ.',
-  'stt.deepgram.privacy': 'Аудио уходит в облако Deepgram (США).',
-  'stt.deepgram.keyPlaceholder': 'Deepgram API key',
-  'stt.speechkit.label': 'Яндекс SpeechKit v3',
-  'stt.speechkit.tagline':
-    'Лучшее распознавание русского. ~0.65₽/мин, оплата в рублях, нужен API-ключ.',
-  'stt.speechkit.privacy': 'Аудио уходит в Яндекс Cloud (Россия).',
-  'stt.speechkit.keyPlaceholder': 'API-ключ сервисного аккаунта Яндекс Cloud',
-  'stt.skModel.general': 'Стабильная',
-  'stt.skModel.rc': 'Кандидат (rc)',
-  'stt.soniox.tagline':
-    'Мультиязычный реалтайм (60+ языков, авто-переключение RU/EN). ~$0.12/час — дешевле всех, нужен API-ключ.',
-  'stt.soniox.privacy': 'Аудио уходит в облако Soniox (США/ЕС).',
-  'stt.soniox.keyPlaceholder': 'API-ключ Soniox',
-  'stt.loadError': 'Не удалось загрузить настройки STT',
-  'stt.saveError': 'Не удалось сохранить настройки',
-  'stt.downloadError': 'Не удалось начать загрузку',
-  'stt.deleteError': 'Не удалось удалить модель',
-  'stt.loading': 'Загрузка настроек распознавания речи…',
-  'stt.keySaved': 'Ключ сохранён. Live-распознавание переключится со следующей сессии.',
-  'stt.saveKeyError': 'Не удалось сохранить ключ',
-  'stt.title': 'Распознавание речи (STT)',
-  'stt.desc': 'Движок live-транскрипции: локальный (приватно) или облачный (быстрее и точнее).',
-  'stt.badge.private': 'Приватно',
-  'stt.badge.keySaved': 'Ключ сохранён',
-  'stt.badge.keyNeeded': 'Нужен ключ',
-  'stt.apiKey': 'API-ключ',
-  'stt.saved': 'сохранён',
-  'stt.saveKey': 'Сохранить ключ',
-  'stt.replaceKey': 'Заменить ключ',
-  'stt.noKeyWarn':
-    'Без ключа live-сессия покажет ошибку и подскажет вернуться на Local Whisper.',
-  'stt.skModel.title': 'Модель распознавания',
-  'stt.skModel.desc':
-    'Стабильная (general) — проверенная. Кандидат (general:rc) первым получает улучшения качества русского, но Яндекс обновляет его без предупреждения.',
-  'stt.skModel.aria': 'Модель SpeechKit',
-  'stt.alert.local':
-    'Распознавание: Local Whisper — аудио распознаётся локально и не отправляется в облако.',
-  'stt.alert.cloudPre': 'Распознавание:',
-  'stt.streaming.title': 'Потоковые модели',
-  'stt.partial.label': 'Промежуточная модель (live-субтитры)',
-  'stt.partial.hint': 'Быстрые обновления пока вы говорите (~500 мс).',
-  'stt.final.label': 'Финальная модель (после паузы)',
-  'stt.final.hint': 'Точнее, когда фраза уже закончена.',
-  'stt.localModel': 'Локальная модель',
-  'stt.meter.speed': 'Скорость',
-  'stt.meter.acc': 'Точность',
-  'stt.meter.res': 'Ресурсы',
-  'stt.model.ready': 'Загружена · Готова',
-  'stt.model.notDownloaded': 'Не загружена',
-  'stt.retry': 'Повторить',
-  'stt.download': 'Скачать',
-  'stt.device.title': 'Вычислительное устройство',
-  'stt.device.desc': 'Авто выбирает GPU при наличии, иначе CPU.',
-  'stt.device.auto': 'Авто',
-  'stt.validation': 'Проверка',
-  'stt.runBenchmark': 'Запустить STT-бенчмарк',
-  'stt.openDiagnostics': 'Открыть диагностику',
 
   // Общее (проверка)
   'common.checking': 'Проверяю…',
@@ -1124,24 +1059,9 @@ export const ru = {
   'onboarding.firstRun': 'Первый запуск',
   'onboarding.skip': 'Пропустить',
   'onboarding.back': 'Назад',
-  'onboarding.stt.eyebrow': 'Распознавание речи',
-  'onboarding.stt.title': 'Настройте локальное распознавание речи',
-  'onboarding.stt.subtitle':
-    'SkillCue слушает вопросы интервью и распознаёт их в реальном времени. Выберите, как это работает — по умолчанию всё остаётся на вашем устройстве.',
-  'onboarding.stt.whisperTitle': 'Локальный Whisper',
-  'onboarding.stt.recommended': 'Рекомендуется',
-  'onboarding.stt.whisperDesc.pre': 'Аудио распознаётся локально на вашем устройстве и ',
-  'onboarding.stt.whisperDesc.strong': 'не отправляется в облако',
-  'onboarding.stt.whisperDesc.post': ' в локальном режиме. Распознавание выполняется на вашем CPU/GPU.',
-  'onboarding.stt.expect': 'Чего ожидать',
-  'onboarding.stt.expect.offline': 'Работает офлайн после загрузки модели',
-  'onboarding.stt.expect.cpu':
-    'Использует CPU/GPU — может влиять на батарею, шум вентилятора и производительность',
-  'onboarding.stt.expect.download': 'Сначала нужно загрузить локальную речевую модель',
   'onboarding.ethics.strong': 'Этичное использование.',
   'onboarding.ethics.body':
     ' Приложение помогает готовиться и работать на разрешённых созвонах. Не используйте его для обмана интервьюеров и предупреждайте участников о записи, если этого требуют правила.',
-  'onboarding.stt.choose': 'Выбрать речевую модель',
   'onboarding.key.eyebrow': 'AI-ключ',
   'onboarding.key.title': 'Подключите AI — это сердце подсказок',
   'onboarding.key.subtitle':
@@ -1156,42 +1076,8 @@ export const ru = {
   'onboarding.key.skipLater': 'Пропустить — добавлю позже',
 
   // Онбординг — выбор речевой модели (шаг 2)
-  'onboarding.sttStep.title': 'Выберите режим распознавания речи',
-  'onboarding.sttStep.localTitle': 'Local Whisper — рекомендуется',
-  'onboarding.sttStep.b1': 'Аудио распознаётся локально на вашем устройстве',
-  'onboarding.sttStep.b2': 'В локальном режиме аудио не отправляется в облако',
-  'onboarding.sttStep.b3': 'Использует CPU/GPU во время распознавания',
-  'onboarding.sttStep.b4': 'Может влиять на батарею и шум вентилятора',
-  'onboarding.sttStep.b5': 'Требует загрузки речевой модели',
-  'onboarding.sttStep.autoChoose': 'Выбрать автоматически',
-  'onboarding.sttStep.ramUnknown': 'RAM неизвестно',
-  'onboarding.sttStep.gpuFound': 'GPU обнаружен',
-  'onboarding.sttStep.cpuOnly': 'только CPU',
-  'onboarding.sttStep.modelReady': 'Модель загружена — локальный режим готов к работе.',
-  'onboarding.sttStep.downloading': 'Загрузка модели…',
-  'onboarding.sttStep.downloadNow': 'Скачать модель сейчас (необязательно)',
-  'onboarding.sttStep.changeLater': 'Скачать или изменить модель можно позже в Настройках → «Речь и звук».',
-  'onboarding.sttStep.downloadError': 'Не удалось начать загрузку',
-  'onboarding.sttStep.modelError': 'Не удалось загрузить модель',
-  'onboarding.sttStep.privacyLocal':
-    'Аудио обрабатывается на вашем устройстве и не отправляется на наши серверы для распознавания.',
-  'onboarding.sttStep.resourceLocal':
-    'Локальное распознавание использует CPU/GPU и может влиять на батарею, производительность и шум вентилятора.',
   'onboarding.continue': 'Продолжить',
 
-  // Карточки моделей Whisper (метки/описания; данные-фолбэк живут в shared)
-  'whisper.fast.label': 'Быстрая',
-  'whisper.fast.desc':
-    'Для слабых ноутбуков или режима экономии батареи. Минимальное потребление ресурсов и самый быстрый старт, точность на технических терминах ниже. Хорошо подходит для быстрого тестирования или старых устройств.',
-  'whisper.balanced.label': 'Сбалансированная',
-  'whisper.balanced.desc':
-    'Для большинства современных ноутбуков. Хороший баланс скорости и точности, рекомендуется по умолчанию для live-интервью. Хорошо справляется с QA/Python-терминами вместе с коррекцией по глоссарию.',
-  'whisper.quality.label': 'Качественная',
-  'whisper.quality.desc':
-    'Для мощных ноутбуков/десктопов. Точность выше, но больше нагрузка на CPU/GPU и память. Лучше подходит для шумного звука или сложной терминологии.',
-  'whisper.max.label': 'Максимальная точность',
-  'whisper.max.desc':
-    'Максимальная точность на русском языке и технических терминах. Для скорости нужна видеокарта NVIDIA (~1с на вопрос на современной GPU; очень медленно на CPU). Самая большая загрузка. Рекомендуется при наличии GPU.',
 
   'unit.mb': 'МБ',
   'unit.gbRam': 'ГБ RAM',

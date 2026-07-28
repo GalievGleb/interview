@@ -1,93 +1,58 @@
 import {
-  applyPythonPhraseCorrections,
   classifyInterviewQuestionIntent,
-  correctQuestionIntent,
-  IntentCorrectionResult,
+  createEmptySessionContext,
+  extractCanonicalTopic,
+  getDangerQuestionStrategy,
+  resolveFollowUpQuestion,
 } from '@interview/shared';
-import type { AnswerStrategyResult } from '@interview/shared';
-import type { FollowUpResolutionResult } from '@interview/shared';
-import type { InterviewSessionContext } from '@interview/shared';
-import { correctTranscriptWithGlossary, CorrectionResult } from '@interview/shared';
-import { createEmptySessionContext } from '@interview/shared';
-import { extractCanonicalTopic } from '@interview/shared';
-import { getDangerQuestionStrategy } from '@interview/shared';
-import { resolveFollowUpQuestion } from '@interview/shared';
+import type {
+  AnswerStrategyResult,
+  FollowUpResolutionResult,
+  InterviewSessionContext,
+} from '@interview/shared';
 import { normalizeTranscript } from './normalizeTranscript';
 
 export interface PreparedTranscript {
   rawTranscript: string;
   normalized: string;
-  corrected: string;
-  intentCorrected: string;
   resolvedQuestion: string;
-  correction: CorrectionResult;
-  intent: IntentCorrectionResult;
   followUp: FollowUpResolutionResult;
   canonicalTopic: string | null;
   answerStrategy: AnswerStrategyResult;
 }
 
-/** STT raw → normalize → glossary → intent → follow-up resolve → answer strategy */
+/** Raw final STT -> intent/follow-up analysis, with no text correction. */
 export function prepareTranscriptForLlm(
   rawTranscript: string,
   sessionContext: InterviewSessionContext = createEmptySessionContext(),
 ): PreparedTranscript {
   const raw = rawTranscript.trim();
   const normalized = normalizeTranscript(raw);
-  const correction = correctTranscriptWithGlossary(normalized, {
-    interviewMode: true,
-    isShort: raw.length <= 120,
-  });
-  const pythonPhrase = applyPythonPhraseCorrections(correction.corrected);
-  const glossaryCorrected = pythonPhrase.corrected;
-  const intent = correctQuestionIntent({
-    raw: normalized,
-    corrected: glossaryCorrected,
-    corrections: [...correction.corrections, ...pythonPhrase.corrections],
-  });
-  const allCorrections = [
-    ...correction.corrections,
-    ...pythonPhrase.corrections,
-    ...intent.intentCorrections.map((c) => ({
-      from: c.from,
-      to: c.to,
-      confidence: c.confidence,
-    })),
-  ];
   const followUp = resolveFollowUpQuestion({
     raw,
-    corrected: glossaryCorrected,
-    intentCorrected: intent.intentCorrected,
+    corrected: normalized,
+    intentCorrected: normalized,
     sessionContext,
-    corrections: allCorrections,
   });
   const resolvedQuestion = followUp.resolvedQuestion.trim();
-  const topicSource = followUp.resetPreviousTopic ? intent.intentCorrected : resolvedQuestion;
+  const topicSource = followUp.resetPreviousTopic ? normalized : resolvedQuestion;
   const canonicalTopic =
     followUp.currentTopic ??
-    extractCanonicalTopic(topicSource, allCorrections) ??
-    extractCanonicalTopic(intent.intentCorrected, allCorrections);
+    extractCanonicalTopic(topicSource) ??
+    extractCanonicalTopic(normalized);
+
   let answerStrategy = classifyInterviewQuestionIntent({
     question: resolvedQuestion,
     rawQuestion: raw,
-    glossaryCorrected: correction.corrected,
-    intentChanged: intent.changed || followUp.usedPreviousContext,
-    intentConfidence: intent.confidence !== 'none' ? intent.confidence : undefined,
-    correctionMaxConfidence: correction.maxConfidence,
-    ambiguity: intent.ambiguity,
+    intentChanged: followUp.usedPreviousContext,
   });
   const dangerOverride = getDangerQuestionStrategy(resolvedQuestion);
-  if (dangerOverride) {
-    answerStrategy = { ...answerStrategy, ...dangerOverride };
-  }
+  if (dangerOverride) answerStrategy = { ...answerStrategy, ...dangerOverride };
+
   return {
     rawTranscript: raw,
     normalized,
-    corrected: glossaryCorrected,
-    intentCorrected: intent.intentCorrected,
     resolvedQuestion,
-    correction,
-    intent,
     followUp,
     canonicalTopic,
     answerStrategy,

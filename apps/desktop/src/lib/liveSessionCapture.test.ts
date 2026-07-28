@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { captureIsStale } from './liveSession';
+import { captureIsStale, sendFinalizeControl } from './liveSession';
 
 // Захват из ws.onopen осиротеет, если за время асинхронного startCapture
 // сессию остановили или ws пересоздали при реконнекте. Такой захват (микрофон/
@@ -33,5 +33,23 @@ describe('captureIsStale', () => {
   it('устарел: currentWs стал null (cleanup)', () => {
     const myWs = openWs();
     expect(captureIsStale(false, null, myWs)).toBe(true);
+  });
+});
+
+describe('sendFinalizeControl', () => {
+  it('returns true only when finalize was sent to an open socket', () => {
+    const sent: string[] = [];
+    const ws = {
+      readyState: OPEN,
+      send: (value: string) => sent.push(value),
+    } as unknown as WebSocket;
+
+    expect(sendFinalizeControl(ws, 'force-1')).toBe(true);
+    expect(sent).toEqual([JSON.stringify({ type: 'finalize', request_id: 'force-1' })]);
+  });
+
+  it('returns false for a closed or missing socket', () => {
+    expect(sendFinalizeControl(openWs(CLOSED), 'force-1')).toBe(false);
+    expect(sendFinalizeControl(null, 'force-1')).toBe(false);
   });
 });

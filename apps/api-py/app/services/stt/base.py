@@ -1,19 +1,4 @@
-"""Transcription provider abstraction.
-
-The product runs **on-device Whisper only**. This seam keeps provider behaviour
-(availability, diagnostics, privacy posture) behind a small interface so a future
-optional engine could be added without touching call sites. The ``CLOUD`` mode
-and cloud privacy copy are retained for that hypothetical future provider; no
-cloud provider ships today.
-
-Design rules baked in here:
-* ``mode`` is either ``local`` or ``cloud`` so the UI can always tell the user
-  whether audio leaves the device.
-* Every provider must be able to explain its privacy posture in plain language
-  (:meth:`TranscriptionProvider.get_privacy_description`).
-* Providers never silently fail: :meth:`is_available` reports readiness and
-  :meth:`get_diagnostics` surfaces the last error.
-"""
+"""Small provider contract for the single OpenAI Mini transcription engine."""
 
 from __future__ import annotations
 
@@ -23,28 +8,13 @@ from enum import Enum
 from typing import Protocol, runtime_checkable
 
 
-class SttEngineUnavailable(Exception):
-    """Облачный движок не смог СТАРТОВАТЬ (нет ключа, гейтвей недоступен, нет
-    зависимостей) — до отправки клиенту ready/transcript. Диспетчер /stt/stream
-    ловит это и прозрачно откатывается на локальный Whisper, чтобы выбор Яндекса/
-    Deepgram без ключа не «ломал» распознавание, а просто работал через Whisper."""
-
-
 class ProviderMode(str, Enum):
-    LOCAL = "local"
     CLOUD = "cloud"
 
 
 # Plain-language privacy copy. Re-used verbatim by the UI so the legal/ethical
 # disclosure stays consistent everywhere.
-PRIVACY_LOCAL = (
-    "Аудио обрабатывается на вашем устройстве и не отправляется на наши серверы для распознавания."
-)
 PRIVACY_CLOUD = "Аудио может отправляться стороннему провайдеру распознавания речи."
-RESOURCE_USAGE_LOCAL = (
-    "Локальное распознавание использует CPU/GPU и может влиять на батарею, "
-    "производительность и шум вентилятора."
-)
 
 
 @dataclass
@@ -57,6 +27,9 @@ class TranscriptResult:
     model: str
     language: str | None = None
     is_final: bool = True
+    first_partial_ms: int | None = None
+    total_request_ms: int | None = None
+    benchmark_mode: str = "file-upload"
 
 
 @dataclass
@@ -129,7 +102,7 @@ class BaseTranscriptionProvider:
 
     id: str = "base"
     display_name: str = "Base"
-    mode: ProviderMode = ProviderMode.LOCAL
+    mode: ProviderMode = ProviderMode.CLOUD
     estimated_latency_ms: int = 0
 
     def __init__(self) -> None:
@@ -150,10 +123,10 @@ class BaseTranscriptionProvider:
         return self.estimated_latency_ms
 
     def get_privacy_description(self) -> str:
-        return PRIVACY_LOCAL if self.mode is ProviderMode.LOCAL else PRIVACY_CLOUD
+        return PRIVACY_CLOUD
 
     def get_resource_usage(self) -> str:
-        return RESOURCE_USAGE_LOCAL if self.mode is ProviderMode.LOCAL else ""
+        return ""
 
     # --- transcription ----------------------------------------------------
     async def transcribe_audio_file(

@@ -133,13 +133,10 @@ PROFILE PACK USAGE: use its facts ONLY when resume context level is full or limi
 the question asks about experience/usage. When resume context level is NONE — ignore all
 personal blocks completely and answer pure theory with no personal claims.
 
-Raw ASR transcript:
+Final STT transcript (use as-is; do not invent a corrected version):
 {raw_question}
 
-Glossary-corrected:
-{glossary_corrected}
-
-Intent-corrected question:
+Question used for the answer:
 {question}
 
 Resolved follow-up question:

@@ -1,30 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
-  collapseRepeatedChars,
   isGarbageTranscript,
   isNonQuestionFragment,
   looksLikeQuestion,
   normalizeTranscript,
 } from './normalizeTranscript';
-
-describe('collapseRepeatedChars', () => {
-  it('collapses long single-letter runs to two (Whisper hallucination)', () => {
-    expect(collapseRepeatedChars('ууууууу')).toBe('уу');
-    expect(collapseRepeatedChars('ааааа')).toBe('аа');
-    // Runs are per-identical-char, so a capital lead stays separate ("Ууу").
-    expect(collapseRepeatedChars('Ууууу')).toBe('Ууу');
-    expect(collapseRepeatedChars('нормально ааааа да')).toBe('нормально аа да');
-  });
-
-  it('never corrupts digits or punctuation', () => {
-    expect(collapseRepeatedChars('2000000')).toBe('2000000');
-    expect(collapseRepeatedChars('цена 1000 рублей')).toBe('цена 1000 рублей');
-  });
-
-  it('leaves legitimate double letters alone', () => {
-    expect(collapseRepeatedChars('ссора и программа')).toBe('ссора и программа');
-  });
-});
 
 describe('quality gate — non-question fragments', () => {
   it('does NOT treat «как-то/как бы…» filler as a question', () => {
@@ -56,14 +36,18 @@ describe('normalizeTranscript', () => {
     expect(normalizeTranscript('тест-дизайна')).not.toContain('дизайнаа');
   });
 
-  it('still normalizes split/loose тест дизайн forms', () => {
-    expect(normalizeTranscript('тест дизайн')).toContain('тест-дизайна');
+  it('does not rewrite split or loose technical terms', () => {
+    expect(normalizeTranscript('тест дизайн')).toBe('тест дизайн');
   });
 
   it('leaves ordinary text unchanged', () => {
     expect(normalizeTranscript('Какие бывают виды тестирования?')).toBe(
       'Какие бывают виды тестирования?',
     );
+  });
+
+  it('does not rewrite repeated characters produced by STT', () => {
+    expect(normalizeTranscript('нормально ааааа да')).toBe('нормально ааааа да');
   });
 });
 
@@ -96,12 +80,12 @@ describe('isGarbageTranscript', () => {
     expect(isGarbageTranscript('буду буду буду буду')).toBe(true);
   });
 
-  it('flags a long single-letter Whisper run ("Уууу…")', () => {
+  it('flags a long single-letter noise run ("Уууу…")', () => {
     expect(isGarbageTranscript('Уууууууууууууу')).toBe(true);
     expect(isGarbageTranscript('ааааааааа что там')).toBe(true);
   });
 
-  it('flags Whisper repetition-loop hallucinations on music/noise', () => {
+  it('flags repetition loops on music or background noise', () => {
     const loop = Array.from({ length: 40 }, () => 'я не буду но').join(' ');
     expect(isGarbageTranscript(loop)).toBe(true);
   });

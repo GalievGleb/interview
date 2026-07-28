@@ -19,12 +19,11 @@
     "@nestjs/jwt": "^11.0.0",
     "@nestjs/passport": "^11.0.5",
     "@nestjs/platform-express": "^11.0.7",
-    "@nestjs/platform-ws": "^11.0.7",
-    "@nestjs/websockets": "^11.0.7",
     "@prisma/client": "^6.3.1",
     "bcrypt": "^5.1.1",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
+    "express": "^5.2.1",
     "ioredis": "^5.4.2",
     "openai": "^4.78.1",
     "passport": "^0.7.0",
@@ -33,10 +32,7 @@
     "rxjs": "^7.8.1",
     "stripe": "^17.6.0",
     "undici": "^6.21.1",
-    "uuid": "^11.0.5",
-    "ws": "^8.18.0",
-    "@yandex-cloud/nodejs-sdk": "^3.2.0",
-    "@grpc/grpc-js": "^1.6.12"
+    "uuid": "^11.0.5"
   },
   "devDependencies": {
     "@nestjs/cli": "^11.0.2",
@@ -46,7 +42,6 @@
     "@types/node": "^22.10.7",
     "@types/passport-jwt": "^4.0.1",
     "@types/uuid": "^10.0.0",
-    "@types/ws": "^8.5.14",
     "prisma": "^6.3.1",
     "typescript": "^5.7.3"
   }

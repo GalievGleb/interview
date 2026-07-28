@@ -1,4 +1,4 @@
-import type { AppliedCorrection, SttProviderDiagnostics } from '@interview/shared';
+import type { SttProviderDiagnostics } from '@interview/shared';
 import {
   AiSettings,
   ChatMode,
@@ -6,53 +6,19 @@ import {
 } from './aiModels';
 import { answerLanguageParam } from './answerLanguage';
 
-export type WhisperQualityId = 'fast' | 'balanced' | 'quality' | 'max';
-export type SttDeviceId = 'auto' | 'cpu' | 'gpu';
-
-export interface SttModelStatus {
-  quality: WhisperQualityId;
-  modelId: string;
-  status: 'idle' | 'downloading' | 'ready' | 'error';
-  downloaded: boolean;
-  progress: number;
-  onDiskMb: number;
-  approxDownloadMb: number;
-  error: string | null;
-}
-
-export interface SttDeviceInfo {
-  totalRamGb: number | null;
-  cpuCount: number | null;
-  hasGpu: boolean;
-  recommendedQuality: WhisperQualityId;
-  recommendedDevice: 'cpu' | 'gpu';
-}
-
-export type SttEngineId = 'whisper' | 'deepgram' | 'speechkit' | 'soniox';
-
-export type SpeechKitModelId = 'general' | 'general:rc';
-
 export interface SttSettingsDto {
-  local_model: WhisperQualityId;
-  partial_model: WhisperQualityId;
-  final_model: WhisperQualityId;
-  device: SttDeviceId;
-  engine: SttEngineId;
-  speechkit_model: SpeechKitModelId;
+  engine: 'openai-mini';
+  model: 'gpt-4o-mini-transcribe';
 }
 
 export interface SttDiagnostics {
   provider: string;
-  localModel: WhisperQualityId;
-  model: string | null;
-  device: string | null;
+  engine: string;
+  model: string;
   available: boolean;
   reason: string;
   lastError: string | null;
   privacyDescription: string;
-  resourceUsage: string;
-  avgBenchmarkLatencyMs: number | null;
-  lastBenchmarkAt: string | null;
 }
 
 export interface SttBenchmarkKeyword {
@@ -71,20 +37,16 @@ export interface SttBenchmarkCase {
 export interface SttBenchmarkCaseResult {
   caseId: string;
   title?: string;
-  raw?: { transcript: string; latencyMs: number; keywordMatch: number; semanticMatch?: number };
-  corrected?: {
+  raw?: {
     transcript: string;
+    latencyMs: number;
     keywordMatch: number;
     semanticMatch?: number;
-    corrections: Array<{ from: string; to: string }>;
-    correctionActive?: boolean;
     keywordsHit?: string[];
     keywordsMissed?: string[];
     meaningHit?: string[];
     meaningMissed?: string[];
   };
-  keywordGain?: number;
-  semanticGain?: number;
   intentMatch?: number;
   falseNegative?: boolean;
   errorType: string;
@@ -100,14 +62,8 @@ export interface SttBenchmarkReport {
   caseCount: number;
   avgLatencyMs: number;
   avgKeywordMatchRaw: number;
-  avgKeywordMatchCorrected: number;
-  correctionGain: number;
   avgSemanticMatchRaw?: number;
-  avgSemanticMatchCorrected?: number;
-  semanticCorrectionGain?: number;
   avgIntentMatch: number;
-  casesWithCorrections?: number;
-  correctionInactive?: number;
   falseNegatives?: number;
   errorTypes: Record<string, number>;
   cases: SttBenchmarkCaseResult[];
@@ -300,15 +256,6 @@ async function fetchWithTimeout(path: string, options: RequestOptions = {}): Pro
 
 export interface StreamInterviewCorrectionMeta {
   raw_question?: string;
-  glossary_corrected?: string;
-  intent_corrected?: string;
-  llm_corrected?: string;
-  llm_correction_applied?: boolean;
-  ambiguity?: string;
-  corrections?: AppliedCorrection[];
-  intent_corrections?: Array<{ from: string; to: string; reason: string; confidence: string }>;
-  intent_confidence?: string;
-  intent_reason?: string;
   question_intent?: string;
   answer_strategy?: string;
   resume_context_used?: boolean;
@@ -334,20 +281,12 @@ export interface StreamInterviewCorrectionMeta {
 export interface StreamInterviewOpts {
   sessionId?: string;
   rawQuestion?: string;
-  glossaryCorrected?: string;
-  intentCorrected?: string;
   resolvedQuestion?: string;
   previousTopic?: string;
   isFollowUp?: boolean;
   usedPreviousContext?: boolean;
   followUpReason?: string;
   currentCanonicalTopic?: string;
-  ambiguity?: string;
-  corrections?: AppliedCorrection[];
-  intentCorrections?: StreamInterviewCorrectionMeta['intent_corrections'];
-  intentConfidence?: string;
-  intentReason?: string;
-  needsLlmCorrection?: boolean;
   questionIntent?: string;
   answerStrategy?: string;
   resumeContextUsed?: boolean;
@@ -365,9 +304,6 @@ export interface KeysStatus {
   openai: boolean;
   openrouter: boolean;
   managed_openrouter?: boolean;
-  deepgram: boolean;
-  yandex: boolean;
-  soniox: boolean;
   default_provider: string;
   default_model: string;
 }
@@ -457,9 +393,6 @@ export const api = {
   saveKeys: (keys: {
     openai_api_key?: string;
     openrouter_api_key?: string;
-    deepgram_api_key?: string;
-    yandex_api_key?: string;
-    soniox_api_key?: string;
   }) =>
     request<KeysStatus>('/settings/keys', {
       method: 'POST',
@@ -746,14 +679,6 @@ export const api = {
           body: JSON.stringify({
             question: question,
             raw_question: opts.rawQuestion ?? question,
-            glossary_corrected: opts.glossaryCorrected ?? question,
-            intent_corrected: opts.intentCorrected ?? opts.glossaryCorrected ?? question,
-            ambiguity: opts.ambiguity ?? null,
-            corrections: opts.corrections ?? [],
-            intent_corrections: opts.intentCorrections ?? [],
-            intent_confidence: opts.intentConfidence ?? null,
-            intent_reason: opts.intentReason ?? null,
-            needs_llm_correction: opts.needsLlmCorrection ?? false,
             question_intent: opts.questionIntent ?? null,
             answer_strategy: opts.answerStrategy ?? null,
             resume_context_used: opts.resumeContextUsed ?? null,
@@ -1123,7 +1048,7 @@ export const api = {
       timeoutMs: LONG_REQUEST_TIMEOUT_MS,
     }),
 
-  // --- Speech-to-text (Local Whisper provider, model manager) ---
+  // --- Speech-to-text: fixed OpenAI Mini provider ---
   sttProviders: () => request<SttProviderDiagnostics>('/stt/providers'),
 
   /** Pre-load + warm the live STT models so the first utterance isn't slow. */
@@ -1133,20 +1058,7 @@ export const api = {
       timeoutMs: LONG_REQUEST_TIMEOUT_MS,
     }),
 
-  sttDevice: () => request<SttDeviceInfo>('/stt/device'),
-
   sttDiagnostics: () => request<SttDiagnostics>('/stt/diagnostics'),
-
-  sttModelStatus: (quality: WhisperQualityId) =>
-    request<SttModelStatus>(`/stt/models/${quality}/status`),
-
-  sttModelDownload: (quality: WhisperQualityId) =>
-    request<SttModelStatus>(`/stt/models/${quality}/download`, { method: 'POST' }),
-
-  sttModelDelete: (quality: WhisperQualityId) =>
-    request<{ quality: string; deleted: boolean }>(`/stt/models/${quality}`, {
-      method: 'DELETE',
-    }),
 
   getSttSettings: () => request<SttSettingsDto>('/stt/settings'),
 
@@ -1160,19 +1072,16 @@ export const api = {
   sttBenchmarkCases: () =>
     request<{ cases: SttBenchmarkCase[]; root: string }>('/stt/benchmark/cases'),
 
-  sttBenchmarkRunCase: (caseId: string, engine: SttEngineId = 'whisper') =>
-    request<SttBenchmarkCaseResult>(
-      `/stt/benchmark/run/${encodeURIComponent(caseId)}?engine=${engine}`,
-      {
-        method: 'POST',
-        timeoutMs: LONG_REQUEST_TIMEOUT_MS,
-      },
-    ),
+  sttBenchmarkRunCase: (caseId: string) =>
+    request<SttBenchmarkCaseResult>(`/stt/benchmark/run/${encodeURIComponent(caseId)}`, {
+      method: 'POST',
+      timeoutMs: LONG_REQUEST_TIMEOUT_MS,
+    }),
 
-  sttBenchmarkRunAll: (save = true, engine: SttEngineId = 'whisper') =>
+  sttBenchmarkRunAll: (save = true) =>
     request<SttBenchmarkReport>('/stt/benchmark/run', {
       method: 'POST',
-      body: JSON.stringify({ save, engine }),
+      body: JSON.stringify({ save }),
       timeoutMs: LONG_REQUEST_TIMEOUT_MS,
     }),
 
@@ -1192,7 +1101,7 @@ export const api = {
       sttLatencyMs: number;
       timings?: {
         modelLoadMs: number;
-        whisperInferenceMs: number;
+        openaiInferenceMs: number;
         audioBytes: number;
         modelReused: boolean;
       };

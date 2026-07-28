@@ -5,7 +5,7 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
-    "build": "tsc && node -e \"require('fs').copyFileSync('src/qaGlossary.json','dist/qaGlossary.json')\"",
+    "build": "tsc",
     "dev": "tsc --watch",
     "test": "node ./scripts/run-tests.mjs"
   },

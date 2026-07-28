@@ -127,31 +127,16 @@ export interface SuggestStreamEvent {
   message?: string;
 }
 
-export type { CorrectionResult, AppliedCorrection } from './correctTranscriptWithGlossary';
-export { correctTranscriptWithGlossary, hasSuspiciousTerms, shouldRunLlmCorrection } from './correctTranscriptWithGlossary';
 export type {
+  AppliedCorrection,
+  CorrectionConfidence,
+  CorrectionResult,
   IntentCorrection,
-  IntentCorrectionInput,
   IntentCorrectionResult,
-} from './correctQuestionIntent';
-export { correctQuestionIntent } from './correctQuestionIntent';
-export { QA_GLOSSARY, QA_GLOSSARY_CANONICAL_TERMS } from './qaGlossary';
-export type { QaGlossaryEntry } from './qaGlossary';
-export {
-  STT_PROVIDERS,
-  WHISPER_MODEL_CARDS,
-  DEFAULT_WHISPER_QUALITY,
-  STT_PRIVACY_LOCAL,
-  STT_PRIVACY_CLOUD,
-  STT_RESOURCE_USAGE_LOCAL,
-  recommendWhisperQuality,
-} from './sttProviders';
+} from './transcriptMetadata';
 export type {
   SttProviderId,
   SttProviderMode,
-  WhisperQuality,
-  SttProviderDescriptor,
-  WhisperModelCard,
   SttProviderDiagnostics,
 } from './sttProviders';
 export type {
@@ -203,8 +188,6 @@ export {
 } from './topicReset';
 export type { HallucinationRisk, TopicResetResult } from './topicReset';
 export { getDangerQuestionStrategy } from './interviewAnswerSafety';
-export { applyPythonPhraseCorrections, isOrphanComparativeTail } from './correctPythonPhrases';
-export type { PythonPhraseCorrectionResult } from './correctPythonPhrases';
 export {
   mergeTranscriptWithBuffer,
   pushUtteranceBuffer,

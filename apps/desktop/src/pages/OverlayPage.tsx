@@ -160,9 +160,18 @@ function buildTranscript(ls: TranscriptLine[], me: string, other: string): strin
 
 export default function OverlayPage() {
   const { t } = useI18n();
-  const { hasStt, sttEngine } = useApp();
-  const { active, lines, answerHistory, currentQuestion, streamText, streaming, start, stop } =
-    useLiveCopilot();
+  const { hasStt } = useApp();
+  const {
+    active,
+    lines,
+    answerHistory,
+    currentQuestion,
+    streamText,
+    streaming,
+    forceAnswer,
+    start,
+    stop,
+  } = useLiveCopilot();
   const { sources, sttOptions, setSources } = useLiveCopilotPrefs();
 
   const [input, setInput] = useState('');
@@ -199,6 +208,7 @@ export default function OverlayPage() {
   const menuRef = useRef<HTMLDivElement>(null);
   const hideMenuRef = useRef<HTMLDivElement>(null);
   const answerBodyRef = useRef<HTMLDivElement>(null);
+  const forceHotkeyAtRef = useRef(0);
 
   // Прозрачный фон окна: панели «плавают» над рабочим столом.
   // Оверлей всегда тёмный, независимо от темы приложения.
@@ -515,6 +525,22 @@ export default function OverlayPage() {
     else setCollapsed((v) => !v);
   };
 
+  const submitForcedAnswer = useCallback(() => {
+    const now = Date.now();
+    if (now - forceHotkeyAtRef.current < 200) return;
+    forceHotkeyAtRef.current = now;
+
+    if (input.trim()) {
+      runAction('assist', input);
+      return;
+    }
+    if (forceAnswer()) {
+      setNotice(t('overlay.forceSent'));
+      return;
+    }
+    setNotice(t('overlay.forceUnavailable'));
+  }, [forceAnswer, input, runAction, t]);
+
   // ---------- Горячие клавиши ----------
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -557,7 +583,7 @@ export default function OverlayPage() {
       }
       if (mod && e.key === 'Enter') {
         e.preventDefault();
-        runAction('assist', input);
+        submitForcedAnswer();
         return;
       }
       if (mod && (e.key === 'r' || e.key === 'R')) {
@@ -587,7 +613,12 @@ export default function OverlayPage() {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [input, menuOpen, hideMenuOpen, exchange, recap, runAction, closeExchange, stopSession]);
+  }, [menuOpen, hideMenuOpen, exchange, recap, submitForcedAnswer, closeExchange, stopSession]);
+
+  useEffect(
+    () => window.electronAPI?.overlay.onForceAnswer?.(submitForcedAnswer),
+    [submitForcedAnswer],
+  );
 
   // Клик мимо меню — закрыть.
   useEffect(() => {
@@ -711,9 +742,7 @@ export default function OverlayPage() {
           className={`ovl-rec tip ${active ? 'ovl-rec--live' : ''}`}
           data-tip={
             !hasStt && !active
-              ? sttEngine === 'whisper'
-                ? t('overlay.rec.needModel')
-                : t('overlay.rec.needStt')
+              ? t('overlay.rec.needStt')
               : active
                 ? t('overlay.rec.stopTip')
                 : t('overlay.rec.startTip')

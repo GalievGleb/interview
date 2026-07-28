@@ -32,9 +32,6 @@ export const en: Record<I18nKey, string> = {
   'shell.localPrivate': 'Local · Private',
   'shell.backendConnecting':
     'Connecting to backend… it starts automatically. If it does not come up, run manually:',
-  'shell.cloud.speechkit': 'Cloud · Yandex',
-  'shell.cloud.deepgram': 'Cloud · Deepgram',
-  'shell.cloud.soniox': 'Cloud · Soniox',
   'shell.cloudTitle': "Audio is recognized in the provider's cloud — not on your device.",
   'shell.localTitle': 'Speech recognition runs on your device — private.',
   'shell.localAria': 'Local and private',
@@ -55,7 +52,6 @@ export const en: Record<I18nKey, string> = {
   'cmd.settings': 'Go to: Settings',
   'cmd.fast': 'Fast answer',
   'cmd.chime': 'Answer-ready sound',
-  'cmd.speculative': 'Start answering before the question ends',
   'cmd.lang': 'Interface language',
   'cmd.overlay': 'Open overlay',
   'cmd.meeting': 'Dev: conversation review',
@@ -305,7 +301,6 @@ export const en: Record<I18nKey, string> = {
   'live.microphone': 'Microphone',
   'live.systemAudio': 'System audio',
   'live.desktopOnly': 'Desktop app only',
-  'live.localWhisper': 'Local Whisper',
   'live.modeLabel': 'Mode',
   'live.langLabel': 'Language',
   'live.fast': 'Fast',
@@ -319,8 +314,10 @@ export const en: Record<I18nKey, string> = {
   'live.more': 'More',
   'live.reconnectLost': 'connection lost, reconnecting…',
   'live.reconnectFailed':
-    'connection dropped. Check that the backend is running and the Whisper model is downloaded.',
+    'Connection dropped. Check the backend and OpenAI Mini availability.',
   'live.startNoSource': 'Could not start any audio source',
+  'live.forceNoAudio': 'No recorded phrase found — keep speaking and press Ctrl+Enter again',
+  'live.forceTimeout': 'Could not send the phrase — check the connection and try Ctrl+Enter again',
   'live.startFailed': 'Could not start the session',
 
   // Manual question input
@@ -408,10 +405,7 @@ export const en: Record<I18nKey, string> = {
   'answer.copyTitle': 'Copy the answer to the clipboard',
   'answer.fast': 'Fast answer',
   'answer.fastTitle':
-    'Fast answer: skip the LLM transcript correction and route to the fastest provider (minimum time to first token)',
-  'answer.speculative': 'Speculative answer',
-  'answer.speculativeTitle':
-    'Speculative answer: start generating from a stable partial transcript before the final one. ~1s faster, but may waste tokens if the phrase changes',
+    'Fast answer: use the live model with minimum time to first token',
   'answer.section.example': 'Example',
   'latency.speed': '⚡ Speed',
   'latency.transcript': 'Transcript',
@@ -669,7 +663,7 @@ export const en: Record<I18nKey, string> = {
   'licenses.colLicense': 'Licence',
   'licenses.colUse': 'Use',
   'licenses.footer':
-    'Whisper models are distributed under the MIT licence (OpenAI). Local transcription runs on your device; audio is not sent to our servers.',
+    'Live transcription uses OpenAI gpt-4o-mini-transcribe. Audio is sent for speech recognition only.',
 
   // Session export (InterviewExportButtons)
   'export.jsonTitle': 'Download JSON for AI analysis',
@@ -713,7 +707,7 @@ export const en: Record<I18nKey, string> = {
   'overlay.tip.recap': 'A short recap of the conversation: topics, my answers, open questions',
   'overlay.tip.screen': 'Screenshot → analysis of the task/code/question and a ready hint',
   'overlay.kb.toggle': 'Show / hide',
-  'overlay.kb.ask': 'Ask (Hint)',
+  'overlay.kb.ask': 'Send current question',
   'overlay.kb.clear': 'Clear chat',
   'overlay.kb.stop': 'Stop session',
   'overlay.kb.move': 'Move overlay',
@@ -723,6 +717,8 @@ export const en: Record<I18nKey, string> = {
   'overlay.copy': 'Copy',
   'overlay.copied': 'Copied',
   'overlay.copiedTick': 'Copied ✓',
+  'overlay.forceSent': 'Question sent — preparing the answer',
+  'overlay.forceUnavailable': 'No new phrase to send',
   'overlay.me': 'Me',
   'overlay.interviewer': 'Interviewer',
   'overlay.meColon': 'Me: ',
@@ -820,7 +816,7 @@ export const en: Record<I18nKey, string> = {
   // Settings — section subtitles
   'settings.sub.general': 'Version, theme, language and overlay behaviour.',
   'settings.sub.ai': 'Models for live hints and vacancy review.',
-  'settings.sub.speech': 'Whisper, recording quality and microphone.',
+  'settings.sub.speech': 'OpenAI Mini, recording quality and microphone.',
   'settings.sub.modes': 'Answer style presets for the overlay.',
   'settings.sub.keybinds': 'All app and overlay keyboard shortcuts.',
   'settings.sub.billing': 'Plan and licence.',
@@ -995,67 +991,6 @@ export const en: Record<I18nKey, string> = {
   'modes.general': 'General',
 
   // Settings — Speech recognition (STT)
-  'stt.whisper.tagline':
-    'Private and free: audio never leaves your device. Latency depends on your hardware.',
-  'stt.whisper.privacy': 'Audio is processed locally.',
-  'stt.deepgram.tagline': 'Fastest: words on screen in ~300 ms. ~0.66₽/min, requires an API key.',
-  'stt.deepgram.privacy': 'Audio goes to the Deepgram cloud (USA).',
-  'stt.deepgram.keyPlaceholder': 'Deepgram API key',
-  'stt.speechkit.label': 'Yandex SpeechKit v3',
-  'stt.speechkit.tagline':
-    'Best Russian recognition. ~0.65₽/min, billed in rubles, requires an API key.',
-  'stt.speechkit.privacy': 'Audio goes to Yandex Cloud (Russia).',
-  'stt.speechkit.keyPlaceholder': 'Yandex Cloud service-account API key',
-  'stt.skModel.general': 'Stable',
-  'stt.skModel.rc': 'Candidate (rc)',
-  'stt.soniox.tagline':
-    'Multilingual real-time (60+ languages, auto RU/EN code-switching). ~$0.12/hour, requires an API key.',
-  'stt.soniox.privacy': 'Audio goes to the Soniox cloud (USA/EU).',
-  'stt.soniox.keyPlaceholder': 'Soniox API key',
-  'stt.loadError': 'Could not load STT settings',
-  'stt.saveError': 'Could not save settings',
-  'stt.downloadError': 'Could not start the download',
-  'stt.deleteError': 'Could not delete the model',
-  'stt.loading': 'Loading speech recognition settings…',
-  'stt.keySaved': 'Key saved. Live recognition will switch from the next session.',
-  'stt.saveKeyError': 'Could not save the key',
-  'stt.title': 'Speech recognition (STT)',
-  'stt.desc': 'Live transcription engine: local (private) or cloud (faster and more accurate).',
-  'stt.badge.private': 'Private',
-  'stt.badge.keySaved': 'Key saved',
-  'stt.badge.keyNeeded': 'Key needed',
-  'stt.apiKey': 'API key',
-  'stt.saved': 'saved',
-  'stt.saveKey': 'Save key',
-  'stt.replaceKey': 'Replace key',
-  'stt.noKeyWarn':
-    'Without a key the live session will show an error and suggest switching back to Local Whisper.',
-  'stt.skModel.title': 'Recognition model',
-  'stt.skModel.desc':
-    'Stable (general) is proven. The candidate (general:rc) gets Russian-quality improvements first, but Yandex updates it without notice.',
-  'stt.skModel.aria': 'SpeechKit model',
-  'stt.alert.local':
-    'Recognition: Local Whisper — audio is recognized locally and is not sent to the cloud.',
-  'stt.alert.cloudPre': 'Recognition:',
-  'stt.streaming.title': 'Streaming models',
-  'stt.partial.label': 'Intermediate model (live captions)',
-  'stt.partial.hint': 'Fast updates while you speak (~500 ms).',
-  'stt.final.label': 'Final model (after a pause)',
-  'stt.final.hint': 'More accurate once the phrase is finished.',
-  'stt.localModel': 'Local model',
-  'stt.meter.speed': 'Speed',
-  'stt.meter.acc': 'Accuracy',
-  'stt.meter.res': 'Resources',
-  'stt.model.ready': 'Downloaded · Ready',
-  'stt.model.notDownloaded': 'Not downloaded',
-  'stt.retry': 'Retry',
-  'stt.download': 'Download',
-  'stt.device.title': 'Compute device',
-  'stt.device.desc': 'Auto picks the GPU when available, otherwise the CPU.',
-  'stt.device.auto': 'Auto',
-  'stt.validation': 'Validation',
-  'stt.runBenchmark': 'Run STT benchmark',
-  'stt.openDiagnostics': 'Open diagnostics',
 
   // Common (checking)
   'common.checking': 'Checking…',
@@ -1118,23 +1053,9 @@ export const en: Record<I18nKey, string> = {
   'onboarding.firstRun': 'First run',
   'onboarding.skip': 'Skip',
   'onboarding.back': 'Back',
-  'onboarding.stt.eyebrow': 'Speech recognition',
-  'onboarding.stt.title': 'Set up local speech recognition',
-  'onboarding.stt.subtitle':
-    'SkillCue listens to interview questions and transcribes them in real time. Choose how it works — by default everything stays on your device.',
-  'onboarding.stt.whisperTitle': 'Local Whisper',
-  'onboarding.stt.recommended': 'Recommended',
-  'onboarding.stt.whisperDesc.pre': 'Audio is transcribed locally on your device and ',
-  'onboarding.stt.whisperDesc.strong': 'never leaves for the cloud',
-  'onboarding.stt.whisperDesc.post': ' in local mode. Recognition runs on your CPU/GPU.',
-  'onboarding.stt.expect': 'What to expect',
-  'onboarding.stt.expect.offline': 'Works offline once the model is downloaded',
-  'onboarding.stt.expect.cpu': 'Uses CPU/GPU — may affect battery, fan noise and performance',
-  'onboarding.stt.expect.download': 'You need to download a local speech model first',
   'onboarding.ethics.strong': 'Ethical use.',
   'onboarding.ethics.body':
     ' The app helps you prepare and work on permitted calls. Do not use it to deceive interviewers, and disclose recording to participants when the rules require it.',
-  'onboarding.stt.choose': 'Choose a speech model',
   'onboarding.key.eyebrow': 'AI key',
   'onboarding.key.title': 'Connect AI — the heart of the copilot',
   'onboarding.key.subtitle':
@@ -1148,42 +1069,8 @@ export const en: Record<I18nKey, string> = {
   'onboarding.key.save': 'Save and start',
   'onboarding.key.skipLater': 'Skip — I will add it later',
 
-  'onboarding.sttStep.title': 'Choose your speech recognition mode',
-  'onboarding.sttStep.localTitle': 'Local Whisper — recommended',
-  'onboarding.sttStep.b1': 'Audio is transcribed locally on your device',
-  'onboarding.sttStep.b2': 'In local mode audio never leaves for the cloud',
-  'onboarding.sttStep.b3': 'Uses CPU/GPU during recognition',
-  'onboarding.sttStep.b4': 'May affect battery and fan noise',
-  'onboarding.sttStep.b5': 'Requires downloading a speech model',
-  'onboarding.sttStep.autoChoose': 'Choose automatically',
-  'onboarding.sttStep.ramUnknown': 'RAM unknown',
-  'onboarding.sttStep.gpuFound': 'GPU detected',
-  'onboarding.sttStep.cpuOnly': 'CPU only',
-  'onboarding.sttStep.modelReady': 'Model downloaded — local mode is ready.',
-  'onboarding.sttStep.downloading': 'Downloading model…',
-  'onboarding.sttStep.downloadNow': 'Download the model now (optional)',
-  'onboarding.sttStep.changeLater': 'You can download or change the model later in Settings → Speech.',
-  'onboarding.sttStep.downloadError': 'Failed to start the download',
-  'onboarding.sttStep.modelError': 'Failed to download the model',
-  'onboarding.sttStep.privacyLocal':
-    'Audio is processed on your device and is not sent to our servers for recognition.',
-  'onboarding.sttStep.resourceLocal':
-    'Local recognition uses the CPU/GPU and may affect battery, performance and fan noise.',
   'onboarding.continue': 'Continue',
 
-  // Whisper model cards (labels/descriptions; data fallback lives in shared)
-  'whisper.fast.label': 'Fast',
-  'whisper.fast.desc':
-    'For low-powered laptops or battery-saver mode. Minimal resource usage and the fastest start; lower accuracy on technical terms. A good fit for quick testing or older devices.',
-  'whisper.balanced.label': 'Balanced',
-  'whisper.balanced.desc':
-    'For most modern laptops. A good balance of speed and accuracy — the recommended default for live interviews. Handles QA/Python terms well together with glossary correction.',
-  'whisper.quality.label': 'Quality',
-  'whisper.quality.desc':
-    'For powerful laptops/desktops. Higher accuracy, but more load on the CPU/GPU and memory. Better for noisy audio or complex terminology.',
-  'whisper.max.label': 'Maximum accuracy',
-  'whisper.max.desc':
-    'Maximum accuracy for speech and technical terms. Needs an NVIDIA GPU for speed (~1s per question on a modern GPU; very slow on CPU). The largest download. Recommended when a GPU is available.',
 
   'unit.mb': 'MB',
   'unit.gbRam': 'GB RAM',

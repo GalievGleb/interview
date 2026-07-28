@@ -39,6 +39,11 @@ const api = {
     resize: (dw: number, dh: number) => ipcRenderer.invoke('overlay:resize', dw, dh),
     // Оверлей → главное окно: live-сессия запущена/остановлена (сайдбар-таймер).
     setLiveState: (active: boolean) => ipcRenderer.invoke('overlay:liveState', active),
+    onForceAnswer: (cb: () => void) => {
+      const handler = () => cb();
+      ipcRenderer.on('overlay:force-answer', handler);
+      return () => ipcRenderer.removeListener('overlay:force-answer', handler);
+    },
   },
   window: {
     setSkipTaskbar: (skip: boolean) => ipcRenderer.invoke('window:setSkipTaskbar', skip),

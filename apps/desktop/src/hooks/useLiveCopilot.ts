@@ -1,16 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api';
 import { decideAnswerAction } from '../lib/liveAnswerMachine';
-import { startLiveSession, LiveSession, SttMode, SttTimings } from '../lib/liveSession';
+import { startLiveSession, LiveSession, SttTimings } from '../lib/liveSession';
 import { prepareTranscriptForLlm, PreparedTranscript } from '../lib/prepareTranscriptForLlm';
 import { SttSessionOptions } from '../lib/sttOptions';
 import { getWeakTopicTitles } from '../lib/vacancyReview/weakTopics';
-import { isSpeculativeEnabled } from '../lib/speculativePref';
 import { recordSkipped } from '../lib/skippedLog';
 import { t } from '../lib/i18n';
+import { selectForceTargetSource, selectForcedQuestion } from '../lib/forceLiveAnswer';
 import {
   createEmptySessionContext,
-  isOrphanComparativeTail,
   pushUtteranceBuffer,
   sanitizeLiveAnswer,
   trimSpokenAnswer,
@@ -22,7 +21,6 @@ import {
   type UtteranceSpeaker,
 } from '@interview/shared';
 import {
-  collapseRepeatedChars,
   looksLikeQuestion,
   mergeRawParts,
   normalizeTranscript,
@@ -64,17 +62,13 @@ interface LiveEntry {
 const FINAL_FALLBACK_MS = 450;
 const SPEECH_FINAL_DELAY_MS = 280;
 const INCOMPLETE_RETRY_MS = 700;
-// Speculative answering: fire once the interim partial has been stable this long.
-const SPECULATIVE_STABLE_MS = 350;
-
+const FORCE_FINALIZE_TIMEOUT_MS = 8000;
 interface LiveTimingState {
   audioCaptureStartAt: number | null;
   speechDetectedAt: number | null;
-  firstPartialTranscriptAt: number | null;
   speechEndedAt: number | null;
   finalTranscriptionStartAt: number | null;
   finalTranscriptionEndAt: number | null;
-  glossaryCorrectionEndAt: number | null;
   llmRequestStartAt: number | null;
   llmFirstTokenAt: number | null;
   llmEndAt: number | null;
@@ -96,11 +90,9 @@ function emptyTimingState(): LiveTimingState {
   return {
     audioCaptureStartAt: null,
     speechDetectedAt: null,
-    firstPartialTranscriptAt: null,
     speechEndedAt: null,
     finalTranscriptionStartAt: null,
     finalTranscriptionEndAt: null,
-    glossaryCorrectionEndAt: null,
     llmRequestStartAt: null,
     llmFirstTokenAt: null,
     llmEndAt: null,
@@ -111,17 +103,9 @@ function buildTimingDebug(t: LiveTimingState): Partial<SttDebugInfo> {
   const anchor = t.audioCaptureStartAt ?? t.speechDetectedAt;
   const llmStart = t.llmRequestStartAt;
   return {
-    timeToFirstPartialMs:
-      t.firstPartialTranscriptAt != null && anchor != null
-        ? t.firstPartialTranscriptAt - anchor
-        : undefined,
     finalTranscriptionMs:
       t.finalTranscriptionStartAt != null && t.finalTranscriptionEndAt != null
         ? t.finalTranscriptionEndAt - t.finalTranscriptionStartAt
-        : undefined,
-    correctionMs:
-      t.finalTranscriptionEndAt != null && t.glossaryCorrectionEndAt != null
-        ? t.glossaryCorrectionEndAt - t.finalTranscriptionEndAt
         : undefined,
     timeToFinalMs:
       t.speechEndedAt != null && anchor != null ? t.speechEndedAt - anchor : undefined,
@@ -158,14 +142,13 @@ export function useLiveCopilot() {
   const streamLockRef = useRef(false);
   const lastQuestionRef = useRef('');
   const lastCompletedRef = useRef('');
+  const lastCompletedRawRef = useRef('');
   const streamGenRef = useRef(0);
   const finalPartsRef = useRef<string[]>([]);
   const finalDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const speculativeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sttMetaRef = useRef<{
     engine: string;
     model: string;
-    partialModel?: string;
     sampleRate: number;
   } | null>(null);
   const speechStartedAtRef = useRef<number | null>(null);
@@ -184,6 +167,24 @@ export function useLiveCopilot() {
   const knowledgeMetaRef = useRef<CopilotAnswerPipeline['knowledge'] | null>(null);
   const queuedAnswerRef = useRef<QueuedAnswerRequest | null>(null);
   const lastPersistedTranscriptRef = useRef<Record<string, string>>({});
+  const forceNextQuestionRef = useRef(false);
+  const forcePendingRef = useRef(false);
+  const forcePendingRequestIdRef = useRef<string | null>(null);
+  const forcePendingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const speechInProgressRef = useRef<Record<'mic' | 'system', boolean>>({
+    mic: false,
+    system: false,
+  });
+
+  const clearForcePending = useCallback((clearForceFlag = true) => {
+    if (forcePendingTimerRef.current) {
+      clearTimeout(forcePendingTimerRef.current);
+      forcePendingTimerRef.current = null;
+    }
+    forcePendingRef.current = false;
+    forcePendingRequestIdRef.current = null;
+    if (clearForceFlag) forceNextQuestionRef.current = false;
+  }, []);
 
   // Persist final transcript lines so History can show the full dialogue
   // (including the user's own answers) for post-interview review.
@@ -201,11 +202,7 @@ export function useLiveCopilot() {
   const patchSttDebug = useCallback((patch: Partial<SttDebugInfo>) => {
     setSttDebug((prev) => ({
       rawTranscript: '',
-      glossaryCorrected: '',
-      intentCorrected: '',
-      correctedTranscript: '',
-      corrections: [],
-      intentCorrections: [],
+      normalizedTranscript: '',
       ...prev,
       ...buildTimingDebug(timingRef.current),
       ...patch,
@@ -216,10 +213,7 @@ export function useLiveCopilot() {
     (prepared: PreparedTranscript, extra: Partial<SttDebugInfo>) => {
       patchSttDebug({
         rawTranscript: prepared.rawTranscript,
-        glossaryCorrected: prepared.corrected,
-        intentCorrected: prepared.intentCorrected,
-        correctedTranscript: prepared.intentCorrected,
-        correctedFinalTranscript: prepared.corrected,
+        normalizedTranscript: prepared.normalized,
         resolvedQuestion: prepared.resolvedQuestion,
         previousTopic: sessionContextRef.current.lastCanonicalTopic,
         currentCanonicalTopic: prepared.canonicalTopic ?? undefined,
@@ -228,12 +222,6 @@ export function useLiveCopilot() {
         followUpReason: prepared.followUp.reason,
         hallucinationRisk: prepared.followUp.hallucinationRisk,
         resumeFactSource: prepared.answerStrategy.resumeContextLevel,
-        corrections: prepared.correction.corrections,
-        intentCorrections: prepared.intent.intentCorrections,
-        intentConfidence:
-          prepared.intent.confidence !== 'none' ? prepared.intent.confidence : undefined,
-        intentReason: prepared.intent.reason,
-        ambiguity: prepared.intent.ambiguity,
         questionIntent: prepared.answerStrategy.questionIntent,
         answerStrategy: prepared.answerStrategy.answerStrategy,
         resumeContextUsed: prepared.answerStrategy.resumeContextUsed,
@@ -241,7 +229,6 @@ export function useLiveCopilot() {
         resumeContextReason: prepared.answerStrategy.resumeContextReason,
         sttEngine: sttMetaRef.current?.engine,
         sttModel: sttMetaRef.current?.model,
-        partialSttModel: sttMetaRef.current?.partialModel,
         sampleRate: sttMetaRef.current?.sampleRate,
         ...extra,
       });
@@ -287,6 +274,10 @@ export function useLiveCopilot() {
 
   const removeStream = useCallback(
     (source: 'mic' | 'system', msg?: string) => {
+      speechInProgressRef.current[source] = false;
+      if (source === selectForceTargetSource(liveSourcesRef.current)) {
+        clearForcePending();
+      }
       liveRef.current = liveRef.current.filter((entry) => {
         if (entry.source === source) {
           entry.session.stop();
@@ -300,7 +291,7 @@ export function useLiveCopilot() {
         void endInterviewSession();
       }
     },
-    [endInterviewSession],
+    [clearForcePending, endInterviewSession],
   );
 
   const runStream = useCallback((request: AnswerRequest) => {
@@ -330,11 +321,8 @@ export function useLiveCopilot() {
 
     setSttDebug({
       rawTranscript: prepared.rawTranscript,
-      glossaryCorrected: prepared.corrected,
-      intentCorrected: prepared.intentCorrected,
-      correctedTranscript: prepared.intentCorrected,
+      normalizedTranscript: prepared.normalized,
       finalTranscript: prepared.rawTranscript,
-      correctedFinalTranscript: prepared.corrected,
       resolvedQuestion: prepared.resolvedQuestion,
       previousTopic: sessionContextRef.current.lastCanonicalTopic,
       currentCanonicalTopic: prepared.canonicalTopic ?? undefined,
@@ -347,11 +335,6 @@ export function useLiveCopilot() {
       hallucinationRisk: prepared.followUp.hallucinationRisk,
       resumeFactSource: prepared.answerStrategy.resumeContextLevel,
       answerTriggered: true,
-      corrections: prepared.correction.corrections,
-      intentCorrections: prepared.intent.intentCorrections,
-      intentConfidence: prepared.intent.confidence !== 'none' ? prepared.intent.confidence : undefined,
-      intentReason: prepared.intent.reason,
-      ambiguity: prepared.intent.ambiguity,
       questionIntent: prepared.answerStrategy.questionIntent,
       answerStrategy: prepared.answerStrategy.answerStrategy,
       resumeContextUsed: prepared.answerStrategy.resumeContextUsed,
@@ -359,7 +342,6 @@ export function useLiveCopilot() {
       resumeContextReason: prepared.answerStrategy.resumeContextReason,
       sttEngine: meta?.engine,
       sttModel: meta?.model,
-      partialSttModel: meta?.partialModel,
       sampleRate: meta?.sampleRate,
       ...buildTimingDebug(timingRef.current),
       // Prefer the server-measured speech-end -> final latency (the desktop can
@@ -375,9 +357,6 @@ export function useLiveCopilot() {
           : undefined),
       finalTranscriptionMs:
         requestTimings?.finalInferenceMs ?? buildTimingDebug(timingRef.current).finalTranscriptionMs,
-      timeToFirstPartialMs:
-        requestTimings?.firstPartialMs ??
-        buildTimingDebug(timingRef.current).timeToFirstPartialMs,
     });
 
     setStreaming(true);
@@ -449,7 +428,6 @@ export function useLiveCopilot() {
                     // session-start anchor, so re-spreading it here would inflate
                     // sttLatencyMs on every later utterance (15s, 28s, 53s...).
                     timeToFinalMs: prev.timeToFinalMs,
-                    timeToFirstPartialMs: prev.timeToFirstPartialMs,
                     finalTranscriptionMs: prev.finalTranscriptionMs,
                     timeToAnswerMs: performance.now() - answerStartedAt,
                   }
@@ -467,12 +445,12 @@ export function useLiveCopilot() {
           setSuggestLoading(false);
           timingRef.current.llmEndAt = performance.now();
           lastCompletedRef.current = q;
+          lastCompletedRawRef.current = prepared.rawTranscript;
           const text = trimSpokenAnswer(sanitizeLiveAnswer(stripExperienceFooter(spoken || accumulated)));
           const debugSnapshot = sttDebugRef.current;
           const llmLatencyMs = performance.now() - answerStartedAt;
           const pipeline = buildPipelineFromPrepared(prepared, {
             previousTopic: sessionContextRef.current.lastCanonicalTopic,
-            llmCorrectedTranscript: debugSnapshot?.llmCorrectedTranscript,
             timeToAnswerMs: debugSnapshot?.timeToAnswerMs,
             timeToFinalMs: exchangeSttLatencyMs,
           });
@@ -496,8 +474,8 @@ export function useLiveCopilot() {
           });
           sessionContextRef.current = updateSessionContextAfterAnswer(sessionContextRef.current, {
             rawQuestion: prepared.rawTranscript,
-            correctedQuestion: prepared.corrected,
-            intentCorrectedQuestion: prepared.intentCorrected,
+            correctedQuestion: prepared.normalized,
+            intentCorrectedQuestion: prepared.normalized,
             resolvedQuestion: prepared.resolvedQuestion,
             questionIntent: prepared.answerStrategy.questionIntent,
             canonicalTopic: prepared.canonicalTopic,
@@ -515,12 +493,11 @@ export function useLiveCopilot() {
           debugRef.current.event('error', { reason: msg, text: q });
           if (accumulated) {
             lastCompletedRef.current = q;
+            lastCompletedRawRef.current = prepared.rawTranscript;
             const text = trimSpokenAnswer(sanitizeLiveAnswer(stripExperienceFooter(accumulated)));
-            const debugSnapshot = sttDebugRef.current;
             const llmLatencyMs = performance.now() - answerStartedAt;
             const pipeline = buildPipelineFromPrepared(prepared, {
               previousTopic: sessionContextRef.current.lastCanonicalTopic,
-              llmCorrectedTranscript: debugSnapshot?.llmCorrectedTranscript,
               timeToFinalMs: exchangeSttLatencyMs,
             });
             if (knowledgeMetaRef.current) pipeline.knowledge = knowledgeMetaRef.current;
@@ -538,20 +515,12 @@ export function useLiveCopilot() {
       {
         sessionId: sessionRef.current ?? undefined,
         rawQuestion: prepared.rawTranscript,
-        glossaryCorrected: prepared.corrected,
-        intentCorrected: prepared.intentCorrected,
         resolvedQuestion: prepared.resolvedQuestion,
         previousTopic: sessionContextRef.current.lastCanonicalTopic,
         isFollowUp: prepared.followUp.isFollowUp,
         usedPreviousContext: prepared.followUp.usedPreviousContext,
         followUpReason: prepared.followUp.reason,
         currentCanonicalTopic: prepared.canonicalTopic ?? undefined,
-        ambiguity: prepared.intent.ambiguity,
-        corrections: prepared.correction.corrections,
-        intentCorrections: prepared.intent.intentCorrections,
-        intentConfidence: prepared.intent.confidence !== 'none' ? prepared.intent.confidence : undefined,
-        intentReason: prepared.intent.reason,
-        needsLlmCorrection: prepared.correction.needsLlmCorrection,
         questionIntent: prepared.answerStrategy.questionIntent,
         answerStrategy: prepared.answerStrategy.answerStrategy,
         resumeContextUsed: prepared.answerStrategy.resumeContextUsed,
@@ -564,11 +533,6 @@ export function useLiveCopilot() {
           setSttDebug((prev) => {
             if (!prev) return prev;
             const next = { ...prev };
-            const llmText = correctionMeta.llm_corrected?.trim();
-            if (llmText) {
-              next.llmCorrectedTranscript = llmText;
-              next.intentCorrected = llmText;
-            }
             if (correctionMeta.question_intent) next.questionIntent = correctionMeta.question_intent;
             if (correctionMeta.answer_strategy) next.answerStrategy = correctionMeta.answer_strategy;
             if (correctionMeta.resume_context_used != null) {
@@ -601,33 +565,28 @@ export function useLiveCopilot() {
   }, []);
 
   const requestSuggestion = useCallback(
-    (rawMerged: string) => {
-      const correctionStartedAt = performance.now();
+    (rawMerged: string, force = false) => {
       const prepared = prepareTranscriptForLlm(rawMerged, sessionContextRef.current);
-      timingRef.current.glossaryCorrectionEndAt = performance.now();
       const q = prepared.resolvedQuestion.trim();
       const raw = rawMerged.trim();
 
-      if (isGarbageTranscript(q) && isGarbageTranscript(raw)) {
+      if (!force && isGarbageTranscript(q) && isGarbageTranscript(raw)) {
         syncDebugFromPrepared(prepared, {
           answerTriggered: false,
           waitReason: 'Waiting for complete question…',
-          interimTranscript: undefined,
           finalTranscript: raw,
-          correctedFinalTranscript: prepared.corrected,
-          correctionMs: timingRef.current.glossaryCorrectionEndAt - correctionStartedAt,
         });
         return;
       }
 
-      if (q.length < 6 && raw.length < 6) {
+      if (!force && q.length < 6 && raw.length < 6) {
         syncDebugFromPrepared(prepared, {
           answerTriggered: false,
           waitReason: 'Waiting for complete question…',
         });
         return;
       }
-      if (!looksLikeQuestion(q) && !looksLikeQuestion(raw)) {
+      if (!force && !looksLikeQuestion(q) && !looksLikeQuestion(raw)) {
         // Not a question and no interview intent — never call the LLM, never
         // touch previousTopic. Surface it as an explicit skip.
         recordSkipped('unclear_non_question', raw);
@@ -639,7 +598,7 @@ export function useLiveCopilot() {
         return;
       }
       // A «?»-fragment with no real intent («Вместе или не?») — also skip.
-      if (isNonQuestionFragment(q) && isNonQuestionFragment(raw)) {
+      if (!force && isNonQuestionFragment(q) && isNonQuestionFragment(raw)) {
         recordSkipped('too_low_intent', raw);
         debugRef.current.event('low_quality', { reason: 'too_low_intent', text: raw });
         syncDebugFromPrepared(prepared, {
@@ -648,16 +607,20 @@ export function useLiveCopilot() {
         });
         return;
       }
-      if (isOrphanComparativeTail(raw)) {
-        syncDebugFromPrepared(prepared, {
-          answerTriggered: false,
-          waitReason: 'orphan comparative tail',
+      const requestTimings = serverTimingsRef.current ? { ...serverTimingsRef.current } : null;
+      const requestQuestionFinalAt = questionFinalAtRef.current;
+
+      if (force) {
+        cancelStreamRef.current?.();
+        streamLockRef.current = false;
+        queuedAnswerRef.current = null;
+        runStream({
+          prepared,
+          serverTimings: requestTimings,
+          questionFinalAt: requestQuestionFinalAt,
         });
         return;
       }
-
-      const requestTimings = serverTimingsRef.current ? { ...serverTimingsRef.current } : null;
-      const requestQuestionFinalAt = questionFinalAtRef.current;
 
       const decision = decideAnswerAction({
         question: q,
@@ -716,38 +679,10 @@ export function useLiveCopilot() {
     [runStream],
   );
 
-  const clearSpeculative = useCallback(() => {
-    if (speculativeTimerRef.current) {
-      clearTimeout(speculativeTimerRef.current);
-      speculativeTimerRef.current = null;
-    }
-  }, []);
-
-  // Speculative answering: start the LLM on a stable, question-like partial. The
-  // existing requestSuggestion handles all gating + cancel/restart when the final
-  // arrives, so a matching final keeps the running stream and a different final
-  // restarts it. Bounded to one in-flight speculation (skips while a stream runs).
-  const trySpeculative = useCallback(
-    (text: string) => {
-      if (!isSpeculativeEnabled()) return;
-      if (streamLockRef.current) return;
-      const t = text.trim();
-      if (t.length < 8) return;
-      if (isGarbageTranscript(t) || !looksLikeQuestion(t)) return;
-      questionFinalAtRef.current = performance.now();
-      requestSuggestion(t);
-    },
-    [requestSuggestion],
-  );
-
   const cancelPendingQuestion = useCallback(() => {
     if (finalDebounceRef.current) {
       clearTimeout(finalDebounceRef.current);
       finalDebounceRef.current = null;
-    }
-    if (speculativeTimerRef.current) {
-      clearTimeout(speculativeTimerRef.current);
-      speculativeTimerRef.current = null;
     }
     finalPartsRef.current = [];
   }, []);
@@ -770,13 +705,22 @@ export function useLiveCopilot() {
     const mergedParts = mergeRawParts(finalPartsRef.current);
     finalPartsRef.current = [];
     if (!mergedParts) return;
+    const forced = forceNextQuestionRef.current;
+    forceNextQuestionRef.current = false;
 
     const utteranceSpeaker = lastFlushSpeakerRef.current;
-    const waitCheck = shouldWaitForMoreSpeech(
-      mergedParts,
-      utteranceBufferRef.current,
-      utteranceSpeaker,
-    );
+    const waitCheck = forced
+      ? {
+          wait: false,
+          action: 'proceed' as const,
+          merged: mergedParts,
+          reason: undefined,
+        }
+      : shouldWaitForMoreSpeech(
+          mergedParts,
+          utteranceBufferRef.current,
+          utteranceSpeaker,
+        );
     const toEvaluate = waitCheck.merged ?? mergedParts;
     const preparedPreview = prepareTranscriptForLlm(toEvaluate, sessionContextRef.current);
 
@@ -802,14 +746,13 @@ export function useLiveCopilot() {
     incompleteRetryRef.current = 0;
     utteranceBufferRef.current = [];
     questionFinalAtRef.current = performance.now();
-    commitCorrectedToLine(toEvaluate, preparedPreview.corrected, utteranceSpeaker);
+    commitCorrectedToLine(toEvaluate, preparedPreview.normalized, utteranceSpeaker);
     syncDebugFromPrepared(preparedPreview, {
       answerTriggered: undefined,
       waitReason: undefined,
       finalTranscript: toEvaluate,
-      correctedFinalTranscript: preparedPreview.corrected,
     });
-    requestSuggestion(toEvaluate);
+    requestSuggestion(toEvaluate, forced);
   }, [commitCorrectedToLine, requestSuggestion, syncDebugFromPrepared]);
 
   const pushFinalPart = useCallback((text: string) => {
@@ -846,10 +789,58 @@ export function useLiveCopilot() {
     [flushQuestion, pushFinalPart, recordUtterance],
   );
 
+  const forceAnswer = useCallback((): boolean => {
+    if (!active) return false;
+    if (forcePendingRef.current) return true;
+
+    if (finalPartsRef.current.length > 0) {
+      forceNextQuestionRef.current = true;
+      questionFinalAtRef.current = performance.now();
+      lastFlushSpeakerRef.current =
+        triggerSpeakerRef.current === 'other' ? 'interviewer' : 'me';
+      flushQuestion();
+      return true;
+    }
+
+    const targetSource = selectForceTargetSource(liveSourcesRef.current);
+    if (
+      targetSource &&
+      streamLockRef.current &&
+      !speechInProgressRef.current[targetSource]
+    ) {
+      return false;
+    }
+    const targetSession = liveRef.current.find((entry) => entry.source === targetSource);
+    const requestId = crypto.randomUUID();
+    if (targetSession?.session.flush(requestId)) {
+      forcePendingRef.current = true;
+      forcePendingRequestIdRef.current = requestId;
+      serverTimingsRef.current = null;
+      questionFinalAtRef.current = performance.now();
+      forcePendingTimerRef.current = setTimeout(() => {
+        clearForcePending();
+        setError(t('live.forceTimeout'));
+      }, FORCE_FINALIZE_TIMEOUT_MS);
+      return true;
+    }
+
+    const question = selectForcedQuestion(
+      finalPartsRef.current,
+      lines,
+      triggerSpeakerRef.current,
+      lastCompletedRef.current,
+      lastCompletedRawRef.current,
+    );
+    if (!question) {
+      return false;
+    }
+
+    askQuestion(question);
+    return true;
+  }, [active, askQuestion, clearForcePending, flushQuestion, lines]);
+
   const appendLine = useCallback((rawText: string, isFinal: boolean, speaker: Speaker) => {
-    // Схлопываем повторы букв («Уууу…») ещё до показа — иначе галлюцинация
-    // Whisper висит в транскрипте и оверлее как длинная простыня.
-    const text = collapseRepeatedChars(rawText);
+    const text = rawText.trim();
     const normalized = normalizeTranscript(text);
     const showNorm = normalized !== text.trim();
     setLines((prev) => {
@@ -885,7 +876,6 @@ export function useLiveCopilot() {
 
   const start = useCallback(
     async (sources: LiveSources, stt: SttSessionOptions = {}) => {
-      const mode: SttMode = stt.mode ?? 'stable';
       const language = stt.language ?? 'ru';
       setError('');
       setReconnecting(null);
@@ -896,6 +886,7 @@ export function useLiveCopilot() {
       setSttDebug(null);
       lastQuestionRef.current = '';
       lastCompletedRef.current = '';
+      lastCompletedRawRef.current = '';
       finalPartsRef.current = [];
       speechStartedAtRef.current = null;
       questionFinalAtRef.current = null;
@@ -908,9 +899,10 @@ export function useLiveCopilot() {
       queuedAnswerRef.current = null;
       hasSessionContentRef.current = false;
       lastPersistedTranscriptRef.current = {};
+      clearForcePending();
+      speechInProgressRef.current = { mic: false, system: false };
       debugRef.current.start(16000);
       if (finalDebounceRef.current) clearTimeout(finalDebounceRef.current);
-      clearSpeculative();
       liveRef.current.forEach((e) => e.session.stop());
       liveRef.current = [];
 
@@ -932,48 +924,35 @@ export function useLiveCopilot() {
         const label = source === 'mic' ? t('live.microphone') : t('live.systemAudio');
         const live = await startLiveSession(
           {
-            onTranscript: (text, isFinal, speechFinal) => {
+            onTranscript: (text, isFinal, speechFinal, forceRequestId) => {
               const trimmed = text.trim();
               if (!trimmed) return;
+              if (
+                forceRequestId &&
+                forceRequestId !== forcePendingRequestIdRef.current
+              ) {
+                return;
+              }
 
               if (!isFinal) {
                 if (!timingRef.current.speechDetectedAt) {
                   timingRef.current.speechDetectedAt = performance.now();
                 }
-                if (!timingRef.current.firstPartialTranscriptAt) {
-                  timingRef.current.firstPartialTranscriptAt = performance.now();
-                }
-                appendLine(trimmed, false, speaker);
-                debugRef.current.event('partial', { text: trimmed, speaker });
-                patchSttDebug({
-                  interimTranscript: trimmed,
-                  waitReason: undefined,
-                });
-                // Speculatively answer once the partial has been stable a moment
-                // (only for the speaker we answer). No-op unless the user opted in.
-                if (speaker === triggerSpeakerRef.current) {
-                  if (speculativeTimerRef.current) clearTimeout(speculativeTimerRef.current);
-                  const snapshot = trimmed;
-                  speculativeTimerRef.current = setTimeout(
-                    () => trySpeculative(snapshot),
-                    SPECULATIVE_STABLE_MS,
-                  );
-                }
                 return;
               }
 
-              clearSpeculative();
               timingRef.current.finalTranscriptionStartAt =
                 timingRef.current.finalTranscriptionStartAt ?? performance.now();
               timingRef.current.finalTranscriptionEndAt = performance.now();
               timingRef.current.speechEndedAt = performance.now();
+              speechInProgressRef.current[source] = false;
               appendLine(trimmed, true, speaker);
               persistTranscriptLine(trimmed, speaker);
               debugRef.current.event('final', { text: trimmed, speaker });
               patchSttDebug({
-                interimTranscript: undefined,
                 finalTranscript: trimmed,
                 rawTranscript: trimmed,
+                normalizedTranscript: normalizeTranscript(trimmed),
                 waitReason: undefined,
               });
 
@@ -992,6 +971,11 @@ export function useLiveCopilot() {
               }
             },
             onSpeechStarted: () => {
+              speechInProgressRef.current[source] = true;
+              if (speaker === triggerSpeakerRef.current) {
+                serverTimingsRef.current = null;
+                cancelPendingQuestion();
+              }
               if (!timingRef.current.speechDetectedAt) {
                 timingRef.current.speechDetectedAt = performance.now();
               }
@@ -1003,15 +987,12 @@ export function useLiveCopilot() {
               sttMetaRef.current = {
                 engine: info.engine,
                 model: info.model,
-                partialModel: info.partialModel,
                 sampleRate: info.sampleRate,
               };
               debugRef.current.setSampleRate(info.sampleRate);
               debugRef.current.event('ready', {
                 meta: {
                   model: info.model,
-                  partialModel: info.partialModel,
-                  finalModel: info.finalModel,
                   sampleRate: info.sampleRate,
                 },
               });
@@ -1020,26 +1001,55 @@ export function useLiveCopilot() {
               // Record the trigger speaker's mic so the debug WAV is the user's voice.
               if (speaker === triggerSpeakerRef.current) debugRef.current.audioFrame(buffer);
             },
-            onUtteranceEnd: (timings) => {
+            onUtteranceEnd: (timings, forceRequestId) => {
               // Только триггерный канал (интервьюер при mic+system) завершает
               // вопрос — конец собственной реплики кандидата не должен
               // форсировать flush чужого буфера.
               if (speaker !== triggerSpeakerRef.current) return;
+              if (
+                forceRequestId &&
+                forceRequestId !== forcePendingRequestIdRef.current
+              ) {
+                return;
+              }
               lastFlushSpeakerRef.current = speaker === 'other' ? 'interviewer' : 'me';
               if (timings) serverTimingsRef.current = timings;
+              if (forceRequestId) forceNextQuestionRef.current = true;
               flushQuestion();
+              if (forceRequestId) clearForcePending();
             },
-            onLowQuality: (text, _reason) => {
+            onLowQuality: (text, _reason, forceRequestId) => {
+              if (
+                forceRequestId &&
+                forceRequestId !== forcePendingRequestIdRef.current
+              ) {
+                return;
+              }
               // Server quality gate rejected this utterance — keep listening,
               // never call the LLM with garbage. (Server logs the reason.)
               serverTimingsRef.current = null;
+              speechInProgressRef.current[source] = false;
+              if (
+                speaker === triggerSpeakerRef.current &&
+                forceRequestId
+              ) {
+                clearForcePending();
+              }
               recordSkipped(_reason, text);
               debugRef.current.event('low_quality', { text, reason: _reason, speaker });
               patchSttDebug({
-                interimTranscript: undefined,
                 finalTranscript: text,
+                rawTranscript: text,
+                normalizedTranscript: normalizeTranscript(text),
                 waitReason: 'Waiting for complete question…',
               });
+            },
+            onForceEmpty: (forceRequestId) => {
+              if (speaker !== triggerSpeakerRef.current) return;
+              if (forceRequestId !== forcePendingRequestIdRef.current) return;
+              speechInProgressRef.current[source] = false;
+              clearForcePending();
+              setError(t('live.forceNoAudio'));
             },
             onTurnResumed: () => {
               lastFlushSpeakerRef.current = speaker === 'other' ? 'interviewer' : 'me';
@@ -1071,9 +1081,7 @@ export function useLiveCopilot() {
             sessionId: sessionRef.current ?? undefined,
             speaker,
             source,
-            mode,
             language,
-            engine: stt.engine,
             audioSampleRate: stt.audioSampleRate,
           },
         );
@@ -1098,12 +1106,12 @@ export function useLiveCopilot() {
         await endInterviewSession();
       }
     },
-    [appendLine, cancelPendingQuestion, clearSpeculative, endInterviewSession, flushQuestion, patchSttDebug, persistTranscriptLine, recordUtterance, removeStream, scheduleFinalFallback, scheduleSpeechFinal, trySpeculative],
+    [appendLine, cancelPendingQuestion, clearForcePending, endInterviewSession, flushQuestion, patchSttDebug, persistTranscriptLine, recordUtterance, removeStream, scheduleFinalFallback, scheduleSpeechFinal],
   );
 
   const stop = useCallback(async () => {
     if (finalDebounceRef.current) clearTimeout(finalDebounceRef.current);
-    clearSpeculative();
+    clearForcePending();
     streamGenRef.current += 1;
     cancelStreamRef.current?.();
     streamLockRef.current = false;
@@ -1116,7 +1124,7 @@ export function useLiveCopilot() {
     setReconnecting(null);
     sessionContextRef.current = createEmptySessionContext();
     if (hadStreams) await endInterviewSession();
-  }, [clearSpeculative, endInterviewSession]);
+  }, [clearForcePending, endInterviewSession]);
 
   // Уход со страницы во время записи обязан выключить микрофон и закрыть сокеты —
   // иначе mic «горит» в фоне (приватность) и trial-минуты не фиксируются на закрытии
@@ -1150,7 +1158,7 @@ export function useLiveCopilot() {
       localStorage.setItem(
         'skillcue:lastTimings',
         JSON.stringify({
-          firstPartialMs: dbg.timeToFirstPartialMs ?? null,
+          firstPartialMs: null,
           transcribeMs: dbg.finalTranscriptionMs ?? dbg.timeToFinalMs ?? null,
           sttFinalMs: dbg.timeToFinalMs ?? null,
           llmFirstMs: dbg.llmFirstTokenMs ?? dbg.timeToAnswerMs ?? null,
@@ -1238,6 +1246,7 @@ export function useLiveCopilot() {
     setLiveAnswerText,
     downloadDebug,
     askQuestion,
+    forceAnswer,
     start,
     stop,
   };

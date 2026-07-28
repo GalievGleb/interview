@@ -4,7 +4,7 @@ import Sidebar from './Sidebar';
 import CommandPalette from './CommandPalette';
 import UpdateToast from './UpdateToast';
 import { useApp } from '../context/AppContext';
-import { useI18n, type I18nKey } from '../lib/i18n';
+import { useI18n } from '../lib/i18n';
 import { getBackendBannerKind } from './layout/backendBanner';
 
 const WIDE_ROUTES = new Set(['/meeting']);
@@ -19,16 +19,8 @@ function elapsed(ms: number): string {
   return `${hh}:${mm}:${ss}`;
 }
 
-const CLOUD_STT_LABEL_KEY: Record<string, I18nKey> = {
-  speechkit: 'shell.cloud.speechkit',
-  deepgram: 'shell.cloud.deepgram',
-  soniox: 'shell.cloud.soniox',
-};
-
 function TitleBar() {
-  const { sttEngine } = useApp();
   const { t } = useI18n();
-  const cloudLabel = CLOUD_STT_LABEL_KEY[sttEngine] ? t(CLOUD_STT_LABEL_KEY[sttEngine]) : '';
   const [live, setLive] = useState(false);
   const [liveStart, setLiveStart] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -89,45 +81,21 @@ function TitleBar() {
       )}
 
       <div className="ml-auto flex items-center gap-2">
-        {cloudLabel ? (
-          <span
-            className="skillcue-local-pill skillcue-local-pill--cloud"
-            title={t('shell.cloudTitle')}
+        <span className="skillcue-local-pill skillcue-local-pill--cloud" title="OpenAI Mini STT">
+          <svg
+            width="13"
+            height="13"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.75"
+            strokeLinecap="round"
+            strokeLinejoin="round"
           >
-            <svg
-              width="13"
-              height="13"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.75"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M17.5 19a4.5 4.5 0 0 0 0-9 6 6 0 0 0-11.6 1.5A4 4 0 0 0 6.5 19z" />
-            </svg>
-            {cloudLabel}
-          </span>
-        ) : (
-          <span
-            className="skillcue-local-pill skillcue-local-pill--icon"
-            title={t('shell.localTitle')}
-            aria-label={t('shell.localAria')}
-          >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.75"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-            </svg>
-          </span>
-        )}
+            <path d="M17.5 19a4.5 4.5 0 0 0 0-9 6 6 0 0 0-11.6 1.5A4 4 0 0 0 6.5 19z" />
+          </svg>
+          OpenAI Mini STT
+        </span>
       </div>
     </header>
   );

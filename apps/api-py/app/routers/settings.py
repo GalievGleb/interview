@@ -15,18 +15,12 @@ router = APIRouter(prefix="/settings", tags=["settings"])
 class KeysPayload(BaseModel):
     openai_api_key: str | None = None
     openrouter_api_key: str | None = None
-    deepgram_api_key: str | None = None
-    yandex_api_key: str | None = None
-    soniox_api_key: str | None = None
 
 
 class KeysStatus(BaseModel):
     openai: bool
     openrouter: bool
     managed_openrouter: bool = False
-    deepgram: bool
-    yandex: bool
-    soniox: bool
     default_provider: str
     default_model: str
 
@@ -60,12 +54,6 @@ def save_keys(payload: KeysPayload) -> KeysStatus:
         secrets.set_secret("openai_api_key", payload.openai_api_key)
     if payload.openrouter_api_key is not None:
         secrets.set_secret("openrouter_api_key", payload.openrouter_api_key)
-    if payload.deepgram_api_key is not None:
-        secrets.set_secret("deepgram_api_key", payload.deepgram_api_key)
-    if payload.yandex_api_key is not None:
-        secrets.set_secret("yandex_api_key", payload.yandex_api_key)
-    if payload.soniox_api_key is not None:
-        secrets.set_secret("soniox_api_key", payload.soniox_api_key)
     return _status()
 
 
@@ -125,9 +113,6 @@ def _status() -> KeysStatus:
         openai=secrets.has_secret("openai_api_key"),
         openrouter=has_own_openrouter or has_managed_openrouter,
         managed_openrouter=has_managed_openrouter and not has_own_openrouter,
-        deepgram=secrets.has_secret("deepgram_api_key"),
-        yandex=secrets.has_secret("yandex_api_key"),
-        soniox=secrets.has_secret("soniox_api_key"),
         default_provider=prefs.provider or s.default_provider,
         default_model=prefs.default_copilot_model
         if prefs.default_copilot_model != "auto"
