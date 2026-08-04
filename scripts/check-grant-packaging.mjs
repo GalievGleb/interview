@@ -16,13 +16,13 @@ const forbidden = [
   { label: 'англоязычное обещание читинга', pattern: /cheat on/giu },
   { label: 'ложная штаб-квартира во Вьетнаме', pattern: /штаб-квартир\w* во вьетнаме/giu },
   { label: 'устаревшее упоминание Whisper', pattern: /\bWhisper\b/giu },
-  { label: 'ложное обещание локальной обработки аудио', pattern: /(?:(?:полностью|обрабатывается|распозна[её]тся) локальн[^\n<]{0,80}(?:аудио|реч)|raw audio[^\n]{0,80}stay[^\n]{0,30}device|on-device speech recognition)/giu },
+  { label: 'ложное обещание локальной обработки аудио', pattern: /(?:(?:полностью|обрабатывается|распозна[её]тся) локальн[^\n<]{0,80}(?:аудио|реч)|распознавание речи[^\n<]{0,50}локальн|raw audio[^\n]{0,80}stay[^\n]{0,30}device|on-device speech recognition)/giu },
 ];
 
 const requiredLandingPhrases = [
   { label: 'подготовка', pattern: /подготов/iu },
   { label: 'пробное собеседование', pattern: /пробн[^<.\n]{0,20}собеседован/iu },
-  { label: 'локальная обработка', pattern: /локальн/iu },
+  { label: 'облачное распознавание', pattern: /облачн/iu },
   { label: 'ответственное использование', pattern: /ответственн/iu },
   { label: 'стадия MVP', pattern: /\bMVP\b/iu },
   { label: 'облачное распознавание OpenAI', pattern: /OpenAI/iu },
@@ -60,6 +60,12 @@ const desktopPackage = JSON.parse(fs.readFileSync(desktopPackagePath, 'utf8'));
 if (desktopPackage.build?.publish?.repo !== 'SkillCue') {
   failures.push('apps/desktop/package.json: release repository must be named SkillCue');
 }
+if (desktopPackage.build?.productName !== 'SkillCue') {
+  failures.push('apps/desktop/package.json: productName must preserve the SkillCue spelling');
+}
+if (desktopPackage.build?.protocols?.some((protocol) => protocol.name !== 'SkillCue')) {
+  failures.push('apps/desktop/package.json: protocol display names must preserve the SkillCue spelling');
+}
 const leadBotContent = fs.readFileSync(leadBotPath, 'utf8');
 if (!/GalievGleb\/SkillCue\/releases\/latest\/download\/SkillCue-Setup\.exe/u.test(leadBotContent)) {
   failures.push('tools/leadbot/leadbot.py: download URL must target GalievGleb/SkillCue');
@@ -67,6 +73,17 @@ if (!/GalievGleb\/SkillCue\/releases\/latest\/download\/SkillCue-Setup\.exe/u.te
 
 const publicFiles = [path.join(projectRoot, 'README.md'), ...listTextFiles(landingRoot), ...listTextFiles(grantRoot)]
   .filter((file) => fs.existsSync(file));
+
+const rootReadme = fs.readFileSync(path.join(projectRoot, 'README.md'), 'utf8');
+if (!rootReadme.startsWith('# SkillCue\n')) {
+  failures.push('README.md: title must be SkillCue');
+}
+
+for (const filename of ['index.legacy-dark.html', 'index.prototype-full.html']) {
+  if (fs.existsSync(path.join(landingRoot, filename))) {
+    failures.push('landing/' + filename + ': archived prototypes must not be deployable');
+  }
+}
 
 for (const file of publicFiles) {
   const content = fs.readFileSync(file, 'utf8');
