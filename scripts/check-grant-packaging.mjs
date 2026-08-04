@@ -16,7 +16,7 @@ const forbidden = [
 
 const requiredLandingPhrases = [
   { label: 'подготовка', pattern: /подготов/iu },
-  { label: 'пробное собеседование', pattern: /пробн\w* собеседован/iu },
+  { label: 'пробное собеседование', pattern: /пробн[^<.\n]{0,20}собеседован/iu },
   { label: 'локальная обработка', pattern: /локальн/iu },
   { label: 'ответственное использование', pattern: /ответственн/iu },
   { label: 'стадия MVP', pattern: /\bMVP\b/iu },

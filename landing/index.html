@@ -3,11 +3,11 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>SkillCue - подготовка и live-подсказки для интервью</title>
-  <meta name="description" content="SkillCue разбирает вакансию, тренирует ответы и показывает короткую live-подсказку во время интервью." />
+  <title>SkillCue — персональная подготовка к собеседованию по вакансии</title>
+  <meta name="description" content="SkillCue разбирает конкретную вакансию, находит слабые темы, проводит пробное собеседование и помогает улучшить ответы. Бесплатный старт для Windows." />
   <meta name="theme-color" content="#05070b" />
-  <meta property="og:title" content="SkillCue - подготовка и live-подсказки для интервью" />
-  <meta property="og:description" content="От вакансии до короткой подсказки на live-интервью: разбор, тренировка, карта готовности и overlay." />
+  <meta property="og:title" content="SkillCue — подготовка к собеседованию по вашей вакансии" />
+  <meta property="og:description" content="Вероятные вопросы, карта слабых тем, пробное собеседование и разбор ответов в одном Windows-приложении." />
   <meta property="og:type" content="website" />
   <link rel="canonical" href="https://skill-cue.ru/" />
   <meta property="og:url" content="https://skill-cue.ru/" />
@@ -21,7 +21,7 @@
     "name": "SkillCue",
     "operatingSystem": "Windows",
     "applicationCategory": "BusinessApplication",
-    "description": "SkillCue разбирает вакансию, показывает вероятные вопросы и риски, тренирует ответы и даёт короткую live-подсказку во время интервью. Распознавание речи работает локально.",
+    "description": "SkillCue разбирает вакансию, показывает вероятные вопросы и слабые темы, проводит пробное собеседование и помогает улучшить ответы. Распознавание речи работает локально.",
     "offers": [
       { "@type": "Offer", "name": "Старт", "price": "0", "priceCurrency": "RUB" },
       { "@type": "Offer", "name": "Базовый", "price": "1490", "priceCurrency": "RUB" },
@@ -1619,25 +1619,25 @@
     </nav>
     <div class="actions">
       <a class="btn btn-ghost" href="#snapshot">Пример</a>
-      <a class="btn btn-primary" href="#pricing">Разобрать</a>
+      <a class="btn btn-primary" href="/downloads/SkillCue-Setup.exe">Скачать бесплатно</a>
     </div>
   </header>
 
   <main id="main">
     <section class="hero wrap" id="top">
-      <div class="eyebrow"><span class="pulse"></span> Разбор вакансии + live-подсказка</div>
-      <h1>Готовься по вакансии.<br class="mobile-break"> Отвечай <span>уверенно</span>.</h1>
-      <p class="hero-copy">Вставьте текст вакансии — SkillCue покажет, о чём будут спрашивать, где вы можете поплыть и что на это отвечать.</p>
+      <div class="eyebrow"><span class="pulse"></span> Персональная подготовка по вакансии</div>
+      <h1>Подготовьтесь к вопросам<br class="mobile-break"> именно по <span>вашей вакансии</span>.</h1>
+      <p class="hero-copy">SkillCue найдёт вероятные вопросы, покажет слабые темы и проведёт персональное пробное собеседование.</p>
       <div class="hero-actions">
-        <a class="btn btn-primary" href="#pricing">Разобрать вакансию бесплатно</a>
+        <a class="btn btn-primary" href="/downloads/SkillCue-Setup.exe">Скачать бесплатно для Windows</a>
         <a class="btn" href="#snapshot">Посмотреть пример разбора</a>
       </div>
 
-      <div class="hero-demo" id="hero-demo" aria-label="Демо live-подсказки SkillCue" data-reveal>
+      <div class="hero-demo" id="hero-demo" aria-label="Демо разбора ответа SkillCue" data-reveal>
         <div class="demo-top">
           <span class="traffic"><i></i><i></i><i></i></span>
-          <span>Live-подсказка SkillCue</span>
-          <span class="live-chip"><span class="pulse"></span>Слушает вопрос</span>
+          <span>Пробное собеседование SkillCue</span>
+          <span class="live-chip"><span class="pulse"></span>Разбор ответа</span>
         </div>
         <div class="demo-grid">
           <div class="call-panel">
@@ -1654,14 +1654,14 @@
               <div class="bubble">А что проверяли кроме статус-кода 200?</div>
             </div>
             <div class="msg me">
-              <span class="msg-label">Вы — по подсказке справа</span>
+              <span class="msg-label">Улучшенный ответ после разбора</span>
               <div class="bubble blue">Кроме кода я проверяю сам контракт ответа: поля, типы, схему…<span class="typing">▍</span></div>
             </div>
           </div>
           <div class="cue-panel">
             <div class="cue-question">Что проверяли в API-тестах кроме статус-кода 200?</div>
             <div class="cue-answer">
-              <span>Подсказка — сказать вслух</span>
+              <span>Что добавить в ответ</span>
               <p>Кроме кода я проверяю сам контракт ответа: поля, типы, схему. Дальше — авторизацию и роли, негативные и граничные случаи: пустые поля, лишние параметры, невалидные значения. Гоняю это в pytest с HTTPX, отчёты в Allure, а request и response пишу в логи — так падение разбирается за минуты.</p>
             </div>
             <div class="cue-meta">
@@ -1714,7 +1714,7 @@
     <section class="section wrap" id="how">
       <div class="section-head">
         <h2>От вакансии до <span>ответа</span> на собеседовании.</h2>
-        <p>Четыре шага: от текста вакансии до готовой фразы на созвоне.</p>
+        <p>Четыре шага: от текста вакансии до уверенного ответа своими словами.</p>
       </div>
 
       <div class="timeline">
@@ -1762,8 +1762,8 @@
         <article class="step" data-reveal>
           <div class="step-dot">04</div>
           <div class="step-copy">
-            <h3>Live-подсказка</h3>
-            <p>На созвоне — 2–4 строки, которые можно сказать вслух.</p>
+            <h3>Подготовленные заметки</h3>
+            <p>Сильные примеры и факты из вашего опыта собраны в короткую памятку.</p>
           </div>
           <div class="step-visual">
             <div class="live-mini">В пайплайне у нас стейджи build → test → report: гоняем smoke на каждый merge, Allure-отчёт уходит артефактом…<span class="typing">▍</span></div>
@@ -1775,7 +1775,7 @@
     <section class="section wrap" id="features">
       <div class="section-head">
         <h2>Фокус на том, что спросят <span>именно вас</span>.</h2>
-        <p>Так выглядят три главных экрана SkillCue: вопросы, тренировка и подсказка на звонке.</p>
+        <p>Три главных результата SkillCue: вопросы по вакансии, тренировка ответа и подготовленные материалы.</p>
       </div>
       <div class="feature-grid">
         <article class="feature-card fc-blue" data-reveal>
@@ -1809,18 +1809,85 @@
             <div class="live-mini">Кроме кода я проверяю контракт ответа: поля, типы, схему…<span class="typing">▍</span></div>
           </div>
           <div class="fc-body">
-            <small>Live</small>
-            <h3>2–4 строки на созвоне</h3>
-            <p>Пара строк в нужный момент — просто скажите их своими словами.</p>
+            <small>Ваши материалы</small>
+            <h3>Факты и примеры под рукой</h3>
+            <p>Короткая памятка напоминает о реальном опыте, который вы подготовили заранее.</p>
           </div>
         </article>
+      </div>
+    </section>
+
+    <section class="section wrap" id="responsible-use">
+      <div class="section-head">
+        <span class="section-label">Ответственное использование</span>
+        <h2>Ваш реальный опыт — <span>главный источник ответа</span>.</h2>
+        <p>SkillCue помогает подготовиться и яснее сформулировать то, что вы действительно умеете.</p>
+      </div>
+      <div class="feature-grid">
+        <article class="feature-card fc-blue" data-reveal>
+          <div class="fc-body">
+            <small>Приватность</small>
+            <h3>Аудио обрабатывается локально</h3>
+            <p>Распознавание речи работает на вашем устройстве. В облачную модель уходит только минимально необходимый текст.</p>
+          </div>
+        </article>
+        <article class="feature-card fc-violet" data-reveal style="--reveal-delay: .08s">
+          <div class="fc-body">
+            <small>Честные ответы</small>
+            <h3>Не придумывает опыт за вас</h3>
+            <p>Проверяйте рекомендации, отвечайте своими словами и не выдавайте сгенерированные сведения за собственную квалификацию.</p>
+          </div>
+        </article>
+        <article class="feature-card fc-green" data-reveal style="--reveal-delay: .16s">
+          <div class="fc-body">
+            <small>Правила интервью</small>
+            <h3>Учитывайте формат работодателя</h3>
+            <p>Дополнительные материалы используйте только там, где это разрешено правилами конкретного собеседования.</p>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="section wrap" id="roadmap">
+      <div class="section-head">
+        <span class="section-label">Работающий MVP</span>
+        <h2>Продукт готов к <span>первым внешним тестировщикам</span>.</h2>
+        <p>Сейчас мы проверяем качество разбора вакансий, пробных интервью и локального распознавания речи. Ближайшая цель — первые 10 активных тестировщиков и измеримая обратная связь.</p>
+      </div>
+    </section>
+
+    <section class="section wrap" id="founder">
+      <div class="paper-panel result-panel">
+        <div class="result-copy" data-reveal>
+          <div>
+            <span class="section-label">Независимый продукт</span>
+            <h2>SkillCue разрабатывает <span>один основатель</span>.</h2>
+            <p>Глеб Галиев создаёт продукт для русскоязычных соискателей и отвечает за разработку, выпуск приложения и поддержку пользователей.</p>
+          </div>
+        </div>
+        <div class="result-example" data-reveal style="--reveal-delay: .1s">
+          <div class="result-example-head"><span>Ближайшие этапы</span><span>Pre-launch</span></div>
+          <div class="skills-board">
+            <div class="risk-row"><span>10 внешних тестировщиков</span><strong class="hot">следующий шаг</strong></div>
+            <div class="risk-row"><span>Проверка качества подготовки</span><strong>50 MAU</strong></div>
+            <div class="risk-row"><span>Контроль стоимости и масштабирование</span><strong>100 MAU</strong></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section wrap" aria-labelledby="live-materials-title">
+      <div class="section-head">
+        <span class="section-label">Дополнительный режим</span>
+        <h2 id="live-materials-title">Подготовленные материалы остаются <span>под рукой</span>.</h2>
+        <p>Во время разрешённых форматов интервью можно быстро открыть факты и заметки, которые вы заранее подготовили в SkillCue. Соблюдайте правила конкретного работодателя.</p>
       </div>
     </section>
 
     <section class="section wrap pricing" id="pricing">
       <div class="section-head">
         <h2>Тарифы</h2>
-        <p>Начните бесплатно. «Базовый» — чтобы готовиться, «Максимум» — чтобы получать подсказки прямо на звонке.</p>
+        <p>Начните бесплатно. «Базовый» — для регулярной подготовки, «Максимум» — с дополнительным рабочим пространством и анализом экрана.</p>
       </div>
       <div class="pricing-grid">
         <article class="price-card" data-reveal>
@@ -1830,7 +1897,7 @@
           <ul>
             <li>Разбор вакансии и mock-интервью</li>
             <li>Карта готовности и слабые темы</li>
-            <li>15 минут live-подсказок на пробу</li>
+            <li>15 минут дополнительного режима на пробу</li>
           </ul>
           <a class="btn" href="/downloads/SkillCue-Setup.exe">Скачать для Windows</a>
         </article>
@@ -1851,15 +1918,15 @@
           <div class="price">2 990 <span>руб./мес</span></div>
           <ul>
             <li>Всё из «Базового»</li>
-            <li>Live-подсказки во время собеседования</li>
-            <li>Оверлей поверх Zoom/Meet + скрытность</li>
-            <li>Анализ экрана (скриншот → подсказка)</li>
+            <li>Быстрый доступ к подготовленным материалам</li>
+            <li>Компактный оверлей поверх рабочего окна</li>
+            <li>Анализ экрана для учебного разбора</li>
           </ul>
           <a class="btn btn-primary" href="/pay?plan=max&amp;period=monthly">Оформить «Максимум»</a>
         </article>
       </div>
       <div class="micro-proof pricing-assure" aria-label="Главные гарантии">
-        <span>Скрыт от записи экрана и демонстрации в Zoom/Meet</span>
+        <span>Ответы строятся на вашей вакансии и опыте</span>
         <span>Речь распознаётся локально — Whisper на вашем устройстве</span>
         <span>Старт без карты</span>
       </div>
@@ -1872,7 +1939,7 @@
         <div class="micro-proof">
           <span>вероятные вопросы</span>
           <span>готовность по навыкам</span>
-          <span>live-подсказка</span>
+          <span>пробное собеседование</span>
         </div>
         <p class="pricing-note">Windows может предупредить о неизвестном издателе — это нормально
         для молодого приложения без платного сертификата: нажмите «Подробнее» → «Выполнить в любом
@@ -1884,7 +1951,7 @@
 
   <footer class="footer">
     <div class="wrap">
-      © 2026 SkillCue. Подготовка и live-подсказки для интервью. ·
+      © 2026 SkillCue. Персональная подготовка к собеседованиям. ·
       <a href="mailto:galievgleb99@gmail.com">Поддержка</a> ·
       <a href="https://t.me/SkillCue_support_bot">Telegram</a> ·
       <a href="./voprosy/index.html">Вопросы по ролям</a> ·
