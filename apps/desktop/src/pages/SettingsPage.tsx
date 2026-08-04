@@ -18,7 +18,7 @@ import {
   saveAnswerLanguage,
   type AnswerLanguagePref,
 } from '../lib/answerLanguage';
-import { openSupportLink, SUPPORT_EMAIL, SUPPORT_TELEGRAM_URL } from '../lib/support';
+import { openSupportLink, SUPPORT_TELEGRAM_URL } from '../lib/support';
 import { getErrorLog, isErrorLogEnabled, setErrorLogEnabled } from '../lib/errorLog';
 import { getActivation } from '../lib/activation';
 import type { UpdaterStatus } from '../types/electron';
@@ -667,13 +667,11 @@ export default function SettingsPage() {
   const [errorLogCount, setErrorLogCount] = useState(() => getErrorLog().length);
 
   // «Сообщить о проблеме»: main собирает zip (логи бэкенда + system info +
-  // эти prefs), показывает его в проводнике, а мы открываем письмо в поддержку.
+  // эти prefs), показывает его в проводнике, а мы открываем чат @SkillCue с готовым текстом.
   const reportProblem = async () => {
     const collect = window.electronAPI?.collectDiagnostics;
     if (!collect) {
-      openSupportLink(
-        `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(t('settings.report.subject'))}`,
-      );
+      openSupportLink(`${SUPPORT_TELEGRAM_URL}?text=${encodeURIComponent(t('settings.report.subject'))}`);
       return;
     }
     setReporting(true);
@@ -699,11 +697,8 @@ export default function SettingsPage() {
       // Воронка активации — докуда дошёл пользователь (разбор/mock/live).
       extras.push({ name: 'activation.json', content: JSON.stringify(getActivation(), null, 2) });
       await collect(extras);
-      openSupportLink(
-        `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(t('settings.report.subject'))}&body=${encodeURIComponent(
-          t('settings.report.body'),
-        )}`,
-      );
+      const reportMessage = `${t('settings.report.subject')}\n\n${t('settings.report.body')}`;
+      openSupportLink(`${SUPPORT_TELEGRAM_URL}?text=${encodeURIComponent(reportMessage)}`);
     } finally {
       setReporting(false);
     }
@@ -757,11 +752,6 @@ export default function SettingsPage() {
               icon="M12 8v4|M12 16h.01|M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z"
               label={reporting ? t('settings.report.collecting') : t('settings.report.link')}
               onClick={() => void reportProblem()}
-            />
-            <SidebarLink
-              icon="M4 6h16v12H4z|m4 7 8 6 8-6"
-              label={t('settings.support.email')}
-              onClick={() => openSupportLink(`mailto:${SUPPORT_EMAIL}`)}
             />
             <SidebarLink
               icon="m22 2-7 20-4-9-9-4z|M22 2 11 13"

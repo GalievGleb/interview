@@ -116,5 +116,6 @@ Credits will not be presented as current spend. They fund validation and product
 ## Public proof
 
 - Product website: <https://skill-cue.ru/>
+- English product overview: <https://skill-cue.ru/en/>
 - Public Windows releases: <https://github.com/GalievGleb/SkillCue/releases/latest>
-- Support: <https://t.me/SkillCue_support_bot>
+- Support: <https://t.me/SkillCue>

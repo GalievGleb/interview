@@ -355,7 +355,7 @@ git clone https://github.com/GalievGleb/ScillCue.git C:\dev\skillcue-showcase
 # SkillCue
 Персональная подготовка к собеседованию по конкретной вакансии.
 
-[Скачать для Windows](https://github.com/GalievGleb/ScillCue/releases/latest) · [Сайт](https://skill-cue.ru/) · [Поддержка](https://t.me/SkillCue_support_bot)
+[Скачать для Windows](https://github.com/GalievGleb/ScillCue/releases/latest) · [Сайт](https://skill-cue.ru/) · [Поддержка](https://t.me/SkillCue)
 
 ## Что делает SkillCue
 ## Сценарий подготовки
@@ -392,7 +392,7 @@ flowchart LR
 
 - [ ] **Шаг 4: добавить безопасность, правила и roadmap**
 
-`SECURITY.md` направляет сообщения на `galievgleb99@gmail.com`, просит не публиковать уязвимость до ответа и запрещает прикладывать реальные ключи или персональные данные.
+`SECURITY.md` направляет личные сообщения в Telegram [@SkillCue](https://t.me/SkillCue), просит не пубиковать уязвимость до ответа и запрещает прикладывать реальные ключи или персональные данные.
 
 `RESPONSIBLE_USE.md` запрещает выдумывать квалификацию, подменять личность и нарушать правила интервью.
 

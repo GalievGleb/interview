@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SkillCue — vacancy-specific interview preparation</title>
+  <meta name="description" content="SkillCue turns a real job vacancy into a focused preparation plan, skill-gap map, and personalized mock interview for Russian-speaking job seekers." />
+  <meta name="theme-color" content="#05070b" />
+  <link rel="canonical" href="https://skill-cue.ru/en/" />
+  <link rel="alternate" hreflang="ru" href="https://skill-cue.ru/" />
+  <link rel="alternate" hreflang="en" href="https://skill-cue.ru/en/" />
+  <meta property="og:title" content="SkillCue — vacancy-specific interview preparation" />
+  <meta property="og:description" content="A working Windows MVP for personalized interview preparation, currently entering external validation." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://skill-cue.ru/en/" />
+  <meta property="og:image" content="https://skill-cue.ru/og.png" />
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "SkillCue",
+    "operatingSystem": "Windows",
+    "applicationCategory": "BusinessApplication",
+    "description": "SkillCue creates vacancy-specific preparation plans and mock interviews. Completed audio fragments are transcribed by the OpenAI cloud service."
+  }
+  </script>
+  <style>
+    :root {
+      --bg: #05070b;
+      --panel: #0d1420;
+      --line: rgba(194, 213, 240, .14);
+      --line-strong: rgba(194, 213, 240, .24);
+      --text: #f4f7fb;
+      --soft: #c7d2e2;
+      --muted: #8997aa;
+      --green: #46d37d;
+      --green-2: #7ee7a4;
+      --blue: #7eb3ff;
+      --paper: #eef5f1;
+      --paper-text: #101927;
+      --paper-muted: #516071;
+      --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --display: Manrope, Inter, ui-sans-serif, system-ui, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; background: var(--bg); }
+    body {
+      margin: 0;
+      min-width: 320px;
+      color: var(--text);
+      background:
+        radial-gradient(760px 520px at 50% 0%, rgba(72, 118, 191, .19), transparent 62%),
+        radial-gradient(620px 420px at 12% 44%, rgba(70, 211, 125, .09), transparent 65%),
+        linear-gradient(180deg, #05070b, #07101c 52%, #05070b);
+      font-family: var(--sans);
+      line-height: 1.55;
+    }
+
+    a { color: inherit; text-decoration: none; }
+    a:focus-visible { outline: 3px solid rgba(126, 179, 255, .7); outline-offset: 4px; }
+    .wrap { width: min(100% - 40px, 1120px); margin-inline: auto; }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      width: min(100% - 40px, 1120px);
+      min-height: 74px;
+      margin: 0 auto;
+      padding: 12px 14px;
+      border: 1px solid var(--line);
+      border-top: 0;
+      border-radius: 0 0 22px 22px;
+      background: rgba(5, 7, 11, .76);
+      backdrop-filter: blur(18px);
+    }
+
+    .brand { display: inline-flex; align-items: center; gap: 10px; font-size: 20px; font-weight: 900; }
+    .brand-mark {
+      width: 30px;
+      height: 30px;
+      border-radius: 9px 14px 14px 9px;
+      background: linear-gradient(135deg, var(--green), #98efb6);
+      box-shadow: 0 12px 26px rgba(70, 211, 125, .22);
+    }
+
+    .nav { display: flex; gap: 20px; color: var(--soft); font-size: 13px; font-weight: 750; }
+    .nav a:hover { color: var(--text); }
+    .actions { display: flex; align-items: center; gap: 10px; }
+
+    .btn {
+      display: inline-flex;
+      min-height: 44px;
+      align-items: center;
+      justify-content: center;
+      padding: 0 17px;
+      border: 1px solid var(--line-strong);
+      border-radius: 14px;
+      color: var(--text);
+      background: rgba(255, 255, 255, .045);
+      font-size: 13px;
+      font-weight: 820;
+    }
+
+    .btn:hover { border-color: rgba(126, 231, 164, .5); background: rgba(255, 255, 255, .08); }
+    .btn-primary { border-color: rgba(126, 231, 164, .5); color: #061019; background: linear-gradient(135deg, var(--green), #98efb6); }
+
+    .hero { padding: 92px 0 70px; text-align: center; }
+    .eyebrow, .label {
+      color: var(--green-2);
+      font-size: 12px;
+      font-weight: 900;
+      letter-spacing: .09em;
+      text-transform: uppercase;
+    }
+
+    h1, h2, h3 { margin-top: 0; font-family: var(--display); }
+    h1 {
+      max-width: 940px;
+      margin: 18px auto;
+      font-size: clamp(42px, 7vw, 78px);
+      line-height: .98;
+      letter-spacing: -.065em;
+    }
+    h1 span, h2 span { color: var(--green); }
+    .hero-copy { max-width: 730px; margin: 0 auto; color: var(--soft); font-size: clamp(17px, 2vw, 21px); }
+    .hero-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 30px; }
+    .proofs { display: flex; flex-wrap: wrap; justify-content: center; gap: 9px; margin-top: 22px; }
+    .proofs span { padding: 7px 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 12px; font-weight: 760; }
+
+    .section { padding: 68px 0; }
+    .section-head { max-width: 760px; margin-bottom: 26px; }
+    h2 { margin-bottom: 12px; font-size: clamp(31px, 5vw, 52px); line-height: 1.04; letter-spacing: -.055em; }
+    .section-head p { margin: 0; color: var(--soft); font-size: 17px; }
+
+    .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+    .card {
+      padding: 24px;
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      background: rgba(255, 255, 255, .045);
+      box-shadow: 0 22px 70px rgba(0, 0, 0, .2);
+    }
+    .card-number { display: block; margin-bottom: 22px; color: var(--blue); font-family: var(--display); font-size: 30px; font-weight: 900; }
+    .card h3 { margin-bottom: 9px; font-size: 21px; letter-spacing: -.03em; }
+    .card p, .card li { color: var(--soft); font-size: 14px; }
+    .card p { margin: 0; }
+    .card ul { display: grid; gap: 9px; margin: 16px 0 0; padding-left: 19px; }
+
+    .paper {
+      display: grid;
+      grid-template-columns: .9fr 1.1fr;
+      gap: 24px;
+      padding: 32px;
+      border-radius: 34px;
+      color: var(--paper-text);
+      background:
+        radial-gradient(520px 250px at 85% 0%, rgba(126, 179, 255, .22), transparent 62%),
+        radial-gradient(420px 220px at 0% 100%, rgba(70, 211, 125, .18), transparent 65%),
+        var(--paper);
+      box-shadow: 0 34px 100px rgba(0, 0, 0, .34);
+    }
+    .paper .label { color: #08723c; }
+    .paper h2 { margin-top: 10px; }
+    .paper p { color: var(--paper-muted); }
+    .facts { display: grid; gap: 10px; }
+    .fact { padding: 16px; border: 1px solid rgba(16, 25, 39, .12); border-radius: 17px; background: rgba(255, 255, 255, .68); }
+    .fact strong { display: block; margin-bottom: 4px; color: #0b5f34; }
+    .fact span { color: #405063; font-size: 14px; }
+
+    .milestones { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+    .metric { padding: 23px; border: 1px solid var(--line); border-radius: 22px; background: rgba(255, 255, 255, .04); }
+    .metric strong { display: block; margin-bottom: 8px; color: var(--green-2); font-family: var(--display); font-size: 34px; }
+    .metric span { color: var(--soft); font-size: 14px; }
+
+    .final { padding: 34px 0 76px; text-align: center; }
+    .final-box { padding: 50px 24px; border: 1px solid rgba(70, 211, 125, .34); border-radius: 34px; background: radial-gradient(620px 280px at 50% -10%, rgba(70, 211, 125, .2), transparent 62%), rgba(255,255,255,.045); }
+    .final-box p { max-width: 680px; margin: 0 auto 22px; color: var(--soft); }
+    .footer { padding: 0 0 34px; color: var(--muted); font-size: 13px; text-align: center; }
+
+    @media (max-width: 820px) {
+      .nav { display: none; }
+      .grid, .paper, .milestones { grid-template-columns: 1fr; }
+      .hero { padding-top: 70px; }
+      .paper { padding: 24px; }
+    }
+
+    @media (max-width: 560px) {
+      .wrap, .topbar { width: min(100% - 24px, 1120px); }
+      .topbar .btn-primary { display: none; }
+      h1 { font-size: clamp(39px, 13vw, 58px); }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#top" aria-label="SkillCue home"><span class="brand-mark" aria-hidden="true"></span><span>SkillCue</span></a>
+    <nav class="nav" aria-label="Main navigation">
+      <a href="#workflow">Workflow</a>
+      <a href="#truth">Product facts</a>
+      <a href="#roadmap">Roadmap</a>
+    </nav>
+    <div class="actions">
+      <a class="btn" href="/" hreflang="ru" lang="ru">RU</a>
+      <a class="btn btn-primary" href="/downloads/SkillCue-Setup.exe">Download</a>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero wrap" id="top">
+      <div class="eyebrow">Vacancy-specific interview preparation</div>
+      <h1>Prepare for the questions behind <span>your actual vacancy</span>.</h1>
+      <p class="hero-copy">SkillCue identifies likely interview topics, maps skill gaps, runs a personalized mock interview, and helps candidates improve answers using their real experience.</p>
+      <div class="hero-actions">
+        <a class="btn btn-primary" href="/downloads/SkillCue-Setup.exe">Download for Windows</a>
+        <a class="btn" href="https://github.com/GalievGleb/SkillCue">Public GitHub overview</a>
+      </div>
+      <div class="proofs" aria-label="Current product status">
+        <span>Working Windows MVP</span>
+        <span>0 external users</span>
+        <span>0 revenue</span>
+        <span>Russian-first launch</span>
+      </div>
+    </section>
+
+    <section class="section wrap" id="workflow">
+      <div class="section-head">
+        <div class="label">Preparation first</div>
+        <h2>From vacancy text to a <span>focused practice loop</span>.</h2>
+        <p>The core experience is designed for learning before an interview, not for fabricating qualifications.</p>
+      </div>
+      <div class="grid">
+        <article class="card"><span class="card-number">01</span><h3>Add the vacancy</h3><p>SkillCue extracts role-specific topics, likely questions, and evidence the candidate should prepare.</p></article>
+        <article class="card"><span class="card-number">02</span><h3>Practice aloud</h3><p>A vacancy-specific mock interview records completed answers and returns structured feedback.</p></article>
+        <article class="card"><span class="card-number">03</span><h3>Improve real answers</h3><p>The candidate reviews weak areas, adds genuine examples, and tracks readiness before the interview.</p></article>
+      </div>
+    </section>
+
+    <section class="section wrap" id="truth">
+      <div class="paper">
+        <div>
+          <div class="label">Product facts</div>
+          <h2>Transparent about <span>data and stage</span>.</h2>
+          <p>SkillCue is a pre-launch MVP built for Russian-speaking job seekers. The commercial source code remains private; the public repository contains product documentation and Windows releases.</p>
+        </div>
+        <div class="facts">
+          <div class="fact"><strong>Cloud speech recognition</strong><span>Completed audio fragments are sent to OpenAI directly or through the SkillCue gateway for transcription.</span></div>
+          <div class="fact"><strong>Local preparation data by default</strong><span>Vacancies, resumes, and preparation history stay on the user's device unless a requested cloud feature needs specific text.</span></div>
+          <div class="fact"><strong>Freemium subscription model</strong><span>Free start, then RUB 1,490/month for Basic and RUB 2,990/month for the expanded plan.</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section wrap" id="roadmap">
+      <div class="section-head">
+        <div class="label">Validation roadmap</div>
+        <h2>Credits fund evidence, <span>not vanity scale</span>.</h2>
+        <p>Infrastructure and AI credits will support external validation, quality evaluation, monitoring, and cost controls before broader growth.</p>
+      </div>
+      <div class="milestones">
+        <div class="metric"><strong>10</strong><span>External testers and structured usability feedback.</span></div>
+        <div class="metric"><strong>50 MAU</strong><span>Preparation completion, repeat use, latency, and cost measurement.</span></div>
+        <div class="metric"><strong>100 MAU</strong><span>Production monitoring, budgets, limits, and reliability validation.</span></div>
+      </div>
+    </section>
+
+    <section class="section wrap" id="responsible-use">
+      <div class="section-head">
+        <div class="label">Responsible use</div>
+        <h2>Practice your experience. <span>Do not invent it.</span></h2>
+        <p>SkillCue does not endorse fabricated employment history, impersonation, or violation of an employer's interview rules. Candidates remain responsible for the accuracy of their answers and how they use supporting materials.</p>
+      </div>
+    </section>
+
+    <section class="final wrap">
+      <div class="final-box">
+        <h2>SkillCue is ready for its <span>first external testers</span>.</h2>
+        <p>For product questions, partnership discussions, or test access, contact the project through Telegram.</p>
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="https://t.me/SkillCue">Telegram @SkillCue</a>
+          <a class="btn" href="https://github.com/GalievGleb/SkillCue">GitHub</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer wrap">
+    © 2026 SkillCue · <a href="/" hreflang="ru">Russian website</a> · <a href="https://t.me/SkillCue">Support @SkillCue</a>
+  </footer>
+</body>
+</html>

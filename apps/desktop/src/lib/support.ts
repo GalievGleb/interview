@@ -1,7 +1,6 @@
 /** Контакты поддержки SkillCue. Обновите перед релизом, если каналы изменятся. */
 
-export const SUPPORT_EMAIL = 'cloudeagentproject1@gmail.com';
-export const SUPPORT_TELEGRAM_URL = 'https://t.me/skillcue_support';
+export const SUPPORT_TELEGRAM_URL = 'https://t.me/SkillCue';
 
 /** Открывает внешнюю ссылку через main-процесс (fallback — window.open в браузере). */
 export function openSupportLink(url: string): void {

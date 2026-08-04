@@ -11,6 +11,8 @@ const leadBotPath = path.join(projectRoot, 'tools', 'leadbot', 'leadbot.py');
 
 const forbidden = [
   { label: 'устаревшее написание ScillCue', pattern: /\bScillCue\b/giu },
+  { label: 'устаревший Telegram поддержки', pattern: /SkillCue_support_bot|t\.me\/skillcue_support\b/giu },
+  { label: 'неактуальный публичный e-mail поддержки', pattern: /galievgleb99@gmail\.com/giu },
   { label: 'обещание скрытности от записи или демонстрации экрана', pattern: /скрыт\w* от (?:записи|демонстрации) экрана/giu },
   { label: 'позиционирование как незаметный читинг', pattern: /незаметн\w*[^\n]{0,40}чит/giu },
   { label: 'англоязычное обещание читинга', pattern: /cheat on/giu },
@@ -51,6 +53,7 @@ function resolveLandingTarget(sourceFile, href) {
   const base = clean.startsWith('/') ? landingRoot : path.dirname(sourceFile);
   let target = path.resolve(base, clean.replace(/^\//u, ''));
   if (target === landingRoot) target = path.join(target, 'index.html');
+  if (fs.existsSync(target) && fs.statSync(target).isDirectory()) target = path.join(target, 'index.html');
   if (!path.extname(target)) target = `${target}.html`;
   return target;
 }
@@ -95,6 +98,7 @@ for (const file of publicFiles) {
 
 const landingIndex = path.join(landingRoot, 'index.html');
 const landingContent = fs.readFileSync(landingIndex, 'utf8');
+const englishLanding = path.join(landingRoot, 'en', 'index.html');
 for (const requirement of requiredLandingPhrases) {
   if (!requirement.pattern.test(landingContent)) {
     failures.push(`landing/index.html: отсутствует обязательный смысловой блок «${requirement.label}»`);
@@ -103,6 +107,28 @@ for (const requirement of requiredLandingPhrases) {
 
 if (/id=["']live-materials-title["']/iu.test(landingContent)) {
   failures.push('landing/index.html: оверлей вынесен в отдельный промо-блок вместо второстепенной функции');
+}
+if (/id=["']founder["']|Глеб Галиев|один основатель/iu.test(landingContent)) {
+  failures.push('landing/index.html: персональный founder-блок не должен дублировать статус MVP');
+}
+if (!/https:\/\/t\.me\/SkillCue\b/u.test(landingContent)) {
+  failures.push('landing/index.html: отсутствует актуальный Telegram поддержки @SkillCue');
+}
+if (!/href=["']\/en\/["']/u.test(landingContent)) {
+  failures.push('landing/index.html: отсутствует переключатель на English overview');
+}
+if (!fs.existsSync(englishLanding)) {
+  failures.push('landing/en/index.html: отсутствует English overview для международных заявок');
+} else {
+  const englishContent = fs.readFileSync(englishLanding, 'utf8');
+  for (const [label, pattern] of [
+    ['MVP stage', /\bMVP\b/u],
+    ['OpenAI cloud transcription', /OpenAI[\s\S]{0,120}cloud|cloud[\s\S]{0,120}OpenAI/iu],
+    ['zero-user disclosure', /0 (?:external )?users/iu],
+    ['responsible use', /responsible use/iu],
+  ]) {
+    if (!pattern.test(englishContent)) failures.push(`landing/en/index.html: missing ${label}`);
+  }
 }
 
 for (const file of listTextFiles(landingRoot).filter((candidate) => candidate.endsWith('.html'))) {

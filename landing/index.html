@@ -10,6 +10,8 @@
   <meta property="og:description" content="Вероятные вопросы, карта слабых тем, пробное собеседование и разбор ответов в одном Windows-приложении." />
   <meta property="og:type" content="website" />
   <link rel="canonical" href="https://skill-cue.ru/" />
+  <link rel="alternate" hreflang="ru" href="https://skill-cue.ru/" />
+  <link rel="alternate" hreflang="en" href="https://skill-cue.ru/en/" />
   <meta property="og:url" content="https://skill-cue.ru/" />
   <meta property="og:image" content="https://skill-cue.ru/og.png" />
   <meta property="og:image:width" content="1200" />
@@ -1312,6 +1314,10 @@
         display: none;
       }
 
+      .actions .lang-switch {
+        display: inline-flex;
+      }
+
       .demo-grid,
       .result-panel,
       .skills-panel,
@@ -1344,10 +1350,14 @@
       }
 
       .topbar {
-        justify-content: center;
+        justify-content: space-between;
       }
 
       .actions {
+        display: flex;
+      }
+
+      .actions .btn-primary {
         display: none;
       }
 
@@ -1618,6 +1628,7 @@
       <a href="#download">Скачать</a>
     </nav>
     <div class="actions">
+      <a class="btn btn-ghost lang-switch" href="/en/" hreflang="en" lang="en">EN</a>
       <a class="btn btn-ghost" href="#snapshot">Пример</a>
       <a class="btn btn-primary" href="/downloads/SkillCue-Setup.exe">Скачать бесплатно</a>
     </div>
@@ -1856,26 +1867,6 @@
       </div>
     </section>
 
-    <section class="section wrap" id="founder">
-      <div class="paper-panel result-panel">
-        <div class="result-copy" data-reveal>
-          <div>
-            <span class="section-label">Независимый продукт</span>
-            <h2>SkillCue разрабатывает <span>один основатель</span>.</h2>
-            <p>Глеб Галиев создаёт продукт для русскоязычных соискателей и отвечает за разработку, выпуск приложения и поддержку пользователей.</p>
-          </div>
-        </div>
-        <div class="result-example" data-reveal style="--reveal-delay: .1s">
-          <div class="result-example-head"><span>Ближайшие этапы</span><span>Pre-launch</span></div>
-          <div class="skills-board">
-            <div class="risk-row"><span>10 внешних тестировщиков</span><strong class="hot">следующий шаг</strong></div>
-            <div class="risk-row"><span>Проверка качества подготовки</span><strong>50 MAU</strong></div>
-            <div class="risk-row"><span>Контроль стоимости и масштабирование</span><strong>100 MAU</strong></div>
-          </div>
-        </div>
-      </div>
-    </section>
-
     <section class="section wrap pricing" id="pricing">
       <div class="section-head">
         <h2>Тарифы</h2>
@@ -1936,7 +1927,7 @@
         <p class="pricing-note">Windows может предупредить о неизвестном издателе — это нормально
         для молодого приложения без платного сертификата: нажмите «Подробнее» → «Выполнить в любом
         случае». Для голосовых функций фрагменты аудио отправляются в OpenAI после окончания реплики.</p>
-        <p class="pricing-note">Не готовы ставить приложение? Пришлите вакансию в <a href="https://t.me/SkillCue_support_bot">Telegram</a> — бесплатно вернём вероятные вопросы и риски.</p>
+        <p class="pricing-note">Не готовы ставить приложение? Пришлите вакансию в <a href="https://t.me/SkillCue">Telegram @SkillCue</a> — бесплатно вернём вероятные вопросы и риски.</p>
       </div>
     </section>
   </main>
@@ -1944,8 +1935,7 @@
   <footer class="footer">
     <div class="wrap">
       © 2026 SkillCue. Персональная подготовка к собеседованиям. ·
-      <a href="mailto:galievgleb99@gmail.com">Поддержка</a> ·
-      <a href="https://t.me/SkillCue_support_bot">Telegram</a> ·
+      <a href="https://t.me/SkillCue">Поддержка @SkillCue</a> ·
       <a href="./voprosy/index.html">Вопросы по ролям</a> ·
       <a href="./oferta.html">Оферта</a> ·
       <a href="./privacy.html">Конфиденциальность</a> ·

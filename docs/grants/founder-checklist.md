@@ -5,7 +5,7 @@ Do not commit the answers to this checklist. Enter them only in the provider's o
 ## Identity and contact
 
 - Confirm the Latin spelling of the founder's full legal name exactly as shown on the identity document used for verification.
-- Use a professional email on the `skill-cue.ru` domain if one is available; otherwise use a stable personal email controlled by the founder.
+- Use a stable personal email controlled by the founder inside application forms. Do not publish it as a support address; add a domain email later if needed.
 - Provide a phone number that can receive account-verification messages.
 
 ## Country, address, and billing
@@ -23,9 +23,10 @@ Do not commit the answers to this checklist. Enter them only in the provider's o
 ## Public proof
 
 - Verify that <https://skill-cue.ru/> is available.
+- Verify that the English overview at <https://skill-cue.ru/en/> is available.
 - Verify that the latest Windows installer downloads successfully.
 - Review the public GitHub showcase after it is updated and before submitting any form.
-- Confirm that support email and Telegram links are monitored.
+- Confirm that the Telegram support account [@SkillCue](https://t.me/SkillCue) is monitored.
 
 ## Final review before submission
 
