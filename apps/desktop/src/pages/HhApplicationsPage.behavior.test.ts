@@ -91,7 +91,9 @@ describe('HH applications redesign', () => {
     expect(preloadSource).toContain("ipcRenderer.invoke('hh-assistant:get-resumes')");
     expect(electronTypesSource).toContain('getResumes: () => Promise<Array<');
     expect(pageSource).toContain('assistant.getResumes().then(setResumes)');
-    expect(pageSource).toContain('resumes.map((resume) => <option');
+    expect(pageSource).toContain('resumes.map((resume) => {');
+    expect(pageSource).toContain('type="checkbox"');
+    expect(pageSource).toContain('draft.resumeTitles.includes(resume.title)');
     expect(pageSource).not.toContain('placeholder="Часть названия резюме"');
   });
 
@@ -116,8 +118,38 @@ describe('HH applications redesign', () => {
   });
 
   it('keeps the redesigned compact search, schedule, and recent-applications UI', () => {
-    expect(pageSource).toContain('Что искать');
-    expect(pageSource).toContain('Запускать каждый день');
+    expect(pageSource).toContain('1. Выберите резюме');
+    expect(pageSource).toContain('2. Что искать');
+    expect(pageSource).toContain('3. Когда запускать каждый день');
     expect(pageSource).toContain('Последние отклики');
+  });
+
+  it('enables the daily schedule and immediately scans before applying', () => {
+    const actionAt = pageSource.indexOf('const saveAutomation = async () =>');
+    const actionEndAt = pageSource.indexOf('const activeQueue', actionAt);
+    const actionSource = pageSource.slice(actionAt, actionEndAt);
+    const saveAt = actionSource.indexOf('assistant.saveConfig(');
+    const scheduleAt = actionSource.indexOf('assistant.setDailySchedule(true)');
+    const scanAt = actionSource.indexOf('assistant.scan()');
+    const applyAt = actionSource.indexOf('assistant.applyAll()');
+
+    expect(actionAt).toBeGreaterThan(-1);
+    expect(actionSource).toContain('autoRunDaily: true');
+    expect(saveAt).toBeGreaterThan(-1);
+    expect(scheduleAt).toBeGreaterThan(saveAt);
+    expect(scanAt).toBeGreaterThan(scheduleAt);
+    expect(applyAt).toBeGreaterThan(scanAt);
+    expect(pageSource).toContain('Включить автоотклики');
+    expect(pageSource).toContain('draft.resumeTitles.length === 0');
+    expect(pageSource).not.toContain('Найти сейчас');
+    expect(pageSource).not.toContain('Найти и откликнуться');
+  });
+
+  it('keeps legacy resume selection while ranking among newly selected resumes', () => {
+    expect(electronTypesSource).toContain('resumeTitles: string[]');
+    expect(assistantSource).toContain('selectedTitles: string[], vacancyTitle: string');
+    expect(assistantSource).toContain('this.state.config.resumeTitles.length > 0');
+    expect(assistantSource).toContain('[this.state.config.resumeTitleContains].filter(Boolean)');
+    expect(assistantSource).toContain('score > best.score');
   });
 });

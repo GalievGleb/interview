@@ -862,7 +862,7 @@ export class HhBrowserAssistant {
   private buildApplyContext(): HhApplyContext {
     return {
       hasCoverLetter: this.state.config.coverLetterTemplate.trim().length > 0,
-      resumeTitleContains: this.state.config.resumeTitleContains.trim(),
+      resumeTitleContains: (this.state.config.resumeTitles[0] ?? this.state.config.resumeTitleContains).trim(),
       resumeSelected: false,
       letterFilled: false,
     };
@@ -931,19 +931,22 @@ export class HhBrowserAssistant {
     return 'unknown';
   }
 
-  private async selectPreferredResume(page: Page, contains: string): Promise<void> {
-    if (!contains) return;
+  private async selectPreferredResume(page: Page, selectedTitles: string[], vacancyTitle: string): Promise<void> {
+    if (selectedTitles.length === 0) return;
     const items = page.locator(RESUME_ITEM_SELECTOR);
     const count = Math.min(await items.count(), 10);
-    const needle = contains.toLocaleLowerCase('ru');
+    const allowed = selectedTitles.map((title) => title.toLocaleLowerCase('ru'));
+    const vacancyTokens = new Set(vacancyTitle.toLocaleLowerCase('ru').split(/[^a-zа-яё0-9+#.]+/i).filter((token) => token.length > 2));
+    let best: { index: number; score: number } | null = null;
     for (let index = 0; index < count; index += 1) {
       const item = items.nth(index);
       const text = (await item.innerText().catch(() => '')).toLocaleLowerCase('ru');
-      if (text.includes(needle)) {
-        await item.click().catch(() => undefined);
-        return;
-      }
+      const selected = allowed.find((title) => text.includes(title));
+      if (!selected) continue;
+      const score = selected.split(/[^a-zа-яё0-9+#.]+/i).filter((token) => vacancyTokens.has(token)).length;
+      if (!best || score > best.score) best = { index, score };
     }
+    if (best) await items.nth(best.index).click().catch(() => undefined);
   }
 
   private async clickFirstVisible(
@@ -1016,7 +1019,13 @@ export class HhBrowserAssistant {
           break;
         }
         case 'select_resume':
-          await this.selectPreferredResume(page, this.state.config.resumeTitleContains);
+          await this.selectPreferredResume(
+            page,
+            this.state.config.resumeTitles.length > 0
+              ? this.state.config.resumeTitles
+              : [this.state.config.resumeTitleContains].filter(Boolean),
+            vacancy.title,
+          );
           baseCtx.resumeSelected = true;
           break;
         case 'fill_letter': {

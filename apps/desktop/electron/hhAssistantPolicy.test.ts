@@ -105,6 +105,7 @@ describe('HH browser assistant policy', () => {
     const defaults = normalizeHhAssistantConfig({});
     expect(defaults.autoSend).toBe(true);
     expect(defaults.resumeTitleContains).toBe('');
+    expect(defaults.resumeTitles).toEqual([]);
     expect(defaults.delayBetweenSec).toBe(20);
     expect(defaults.dailyLimit).toBe(50);
     expect(defaults.autoRunDaily).toBe(false);
@@ -113,6 +114,7 @@ describe('HH browser assistant policy', () => {
     const config = normalizeHhAssistantConfig({
       autoSend: false,
       resumeTitleContains: '  Senior QA  ',
+      resumeTitles: [' QA Automation ', 'QA Automation', 'Backend QA'],
       delayBetweenSec: 500,
       dailyLimit: 0,
       autoRunDaily: true,
@@ -120,6 +122,7 @@ describe('HH browser assistant policy', () => {
     });
     expect(config.autoSend).toBe(false);
     expect(config.resumeTitleContains).toBe('Senior QA');
+    expect(config.resumeTitles).toEqual(['QA Automation', 'Backend QA']);
     expect(config.delayBetweenSec).toBe(120);
     expect(config.dailyLimit).toBe(1);
     expect(config.autoRunDaily).toBe(true);

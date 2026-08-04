@@ -13,6 +13,7 @@ export interface HhAssistantConfig {
   coverLetterTemplate: string;
   autoSend: boolean;
   resumeTitleContains: string;
+  resumeTitles: string[];
   delayBetweenSec: number;
   dailyLimit: number;
   autoRunDaily: boolean;
@@ -44,6 +45,7 @@ export const DEFAULT_HH_ASSISTANT_CONFIG: HhAssistantConfig = {
     'Буду рад обсудить мой релевантный опыт и задачи команды на интервью.',
   autoSend: true,
   resumeTitleContains: '',
+  resumeTitles: [],
   delayBetweenSec: 20,
   dailyLimit: 50,
   autoRunDaily: false,
@@ -99,6 +101,7 @@ export function normalizeHhAssistantConfig(
       ).trim().slice(0, 4000) || DEFAULT_HH_ASSISTANT_CONFIG.coverLetterTemplate,
     autoSend: source.autoSend !== undefined ? Boolean(source.autoSend) : true,
     resumeTitleContains: String(source.resumeTitleContains ?? '').trim().slice(0, 200),
+    resumeTitles: cleanList(source.resumeTitles),
     delayBetweenSec: boundedInt(source.delayBetweenSec, 20, 5, 120),
     dailyLimit: boundedInt(source.dailyLimit, 50, 1, 200),
     autoRunDaily: Boolean(source.autoRunDaily),

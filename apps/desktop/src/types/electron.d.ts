@@ -13,6 +13,7 @@ export interface HhAssistantConfig {
   coverLetterTemplate: string;
   autoSend: boolean;
   resumeTitleContains: string;
+  resumeTitles: string[];
   delayBetweenSec: number;
   dailyLimit: number;
   autoRunDaily: boolean;

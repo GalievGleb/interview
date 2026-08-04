@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Check, ChevronDown, Clock3, Loader2, Mail, Play, Search, Send, StopCircle } from 'lucide-react';
+import { Check, ChevronDown, Clock3, FileText, Loader2, Mail, Send } from 'lucide-react';
 import type { HhAssistantConfig, HhAssistantState, HhQueueItem } from '../types/electron';
 
 const EMPTY_CONFIG: HhAssistantConfig = {
   query: '', area: '113', experience: '', employment: 'full', schedule: '', salaryFrom: null,
   onlyWithSalary: false, excludedKeywords: [], excludedEmployers: [], maxQueueSize: 30, maxPages: 2,
   coverLetterTemplate: 'Здравствуйте! Меня заинтересовала вакансия «{vacancy}» в {company}. Буду рад обсудить мой релевантный опыт и задачи команды на интервью.',
-  autoSend: true, resumeTitleContains: '', delayBetweenSec: 5, dailyLimit: 200,
+  autoSend: true, resumeTitleContains: '', resumeTitles: [], delayBetweenSec: 5, dailyLimit: 200,
   autoRunDaily: false, autoRunHour: 10,
 };
 
@@ -51,8 +51,11 @@ export default function HhApplicationsPage() {
   const saveAutomation = async () => {
     if (!assistant) return;
     await run('save', async () => {
-      const next = await assistant.saveConfig(config());
-      return assistant.setDailySchedule(next.config.autoRunDaily);
+      const next = await assistant.saveConfig({ ...config(), autoRunDaily: true });
+      setDraft(next.config);
+      await assistant.setDailySchedule(true);
+      await assistant.scan();
+      return assistant.applyAll();
     });
   };
   const activeQueue = useMemo(() => (state?.queue ?? []).filter((item) => item.status !== 'skipped').slice(0, 8), [state?.queue]);
@@ -133,7 +136,17 @@ export default function HhApplicationsPage() {
       ) : <>
 
       <section className="panel-card overflow-hidden">
-        <div className="panel-header"><div><h2 className="panel-title">Что искать</h2><p className="mt-0.5 text-xs text-ink-faint">Основные фильтры</p></div></div>
+        <div className="panel-header"><div><h2 className="panel-title">1. Выберите резюме</h2><p className="mt-0.5 text-xs text-ink-faint">Можно выбрать несколько — SkillCue подберёт наиболее подходящее к вакансии</p></div></div>
+        <div className="grid gap-2 p-5 md:grid-cols-2">
+          {resumes.length === 0 ? <p className="text-sm text-ink-faint">Не удалось найти опубликованные резюме в HH.</p> : resumes.map((resume) => {
+            const checked = draft.resumeTitles.includes(resume.title);
+            return <label key={resume.id} className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 ${checked ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-surface-border'}`}><input type="checkbox" className="h-4 w-4 accent-emerald-500" checked={checked} onChange={() => setDraft({ ...draft, resumeTitles: checked ? draft.resumeTitles.filter((title) => title !== resume.title) : [...draft.resumeTitles, resume.title], resumeTitleContains: '' })} /><FileText size={17} className="text-ink-muted" /><span className="text-sm text-ink">{resume.title}</span></label>;
+          })}
+        </div>
+      </section>
+
+      <section className="panel-card overflow-hidden">
+        <div className="panel-header"><div><h2 className="panel-title">2. Что искать</h2><p className="mt-0.5 text-xs text-ink-faint">Настройте поисковую выдачу</p></div></div>
         <div className="grid gap-4 p-5 md:grid-cols-2">
           <label className="block md:col-span-2"><span className="label">Должность</span><input className="field" value={draft.query} onChange={(e) => setDraft({ ...draft, query: e.target.value })} placeholder="Например, QA Automation Engineer" /></label>
           <label className="block"><span className="label">Регион</span><select className="field" value={draft.area} onChange={(e) => setDraft({ ...draft, area: e.target.value })}><option value="113">Вся Россия</option><option value="1">Москва</option><option value="2">Санкт-Петербург</option></select></label>
@@ -143,21 +156,21 @@ export default function HhApplicationsPage() {
           <button type="button" className="flex items-center gap-2 text-sm text-ink-muted md:col-span-2" onClick={() => setShowAdvanced(!showAdvanced)}><ChevronDown className={showAdvanced ? 'rotate-180' : ''} size={16} />Дополнительные фильтры</button>
           {showAdvanced && <div className="grid gap-4 md:col-span-2 md:grid-cols-2">
             <label className="block"><span className="label">Исключить слова</span><input className="field" value={excludedKeywords} onChange={(e) => setExcludedKeywords(e.target.value)} placeholder="стажёр, продажи" /></label>
-            <label className="block"><span className="label">Резюме для откликов</span><select className="field" value={draft.resumeTitleContains} onChange={(e) => setDraft({ ...draft, resumeTitleContains: e.target.value })}><option value="">Выберите резюме</option>{resumes.map((resume) => <option key={resume.id} value={resume.title}>{resume.title}</option>)}</select></label>
+            <label className="block"><span className="label">Исключить работодателей</span><input className="field" value={draft.excludedEmployers.join(', ')} onChange={(e) => setDraft({ ...draft, excludedEmployers: splitList(e.target.value) })} placeholder="Название компании" /></label>
           </div>}
         </div>
       </section>
 
       <section className="panel-card p-5">
         <div className="flex flex-wrap items-center justify-between gap-4">
-          <label className="flex cursor-pointer items-center gap-3"><input type="checkbox" className="h-5 w-5 accent-emerald-500" checked={draft.autoRunDaily} onChange={(e) => setDraft({ ...draft, autoRunDaily: e.target.checked })} /><span><b className="block text-sm text-ink">Запускать каждый день</b><span className="text-xs text-ink-faint">Найти свежие вакансии и отправить отклики</span></span></label>
+          <span><b className="block text-sm text-ink">3. Когда запускать каждый день</b><span className="text-xs text-ink-faint">После сохранения всё будет работать автоматически</span></span>
           <label className="flex items-center gap-2 text-sm text-ink-muted"><Clock3 size={16} />В <select className="field w-24" value={draft.autoRunHour} onChange={(e) => setDraft({ ...draft, autoRunHour: Number(e.target.value) })}>{Array.from({ length: 24 }, (_, hour) => <option key={hour} value={hour}>{String(hour).padStart(2, '0')}:00</option>)}</select></label>
-          <button className="btn-primary" disabled={busy !== '' || !draft.query.trim()} onClick={() => void saveAutomation()}>{busy === 'save' ? <Loader2 className="animate-spin" size={16} /> : <Check size={16} />}Сохранить автоотклики</button>
+          <button className="btn-primary" disabled={busy !== '' || !draft.query.trim() || draft.resumeTitles.length === 0} onClick={() => void saveAutomation()}>{busy === 'save' ? <Loader2 className="animate-spin" size={16} /> : <Check size={16} />}Включить автоотклики</button>
         </div>
       </section>
 
       <section className="panel-card overflow-hidden">
-        <div className="panel-header flex-wrap gap-3"><div><h2 className="panel-title">Последние отклики</h2><p className="mt-0.5 text-xs text-ink-faint">Сегодня отправлено: {sentToday(state?.queue ?? [])}</p></div><div className="ml-auto flex gap-2"><button className="btn-secondary btn-sm" disabled={busy !== '' || !draft.query.trim()} onClick={() => void run('scan', async () => { await assistant.saveConfig(config()); return assistant.scan(); })}><Search size={14} />Найти сейчас</button>{state?.applying ? <button className="btn-secondary btn-sm" onClick={() => void run('stop', () => assistant.stopApply())}><StopCircle size={14} />Остановить</button> : <button className="btn-primary btn-sm" disabled={busy !== '' || !draft.query.trim()} onClick={() => void run('apply', async () => { await assistant.saveConfig(config()); return assistant.applyAll(); })}><Play size={14} />Запустить</button>}</div></div>
+        <div className="panel-header flex-wrap gap-3"><div><h2 className="panel-title">Последние отклики</h2><p className="mt-0.5 text-xs text-ink-faint">Сегодня отправлено: {sentToday(state?.queue ?? [])}</p></div>{draft.autoRunDaily && <span className="ml-auto flex items-center gap-1.5 text-xs text-emerald-300"><span className="sc-dot sc-dot--live" /> Автоотклики включены</span>}</div>
         {state?.message && <div className="border-b border-surface-border bg-surface-light px-5 py-3 text-sm text-ink-muted" role="status">{state.message}</div>}
         <div className="divide-y divide-surface-border">
           {activeQueue.length === 0 ? <div className="p-8 text-center text-sm text-ink-faint"><Send className="mx-auto mb-2" size={22} />Здесь появятся найденные вакансии и отправленные отклики</div> : activeQueue.map((item) => <div key={item.id} className="flex items-center gap-3 px-5 py-3"><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium text-ink">{item.title}</p><p className="truncate text-xs text-ink-faint">{item.company}{item.salary ? ` · ${item.salary}` : ''}</p></div><span className={`rounded-full px-2.5 py-1 text-xs ${item.status === 'sent' ? 'bg-emerald-500/10 text-emerald-300' : 'bg-surface-elevated text-ink-muted'}`}>{item.status === 'sent' ? 'Отправлено' : item.status === 'prepared' ? 'Письмо готово' : 'В очереди'}</span></div>)}
