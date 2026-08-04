@@ -75,6 +75,18 @@ describe('overlay request behavior', () => {
     );
   });
 
+  it('cancels the same-generation screen fallback when the delayed transcript arrives', () => {
+    expect(hookSource).toContain('forceCoordinatorRef.current.beginScreenFallback(generation)');
+    expect(overlaySource).toContain('forceScreenFallbackOwnerRef');
+    expect(overlaySource).toContain('cancelOwnedForceScreenFallback(forceGeneration)');
+  });
+
+  it('keeps all overlay cards reachable in one vertical scroll area', () => {
+    expect(overlaySource).toContain('className="ovl-stack"');
+    expect(cssSource).toMatch(/\.ovl-stack\s*\{[^}]*overflow-y:\s*auto/s);
+    expect(cssSource).toMatch(/\.ovl-stack\s*\{[^}]*min-height:\s*0/s);
+  });
+
   it('uses deep screen analysis for forced fallback when Smart is enabled', () => {
     const fallbackCalls = overlaySource.match(
       /runScreenAssist\('', smart \? 'deep' : 'general'\)/g,
@@ -153,6 +165,11 @@ describe('overlay request behavior', () => {
     expect(overlaySource).toContain('refreshSessionKnowledge');
   });
 
+  it('starts the persisted AI analysis automatically when a live session ends', () => {
+    expect(overlaySource).toContain("setRecapTab(endedSessionId ? 'analysis' : 'summary')");
+    expect(overlaySource).toContain('void requestRecapAnalysis(endedSessionId)');
+  });
+
   it('keeps the ended session id in the recap snapshot', () => {
     expect(overlaySource).toContain('const endedSessionId = sessionId');
     expect(overlaySource).toContain('sessionId: endedSessionId');
@@ -196,10 +213,11 @@ describe('overlay request behavior', () => {
     expect(overlaySource).toContain(
       'if (requestGeneration !== analysisRequestGenerationRef.current) return;',
     );
-    const refreshAt = overlaySource.indexOf('void refreshSessionKnowledge()', overlaySource.indexOf('const analyzeRecap'));
+    const requestAnalysisAt = overlaySource.indexOf('const requestRecapAnalysis');
+    const refreshAt = overlaySource.indexOf('void refreshSessionKnowledge()', requestAnalysisAt);
     const staleGuardAt = overlaySource.indexOf(
       'if (requestGeneration !== analysisRequestGenerationRef.current) return;',
-      overlaySource.indexOf('const analyzeRecap'),
+      requestAnalysisAt,
     );
     expect(refreshAt).toBeGreaterThan(-1);
     expect(staleGuardAt).toBeGreaterThan(refreshAt);

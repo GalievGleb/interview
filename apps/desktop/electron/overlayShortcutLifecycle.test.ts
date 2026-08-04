@@ -26,7 +26,7 @@ describe('overlay shortcut lifecycle', () => {
     );
   });
 
-  it('binds session shortcuts to every recreated overlay window', () => {
+  it('keeps only Escape scoped to overlay visibility', () => {
     const callbacks = new Map<string, () => void>();
     const shortcuts = {
       register: vi.fn((accelerator: string, callback: () => void) => {
@@ -36,21 +36,20 @@ describe('overlay shortcut lifecycle', () => {
       unregister: vi.fn(),
     };
     const hideOverlay = vi.fn();
-    const first = fakeOverlayWindow();
-    const recreated = fakeOverlayWindow();
+    const overlay = fakeOverlayWindow();
 
-    bindOverlayShortcutLifecycle(first, shortcuts, 'Control+Enter', hideOverlay);
-    first.emit('closed');
-    bindOverlayShortcutLifecycle(recreated, shortcuts, 'Control+Enter', hideOverlay);
-    recreated.emit('show');
+    bindOverlayShortcutLifecycle(overlay, shortcuts, hideOverlay);
+    overlay.emit('show');
 
-    callbacks.get('Control+Enter')?.();
-    expect(recreated.webContents.send).toHaveBeenCalledWith('overlay:force-answer');
     callbacks.get('Escape')?.();
     expect(hideOverlay).toHaveBeenCalledOnce();
+    expect(shortcuts.register).not.toHaveBeenCalledWith(
+      'Control+Enter',
+      expect.any(Function),
+    );
 
-    recreated.emit('hide');
+    overlay.emit('hide');
     expect(shortcuts.unregister).toHaveBeenCalledWith('Escape');
-    expect(shortcuts.unregister).toHaveBeenCalledWith('Control+Enter');
+    expect(shortcuts.unregister).not.toHaveBeenCalledWith('Control+Enter');
   });
 });

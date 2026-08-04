@@ -12,6 +12,7 @@ import {
   Send,
   Settings,
   ShieldCheck,
+  TrendingUp,
 } from 'lucide-react';
 import { useI18n, type I18nKey } from '../lib/i18n';
 import { useApp } from '../context/AppContext';
@@ -31,6 +32,7 @@ const NAV_ITEMS: Array<{
   { to: '/applications', label: 'nav.applications', icon: Send },
   { to: '/documents', label: 'nav.documents', icon: FileUser },
   { to: '/history', label: 'nav.history', icon: History },
+  { to: '/progress', label: 'nav.progress', icon: TrendingUp },
 ];
 
 function useSessionLive(): boolean {

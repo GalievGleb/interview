@@ -391,12 +391,48 @@ export interface SessionKnowledgeDto {
 }
 
 export interface SessionAssessment {
+  interviewType: 'technical' | 'hr' | 'mixed' | 'unknown';
   overallLevel: string;
+  overallScore: number;
+  overallConfidence: number;
   conclusion: string;
   strengths: Array<{ topic: string; evidence: string }>;
   weaknesses: Array<{ topic: string; evidence: string; learningAction: string }>;
   topicAssessments: Array<{ topic: string; score: number; confidence: number }>;
   markdown: string;
+}
+
+export interface DevelopmentProfileTopic {
+  topic: string;
+  score: number;
+  confidence: number;
+  evidenceCount: number;
+  learningAction: string | null;
+}
+
+export interface DevelopmentProfileTrack {
+  level: string | null;
+  score: number | null;
+  confidence: number;
+  evidenceCount: number;
+  strengths: DevelopmentProfileTopic[];
+  focusAreas: DevelopmentProfileTopic[];
+}
+
+export interface DevelopmentProfile {
+  analyzedSessions: number;
+  technical: DevelopmentProfileTrack;
+  hr: DevelopmentProfileTrack;
+  recentSessions: Array<{
+    sessionId: string;
+    title: string | null;
+    startedAt: string;
+    interviewType: 'technical' | 'hr' | 'mixed' | 'unknown';
+    overallLevel: string | null;
+    score: number;
+    confidence: number;
+  }>;
+  updatedAt: string;
 }
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
@@ -528,6 +564,9 @@ export const api = {
   sessionStats: () => request<SessionStats>('/sessions/stats'),
 
   getKnowledgeMap: () => request<SessionKnowledgeDto>('/sessions/knowledge-map'),
+
+  getDevelopmentProfile: () =>
+    request<DevelopmentProfile>('/sessions/development-profile'),
 
   createSessionAnalysis: (id: string, language: 'ru' | 'en') =>
     request<SessionAssessment>(`/sessions/${encodeURIComponent(id)}/analysis`, {
@@ -963,7 +1002,7 @@ export const api = {
   streamMeetingSummary(
     transcript: string,
     handlers: SseHandlers,
-    opts: { provider?: string; model?: string } = {},
+    opts: { provider?: string; model?: string; answerLanguage?: 'ru' | 'en' } = {},
   ): () => void {
     return sseChatStream(
       '/chat/meeting-summary/stream',
@@ -972,7 +1011,7 @@ export const api = {
         mode: 'deep',
         provider: opts.provider,
         model: opts.model,
-        answer_language: answerLanguageParam(),
+        answer_language: opts.answerLanguage ?? answerLanguageParam(),
       },
       handlers,
     );

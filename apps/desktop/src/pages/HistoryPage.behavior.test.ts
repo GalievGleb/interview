@@ -12,6 +12,12 @@ describe('history analysis and privacy behavior', () => {
     expect(source).toContain('<MarkdownText text={selectedAnalysis.markdown}');
   });
 
+  it('can create or retry an AI analysis from the selected session', () => {
+    expect(source).toContain('api.createSessionAnalysis(selected.id');
+    expect(source).toContain("t('history.analysis.create')");
+    expect(source).toContain('analysisError');
+  });
+
   it('updates cached knowledge after deleting one or all sessions', () => {
     expect(source).toContain('refreshSessionKnowledge');
     expect(source).toContain('clearSessionKnowledge');

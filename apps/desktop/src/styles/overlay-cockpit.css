@@ -9,6 +9,27 @@
   background: transparent;
 }
 
+/* Response, controls and transcript share one bounded viewport. Their combined
+   height used to exceed the transparent window, clipping the transcript below
+   the edge with no outer scrollbar. */
+.ovl-stack {
+  display: flex;
+  width: 100%;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: center;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-bottom: 8px;
+  scrollbar-gutter: stable;
+  -webkit-app-region: no-drag;
+}
+
+.ovl-pill {
+  flex: 0 0 auto;
+}
+
 /* Undetectability: пунктирная обводка, когда оверлей «невидим» для скринов.
    Раньше здесь был transform: scale(0.965) — дробный масштаб размывал весь
    текст и иконки внутри окна; убран ради чёткости. */

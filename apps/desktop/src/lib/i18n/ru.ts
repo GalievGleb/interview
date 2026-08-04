@@ -14,6 +14,7 @@ export const ru = {
   'nav.interview': 'Live-интервью',
   'nav.documents': 'Профиль и опыт',
   'nav.history': 'Сессии',
+  'nav.progress': 'Личный прогресс',
   'nav.settings': 'Настройки',
   'nav.search': 'Поиск',
 
@@ -322,6 +323,48 @@ export const ru = {
   'history.detail.eyebrow': 'Разбор сессии',
   'history.analysis.title': 'Сохранённый AI-разбор',
   'history.analysis.loading': 'Загружаю сохранённый разбор…',
+  'history.analysis.empty':
+    'Для этой сессии ещё нет персонального разбора. ИИ оценит только то, что действительно было сказано, и добавит результат в личный прогресс.',
+  'history.analysis.create': 'Разобрать с AI',
+  'history.analysis.retry': 'Повторить разбор',
+  'history.analysis.failed': 'Не удалось выполнить AI-разбор',
+
+  // Личный прогресс — агрегат сохранённых AI-разборов, отдельно от вакансии
+  'progress.eyebrow': 'Личное развитие',
+  'progress.title': 'Ваш уровень по реальным собеседованиям.',
+  'progress.subtitle':
+    'Это не карта готовности к одной вакансии. Здесь SkillCue собирает подтверждённые сильные и слабые стороны из каждого сохранённого AI-разбора и разделяет технические интервью и разговоры с HR.',
+  'progress.refresh': 'Обновить',
+  'progress.loading': 'Собираю картину развития…',
+  'progress.loadingHint': 'Учитываю только сохранённые разборы с достаточной уверенностью.',
+  'progress.loadFailed': 'Не удалось загрузить личный прогресс',
+  'progress.retry': 'Повторить',
+  'progress.emptyTitle': 'Пока нет разобранных сессий',
+  'progress.emptyBody':
+    'Откройте завершённую сессию и нажмите «Разобрать с AI». Новые live-сессии анализируются автоматически после остановки.',
+  'progress.openSessions': 'Открыть сессии',
+  'progress.summaryAria': 'Сводка личного прогресса',
+  'progress.analyzed': 'Разобрано сессий',
+  'progress.technical': 'Технический уровень',
+  'progress.hr': 'HR и самопрезентация',
+  'progress.separateNote':
+    'HR-разговоры не снижают техническую оценку: это две независимые линии развития.',
+  'progress.technicalDesc': 'Знания, инженерные решения и глубина ответов по профессии.',
+  'progress.hrDesc': 'Ясность опыта, мотивация, согласованность резюме и подача себя.',
+  'progress.sessionsEvidence': 'Сессий в оценке',
+  'progress.confidence': 'Уверенность',
+  'progress.notEnough': 'Недостаточно данных',
+  'progress.trackEmpty': 'Нужен хотя бы один уверенно распознанный разбор этого типа.',
+  'progress.strengths': 'Что уже получается',
+  'progress.focus': 'Что тренировать дальше',
+  'progress.noStrengths': 'Сильная тема пока не подтверждена несколькими ответами.',
+  'progress.noFocus': 'Явных слабых тем с достаточной уверенностью пока нет.',
+  'progress.historyEyebrow': 'Основание оценки',
+  'progress.recent': 'Последние AI-разборы',
+  'progress.hrShort': 'HR',
+  'progress.techShort': 'TECH',
+  'progress.mixedShort': 'MIX',
+  'progress.sessionFallback': 'Интервью',
 
   // Live-статус и панель управления
   'live.listening': 'Слушаю',

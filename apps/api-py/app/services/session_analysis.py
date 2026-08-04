@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from typing import Literal
 
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.orm import Session
@@ -27,7 +28,10 @@ class TopicAssessment(BaseModel):
 
 
 class SessionAssessmentPayload(BaseModel):
+    interviewType: Literal["technical", "hr", "mixed", "unknown"]
     overallLevel: str = Field(min_length=2, max_length=40)
+    overallScore: int = Field(ge=0, le=100)
+    overallConfidence: float = Field(ge=0, le=1)
     conclusion: str = Field(min_length=2, max_length=800)
     strengths: list[TopicEvidence] = Field(max_length=8)
     weaknesses: list[WeakTopicEvidence] = Field(max_length=8)
@@ -55,9 +59,7 @@ def _validate_analysis(raw: str) -> SessionAssessmentPayload:
 
 def _transcript_context(session: InterviewSession) -> tuple[str, bool]:
     lines = [
-        item
-        for item in sorted(session.transcripts, key=lambda item: item.ts)
-        if item.text.strip()
+        item for item in sorted(session.transcripts, key=lambda item: item.ts) if item.text.strip()
     ]
     speakers = {item.speaker for item in lines}
     roles_ambiguous = speakers != {"other", "me"}
@@ -103,6 +105,7 @@ def _apply_role_ambiguity(
     )
     result.conclusion = f"{warning} {result.conclusion}"[:800]
     result.markdown = f"> {warning}\n\n{result.markdown}"[:12_000]
+    result.overallConfidence = min(result.overallConfidence, 0.35)
     for topic in result.topicAssessments:
         topic.confidence = min(topic.confidence, 0.35)
     return result
@@ -120,8 +123,7 @@ def _record_usage(
             provider=provider,
             kind="session_analysis",
             tokens_in=int(usage.get("prompt_tokens") or 0) or max(1, len(prompt) // 4),
-            tokens_out=int(usage.get("completion_tokens") or 0)
-            or max(1, len(completion) // 4),
+            tokens_out=int(usage.get("completion_tokens") or 0) or max(1, len(completion) // 4),
         )
     )
     db.commit()
@@ -157,11 +159,22 @@ async def analyze_session(
     transcript, roles_ambiguous = _transcript_context(session)
     schema = json.dumps(SessionAssessmentPayload.model_json_schema(), ensure_ascii=False)
     provider, model = _resolve_deep_model()
-    prompt = f"""Analyze this technical interview using only the persisted transcript below.
+    prompt = f"""Analyze this interview using only the persisted transcript below.
 Do not infer facts, skills, answers, or evidence that are absent from it.
 
 {_language_contract(language)}
 {_role_contract(roles_ambiguous)}
+
+Classify the interview as technical, hr, mixed, or unknown in interviewType.
+- technical: professional knowledge, engineering decisions, coding, QA methods, or architecture;
+- hr: availability, motivation, compensation, work history, self-presentation, or culture fit;
+- mixed: substantial evidence from both technical and HR blocks;
+- unknown: the transcript is too short or roles/content are too ambiguous.
+Do not score missing technical topics in an HR interview. For HR interviews assess only
+communication, clarity and consistency of experience, motivation, and self-presentation
+that are directly present. overallScore is the evidence-weighted quality of the candidate's
+observed answers, not a guess about unasked competencies. overallConfidence reflects how
+much attributable candidate evidence is actually present.
 
 Return exactly one JSON object matching this schema:
 <JSON_SCHEMA>
@@ -178,7 +191,7 @@ in the transcript. Confidence must reflect how directly the transcript supports 
     messages = [
         {
             "role": "system",
-            "content": "You are a rigorous technical interviewer. Return valid JSON only.",
+            "content": "You are a rigorous interview assessor. Return valid JSON only.",
         },
         {"role": "user", "content": prompt},
     ]
@@ -191,9 +204,7 @@ in the transcript. Confidence must reflect how directly the transcript supports 
     )
     _record_usage(db, provider, prompt, raw)
     try:
-        return _apply_role_ambiguity(
-            _validate_analysis(raw), language, roles_ambiguous
-        )
+        return _apply_role_ambiguity(_validate_analysis(raw), language, roles_ambiguous)
     except (ValidationError, ValueError) as first_error:
         repair_prompt = f"""Repair the invalid response so it matches the required JSON schema.
 Return exactly one corrected JSON object and no commentary.
@@ -228,9 +239,7 @@ Use only evidence from the persisted transcript; remove or correct every unsuppo
         )
         _record_usage(db, provider, repair_prompt, repaired)
         try:
-            return _apply_role_ambiguity(
-                _validate_analysis(repaired), language, roles_ambiguous
-            )
+            return _apply_role_ambiguity(_validate_analysis(repaired), language, roles_ambiguous)
         except (ValidationError, ValueError) as repair_error:
             raise AppError(
                 "Не удалось получить корректный разбор сессии",

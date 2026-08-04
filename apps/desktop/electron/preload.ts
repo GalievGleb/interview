@@ -35,6 +35,10 @@ const api = {
     closeBrowser: () => ipcRenderer.invoke('hh-assistant:close-browser'),
     login: (login: string, password: string) =>
       ipcRenderer.invoke('hh-assistant:login', login, password),
+    requestLoginCode: (email: string) =>
+      ipcRenderer.invoke('hh-assistant:request-login-code', email),
+    confirmLoginCode: (code: string) =>
+      ipcRenderer.invoke('hh-assistant:confirm-login-code', code),
     onState: (cb: (state: unknown) => void) => {
       const handler = (_e: unknown, state: unknown) => cb(state);
       ipcRenderer.on('hh-assistant:state', handler);

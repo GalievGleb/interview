@@ -167,6 +167,11 @@ def session_knowledge_map(db: Session = Depends(get_db)) -> dict:
     grouped: dict[str, dict] = {}
     for row in db.query(SessionAssessment).order_by(SessionAssessment.created_at).all():
         assessment = json.loads(row.analysis_json)
+        # HR conversations describe communication and work-history presentation,
+        # not technical readiness. Keep them in personal progress but never let
+        # them distort the technical knowledge map used by live prompts.
+        if assessment.get("interviewType", "technical") not in {"technical", "mixed"}:
+            continue
         for item in assessment.get("topicAssessments", []):
             topic = str(item["topic"]).strip()
             confidence = float(item["confidence"])
@@ -212,6 +217,162 @@ def session_knowledge_map(db: Session = Depends(get_db)) -> dict:
     return {
         "weakTopics": [topic for topic in topics if topic["score"] < 70][:12],
         "strongTopics": [topic for topic in reversed(topics) if topic["score"] >= 70][:12],
+        "updatedAt": _naive_utc_now().isoformat(),
+    }
+
+
+def _assessment_score(assessment: dict) -> int:
+    explicit = assessment.get("overallScore")
+    if isinstance(explicit, (int, float)):
+        return max(0, min(100, round(explicit)))
+    topics = assessment.get("topicAssessments") or []
+    weighted = [
+        (float(item.get("score", 0)), max(0.0, float(item.get("confidence", 0))))
+        for item in topics
+        if isinstance(item, dict)
+    ]
+    total = sum(confidence for _, confidence in weighted)
+    if total:
+        return round(sum(score * confidence for score, confidence in weighted) / total)
+    if weighted:
+        return round(sum(score for score, _ in weighted) / len(weighted))
+    return 0
+
+
+def _assessment_confidence(assessment: dict) -> float:
+    explicit = assessment.get("overallConfidence")
+    if isinstance(explicit, (int, float)):
+        return max(0.0, min(1.0, round(float(explicit), 2)))
+    topics = assessment.get("topicAssessments") or []
+    values = [
+        max(0.0, min(1.0, float(item.get("confidence", 0))))
+        for item in topics
+        if isinstance(item, dict)
+    ]
+    return round(sum(values) / len(values), 2) if values else 0.0
+
+
+def _build_development_track(entries: list[dict]) -> dict:
+    if not entries:
+        return {
+            "level": None,
+            "score": None,
+            "confidence": 0,
+            "evidenceCount": 0,
+            "strengths": [],
+            "focusAreas": [],
+        }
+
+    score_weight = sum(max(0.05, item["confidence"]) for item in entries)
+    score = round(
+        sum(item["score"] * max(0.05, item["confidence"]) for item in entries) / score_weight
+    )
+    confidence = round(sum(item["confidence"] for item in entries) / len(entries), 2)
+
+    grouped: dict[str, dict] = {}
+    for entry in entries:
+        assessment = entry["assessment"]
+        actions = {
+            str(item.get("topic", "")).strip().casefold(): str(
+                item.get("learningAction", "")
+            ).strip()
+            for item in assessment.get("weaknesses", [])
+            if isinstance(item, dict) and str(item.get("topic", "")).strip()
+        }
+        for item in assessment.get("topicAssessments", []):
+            if not isinstance(item, dict):
+                continue
+            topic = str(item.get("topic", "")).strip()
+            item_confidence = max(0.0, min(1.0, float(item.get("confidence", 0))))
+            if not topic or item_confidence < 0.5:
+                continue
+            key = topic.casefold()
+            bucket = grouped.setdefault(
+                key,
+                {
+                    "topic": topic,
+                    "weightedScore": 0.0,
+                    "weight": 0.0,
+                    "confidences": [],
+                    "evidenceCount": 0,
+                    "learningAction": "",
+                },
+            )
+            bucket["weightedScore"] += float(item.get("score", 0)) * item_confidence
+            bucket["weight"] += item_confidence
+            bucket["confidences"].append(item_confidence)
+            bucket["evidenceCount"] += 1
+            if actions.get(key):
+                bucket["learningAction"] = actions[key]
+
+    topics = [
+        {
+            "topic": bucket["topic"],
+            "score": round(bucket["weightedScore"] / bucket["weight"]),
+            "confidence": round(sum(bucket["confidences"]) / len(bucket["confidences"]), 2),
+            "evidenceCount": bucket["evidenceCount"],
+            "learningAction": bucket["learningAction"] or None,
+        }
+        for bucket in grouped.values()
+        if bucket["weight"]
+    ]
+    strengths = sorted(
+        (item for item in topics if item["score"] >= 70),
+        key=lambda item: (-item["score"], item["topic"].casefold()),
+    )[:6]
+    focus_areas = sorted(
+        (item for item in topics if item["score"] < 70),
+        key=lambda item: (item["score"], item["topic"].casefold()),
+    )[:6]
+    latest = max(entries, key=lambda item: item["startedAt"])
+    return {
+        "level": latest["assessment"].get("overallLevel"),
+        "score": score,
+        "confidence": confidence,
+        "evidenceCount": len(entries),
+        "strengths": strengths,
+        "focusAreas": focus_areas,
+    }
+
+
+@router.get("/development-profile")
+def development_profile(db: Session = Depends(get_db)) -> dict:
+    entries: list[dict] = []
+    rows = db.query(SessionAssessment).order_by(SessionAssessment.created_at).all()
+    for row in rows:
+        try:
+            assessment = json.loads(row.analysis_json)
+        except (TypeError, json.JSONDecodeError):
+            continue
+        kind = assessment.get("interviewType", "technical")
+        if kind not in {"technical", "hr", "mixed", "unknown"}:
+            kind = "unknown"
+        session = row.session
+        entries.append(
+            {
+                "sessionId": row.session_id,
+                "title": session.title if session else None,
+                "startedAt": (
+                    session.started_at.isoformat() if session else row.created_at.isoformat()
+                ),
+                "interviewType": kind,
+                "overallLevel": assessment.get("overallLevel"),
+                "score": _assessment_score(assessment),
+                "confidence": _assessment_confidence(assessment),
+                "assessment": assessment,
+            }
+        )
+
+    technical = [item for item in entries if item["interviewType"] in {"technical", "mixed"}]
+    hr = [item for item in entries if item["interviewType"] in {"hr", "mixed"}]
+    recent = sorted(entries, key=lambda item: item["startedAt"], reverse=True)[:12]
+    return {
+        "analyzedSessions": len(entries),
+        "technical": _build_development_track(technical),
+        "hr": _build_development_track(hr),
+        "recentSessions": [
+            {key: value for key, value in item.items() if key != "assessment"} for item in recent
+        ],
         "updatedAt": _naive_utc_now().isoformat(),
     }
 

@@ -221,7 +221,7 @@ export function useLiveCopilot() {
       clearForceTimeout();
       forceTimeoutRef.current = setTimeout(() => {
         forceTimeoutRef.current = null;
-        if (!forceCoordinatorRef.current.setPhase(generation, 'error')) return;
+        if (!forceCoordinatorRef.current.beginScreenFallback(generation)) return;
         syncForceSnapshot();
         setForceScreenFallbackGeneration(generation);
       }, delayMs);

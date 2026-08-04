@@ -12,7 +12,6 @@ import {
   shouldExcludeVacancy,
 } from './hhAssistantPolicy';
 import {
-  canSendMore,
   decideNextAction,
   jitterMs,
   nextAutoRunDelayMs,
@@ -90,6 +89,14 @@ const RESUME_ITEM_SELECTOR =
 const RESUME_ANY_SELECTOR =
   '[data-qa*="resume-select-item"], [data-qa*="resume-select"] label, ' +
   '[data-qa="applicant-resumes-select"] label';
+const LOGIN_CODE_INPUT_SELECTOR = [
+  'input[data-qa*="code"]',
+  'input[name="code"]',
+  'input[autocomplete="one-time-code"]',
+  'input[inputmode="numeric"]',
+].join(', ');
+const APPLICANT_MENU_SELECTOR =
+  '[data-qa="mainmenu_applicantProfile"], [data-qa="mainmenu_applicantProfileAndResumes"]';
 const SUCCESS_SELECTOR =
   '[data-qa*="vacancy-response-request-success"], [data-qa*="response-success"]';
 const STEP_NAVIGATION_TIMEOUT = 20_000;
@@ -378,9 +385,6 @@ export class HhBrowserAssistant {
       // Ждём загрузки формы
       await page.waitForTimeout(1500);
 
-      // Определяем тип входа: телефон или почта
-      const isEmail = login.includes('@');
-
       // Находим поле ввода и кнопку
       // HH использует два шага: сначала логин, потом пароль
 
@@ -493,13 +497,125 @@ export class HhBrowserAssistant {
     }
   }
 
+  async requestLoginCode(email: string): Promise<{ ok: boolean; message: string }> {
+    try {
+      const normalized = email.trim();
+      if (!/^\S+@\S+\.\S+$/.test(normalized)) {
+        return { ok: false, message: 'Введите корректную почту.' };
+      }
+      const page = await this.ensureBrowser();
+      await page.goto('https://hh.ru/account/login', {
+        waitUntil: 'domcontentloaded',
+        timeout: 30_000,
+      });
+
+      const emailInputSelector = [
+        'input[data-qa="applicant-login-input-email"]',
+        'input[data-qa="account-login-input"]',
+        'input[name="login"]',
+        'input[name="username"]',
+        'input[type="email"]',
+      ].join(', ');
+      let input = page.locator(emailInputSelector).first();
+
+      // Current HH first asks for the account type. Older/remembered sessions
+      // may open directly on credentials, so this step is conditional.
+      if (!(await input.isVisible().catch(() => false))) {
+        const applicantType = page
+          .locator('input[data-qa^="account-type-card-APPLICANT"]')
+          .first();
+        if (await applicantType.isVisible().catch(() => false)) {
+          await applicantType.check({ force: true }).catch(() => undefined);
+          await page.locator('button[data-qa="submit-button"], button[type="submit"]').first().click();
+          await page
+            .locator('input[data-qa^="credential-type-email"]')
+            .first()
+            .waitFor({ state: 'visible', timeout: 10_000 });
+        }
+      }
+
+      const emailMethod = page.locator('input[data-qa^="credential-type-email"]').first();
+      if (await emailMethod.isVisible().catch(() => false)) {
+        await emailMethod.check({ force: true });
+      }
+
+      input = page.locator(emailInputSelector).first();
+      await input.waitFor({ state: 'visible', timeout: 10_000 });
+      await input.fill(normalized);
+      await page
+        .locator(
+          'button[data-qa="submit-button"], button[data-qa="account-login-submit"], button[type="submit"], button:has-text("Продолжить"), button:has-text("Далее")',
+        )
+        .first()
+        .click();
+      await page.waitForTimeout(1_500);
+      const codeMethod = page
+        .locator(
+          'button:has-text("Получить код"), button:has-text("Войти по коду"), button:has-text("Код на почту"), a:has-text("Войти по коду")',
+        )
+        .first();
+      if (await codeMethod.isVisible().catch(() => false)) await codeMethod.click();
+      const codeInput = page.locator(LOGIN_CODE_INPUT_SELECTOR).first();
+      await codeInput.waitFor({ state: 'visible', timeout: 10_000 });
+      this.update({
+        browserOpen: true,
+        loginRequired: true,
+        message: 'Код отправлен на почту.',
+      });
+      return { ok: true, message: 'Код отправлен на почту.' };
+    } catch (error) {
+      return {
+        ok: false,
+        message: error instanceof Error ? error.message : 'Не удалось отправить код.',
+      };
+    }
+  }
+
+  async confirmLoginCode(code: string): Promise<{ ok: boolean; message: string }> {
+    try {
+      const page = await this.ensureBrowser();
+      const normalized = code.replace(/\s/g, '');
+      if (!normalized) return { ok: false, message: 'Введите код из письма.' };
+      const codeInputs = page.locator(LOGIN_CODE_INPUT_SELECTOR);
+      const codeInput = codeInputs.first();
+      await codeInput.waitFor({ state: 'visible', timeout: 10_000 });
+      const visibleInputs = Math.min(await codeInputs.count(), normalized.length);
+      if (visibleInputs > 1) {
+        for (let index = 0; index < visibleInputs; index += 1) {
+          await codeInputs.nth(index).fill(normalized[index] ?? '');
+        }
+      } else {
+        await codeInput.fill(normalized);
+      }
+      const submit = page.locator('button[data-qa="account-login-submit"], button[type="submit"], button:has-text("Войти"), button:has-text("Подтвердить")').first();
+      if (await submit.isVisible().catch(() => false)) await submit.click();
+      else await codeInput.press('Enter');
+      const applicantMenu = page.locator(APPLICANT_MENU_SELECTOR).first();
+      const authenticated = await applicantMenu
+        .waitFor({ state: 'visible', timeout: 12_000 })
+        .then(() => true)
+        .catch(() => false);
+      if (!authenticated) {
+        const errorText = await page
+          .locator('[data-qa*="error"], [role="alert"], [class*="error"]')
+          .first()
+          .innerText()
+          .catch(() => '');
+        this.update({ loginRequired: true, message: errorText || 'Код не подошёл или истёк. Запросите новый.' });
+        return { ok: false, message: errorText || 'Код не подошёл или истёк. Запросите новый.' };
+      }
+      this.update({ phase: 'ready', browserOpen: true, loginRequired: false, message: 'HH подключён.' });
+      return { ok: true, message: 'HH подключён.' };
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : 'Не удалось подтвердить код.' };
+    }
+  }
+
   private async isLoginRequired(page: Page): Promise<boolean> {
     const loginLink = page.locator(
       '[data-qa="login"], a[href*="/account/login"], a[href*="/account/signup"]',
     );
-    const applicantMenu = page.locator(
-      '[data-qa="mainmenu_applicantProfile"], [data-qa="mainmenu_applicantProfileAndResumes"]',
-    );
+    const applicantMenu = page.locator(APPLICANT_MENU_SELECTOR);
     return (await applicantMenu.count()) === 0 && (await loginLink.count()) > 0;
   }
 
@@ -929,15 +1045,6 @@ export class HhBrowserAssistant {
 
     for (const item of initial) {
       if (this.stopApplyRequested) break;
-      const config = this.state.config;
-      if (!canSendMore(config, this.state.queue, new Date())) {
-        this.update({
-          phase: 'ready', applying: false, applyProgress: null,
-          message: `Достигнут дневной лимит откликов (${config.dailyLimit}). Оставшиеся вакансии перенесутся на завтра.`,
-        });
-        this.applyInFlight = false;
-        return;
-      }
       this.update({
         currentVacancyId: item.id,
         applyProgress: { done, total },
@@ -952,9 +1059,6 @@ export class HhBrowserAssistant {
       this.update({ applyProgress: { done, total } });
       if (outcome.blocked) break;
       if (this.stopApplyRequested) break;
-      await new Promise((resolve) =>
-        setTimeout(resolve, jitterMs(config.delayBetweenSec)),
-      );
     }
 
     this.applyInFlight = false;

@@ -31,6 +31,7 @@ import {
   isLiveWindow,
 } from './windowLifecycle';
 import { bindOverlayShortcutLifecycle } from './overlayShortcutLifecycle';
+import { PersistentGlobalShortcut } from './persistentGlobalShortcut';
 import { bindOverlayPointerRecovery } from './overlayPointerRecovery';
 import { getTitleBarOverlayTheme } from './titleBarTheme';
 import { preparePersistentBackendData, sqliteDatabaseUrl } from './backendData';
@@ -61,6 +62,8 @@ let backendProcess: ChildProcess | null = null;
 let backendLogStream: fs.WriteStream | null = null;
 let backendRestartAttempts = 0;
 let backendRestartTimer: NodeJS.Timeout | null = null;
+let forceAnswerShortcutBinding: PersistentGlobalShortcut | null = null;
+let forceAnswerShortcutRetryTimer: NodeJS.Timeout | null = null;
 let hhBrowserAssistant: HhBrowserAssistant | null = null;
 let hhOAuthService: HhOAuthService | null = null;
 let hhChatBrowser: HhChatBrowser | null = null;
@@ -395,9 +398,7 @@ function createOverlayWindow(): BrowserWindow {
   bindOverlayShortcutLifecycle(
     win,
     globalShortcut,
-    FORCE_ANSWER_SHORTCUT,
     hideOverlay,
-    (accelerator) => console.warn(`[overlay] global shortcut unavailable: ${accelerator}`),
   );
   bindOverlayPointerRecovery(win);
   void win.loadURL(overlayRoute);
@@ -458,6 +459,12 @@ function registerIpc(): void {
     'hh-assistant:login',
     async (_e, login: string, password: string) =>
       hhBrowserAssistant?.loginWithCredentials(login, password),
+  );
+  ipcMain.handle('hh-assistant:request-login-code', (_e, email: string) =>
+    hhBrowserAssistant?.requestLoginCode(email),
+  );
+  ipcMain.handle('hh-assistant:confirm-login-code', (_e, code: string) =>
+    hhBrowserAssistant?.confirmLoginCode(code),
   );
 
   // ─── HH OAuth ───────────────────────────────────────────────────────
@@ -778,6 +785,41 @@ function registerToggleShortcut(acc: string): boolean {
   }
 }
 
+function deliverForcedAnswerToOverlay(): void {
+  const win = getOrCreateOverlayWindow();
+  if (!win.isVisible()) win.showInactive();
+  const send = () => {
+    if (!isLiveWindow(win) || win.webContents.isDestroyed()) return;
+    win.webContents.send('overlay:force-answer');
+  };
+  if (win.webContents.isLoadingMainFrame()) win.webContents.once('did-finish-load', send);
+  else send();
+}
+
+function scheduleForceAnswerShortcutRetry(): void {
+  if (quitting || forceAnswerShortcutRetryTimer) return;
+  forceAnswerShortcutRetryTimer = setTimeout(() => {
+    forceAnswerShortcutRetryTimer = null;
+    if (!forceAnswerShortcutBinding?.ensureRegistered()) {
+      scheduleForceAnswerShortcutRetry();
+    }
+  }, 2_000);
+}
+
+function registerForceAnswerShortcut(): void {
+  forceAnswerShortcutBinding?.dispose();
+  forceAnswerShortcutBinding = new PersistentGlobalShortcut(
+    globalShortcut,
+    FORCE_ANSWER_SHORTCUT,
+    deliverForcedAnswerToOverlay,
+    (accelerator) => {
+      console.warn(`[overlay] global shortcut unavailable, retrying: ${accelerator}`);
+      scheduleForceAnswerShortcutRetry();
+    },
+  );
+  if (!forceAnswerShortcutBinding.ensureRegistered()) scheduleForceAnswerShortcutRetry();
+}
+
 function registerShortcuts(): void {
   const stored = loadMainSettings().toggleOverlayShortcut;
   if (typeof stored === 'string' && stored.trim() && registerToggleShortcut(stored.trim())) {
@@ -786,7 +828,7 @@ function registerShortcuts(): void {
     registerToggleShortcut(DEFAULT_TOGGLE_SHORTCUT);
     toggleOverlayShortcut = DEFAULT_TOGGLE_SHORTCUT;
   }
-
+  registerForceAnswerShortcut();
 }
 
 function createTray(): void {
@@ -1010,6 +1052,10 @@ if (!hasSingleInstanceLock) {
 
   app.on('will-quit', () => {
     quitting = true;
+    if (forceAnswerShortcutRetryTimer) clearTimeout(forceAnswerShortcutRetryTimer);
+    forceAnswerShortcutRetryTimer = null;
+    forceAnswerShortcutBinding?.dispose();
+    forceAnswerShortcutBinding = null;
     globalShortcut.unregisterAll();
     stopBackend();
     backendLogStream?.end();

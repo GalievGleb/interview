@@ -12,6 +12,7 @@ export const en: Record<I18nKey, string> = {
   'nav.interview': 'Live interview',
   'nav.documents': 'Profile & experience',
   'nav.history': 'Sessions',
+  'nav.progress': 'Personal progress',
   'nav.settings': 'Settings',
   'nav.search': 'Search',
 
@@ -318,6 +319,48 @@ export const en: Record<I18nKey, string> = {
   'history.detail.eyebrow': 'Session review',
   'history.analysis.title': 'Saved AI analysis',
   'history.analysis.loading': 'Loading saved analysis…',
+  'history.analysis.empty':
+    'This session has no personal review yet. AI will assess only what was actually said and add the result to personal progress.',
+  'history.analysis.create': 'Analyze with AI',
+  'history.analysis.retry': 'Retry analysis',
+  'history.analysis.failed': 'Could not complete the AI analysis',
+
+  // Personal progress — aggregate of saved AI analyses, separate from a vacancy
+  'progress.eyebrow': 'Personal development',
+  'progress.title': 'Your level across real interviews.',
+  'progress.subtitle':
+    'This is not readiness for one vacancy. SkillCue combines evidence-backed strengths and weaknesses from every saved AI analysis and keeps technical and HR interviews separate.',
+  'progress.refresh': 'Refresh',
+  'progress.loading': 'Building your development picture…',
+  'progress.loadingHint': 'Only saved analyses with sufficient confidence are included.',
+  'progress.loadFailed': 'Could not load personal progress',
+  'progress.retry': 'Retry',
+  'progress.emptyTitle': 'No analyzed sessions yet',
+  'progress.emptyBody':
+    'Open a completed session and click “Analyze with AI”. New live sessions are analyzed automatically when stopped.',
+  'progress.openSessions': 'Open sessions',
+  'progress.summaryAria': 'Personal progress summary',
+  'progress.analyzed': 'Analyzed sessions',
+  'progress.technical': 'Technical level',
+  'progress.hr': 'HR and self-presentation',
+  'progress.separateNote':
+    'HR conversations never lower the technical score: they are independent growth tracks.',
+  'progress.technicalDesc': 'Knowledge, engineering decisions, and depth of professional answers.',
+  'progress.hrDesc': 'Clarity of experience, motivation, résumé consistency, and self-presentation.',
+  'progress.sessionsEvidence': 'Sessions in score',
+  'progress.confidence': 'Confidence',
+  'progress.notEnough': 'Not enough evidence',
+  'progress.trackEmpty': 'At least one confidently attributed analysis of this type is required.',
+  'progress.strengths': 'What is already strong',
+  'progress.focus': 'What to practice next',
+  'progress.noStrengths': 'No strong topic has enough supporting evidence yet.',
+  'progress.noFocus': 'No clear weak topic has enough confidence yet.',
+  'progress.historyEyebrow': 'Evidence behind the score',
+  'progress.recent': 'Recent AI analyses',
+  'progress.hrShort': 'HR',
+  'progress.techShort': 'TECH',
+  'progress.mixedShort': 'MIX',
+  'progress.sessionFallback': 'Interview',
 
   // Live status and control bar
   'live.listening': 'Listening',

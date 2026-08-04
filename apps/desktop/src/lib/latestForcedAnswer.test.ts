@@ -79,6 +79,30 @@ describe('LatestForcedAnswerCoordinator', () => {
     });
   });
 
+  it('keeps accepting the real transcript after screen fallback has started', () => {
+    const coordinator = new LatestForcedAnswerCoordinator(() => 'force-1');
+    coordinator.press([], 'system');
+
+    expect(coordinator.beginScreenFallback(1)).toBe(true);
+    expect(coordinator.snapshot()).toMatchObject({
+      generation: 1,
+      phase: 'screen-fallback',
+      requestId: 'force-1',
+      pendingRequestCount: 1,
+    });
+    expect(
+      coordinator.acceptFinal({
+        sequence: 1,
+        text: 'Какие бывают техники тест-дизайна?',
+        source: 'system',
+      }),
+    ).toMatchObject({
+      action: 'submit',
+      generation: 1,
+      question: 'Какие бывают техники тест-дизайна?',
+    });
+  });
+
   it('does not consume a final from the wrong source while finalizing', () => {
     const coordinator = new LatestForcedAnswerCoordinator(() => 'force-1');
     coordinator.press([], 'system');

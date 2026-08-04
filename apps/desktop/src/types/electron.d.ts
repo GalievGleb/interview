@@ -110,6 +110,8 @@ export interface ElectronAPI {
     ) => Promise<HhAssistantState>;
     closeBrowser: () => Promise<HhAssistantState>;
     login: (login: string, password: string) => Promise<{ ok: boolean; message: string }>;
+    requestLoginCode: (email: string) => Promise<{ ok: boolean; message: string }>;
+    confirmLoginCode: (code: string) => Promise<{ ok: boolean; message: string }>;
     applyAll: () => Promise<HhAssistantState>;
     applyOne: (vacancyId: string) => Promise<HhAssistantState>;
     stopApply: () => Promise<HhAssistantState>;

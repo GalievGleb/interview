@@ -10,11 +10,12 @@ from app.db import models
 from app.services import model_router, provider_adapter, quota
 
 VALID_ANALYSIS = {
+    "interviewType": "technical",
     "overallLevel": "Middle",
+    "overallScore": 58,
+    "overallConfidence": 0.86,
     "conclusion": "Хорошо понимает API, но ответ по тест-дизайну неполный.",
-    "strengths": [
-        {"topic": "API-тестирование", "evidence": "Проверяю JSON и схему ответа."}
-    ],
+    "strengths": [{"topic": "API-тестирование", "evidence": "Проверяю JSON и схему ответа."}],
     "weaknesses": [
         {
             "topic": "Техники тест-дизайна",
@@ -22,9 +23,7 @@ VALID_ANALYSIS = {
             "learningAction": "Повторить граничные значения, таблицы решений и pairwise.",
         }
     ],
-    "topicAssessments": [
-        {"topic": "Техники тест-дизайна", "score": 42, "confidence": 0.9}
-    ],
+    "topicAssessments": [{"topic": "Техники тест-дизайна", "score": 42, "confidence": 0.9}],
     "markdown": "## Итог\nНужно усилить техники тест-дизайна.",
 }
 
@@ -87,6 +86,8 @@ def test_session_analysis_uses_ordered_transcript_roles_and_deep_router(client, 
     candidate = prompt.index("Кандидат: Классы эквивалентности.")
     assert interviewer < candidate
     assert "Пиши весь обычный текст по-русски" in prompt
+    assert "Classify the interview as technical, hr, mixed, or unknown" in prompt
+    assert "Do not score missing technical topics in an HR interview" in prompt
     assert captured["provider"]
     assert captured["model"] == "test/deep-model"
     assert resolved_modes == ["deep"]
@@ -153,7 +154,9 @@ def test_privacy_wipe_removes_session_assessments(client, monkeypatch, db_sessio
 
     monkeypatch.setattr(provider_adapter, "complete", fake_complete)
     session_id = _completed_session(client)
-    assert client.post(f"/sessions/{session_id}/analysis", json={"language": "ru"}).status_code == 200
+    assert (
+        client.post(f"/sessions/{session_id}/analysis", json={"language": "ru"}).status_code == 200
+    )
     assert db_session.query(models.SessionAssessment).count() == 1
 
     response = client.delete("/data")
@@ -165,9 +168,7 @@ def test_privacy_wipe_removes_session_assessments(client, monkeypatch, db_sessio
     assert client.get("/sessions/knowledge-map").json()["weakTopics"] == []
 
 
-def test_delete_waits_for_inflight_analysis_and_leaves_no_orphan(
-    client, monkeypatch, db_session
-):
+def test_delete_waits_for_inflight_analysis_and_leaves_no_orphan(client, monkeypatch, db_session):
     started = Event()
     release = Event()
 
@@ -248,6 +249,30 @@ def test_knowledge_map_aggregates_low_scores(client, monkeypatch):
     assert response.json()["weakTopics"][0]["score"] == 42
 
 
+def test_hr_analysis_does_not_pollute_technical_knowledge_map(client, monkeypatch):
+    result = deepcopy(VALID_ANALYSIS)
+    result.update(
+        {
+            "interviewType": "hr",
+            "overallLevel": "Уверенная подача",
+            "overallScore": 74,
+            "overallConfidence": 0.9,
+            "topicAssessments": [{"topic": "Самопрезентация", "score": 74, "confidence": 0.9}],
+        }
+    )
+
+    async def fake_complete(*args, **kwargs):
+        return json.dumps(result, ensure_ascii=False)
+
+    monkeypatch.setattr(provider_adapter, "complete", fake_complete)
+    session_id = _completed_session(client)
+    response = client.post(f"/sessions/{session_id}/analysis", json={"language": "ru"})
+
+    assert response.status_code == 200, response.text
+    assert response.json()["interviewType"] == "hr"
+    assert client.get("/sessions/knowledge-map").json()["weakTopics"] == []
+
+
 def test_knowledge_map_merges_topics_by_normalized_name_and_sorts(client, monkeypatch):
     first = deepcopy(VALID_ANALYSIS)
     first["topicAssessments"] = [
@@ -286,9 +311,7 @@ def test_knowledge_map_merges_topics_by_normalized_name_and_sorts(client, monkey
     assert knowledge["updatedAt"]
 
 
-def test_single_channel_analysis_is_explicitly_ambiguous_and_low_confidence(
-    client, monkeypatch
-):
+def test_single_channel_analysis_is_explicitly_ambiguous_and_low_confidence(client, monkeypatch):
     captured: dict[str, str] = {}
     result = deepcopy(VALID_ANALYSIS)
     result["topicAssessments"][0]["confidence"] = 0.95

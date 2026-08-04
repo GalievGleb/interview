@@ -158,6 +158,7 @@ export default function HistoryPage() {
   const [selected, setSelected] = useState<SessionDetail | null>(null);
   const [selectedAnalysis, setSelectedAnalysis] = useState<SessionAssessment | null>(null);
   const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [analysisError, setAnalysisError] = useState('');
   const [selectedMock, setSelectedMock] = useState<SmokeReviewSession | null>(null);
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -200,6 +201,7 @@ export default function HistoryPage() {
     const generation = ++openGenerationRef.current;
     setAnalysisLoading(true);
     setSelectedAnalysis(null);
+    setAnalysisError('');
     try {
       const [detail, savedAnalysis] = await Promise.all([
         api.getSession(id),
@@ -224,7 +226,31 @@ export default function HistoryPage() {
     setSelected(null);
     setSelectedAnalysis(null);
     setAnalysisLoading(false);
+    setAnalysisError('');
     setError('');
+  };
+
+  const analyzeSelected = async () => {
+    if (!selected) return;
+    const generation = openGenerationRef.current;
+    const selectedId = selected.id;
+    setAnalysisLoading(true);
+    setAnalysisError('');
+    try {
+      const result = await api.createSessionAnalysis(selected.id, lang);
+      if (generation !== openGenerationRef.current) return;
+      setSelectedAnalysis(result);
+      await refreshSessionKnowledge().catch(() => {
+        // The session analysis is already persisted; aggregate refresh is best-effort.
+      });
+    } catch (err) {
+      if (generation !== openGenerationRef.current) return;
+      setAnalysisError(err instanceof Error ? err.message : t('history.analysis.failed'));
+    } finally {
+      if (generation === openGenerationRef.current && selectedId === selected.id) {
+        setAnalysisLoading(false);
+      }
+    }
   };
 
   const remove = async (row: HistoryRow) => {
@@ -482,6 +508,24 @@ export default function HistoryPage() {
                 {analysisLoading && (
                   <div className="prep-preview-card prep-faint">
                     {t('history.analysis.loading')}
+                  </div>
+                )}
+
+                {!analysisLoading && !selectedAnalysis && (
+                  <div className="prep-preview-card">
+                    <p className="prep-eyebrow mb-2">{t('history.analysis.title')}</p>
+                    <p className="prep-sub max-w-xl">
+                      {analysisError || t('history.analysis.empty')}
+                    </p>
+                    <button
+                      type="button"
+                      className="prep-btn prep-btn-sm mt-3"
+                      onClick={() => void analyzeSelected()}
+                    >
+                      {analysisError
+                        ? t('history.analysis.retry')
+                        : t('history.analysis.create')}
+                    </button>
                   </div>
                 )}
 

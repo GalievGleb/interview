@@ -236,6 +236,7 @@ export default function OverlayPage() {
   const summaryCancelRef = useRef<(() => void) | null>(null);
   const analysisRequestGenerationRef = useRef(0);
   const screenAssistGenerationRef = useRef(0);
+  const forceScreenFallbackOwnerRef = useRef(0);
   const manualBusyRef = useRef(false);
   const lastForceScreenFallbackRef = useRef(0);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -466,8 +467,24 @@ export default function OverlayPage() {
     }
     if (lastForceScreenFallbackRef.current === forceScreenFallbackGeneration) return;
     lastForceScreenFallbackRef.current = forceScreenFallbackGeneration;
+    forceScreenFallbackOwnerRef.current = forceScreenFallbackGeneration;
     void runScreenAssist('', smart ? 'deep' : 'general');
   }, [forceScreenFallbackGeneration, runScreenAssist, smart]);
+
+  const cancelOwnedForceScreenFallback = useCallback((generation: number) => {
+    if (!generation || forceScreenFallbackOwnerRef.current !== generation) return;
+    forceScreenFallbackOwnerRef.current = 0;
+    screenAssistGenerationRef.current += 1;
+    cancelRef.current?.();
+    cancelRef.current = null;
+    manualBusyRef.current = false;
+  }, []);
+
+  useEffect(() => {
+    if (forcePhase === 'waiting-first-token' || forcePhase === 'streaming') {
+      cancelOwnedForceScreenFallback(forceGeneration);
+    }
+  }, [cancelOwnedForceScreenFallback, forceGeneration, forcePhase]);
 
   useEffect(() => {
     if (!forceGeneration) return;
@@ -528,6 +545,7 @@ export default function OverlayPage() {
   };
 
   const closeExchange = useCallback(() => {
+    forceScreenFallbackOwnerRef.current = 0;
     screenAssistGenerationRef.current += 1;
     cancelRef.current?.();
     cancelRef.current = null;
@@ -546,27 +564,58 @@ export default function OverlayPage() {
     }
     setRecapSummary('');
     setRecapSummaryStreaming(true);
-    summaryCancelRef.current = api.streamMeetingSummary(transcript, {
-      onChunk: (c) => setRecapSummary((s) => s + c),
-      onDone: () => setRecapSummaryStreaming(false),
-      onError: (m) => {
-        setRecapSummaryStreaming(false);
-        setRecapSummary((s) => s || `⚠ ${m}`);
+    summaryCancelRef.current = api.streamMeetingSummary(
+      transcript,
+      {
+        onChunk: (c) => setRecapSummary((s) => s + c),
+        onDone: () => setRecapSummaryStreaming(false),
+        onError: (m) => {
+          setRecapSummaryStreaming(false);
+          setRecapSummary((s) => s || `⚠ ${m}`);
+        },
       },
-    });
-  }, [t]);
+      { answerLanguage: (answerLanguageParam() ?? lang) as 'ru' | 'en' },
+    );
+  }, [lang, t]);
+
+  const requestRecapAnalysis = useCallback(async (requestSessionId: string) => {
+    const requestGeneration = ++analysisRequestGenerationRef.current;
+    setAnalysisLoading(true);
+    setAnalysisError('');
+    try {
+      const analysisLanguage = (answerLanguageParam() ?? lang) as 'ru' | 'en';
+      const result = await api.createSessionAnalysis(requestSessionId, analysisLanguage);
+      void refreshSessionKnowledge().catch(() => {
+        // The assessment itself is already persisted; cache refresh is best-effort.
+      });
+      if (requestGeneration !== analysisRequestGenerationRef.current) return;
+      setAnalysis(result);
+    } catch (err) {
+      if (requestGeneration !== analysisRequestGenerationRef.current) return;
+      setAnalysisError(
+        err instanceof Error && err.message.trim()
+          ? err.message
+          : t('overlay.recap.analysisFailed'),
+      );
+    } finally {
+      if (requestGeneration === analysisRequestGenerationRef.current) {
+        setAnalysisLoading(false);
+      }
+    }
+  }, [lang, t]);
 
   const openRecap = useCallback(
     (snapshot: TranscriptLine[], endedSessionId: string | null) => {
       analysisRequestGenerationRef.current += 1;
       setRecap({ lines: snapshot, at: Date.now(), sessionId: endedSessionId });
-      setRecapTab('summary');
+      setRecapTab(endedSessionId ? 'analysis' : 'summary');
       setAnalysis(null);
       setAnalysisError('');
       setAnalysisLoading(false);
       generateSummary(snapshot);
+      if (endedSessionId) void requestRecapAnalysis(endedSessionId);
     },
-    [generateSummary],
+    [generateSummary, requestRecapAnalysis],
   );
 
   const closeRecap = useCallback(() => {
@@ -595,31 +644,8 @@ export default function OverlayPage() {
       return;
     }
 
-    const requestGeneration = ++analysisRequestGenerationRef.current;
-    const requestSessionId = recap.sessionId;
-    setAnalysisLoading(true);
-    setAnalysisError('');
-    try {
-      const analysisLanguage = (answerLanguageParam() ?? lang) as 'ru' | 'en';
-      const result = await api.createSessionAnalysis(requestSessionId, analysisLanguage);
-      void refreshSessionKnowledge().catch(() => {
-        // The assessment itself is already persisted; cache refresh is best-effort.
-      });
-      if (requestGeneration !== analysisRequestGenerationRef.current) return;
-      setAnalysis(result);
-    } catch (err) {
-      if (requestGeneration !== analysisRequestGenerationRef.current) return;
-      setAnalysisError(
-        err instanceof Error && err.message.trim()
-          ? err.message
-          : t('overlay.recap.analysisFailed'),
-      );
-    } finally {
-      if (requestGeneration === analysisRequestGenerationRef.current) {
-        setAnalysisLoading(false);
-      }
-    }
-  }, [lang, recap, t]);
+    await requestRecapAnalysis(recap.sessionId);
+  }, [recap, requestRecapAnalysis, t]);
 
   const toggleSession = () => {
     if (active) stopSession();
@@ -673,6 +699,7 @@ export default function OverlayPage() {
     if (!acceptForceHotkey(lastForceHotkeyRef.current, event)) return;
     lastForceHotkeyRef.current = event;
 
+    forceScreenFallbackOwnerRef.current = 0;
     screenAssistGenerationRef.current += 1;
     cancelRef.current?.();
     cancelRef.current = null;
@@ -930,6 +957,7 @@ export default function OverlayPage() {
       </div>
 
       {/* ---------- Экран итогов сессии ---------- */}
+      <div className="ovl-stack">
       {recap ? (
         <div className="ovl-card ovl-recap animate-scale-in" data-overlay-hit="true">
           <div className="mb-3 flex items-start justify-between gap-3">
@@ -1519,6 +1547,7 @@ export default function OverlayPage() {
           </>
         )
       )}
+      </div>
       <OverlayTooltipLayer rootRef={rootRef} />
     </div>
   );

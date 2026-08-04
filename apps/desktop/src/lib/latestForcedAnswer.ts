@@ -1,6 +1,7 @@
 export type ForcePhase =
   | 'idle'
   | 'finalizing-transcript'
+  | 'screen-fallback'
   | 'waiting-first-token'
   | 'streaming'
   | 'done'
@@ -118,7 +119,9 @@ export class LatestForcedAnswerCoordinator {
     const activeRequestId = this.state.requestId;
     const pending = requestId
       ? this.pendingFinalizations.get(requestId)
-      : this.state.phase === 'finalizing-transcript' && this.state.source
+      : (this.state.phase === 'finalizing-transcript' ||
+            this.state.phase === 'screen-fallback') &&
+          this.state.source
         ? { generation: this.state.generation, source: this.state.source }
         : undefined;
 
@@ -187,6 +190,23 @@ export class LatestForcedAnswerCoordinator {
       sequence: this.state.consumedSequence,
       question: question.trim(),
     };
+  }
+
+  /**
+   * Starts the screen fallback without closing the STT request. A final
+   * transcript can arrive after screen capture has begun; that real question
+   * must still replace the fallback for the same Ctrl+Enter generation.
+   */
+  beginScreenFallback(generation: number): boolean {
+    if (
+      generation !== this.state.generation ||
+      (this.state.phase !== 'finalizing-transcript' &&
+        this.state.phase !== 'screen-fallback')
+    ) {
+      return false;
+    }
+    this.state = { ...this.state, phase: 'screen-fallback' };
+    return true;
   }
 
   setPhase(generation: number, phase: ForcePhase): boolean {
