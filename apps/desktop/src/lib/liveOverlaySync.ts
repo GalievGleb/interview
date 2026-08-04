@@ -20,8 +20,18 @@ export function deriveLiveExchange(
   streamText: string,
   streaming: boolean,
   lastSpoken: string | undefined,
+  forcePhase: ForcePhase = 'idle',
+  forcedError = '',
 ): LiveExchangeView {
-  const text = streamText || (streaming ? '' : lastSpoken ?? '');
+  const awaitingForcedAnswer =
+    forcePhase === 'finalizing-transcript' || forcePhase === 'waiting-first-token';
+  const pending = streaming || awaitingForcedAnswer || forcePhase === 'streaming';
+  const text = forcedError
+    ? `⚠ ${forcedError}`
+    : awaitingForcedAnswer
+      ? ''
+      : streamText || (pending ? '' : lastSpoken ?? '');
   // Показываем, если есть что показать ИЛИ идёт генерация (нужен лоадер).
-  return { show: Boolean(text) || streaming, text };
+  return { show: Boolean(text) || pending, text };
 }
+import type { ForcePhase } from './latestForcedAnswer';

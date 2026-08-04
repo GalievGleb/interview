@@ -5,6 +5,8 @@ import { GatewayService } from './gateway.service';
 import { BillingService } from './billing.service';
 import { GatewaySttService } from './gateway-stt.service';
 import { GatewaySttQuotaService } from './gateway-stt-quota.util';
+import { GatewaySttUploadGuard } from './gateway-stt-upload.guard';
+import { GatewayTtsService } from './gateway-tts.service';
 
 @Module({
   imports: [RedisModule],
@@ -14,6 +16,8 @@ import { GatewaySttQuotaService } from './gateway-stt-quota.util';
     BillingService,
     GatewaySttService,
     GatewaySttQuotaService,
+    GatewaySttUploadGuard,
+    GatewayTtsService,
   ],
 })
 export class GatewayModule {}

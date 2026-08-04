@@ -33,9 +33,11 @@ an app-only installer without rebuilding the backend.
 
 ## App icon
 
-`apps/desktop/build/icon.ico` is the multi-resolution app/installer icon
-(electron-builder picks up `build/icon.ico` automatically; also referenced via
-`build.win.icon`). Regenerate with `python apps/desktop/build/make_icon.py`.
+`apps/desktop/build/icon.ico` is the multi-resolution app/installer icon. The
+same deterministic generator creates the assisted NSIS header and install/
+uninstall sidebars in the SkillCue visual language. `pnpm build` regenerates all
+four files automatically; to refresh them directly, run
+`python apps/desktop/build/make_icon.py`.
 
 ## Code signing (Windows)
 

@@ -4,17 +4,28 @@
  * (кандидату труднее импровизировать там, где mock показал пробел).
  */
 import { latestCompleted } from './vacancyReviewStore';
+import { loadSessionWeakTopics } from '../sessionKnowledge';
 
 export function getWeakTopicTitles(limit = 5): string[] {
   const report = latestCompleted()?.report;
-  if (!report) return [];
   const rank = { critical: 0, weak: 1 } as const;
-  return report.topicScores
-    .filter((t): t is typeof t & { status: keyof typeof rank } => t.status in rank)
-    .sort((a, b) => {
-      const byStatus = rank[a.status as keyof typeof rank] - rank[b.status as keyof typeof rank];
-      return byStatus !== 0 ? byStatus : a.score - b.score; // худшие — первыми
-    })
-    .slice(0, limit)
-    .map((t) => t.title);
+  const mockTopics = report
+    ? report.topicScores
+        .filter((t): t is typeof t & { status: keyof typeof rank } => t.status in rank)
+        .sort((a, b) => {
+          const byStatus = rank[a.status as keyof typeof rank] - rank[b.status as keyof typeof rank];
+          return byStatus !== 0 ? byStatus : a.score - b.score;
+        })
+        .map((topic) => topic.title)
+    : [];
+  const sessionTopics = loadSessionWeakTopics()
+    .sort((left, right) => left.score - right.score)
+    .map((topic) => topic.topic);
+  const seen = new Set<string>();
+  return [...mockTopics, ...sessionTopics].filter((topic) => {
+    const key = topic.normalize('NFKC').trim().toLocaleLowerCase();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, limit);
 }

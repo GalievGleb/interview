@@ -3,7 +3,6 @@ import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../lib/api';
 import Modal from '../components/Modal';
 import MicrophoneSettings from '../components/MicrophoneSettings';
-import AiModelsSettings from '../components/AiModelsSettings';
 import SpeechRecognitionSettings from '../components/SpeechRecognitionSettings';
 import DiagnosticsPanel from '../components/DiagnosticsPanel';
 import LicenseCard from '../components/LicenseCard';
@@ -22,16 +21,16 @@ import {
 import { openSupportLink, SUPPORT_EMAIL, SUPPORT_TELEGRAM_URL } from '../lib/support';
 import { getErrorLog, isErrorLogEnabled, setErrorLogEnabled } from '../lib/errorLog';
 import { getActivation } from '../lib/activation';
+import type { UpdaterStatus } from '../types/electron';
+import { clearSessionKnowledge } from '../lib/sessionKnowledge';
 
 /**
  * Настройки — панель в стиле Cluely: слева разделы, справа контент
- * рядами «заголовок + описание + контрол». Deep-links (?tab=ai|speech|…)
- * сохранены для предупреждений с других экранов.
+ * рядами «заголовок + описание + контрол».
  */
 
 type SettingsTab =
   | 'general'
-  | 'ai'
   | 'speech'
   | 'modes'
   | 'keybinds'
@@ -42,7 +41,6 @@ type SettingsTab =
 
 const SECTIONS: Array<{ id: SettingsTab; labelKey: I18nKey; d: string }> = [
   { id: 'general', labelKey: 'settings.section.general', d: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z|M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.09a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.09a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z' },
-  { id: 'ai', labelKey: 'settings.section.ai', d: 'M12 2a4 4 0 0 1 4 4c0 .74-.2 1.43-.55 2.03A4 4 0 0 1 18 12a4 4 0 0 1-2 3.46V17a4 4 0 0 1-8 0v-1.54A4 4 0 0 1 6 12a4 4 0 0 1 2.55-3.97A4 4 0 0 1 8 6a4 4 0 0 1 4-4z' },
   { id: 'speech', labelKey: 'settings.section.speech', d: 'M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z|M19 10v1a7 7 0 0 1-14 0v-1|M12 18v4' },
   { id: 'modes', labelKey: 'settings.section.modes', d: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z' },
   { id: 'keybinds', labelKey: 'settings.section.keybinds', d: 'M2 6h20v12H2z|M6 10h.01M10 10h.01M14 10h.01M18 10h.01|M7 14h10' },
@@ -143,8 +141,7 @@ function GeneralSection() {
   const { pref, setPref } = useTheme();
   const { t, lang, setLang } = useI18n();
   const [version, setVersion] = useState('');
-  const [checking, setChecking] = useState(false);
-  const [updateMsg, setUpdateMsg] = useState('');
+  const [updaterStatus, setUpdaterStatus] = useState<UpdaterStatus>({ state: 'idle' });
   const [stealth, setStealth] = useState(() => localStorage.getItem(STEALTH_KEY) === '1');
   const [useScreen, setUseScreen] = useState(() => localStorage.getItem(USE_SCREEN_KEY) !== '0');
   const [hideWidget, setHideWidget] = useState(() => localStorage.getItem(HIDE_WIDGET_KEY) !== '0');
@@ -161,31 +158,57 @@ function GeneralSection() {
       setAutoLaunchAvailable(true);
       void get().then(setAutoLaunch);
     }
+    const updater = window.electronAPI?.updater;
+    if (!updater) return;
+    let receivedLiveStatus = false;
+    const unsubscribe = updater.onStatus((next) => {
+      receivedLiveStatus = true;
+      setUpdaterStatus(next);
+    });
+    void updater.getStatus?.().then((current) => {
+      if (!receivedLiveStatus) setUpdaterStatus(current);
+    });
+    return unsubscribe;
   }, []);
 
   const checkUpdates = async () => {
     const check = window.electronAPI?.updater?.check;
     if (!check) {
-      setUpdateMsg(t('settings.update.unavailable'));
+      setUpdaterStatus({ state: 'error', message: t('settings.update.unavailable') });
       return;
     }
-    setChecking(true);
-    setUpdateMsg('');
-    try {
-      const res = await check();
-      if (res.state === 'available') {
-        setUpdateMsg(
-          `${t('settings.update.availablePre')} ${res.version} ${t('settings.update.availablePost')}`,
-        );
-      } else if (res.state === 'none') {
-        setUpdateMsg(res.message ?? t('settings.update.latest'));
-      } else {
-        setUpdateMsg(`${t('settings.update.failed')} ${res.message ?? t('common.error')}`);
-      }
-    } finally {
-      setChecking(false);
-    }
+    setUpdaterStatus({ state: 'checking' });
+    const result = await check();
+    setUpdaterStatus((current) =>
+      current.state === 'downloading' ||
+      current.state === 'ready' ||
+      current.state === 'waiting-for-session-end' ||
+      current.state === 'installing'
+        ? current
+        : result,
+    );
   };
+
+  const canCheckUpdates =
+    updaterStatus.state === 'idle' ||
+    updaterStatus.state === 'none' ||
+    updaterStatus.state === 'error';
+  const updateMsg =
+    updaterStatus.state === 'checking'
+      ? t('settings.update.checking')
+      : updaterStatus.state === 'available'
+        ? `${t('settings.update.availablePre')} ${updaterStatus.version ?? ''} ${t('settings.update.availablePost')}`
+        : updaterStatus.state === 'ready'
+          ? `${t('settings.update.readyPre')} ${updaterStatus.version ?? ''} ${t('settings.update.readyPost')}`
+          : updaterStatus.state === 'waiting-for-session-end'
+            ? t('update.waitingForSessionEnd')
+            : updaterStatus.state === 'installing'
+              ? t('update.installing')
+              : updaterStatus.state === 'none'
+                ? updaterStatus.message ?? t('settings.update.latest')
+                : updaterStatus.state === 'error'
+                  ? `${t('settings.update.failed')} ${updaterStatus.message ?? t('common.error')}`
+                  : '';
 
   const toggleStealth = (v: boolean) => {
     setStealth(v);
@@ -211,15 +234,40 @@ function GeneralSection() {
           desc={t('settings.version.desc')}
         >
           <div className="flex items-center gap-3">
-            {updateMsg && <p className="max-w-56 text-right text-[11px] text-ink-faint">{updateMsg}</p>}
-            <button
-              type="button"
-              className="btn-secondary btn-sm"
-              disabled={checking}
-              onClick={() => void checkUpdates()}
-            >
-              {checking ? t('settings.update.checking') : t('settings.update.check')}
-            </button>
+            {updaterStatus.state === 'downloading' ? (
+              <div className="w-56">
+                <p className="mb-1.5 flex items-center justify-between text-[11px] text-ink-faint">
+                  <span>{t('settings.update.downloading')}</span>
+                  <span className="sc-mono">{updaterStatus.percent ?? 0}%</span>
+                </p>
+                <div
+                  className="sc-progress"
+                  role="progressbar"
+                  aria-label={t('settings.update.downloading')}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={updaterStatus.percent ?? 0}
+                >
+                  <div
+                    className="sc-progress__fill"
+                    style={{ width: `${updaterStatus.percent ?? 0}%` }}
+                  />
+                </div>
+              </div>
+            ) : (
+              updateMsg && (
+                <p className="max-w-64 text-right text-[11px] text-ink-faint">{updateMsg}</p>
+              )
+            )}
+            {canCheckUpdates && (
+              <button
+                type="button"
+                className="btn-secondary btn-sm"
+                onClick={() => void checkUpdates()}
+              >
+                {t('settings.update.check')}
+              </button>
+            )}
           </div>
         </SettingRow>
 
@@ -670,6 +718,7 @@ export default function SettingsPage() {
   const deleteData = async () => {
     try {
       await api.deleteAllData();
+      clearSessionKnowledge();
       setMessage(t('settings.data.deleted'));
     } catch (err) {
       setMessage(err instanceof Error ? err.message : t('common.error'));
@@ -740,8 +789,6 @@ export default function SettingsPage() {
         <p className="mb-5 text-sm text-ink-faint">{t(`settings.sub.${tab}` as I18nKey)}</p>
 
         {tab === 'general' && <GeneralSection />}
-
-        {tab === 'ai' && <AiModelsSettings />}
 
         {tab === 'speech' && (
           <>

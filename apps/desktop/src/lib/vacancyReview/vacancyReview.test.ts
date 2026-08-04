@@ -226,6 +226,25 @@ describe('evaluation + report', () => {
     }
   });
 
+  it('sends the raw recognized answer to evaluation with outer trim only', async () => {
+    const analysis = analyzeVacancyMock({ vacancyText: QA_VACANCY, language: 'ru' });
+    const [question] = buildSmokePlan(analysis);
+    const spy = vi.spyOn(api, 'vacancyEvaluate').mockRejectedValueOnce(new Error('offline'));
+    const rawAnswer = '  Микрофон не работает. Проверяю JSON  и  headers.  ';
+
+    try {
+      await evaluateAnswer(question, rawAnswer, analysis);
+
+      expect(spy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          answer: 'Микрофон не работает. Проверяю JSON  и  headers.',
+        }),
+      );
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('does not turn tool-choice expected knowledge into filler missing words', () => {
     const analysis: VacancyAnalysis = {
       id: 'tool-choice',

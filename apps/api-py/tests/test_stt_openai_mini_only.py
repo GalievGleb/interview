@@ -203,6 +203,60 @@ async def test_live_stream_finalizes_pending_audio_on_control_message():
     )
 
 
+async def test_forced_finalize_accepts_a_short_explicit_question():
+    class FakeWebSocket:
+        def __init__(self):
+            voice = (1200).to_bytes(2, byteorder="little", signed=True) * 4800
+            self.messages = [
+                {"type": "websocket.receive", "bytes": voice},
+                {
+                    "type": "websocket.receive",
+                    "text": json.dumps({"type": "finalize", "request_id": "force-short"}),
+                },
+                {"type": "websocket.disconnect"},
+            ]
+            self.sent = []
+
+        async def receive(self):
+            return self.messages.pop(0)
+
+        async def send_json(self, payload):
+            self.sent.append(payload)
+
+    class FakeProvider:
+        def is_available(self):
+            return True
+
+        async def prepare_async(self):
+            return None
+
+        def _active_model(self):
+            return MINI_MODEL
+
+        async def transcribe_audio_file(self, _audio, **_kwargs):
+            return TranscriptResult(
+                text="Which types?",
+                latency_ms=25,
+                provider_id="openai-gpt-4o-mini-transcribe",
+                model=MINI_MODEL,
+            )
+
+    ws = FakeWebSocket()
+    await run_openai_mini_stream(ws, provider=FakeProvider())
+
+    assert any(
+        event.get("type") == "transcript"
+        and event.get("text") == "Which types?"
+        and event.get("force_request_id") == "force-short"
+        for event in ws.sent
+    )
+    assert not any(
+        event.get("type") == "low_quality"
+        and event.get("force_request_id") == "force-short"
+        for event in ws.sent
+    )
+
+
 async def test_live_stream_reports_empty_manual_finalize():
     class FakeWebSocket:
         def __init__(self):

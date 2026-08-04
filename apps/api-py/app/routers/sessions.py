@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends
@@ -5,8 +6,15 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.errors import AppError
-from app.db.models import InterviewSession, Transcript
+from app.db.models import InterviewSession, SessionAssessment, Transcript
 from app.db.session import get_db
+from app.services import quota
+from app.services.session_analysis import analyze_session
+from app.services.session_mutation_lock import (
+    async_session_mutation_lock,
+    session_mutation_lock,
+    session_mutation_locks,
+)
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
@@ -154,6 +162,60 @@ def session_stats(db: Session = Depends(get_db)) -> dict:
     }
 
 
+@router.get("/knowledge-map")
+def session_knowledge_map(db: Session = Depends(get_db)) -> dict:
+    grouped: dict[str, dict] = {}
+    for row in db.query(SessionAssessment).order_by(SessionAssessment.created_at).all():
+        assessment = json.loads(row.analysis_json)
+        for item in assessment.get("topicAssessments", []):
+            topic = str(item["topic"]).strip()
+            confidence = float(item["confidence"])
+            # A single-channel session is deliberately capped at 0.35 because
+            # speaker roles are unverified. Low-confidence evidence remains in
+            # the saved analysis but must not steer future live prompts.
+            if confidence < 0.5:
+                continue
+            key = topic.casefold()
+            bucket = grouped.setdefault(
+                key,
+                {
+                    "topic": topic,
+                    "scores": [],
+                    "confidences": [],
+                },
+            )
+            bucket["scores"].append(float(item["score"]))
+            bucket["confidences"].append(confidence)
+
+    topics = []
+    for bucket in grouped.values():
+        scores = bucket["scores"]
+        confidences = bucket["confidences"]
+        total_confidence = sum(confidences)
+        if total_confidence:
+            score = round(
+                sum(value * confidence for value, confidence in zip(scores, confidences))
+                / total_confidence
+            )
+        else:
+            score = round(sum(scores) / len(scores))
+        topics.append(
+            {
+                "topic": bucket["topic"],
+                "score": score,
+                "confidence": round(sum(confidences) / len(confidences), 2),
+                "evidenceCount": len(scores),
+            }
+        )
+
+    topics.sort(key=lambda item: (item["score"], item["topic"].casefold()))
+    return {
+        "weakTopics": [topic for topic in topics if topic["score"] < 70][:12],
+        "strongTopics": [topic for topic in reversed(topics) if topic["score"] >= 70][:12],
+        "updatedAt": _naive_utc_now().isoformat(),
+    }
+
+
 @router.get("/{session_id}")
 def get_session(session_id: str, db: Session = Depends(get_db)) -> dict:
     s = db.query(InterviewSession).filter(InterviewSession.id == session_id).first()
@@ -196,12 +258,14 @@ def delete_all_sessions_post(db: Session = Depends(get_db)) -> dict:
 
 
 def _delete_all_sessions(db: Session) -> dict:
-    rows = db.query(InterviewSession).all()
-    count = len(rows)
-    for s in rows:
-        db.delete(s)  # ORM cascade removes answers + transcripts
-    db.commit()
-    return {"deleted": count}
+    session_ids = [row[0] for row in db.query(InterviewSession.id).all()]
+    with session_mutation_locks(session_ids):
+        rows = db.query(InterviewSession).all()
+        count = len(rows)
+        for s in rows:
+            db.delete(s)  # ORM cascade removes answers + transcripts + assessment
+        db.commit()
+        return {"deleted": count}
 
 
 @router.delete("/{session_id}")
@@ -215,12 +279,13 @@ def delete_session_post(session_id: str, db: Session = Depends(get_db)) -> dict:
 
 
 def _delete_session(session_id: str, db: Session) -> dict:
-    s = db.query(InterviewSession).filter(InterviewSession.id == session_id).first()
-    if not s:
-        raise AppError("Session not found", 404, "not_found")
-    db.delete(s)
-    db.commit()
-    return {"deleted": session_id}
+    with session_mutation_lock(session_id):
+        s = db.query(InterviewSession).filter(InterviewSession.id == session_id).first()
+        if not s:
+            raise AppError("Session not found", 404, "not_found")
+        db.delete(s)
+        db.commit()
+        return {"deleted": session_id}
 
 
 class EndPayload(BaseModel):
@@ -266,3 +331,45 @@ def add_transcript(
     db.add(t)
     db.commit()
     return {"id": t.id}
+
+
+class AnalyzeSessionRequest(BaseModel):
+    language: str = "ru"
+
+
+@router.post("/{session_id}/analysis")
+async def create_session_analysis(
+    session_id: str,
+    payload: AnalyzeSessionRequest,
+    db: Session = Depends(get_db),
+) -> dict:
+    async with async_session_mutation_lock(session_id):
+        session = db.get(InterviewSession, session_id)
+        if not session:
+            raise AppError("Session not found", 404, "not_found")
+        existing = db.query(SessionAssessment).filter_by(session_id=session_id).first()
+        if existing:
+            return json.loads(existing.analysis_json)
+
+        quota.check_token_quota(db)
+        result = await analyze_session(db, session, payload.language)
+        db.expire_all()
+        if not db.query(InterviewSession.id).filter_by(id=session_id).first():
+            raise AppError("Session was deleted during analysis", 409, "session_deleted")
+        row = SessionAssessment(
+            session_id=session_id,
+            language=payload.language,
+            analysis_json=result.model_dump_json(),
+            markdown=result.markdown,
+        )
+        db.add(row)
+        db.commit()
+        return result.model_dump()
+
+
+@router.get("/{session_id}/analysis")
+def get_session_analysis(session_id: str, db: Session = Depends(get_db)) -> dict:
+    row = db.query(SessionAssessment).filter_by(session_id=session_id).first()
+    if not row:
+        raise AppError("Session analysis not found", 404, "not_found")
+    return json.loads(row.analysis_json)

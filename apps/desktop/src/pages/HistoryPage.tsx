@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import InterviewExportButtons from '../components/interview/InterviewExportButtons';
-import { api, SessionItem, SessionDetail } from '../lib/api';
+import MarkdownText from '../components/MarkdownText';
+import { api, SessionItem, SessionDetail, type SessionAssessment } from '../lib/api';
 import { buildStoredSessionExport } from '../lib/interviewSessionExport';
 import { useI18n, type I18nKey } from '../lib/i18n';
 import { launchLive } from '../lib/launchLive';
@@ -10,6 +11,7 @@ import {
   deleteSession as deleteMockSession,
 } from '../lib/vacancyReview/vacancyReviewStore';
 import type { ReadinessLabel, SmokeReviewSession } from '../lib/vacancyReview/types';
+import { clearSessionKnowledge, refreshSessionKnowledge } from '../lib/sessionKnowledge';
 
 type SourceFilter = 'all' | 'interview' | 'meeting' | 'mock';
 
@@ -154,6 +156,8 @@ export default function HistoryPage() {
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [mockSessions, setMockSessions] = useState<SmokeReviewSession[]>([]);
   const [selected, setSelected] = useState<SessionDetail | null>(null);
+  const [selectedAnalysis, setSelectedAnalysis] = useState<SessionAssessment | null>(null);
+  const [analysisLoading, setAnalysisLoading] = useState(false);
   const [selectedMock, setSelectedMock] = useState<SmokeReviewSession | null>(null);
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -161,6 +165,11 @@ export default function HistoryPage() {
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
   const [source, setSource] = useState<SourceFilter>('all');
+  const openGenerationRef = useRef(0);
+  const invalidatePendingOpen = () => {
+    openGenerationRef.current += 1;
+    setAnalysisLoading(false);
+  };
 
   const loadSessions = useCallback(async () => {
     setLoading(true);
@@ -188,24 +197,39 @@ export default function HistoryPage() {
   }, []);
 
   const open = async (id: string) => {
+    const generation = ++openGenerationRef.current;
+    setAnalysisLoading(true);
+    setSelectedAnalysis(null);
     try {
-      const detail = await api.getSession(id);
+      const [detail, savedAnalysis] = await Promise.all([
+        api.getSession(id),
+        api.getSessionAnalysis(id).catch(() => null),
+      ]);
+      if (generation !== openGenerationRef.current) return;
       setSelected(detail);
+      setSelectedAnalysis(savedAnalysis);
       setSelectedMock(null);
       setError('');
     } catch (err) {
+      if (generation !== openGenerationRef.current) return;
       setError(err instanceof Error ? err.message : t('history.openError'));
+    } finally {
+      if (generation === openGenerationRef.current) setAnalysisLoading(false);
     }
   };
 
   const openMock = (session: SmokeReviewSession) => {
+    openGenerationRef.current += 1;
     setSelectedMock(session);
     setSelected(null);
+    setSelectedAnalysis(null);
+    setAnalysisLoading(false);
     setError('');
   };
 
   const remove = async (row: HistoryRow) => {
     if (!window.confirm(t('history.confirmDelete'))) return;
+    invalidatePendingOpen();
     setDeletingId(row.id);
     setError('');
     try {
@@ -216,7 +240,11 @@ export default function HistoryPage() {
       } else {
         await api.deleteSession(row.id);
         setSessions((prev) => prev.filter((item) => item.id !== row.id));
-        if (selected?.id === row.id) setSelected(null);
+        if (selected?.id === row.id) {
+          setSelected(null);
+          setSelectedAnalysis(null);
+        }
+        await refreshSessionKnowledge().catch(() => clearSessionKnowledge());
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : t('history.deleteError'));
@@ -229,12 +257,15 @@ export default function HistoryPage() {
     if (sessions.length === 0) return;
     if (!window.confirm(`${t('history.confirmDeleteAllPre')} (${sessions.length})? ${t('history.irreversible')}`))
       return;
+    invalidatePendingOpen();
     setClearing(true);
     setError('');
     try {
       await api.deleteAllSessions();
+      clearSessionKnowledge();
       setSessions([]);
       setSelected(null);
+      setSelectedAnalysis(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : t('history.deleteAllError'));
     } finally {
@@ -445,6 +476,19 @@ export default function HistoryPage() {
                 {selected.summary && (
                   <div className="prep-preview-card whitespace-pre-wrap text-sm leading-relaxed">
                     {selected.summary}
+                  </div>
+                )}
+
+                {analysisLoading && (
+                  <div className="prep-preview-card prep-faint">
+                    {t('history.analysis.loading')}
+                  </div>
+                )}
+
+                {selectedAnalysis && (
+                  <div className="prep-preview-card text-sm leading-relaxed">
+                    <p className="prep-eyebrow mb-2">{t('history.analysis.title')}</p>
+                    <MarkdownText text={selectedAnalysis.markdown} />
                   </div>
                 )}
 

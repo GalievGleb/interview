@@ -18,14 +18,29 @@ import {
   Req,
   Res,
   UnauthorizedException,
+  UploadedFile,
+  UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { Request, Response } from 'express';
 import { IsEmail, IsIn, IsInt, IsOptional, IsString, Min } from 'class-validator';
 import { GatewayService } from './gateway.service';
 import { BillingService } from './billing.service';
 import { mintLicenseKey } from './license.util';
 import { GatewaySttQuotaService } from './gateway-stt-quota.util';
-import { GatewaySttService, wavDurationSeconds } from './gateway-stt.service';
+import {
+  ANSWER_UPLOAD_LIMITS,
+  answerWavDurationSeconds,
+  GatewaySttService,
+  parseAnswerTranscriptionGuidance,
+  wavDurationSeconds,
+} from './gateway-stt.service';
+import {
+  GatewaySttUploadGuard,
+  LicensedSttUploadRequest,
+} from './gateway-stt-upload.guard';
+import { GatewayTtsService } from './gateway-tts.service';
 
 class IssueDto {
   @IsEmail()
@@ -69,6 +84,7 @@ export class GatewayController {
     private readonly billing: BillingService,
     private readonly stt: GatewaySttService,
     private readonly sttQuota: GatewaySttQuotaService,
+    private readonly tts: GatewayTtsService,
   ) {}
 
   @Get('health')
@@ -86,6 +102,24 @@ export class GatewayController {
   async usage(@Headers('authorization') auth: string | undefined) {
     const license = this.gateway.authorize(auth);
     return this.gateway.usageInfo(license);
+  }
+
+  @Post('gateway/tts/speech')
+  @HttpCode(200)
+  async synthesizeSpeech(
+    @Headers('authorization') auth: string | undefined,
+    @Body() body: { input?: string; language?: string },
+    @Res() response: Response,
+  ): Promise<void> {
+    const license = this.gateway.authorize(auth);
+    const audio = await this.tts.synthesize(
+      license,
+      body.input ?? '',
+      body.language === 'en' ? 'en' : 'ru',
+    );
+    response.setHeader('Content-Type', 'audio/wav');
+    response.setHeader('Cache-Control', 'private, max-age=86400');
+    response.send(audio);
   }
 
   @Post('v1/chat/completions')
@@ -232,6 +266,53 @@ export class GatewayController {
     const seconds = Math.max(1, Math.ceil(wavDurationSeconds(audio)));
     await this.sttQuota.recordUsage(license.id, seconds);
     return result;
+  }
+
+  @Post('gateway/stt/answer')
+  @HttpCode(200)
+  @UseGuards(GatewaySttUploadGuard)
+  @UseInterceptors(FileInterceptor('file', { limits: ANSWER_UPLOAD_LIMITS }))
+  async transcribeAnswer(
+    @Req() req: LicensedSttUploadRequest,
+    @UploadedFile() file: { buffer: Buffer; size: number } | undefined,
+    @Body('prompt') prompt: string | undefined,
+    @Body('keywords') keywords: string | undefined,
+    @Body('languages') languages: string | undefined,
+  ) {
+    const license = req.skillcueSttLicense;
+    if (!license) throw new UnauthorizedException();
+
+    const audio = file?.buffer;
+    const durationSeconds = audio ? answerWavDurationSeconds(audio) : 0;
+    if (!audio || durationSeconds <= 0) {
+      throw new HttpException(
+        { error: { message: 'Valid WAV audio is required', code: 'invalid_audio' } },
+        400,
+      );
+    }
+    const guidance = parseAnswerTranscriptionGuidance(prompt, keywords, languages);
+    const apiKey = process.env.OPENAI_API_KEY || '';
+    const baseURL = process.env.OPENAI_STT_BASE_URL || 'https://api.openai.com/v1';
+    if (!apiKey) {
+      throw new HttpException(
+        {
+          error: {
+            message: 'Answer transcription is temporarily unavailable',
+            code: 'gateway_unconfigured',
+          },
+        },
+        503,
+      );
+    }
+
+    const seconds = Math.max(1, Math.ceil(durationSeconds));
+    await this.sttQuota.reserveUsage(license, seconds);
+    try {
+      return await this.stt.transcribeAnswer(apiKey, baseURL, audio, guidance);
+    } catch (error) {
+      await this.sttQuota.releaseUsage(license.id, seconds);
+      throw error;
+    }
   }
 
   @Post('gateway/issue')

@@ -19,6 +19,7 @@ from app.routers import (
     sessions,
     stt,
     stt_benchmark,
+    tts,
     usage,
     vacancy,
     voice_tests,
@@ -79,6 +80,7 @@ app.include_router(usage.router)
 app.include_router(settings_router.router)
 app.include_router(stt.router)
 app.include_router(stt_benchmark.router)
+app.include_router(tts.router)
 app.include_router(voice_tests.router)
 app.include_router(vacancy.router)
 
@@ -102,10 +104,12 @@ async def on_startup() -> None:
 @app.on_event("shutdown")
 async def on_shutdown() -> None:
     from app.services import provider_adapter
+    from app.services.stt.openai_transcribe import get_answer_transcriber
     from app.services.stt.registry import resolve_default_provider
 
     await provider_adapter.aclose_client()
     await resolve_default_provider().aclose()
+    await get_answer_transcriber().aclose()
 
 
 @app.get("/health")

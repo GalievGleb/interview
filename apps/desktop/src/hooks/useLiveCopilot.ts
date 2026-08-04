@@ -7,7 +7,12 @@ import { SttSessionOptions } from '../lib/sttOptions';
 import { getWeakTopicTitles } from '../lib/vacancyReview/weakTopics';
 import { recordSkipped } from '../lib/skippedLog';
 import { t } from '../lib/i18n';
-import { selectForceTargetSource, selectForcedQuestion } from '../lib/forceLiveAnswer';
+import { selectForceTargetSource } from '../lib/forceLiveAnswer';
+import {
+  LatestForcedAnswerCoordinator,
+  type ForcePhase,
+  type ForcedTranscriptLine,
+} from '../lib/latestForcedAnswer';
 import {
   createEmptySessionContext,
   pushUtteranceBuffer,
@@ -29,6 +34,7 @@ import {
   isNonQuestionFragment,
 } from '../lib/normalizeTranscript';
 import type { SttDebugInfo } from '../components/SttDebugPanel';
+import { SessionTranscriptWriteQueue } from '../lib/sessionTranscriptWriteQueue';
 import { LiveDebugRecorder } from '../lib/liveDebugRecorder';
 import {
   buildLatencyBreakdown,
@@ -53,6 +59,8 @@ export interface LiveSources {
   system: boolean;
 }
 
+export type ForceAnswerStatus = 'started' | 'finalizing' | 'unavailable';
+
 interface LiveEntry {
   source: 'mic' | 'system';
   session: LiveSession;
@@ -62,7 +70,8 @@ interface LiveEntry {
 const FINAL_FALLBACK_MS = 450;
 const SPEECH_FINAL_DELAY_MS = 280;
 const INCOMPLETE_RETRY_MS = 700;
-const FORCE_FINALIZE_TIMEOUT_MS = 8000;
+const FORCE_FINALIZE_TIMEOUT_MS = 3500;
+const FORCE_EMPTY_GRACE_MS = 1400;
 interface LiveTimingState {
   audioCaptureStartAt: number | null;
   speechDetectedAt: number | null;
@@ -78,6 +87,7 @@ interface AnswerRequest {
   prepared: PreparedTranscript;
   serverTimings: SttTimings | null;
   questionFinalAt: number | null;
+  forceGeneration?: number;
 }
 
 interface QueuedAnswerRequest {
@@ -125,6 +135,9 @@ export function useLiveCopilot() {
   const [streamText, setStreamText] = useState('');
   const [streaming, setStreaming] = useState(false);
   const [suggestLoading, setSuggestLoading] = useState(false);
+  const [forceGeneration, setForceGeneration] = useState(0);
+  const [forcePhase, setForcePhase] = useState<ForcePhase>('idle');
+  const [forceScreenFallbackGeneration, setForceScreenFallbackGeneration] = useState(0);
   const [error, setError] = useState('');
   const [reconnecting, setReconnecting] = useState<string | null>(null);
   const [sttDebug, setSttDebug] = useState<SttDebugInfo | null>(null);
@@ -167,24 +180,64 @@ export function useLiveCopilot() {
   const knowledgeMetaRef = useRef<CopilotAnswerPipeline['knowledge'] | null>(null);
   const queuedAnswerRef = useRef<QueuedAnswerRequest | null>(null);
   const lastPersistedTranscriptRef = useRef<Record<string, string>>({});
-  const forceNextQuestionRef = useRef(false);
-  const forcePendingRef = useRef(false);
-  const forcePendingRequestIdRef = useRef<string | null>(null);
-  const forcePendingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const transcriptWriteQueueRef = useRef(new SessionTranscriptWriteQueue());
+  const transcriptSequenceRef = useRef(0);
+  const forcedFinalLedgerRef = useRef<ForcedTranscriptLine[]>([]);
+  const pendingTriggerSequenceRef = useRef<number | null>(null);
+  const forceCoordinatorRef = useRef(new LatestForcedAnswerCoordinator());
+  const forceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const speechInProgressRef = useRef<Record<'mic' | 'system', boolean>>({
     mic: false,
     system: false,
   });
 
-  const clearForcePending = useCallback((clearForceFlag = true) => {
-    if (forcePendingTimerRef.current) {
-      clearTimeout(forcePendingTimerRef.current);
-      forcePendingTimerRef.current = null;
-    }
-    forcePendingRef.current = false;
-    forcePendingRequestIdRef.current = null;
-    if (clearForceFlag) forceNextQuestionRef.current = false;
+  const appendForcedFinal = useCallback(
+    (text: string, source: 'mic' | 'system'): ForcedTranscriptLine => {
+      const line = {
+        sequence: ++transcriptSequenceRef.current,
+        text: text.trim(),
+        source,
+      };
+      forcedFinalLedgerRef.current = [...forcedFinalLedgerRef.current.slice(-39), line];
+      return line;
+    },
+    [],
+  );
+
+  const syncForceSnapshot = useCallback(() => {
+    const snapshot = forceCoordinatorRef.current.snapshot();
+    setForceGeneration(snapshot.generation);
+    setForcePhase(snapshot.phase);
   }, []);
+
+  const clearForceTimeout = useCallback(() => {
+    if (!forceTimeoutRef.current) return;
+    clearTimeout(forceTimeoutRef.current);
+    forceTimeoutRef.current = null;
+  }, []);
+
+  const scheduleForceScreenFallback = useCallback(
+    (generation: number, delayMs = FORCE_FINALIZE_TIMEOUT_MS) => {
+      clearForceTimeout();
+      forceTimeoutRef.current = setTimeout(() => {
+        forceTimeoutRef.current = null;
+        if (!forceCoordinatorRef.current.setPhase(generation, 'error')) return;
+        syncForceSnapshot();
+        setForceScreenFallbackGeneration(generation);
+      }, delayMs);
+    },
+    [clearForceTimeout, syncForceSnapshot],
+  );
+
+  const resetForceCoordinator = useCallback(() => {
+    clearForceTimeout();
+    forceCoordinatorRef.current.reset();
+    transcriptSequenceRef.current = 0;
+    forcedFinalLedgerRef.current = [];
+    pendingTriggerSequenceRef.current = null;
+    setForceScreenFallbackGeneration(0);
+    syncForceSnapshot();
+  }, [clearForceTimeout, syncForceSnapshot]);
 
   // Persist final transcript lines so History can show the full dialogue
   // (including the user's own answers) for post-interview review.
@@ -194,8 +247,8 @@ export function useLiveCopilot() {
     if (lastPersistedTranscriptRef.current[speaker] === text) return;
     lastPersistedTranscriptRef.current[speaker] = text;
     hasSessionContentRef.current = true;
-    void api.addTranscript(sid, speaker, text).catch(() => {
-      /* non-fatal: history just won't have this line */
+    void transcriptWriteQueueRef.current.enqueue(sid, async () => {
+      await api.addTranscript(sid, speaker, text);
     });
   }, []);
 
@@ -258,11 +311,13 @@ export function useLiveCopilot() {
 
   const endInterviewSession = useCallback(async () => {
     const sid = sessionRef.current;
+    const sessionHasContent = hasSessionContentRef.current;
     sessionRef.current = null;
     setSessionId(null);
     if (!sid) return;
     try {
-      if (hasSessionContentRef.current) {
+      await transcriptWriteQueueRef.current.drain(sid);
+      if (sessionHasContent) {
         await api.endSession(sid);
       } else {
         await api.deleteSession(sid);
@@ -275,8 +330,12 @@ export function useLiveCopilot() {
   const removeStream = useCallback(
     (source: 'mic' | 'system', msg?: string) => {
       speechInProgressRef.current[source] = false;
-      if (source === selectForceTargetSource(liveSourcesRef.current)) {
-        clearForcePending();
+      const forceSnapshot = forceCoordinatorRef.current.snapshot();
+      if (
+        source === forceSnapshot.source &&
+        forceSnapshot.phase === 'finalizing-transcript'
+      ) {
+        scheduleForceScreenFallback(forceSnapshot.generation, 0);
       }
       liveRef.current = liveRef.current.filter((entry) => {
         if (entry.source === source) {
@@ -291,11 +350,11 @@ export function useLiveCopilot() {
         void endInterviewSession();
       }
     },
-    [clearForcePending, endInterviewSession],
+    [endInterviewSession, scheduleForceScreenFallback],
   );
 
   const runStream = useCallback((request: AnswerRequest) => {
-    const { prepared } = request;
+    const { prepared, forceGeneration: requestForceGeneration } = request;
     const requestTimings = request.serverTimings;
     const requestQuestionFinalAt = request.questionFinalAt;
     const q = prepared.resolvedQuestion.trim();
@@ -364,6 +423,12 @@ export function useLiveCopilot() {
     setStreamText('');
     setCurrentQuestion(q);
     setError('');
+    if (
+      requestForceGeneration != null &&
+      forceCoordinatorRef.current.setPhase(requestForceGeneration, 'waiting-first-token')
+    ) {
+      syncForceSnapshot();
+    }
     debugRef.current.event('answer_started', {
       text: q,
       meta: { sttLatencyMs: requestTimings?.speechEndToFinalMs },
@@ -416,6 +481,12 @@ export function useLiveCopilot() {
           if (gen !== streamGenRef.current) return;
           if (firstChunk) {
             firstChunk = false;
+            if (
+              requestForceGeneration != null &&
+              forceCoordinatorRef.current.setPhase(requestForceGeneration, 'streaming')
+            ) {
+              syncForceSnapshot();
+            }
             timingRef.current.llmFirstTokenAt = performance.now();
             debugRef.current.event('answer_first_token');
             setSttDebug((prev) =>
@@ -443,6 +514,12 @@ export function useLiveCopilot() {
           streamLockRef.current = false;
           setStreaming(false);
           setSuggestLoading(false);
+          if (
+            requestForceGeneration != null &&
+            forceCoordinatorRef.current.setPhase(requestForceGeneration, 'done')
+          ) {
+            syncForceSnapshot();
+          }
           timingRef.current.llmEndAt = performance.now();
           lastCompletedRef.current = q;
           lastCompletedRawRef.current = prepared.rawTranscript;
@@ -490,6 +567,15 @@ export function useLiveCopilot() {
           streamLockRef.current = false;
           setStreaming(false);
           setSuggestLoading(false);
+          if (
+            requestForceGeneration != null &&
+            forceCoordinatorRef.current.setPhase(
+              requestForceGeneration,
+              accumulated ? 'done' : 'error',
+            )
+          ) {
+            syncForceSnapshot();
+          }
           debugRef.current.event('error', { reason: msg, text: q });
           if (accumulated) {
             lastCompletedRef.current = q;
@@ -530,6 +616,7 @@ export function useLiveCopilot() {
         // Подготовка ↔ live: слабые темы из последнего mock-отчёта.
         weakTopics: getWeakTopicTitles(),
         onMeta: (correctionMeta) => {
+          if (gen !== streamGenRef.current) return;
           setSttDebug((prev) => {
             if (!prev) return prev;
             const next = { ...prev };
@@ -562,7 +649,7 @@ export function useLiveCopilot() {
         },
       },
     );
-  }, []);
+  }, [syncForceSnapshot]);
 
   const requestSuggestion = useCallback(
     (rawMerged: string, force = false) => {
@@ -576,7 +663,7 @@ export function useLiveCopilot() {
           waitReason: 'Waiting for complete question…',
           finalTranscript: raw,
         });
-        return;
+        return false;
       }
 
       if (!force && q.length < 6 && raw.length < 6) {
@@ -584,7 +671,7 @@ export function useLiveCopilot() {
           answerTriggered: false,
           waitReason: 'Waiting for complete question…',
         });
-        return;
+        return false;
       }
       if (!force && !looksLikeQuestion(q) && !looksLikeQuestion(raw)) {
         // Not a question and no interview intent — never call the LLM, never
@@ -595,7 +682,7 @@ export function useLiveCopilot() {
           answerTriggered: false,
           waitReason: 'Skipped: unclear phrase (not a question)',
         });
-        return;
+        return false;
       }
       // A «?»-fragment with no real intent («Вместе или не?») — also skip.
       if (!force && isNonQuestionFragment(q) && isNonQuestionFragment(raw)) {
@@ -605,7 +692,7 @@ export function useLiveCopilot() {
           answerTriggered: false,
           waitReason: 'Skipped: unclear phrase (low intent)',
         });
-        return;
+        return false;
       }
       const requestTimings = serverTimingsRef.current ? { ...serverTimingsRef.current } : null;
       const requestQuestionFinalAt = questionFinalAtRef.current;
@@ -619,7 +706,7 @@ export function useLiveCopilot() {
           serverTimings: requestTimings,
           questionFinalAt: requestQuestionFinalAt,
         });
-        return;
+        return true;
       }
 
       const decision = decideAnswerAction({
@@ -629,7 +716,7 @@ export function useLiveCopilot() {
         lastCompleted: lastCompletedRef.current,
       });
 
-      if (decision.action === 'skip') return;
+      if (decision.action === 'skip') return true;
 
       if (decision.action === 'queue') {
         queuedAnswerRef.current = {
@@ -641,7 +728,7 @@ export function useLiveCopilot() {
           answerTriggered: false,
           waitReason: 'Queued: finishing previous answer',
         });
-        return;
+        return true;
       }
 
       incompleteRetryRef.current = 0;
@@ -650,6 +737,7 @@ export function useLiveCopilot() {
         serverTimings: requestTimings,
         questionFinalAt: requestQuestionFinalAt,
       });
+      return true;
     },
     [runStream, syncDebugFromPrepared],
   );
@@ -660,7 +748,7 @@ export function useLiveCopilot() {
    * минуя качественные гейты (ввод явный, доверяем ему).
    */
   const askQuestion = useCallback(
-    (text: string) => {
+    (text: string, forceGeneration?: number) => {
       const t = text.trim();
       if (t.length < 3) return;
       if (finalDebounceRef.current) {
@@ -674,7 +762,12 @@ export function useLiveCopilot() {
       serverTimingsRef.current = null;
       questionFinalAtRef.current = performance.now();
       const prepared = prepareTranscriptForLlm(t, sessionContextRef.current);
-      runStream({ prepared, serverTimings: null, questionFinalAt: questionFinalAtRef.current });
+      runStream({
+        prepared,
+        serverTimings: null,
+        questionFinalAt: questionFinalAtRef.current,
+        forceGeneration,
+      });
     },
     [runStream],
   );
@@ -685,6 +778,7 @@ export function useLiveCopilot() {
       finalDebounceRef.current = null;
     }
     finalPartsRef.current = [];
+    pendingTriggerSequenceRef.current = null;
   }, []);
 
   const recordUtterance = useCallback((text: string, isFinal: boolean, speaker: Speaker) => {
@@ -697,6 +791,13 @@ export function useLiveCopilot() {
     });
   }, []);
 
+  const markPendingTriggerHandled = useCallback(() => {
+    const sequence = pendingTriggerSequenceRef.current;
+    pendingTriggerSequenceRef.current = null;
+    if (sequence == null) return;
+    if (forceCoordinatorRef.current.markHandled(sequence)) syncForceSnapshot();
+  }, [syncForceSnapshot]);
+
   const flushQuestion = useCallback(() => {
     if (finalDebounceRef.current) {
       clearTimeout(finalDebounceRef.current);
@@ -705,22 +806,13 @@ export function useLiveCopilot() {
     const mergedParts = mergeRawParts(finalPartsRef.current);
     finalPartsRef.current = [];
     if (!mergedParts) return;
-    const forced = forceNextQuestionRef.current;
-    forceNextQuestionRef.current = false;
 
     const utteranceSpeaker = lastFlushSpeakerRef.current;
-    const waitCheck = forced
-      ? {
-          wait: false,
-          action: 'proceed' as const,
-          merged: mergedParts,
-          reason: undefined,
-        }
-      : shouldWaitForMoreSpeech(
-          mergedParts,
-          utteranceBufferRef.current,
-          utteranceSpeaker,
-        );
+    const waitCheck = shouldWaitForMoreSpeech(
+      mergedParts,
+      utteranceBufferRef.current,
+      utteranceSpeaker,
+    );
     const toEvaluate = waitCheck.merged ?? mergedParts;
     const preparedPreview = prepareTranscriptForLlm(toEvaluate, sessionContextRef.current);
 
@@ -734,7 +826,8 @@ export function useLiveCopilot() {
         incompleteRetryRef.current = 0;
         utteranceBufferRef.current = [];
         questionFinalAtRef.current = performance.now();
-        requestSuggestion(mergedForRetry);
+        const accepted = requestSuggestion(mergedForRetry);
+        if (accepted) markPendingTriggerHandled();
         return;
       }
       incompleteRetryRef.current += 1;
@@ -752,8 +845,14 @@ export function useLiveCopilot() {
       waitReason: undefined,
       finalTranscript: toEvaluate,
     });
-    requestSuggestion(toEvaluate, forced);
-  }, [commitCorrectedToLine, requestSuggestion, syncDebugFromPrepared]);
+    const accepted = requestSuggestion(toEvaluate);
+    if (accepted) markPendingTriggerHandled();
+  }, [
+    commitCorrectedToLine,
+    markPendingTriggerHandled,
+    requestSuggestion,
+    syncDebugFromPrepared,
+  ]);
 
   const pushFinalPart = useCallback((text: string) => {
     const trimmed = text.trim();
@@ -767,9 +866,13 @@ export function useLiveCopilot() {
   }, []);
 
   const scheduleSpeechFinal = useCallback(
-    (text: string, speaker: Speaker) => {
+    (text: string, speaker: Speaker, sequence: number) => {
       if (!speechStartedAtRef.current) speechStartedAtRef.current = performance.now();
       lastFlushSpeakerRef.current = speaker === 'other' ? 'interviewer' : 'me';
+      pendingTriggerSequenceRef.current = Math.max(
+        pendingTriggerSequenceRef.current ?? 0,
+        sequence,
+      );
       recordUtterance(text, true, speaker);
       pushFinalPart(text);
       if (finalDebounceRef.current) clearTimeout(finalDebounceRef.current);
@@ -779,8 +882,12 @@ export function useLiveCopilot() {
   );
 
   const scheduleFinalFallback = useCallback(
-    (text: string, speaker: Speaker) => {
+    (text: string, speaker: Speaker, sequence: number) => {
       lastFlushSpeakerRef.current = speaker === 'other' ? 'interviewer' : 'me';
+      pendingTriggerSequenceRef.current = Math.max(
+        pendingTriggerSequenceRef.current ?? 0,
+        sequence,
+      );
       recordUtterance(text, true, speaker);
       pushFinalPart(text);
       if (finalDebounceRef.current) clearTimeout(finalDebounceRef.current);
@@ -789,55 +896,82 @@ export function useLiveCopilot() {
     [flushQuestion, pushFinalPart, recordUtterance],
   );
 
-  const forceAnswer = useCallback((): boolean => {
-    if (!active) return false;
-    if (forcePendingRef.current) return true;
+  const forceAnswer = useCallback((questionOverride?: string): ForceAnswerStatus => {
+    if (!active) return 'unavailable';
 
-    if (finalPartsRef.current.length > 0) {
-      forceNextQuestionRef.current = true;
-      questionFinalAtRef.current = performance.now();
-      lastFlushSpeakerRef.current =
-        triggerSpeakerRef.current === 'other' ? 'interviewer' : 'me';
-      flushQuestion();
-      return true;
+    const typedQuestion = questionOverride?.trim();
+    if (questionOverride != null && (!typedQuestion || typedQuestion.length < 3)) {
+      return 'unavailable';
     }
 
-    const targetSource = selectForceTargetSource(liveSourcesRef.current);
-    if (
-      targetSource &&
-      streamLockRef.current &&
-      !speechInProgressRef.current[targetSource]
-    ) {
-      return false;
+    clearForceTimeout();
+    streamGenRef.current += 1;
+    cancelStreamRef.current?.();
+    cancelStreamRef.current = null;
+    streamLockRef.current = false;
+    queuedAnswerRef.current = null;
+    setStreaming(false);
+    setSuggestLoading(false);
+    setStreamText('');
+    setCurrentQuestion('');
+    cancelPendingQuestion();
+    setError('');
+    const forceSnapshot = forceCoordinatorRef.current.snapshot();
+    const unconsumedForcedFinals = {
+      mic: forcedFinalLedgerRef.current.some(
+        (line) => line.source === 'mic' && line.sequence > forceSnapshot.consumedSequence,
+      )
+        ? 1
+        : 0,
+      system: forcedFinalLedgerRef.current.some(
+        (line) => line.source === 'system' && line.sequence > forceSnapshot.consumedSequence,
+      )
+        ? 1
+        : 0,
+    };
+    const targetSource = selectForceTargetSource(
+      liveSourcesRef.current,
+      speechInProgressRef.current,
+      unconsumedForcedFinals,
+    );
+    const decision = typedQuestion
+      ? forceCoordinatorRef.current.submitQuestion(typedQuestion)
+      : forceCoordinatorRef.current.press(
+          forcedFinalLedgerRef.current.filter(
+            (line) => !targetSource || !line.source || line.source === targetSource,
+          ),
+          targetSource,
+        );
+    syncForceSnapshot();
+
+    if (decision.action === 'submit') {
+      utteranceBufferRef.current = [];
+      askQuestion(decision.question, decision.generation);
+      return 'started';
     }
-    const targetSession = liveRef.current.find((entry) => entry.source === targetSource);
-    const requestId = crypto.randomUUID();
-    if (targetSession?.session.flush(requestId)) {
-      forcePendingRef.current = true;
-      forcePendingRequestIdRef.current = requestId;
+
+    if (decision.action === 'flush') {
+      const targetSession = liveRef.current.find((entry) => entry.source === decision.source);
+      if (!targetSession?.session.flush(decision.requestId)) {
+        forceCoordinatorRef.current.setPhase(decision.generation, 'error');
+        syncForceSnapshot();
+        return 'unavailable';
+      }
       serverTimingsRef.current = null;
       questionFinalAtRef.current = performance.now();
-      forcePendingTimerRef.current = setTimeout(() => {
-        clearForcePending();
-        setError(t('live.forceTimeout'));
-      }, FORCE_FINALIZE_TIMEOUT_MS);
-      return true;
+      scheduleForceScreenFallback(decision.generation);
+      return 'finalizing';
     }
 
-    const question = selectForcedQuestion(
-      finalPartsRef.current,
-      lines,
-      triggerSpeakerRef.current,
-      lastCompletedRef.current,
-      lastCompletedRawRef.current,
-    );
-    if (!question) {
-      return false;
-    }
-
-    askQuestion(question);
-    return true;
-  }, [active, askQuestion, clearForcePending, flushQuestion, lines]);
+    return 'unavailable';
+  }, [
+    active,
+    askQuestion,
+    cancelPendingQuestion,
+    clearForceTimeout,
+    scheduleForceScreenFallback,
+    syncForceSnapshot,
+  ]);
 
   const appendLine = useCallback((rawText: string, isFinal: boolean, speaker: Speaker) => {
     const text = rawText.trim();
@@ -899,7 +1033,7 @@ export function useLiveCopilot() {
       queuedAnswerRef.current = null;
       hasSessionContentRef.current = false;
       lastPersistedTranscriptRef.current = {};
-      clearForcePending();
+      resetForceCoordinator();
       speechInProgressRef.current = { mic: false, system: false };
       debugRef.current.start(16000);
       if (finalDebounceRef.current) clearTimeout(finalDebounceRef.current);
@@ -927,14 +1061,9 @@ export function useLiveCopilot() {
             onTranscript: (text, isFinal, speechFinal, forceRequestId) => {
               const trimmed = text.trim();
               if (!trimmed) return;
-              if (
-                forceRequestId &&
-                forceRequestId !== forcePendingRequestIdRef.current
-              ) {
-                return;
-              }
 
               if (!isFinal) {
+                speechInProgressRef.current[source] = true;
                 if (!timingRef.current.speechDetectedAt) {
                   timingRef.current.speechDetectedAt = performance.now();
                 }
@@ -956,18 +1085,42 @@ export function useLiveCopilot() {
                 waitReason: undefined,
               });
 
-              // Собственная речь кандидата (не-триггерный канал) идёт только в
-              // контекст: она не должна ни запускать ответ, ни подмешиваться в
-              // finalParts к вопросу интервьюера (иначе «вопрос» загрязняется).
+              const ledgerLine = appendForcedFinal(trimmed, source);
+              const forceSnapshot = forceCoordinatorRef.current.snapshot();
+              if (
+                forceRequestId ||
+                forceSnapshot.phase === 'finalizing-transcript'
+              ) {
+                const decision = forceCoordinatorRef.current.acceptFinal(
+                  ledgerLine,
+                  forceRequestId,
+                );
+                if (decision.action !== 'submit') {
+                  if (speaker !== triggerSpeakerRef.current) {
+                    recordUtterance(trimmed, true, speaker);
+                  }
+                  return;
+                }
+
+                clearForceTimeout();
+                syncForceSnapshot();
+                cancelPendingQuestion();
+                utteranceBufferRef.current = [];
+                askQuestion(decision.question, decision.generation);
+                return;
+              }
+
+              // Собственная речь кандидата (не-триггерный канал) идёт в контекст
+              // обычного auto-flow, но остаётся доступной явному Ctrl+Enter выше.
               if (speaker !== triggerSpeakerRef.current) {
                 recordUtterance(trimmed, true, speaker);
                 return;
               }
 
               if (speechFinal) {
-                scheduleSpeechFinal(trimmed, speaker);
+                scheduleSpeechFinal(trimmed, speaker, ledgerLine.sequence);
               } else if (trimmed.length > 2) {
-                scheduleFinalFallback(trimmed, speaker);
+                scheduleFinalFallback(trimmed, speaker, ledgerLine.sequence);
               }
             },
             onSpeechStarted: () => {
@@ -1006,34 +1159,25 @@ export function useLiveCopilot() {
               // вопрос — конец собственной реплики кандидата не должен
               // форсировать flush чужого буфера.
               if (speaker !== triggerSpeakerRef.current) return;
-              if (
-                forceRequestId &&
-                forceRequestId !== forcePendingRequestIdRef.current
-              ) {
-                return;
-              }
+              // Forced transcript submission is decided by acceptFinal. Its
+              // trailing utterance_end may belong to an older generation and
+              // must never flush or clear the current one.
+              if (forceRequestId) return;
               lastFlushSpeakerRef.current = speaker === 'other' ? 'interviewer' : 'me';
               if (timings) serverTimingsRef.current = timings;
-              if (forceRequestId) forceNextQuestionRef.current = true;
               flushQuestion();
-              if (forceRequestId) clearForcePending();
             },
             onLowQuality: (text, _reason, forceRequestId) => {
-              if (
-                forceRequestId &&
-                forceRequestId !== forcePendingRequestIdRef.current
-              ) {
-                return;
-              }
               // Server quality gate rejected this utterance — keep listening,
               // never call the LLM with garbage. (Server logs the reason.)
               serverTimingsRef.current = null;
               speechInProgressRef.current[source] = false;
-              if (
-                speaker === triggerSpeakerRef.current &&
-                forceRequestId
-              ) {
-                clearForcePending();
+              if (forceRequestId) {
+                const decision = forceCoordinatorRef.current.acceptEmpty(forceRequestId);
+                if (decision.action === 'wait') {
+                  syncForceSnapshot();
+                  scheduleForceScreenFallback(decision.generation, FORCE_EMPTY_GRACE_MS);
+                }
               }
               recordSkipped(_reason, text);
               debugRef.current.event('low_quality', { text, reason: _reason, speaker });
@@ -1045,11 +1189,12 @@ export function useLiveCopilot() {
               });
             },
             onForceEmpty: (forceRequestId) => {
-              if (speaker !== triggerSpeakerRef.current) return;
-              if (forceRequestId !== forcePendingRequestIdRef.current) return;
+              if (!forceRequestId) return;
               speechInProgressRef.current[source] = false;
-              clearForcePending();
-              setError(t('live.forceNoAudio'));
+              const decision = forceCoordinatorRef.current.acceptEmpty(forceRequestId);
+              if (decision.action !== 'wait') return;
+              syncForceSnapshot();
+              scheduleForceScreenFallback(decision.generation, FORCE_EMPTY_GRACE_MS);
             },
             onTurnResumed: () => {
               lastFlushSpeakerRef.current = speaker === 'other' ? 'interviewer' : 'me';
@@ -1106,12 +1251,12 @@ export function useLiveCopilot() {
         await endInterviewSession();
       }
     },
-    [appendLine, cancelPendingQuestion, clearForcePending, endInterviewSession, flushQuestion, patchSttDebug, persistTranscriptLine, recordUtterance, removeStream, scheduleFinalFallback, scheduleSpeechFinal],
+    [appendForcedFinal, appendLine, askQuestion, cancelPendingQuestion, clearForceTimeout, endInterviewSession, flushQuestion, patchSttDebug, persistTranscriptLine, recordUtterance, removeStream, resetForceCoordinator, scheduleFinalFallback, scheduleForceScreenFallback, scheduleSpeechFinal, syncForceSnapshot],
   );
 
   const stop = useCallback(async () => {
     if (finalDebounceRef.current) clearTimeout(finalDebounceRef.current);
-    clearForcePending();
+    resetForceCoordinator();
     streamGenRef.current += 1;
     cancelStreamRef.current?.();
     streamLockRef.current = false;
@@ -1124,7 +1269,7 @@ export function useLiveCopilot() {
     setReconnecting(null);
     sessionContextRef.current = createEmptySessionContext();
     if (hadStreams) await endInterviewSession();
-  }, [clearForcePending, endInterviewSession]);
+  }, [endInterviewSession, resetForceCoordinator]);
 
   // Уход со страницы во время записи обязан выключить микрофон и закрыть сокеты —
   // иначе mic «горит» в фоне (приватность) и trial-минуты не фиксируются на закрытии
@@ -1236,6 +1381,9 @@ export function useLiveCopilot() {
     currentQuestion,
     streamText,
     streaming,
+    forceGeneration,
+    forcePhase,
+    forceScreenFallbackGeneration,
     suggestLoading,
     error,
     reconnecting,

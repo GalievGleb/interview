@@ -226,7 +226,10 @@ async def run_openai_mini_stream(
                 }
                 text = result.text.strip()
                 accepted, reason = quality_gate(text, last_final)
-                if job.forced and text and reason == "duplicate":
+                # Ctrl+Enter is an explicit user action. Short questions such as
+                # "Какие виды?" are valid here even though the automatic stream
+                # keeps rejecting tiny fragments to avoid accidental answers.
+                if job.forced and text and reason in {"duplicate", "too_few_words"}:
                     accepted, reason = True, "forced"
                 if not accepted:
                     await client_ws.send_json(

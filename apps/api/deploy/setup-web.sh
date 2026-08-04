@@ -26,6 +26,8 @@ if command -v nginx >/dev/null && [[ "${holder:-}" == *nginx* ]]; then
 server {
     listen 80;
     server_name $DOMAIN www.$DOMAIN;
+    # A 120-second native-rate mono PCM16 mock answer is up to ~22 MiB.
+    client_max_body_size 25m;
 
     root $APP_DIR/landing;
     index index.html;

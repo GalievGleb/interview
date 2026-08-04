@@ -107,6 +107,24 @@ const STREAM_IDLE_TIMEOUT_MS = 25_000;
 // путь, пользователь готов подождать пару секунд ради настоящего разбора.
 const VACANCY_EVALUATE_TIMEOUT_MS = 45_000;
 
+export interface MockAnswerTranscriptionContext {
+  question: string;
+  hints: string[];
+  language: string;
+}
+
+export function createMockAnswerTranscriptionForm(
+  wav: Blob,
+  context: MockAnswerTranscriptionContext,
+): FormData {
+  const form = new FormData();
+  form.append('file', wav, 'answer.wav');
+  form.append('question', context.question);
+  form.append('hints', JSON.stringify(context.hints));
+  form.append('language', context.language);
+  return form;
+}
+
 export interface LicenseStatusDto {
   status: 'trial' | 'active' | 'expired';
   plan: 'trial' | 'basic' | 'max';
@@ -359,6 +377,28 @@ export interface SessionDetail extends SessionItem {
   }[];
 }
 
+export interface SessionKnowledgeTopicDto {
+  topic: string;
+  score: number;
+  confidence: number;
+  evidenceCount: number;
+}
+
+export interface SessionKnowledgeDto {
+  weakTopics: SessionKnowledgeTopicDto[];
+  strongTopics: SessionKnowledgeTopicDto[];
+  updatedAt: string;
+}
+
+export interface SessionAssessment {
+  overallLevel: string;
+  conclusion: string;
+  strengths: Array<{ topic: string; evidence: string }>;
+  weaknesses: Array<{ topic: string; evidence: string; learningAction: string }>;
+  topicAssessments: Array<{ topic: string; score: number; confidence: number }>;
+  markdown: string;
+}
+
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { timeoutMs, ...fetchOptions } = options;
   const resp = await fetchWithTimeout(path, {
@@ -387,6 +427,20 @@ export const api = {
   apiUrl: API_URL,
 
   health: () => request<{ status: string; version: string }>('/health'),
+
+  synthesizeSpeech: async (input: string, language: 'ru' | 'en'): Promise<Blob> => {
+    const resp = await fetchWithTimeout('/tts/speech', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify({ input, language }),
+      timeoutMs: 30_000,
+    });
+    if (!resp.ok) {
+      const data = await resp.json().catch(() => null);
+      throw new Error(data?.error?.message ?? `Ошибка озвучки ${resp.status}`);
+    }
+    return resp.blob();
+  },
 
   getKeys: () => request<KeysStatus>('/settings/keys'),
 
@@ -473,6 +527,18 @@ export const api = {
   /** Агрегаты по истории для дашборда на главной. */
   sessionStats: () => request<SessionStats>('/sessions/stats'),
 
+  getKnowledgeMap: () => request<SessionKnowledgeDto>('/sessions/knowledge-map'),
+
+  createSessionAnalysis: (id: string, language: 'ru' | 'en') =>
+    request<SessionAssessment>(`/sessions/${encodeURIComponent(id)}/analysis`, {
+      method: 'POST',
+      timeoutMs: LONG_REQUEST_TIMEOUT_MS,
+      body: JSON.stringify({ language }),
+    }),
+
+  getSessionAnalysis: (id: string) =>
+    request<SessionAssessment>(`/sessions/${encodeURIComponent(id)}/analysis`),
+
   getSession: (id: string) => request<SessionDetail>(`/sessions/${id}`),
 
   deleteSession: async (id: string) => {
@@ -556,6 +622,7 @@ export const api = {
         mode: opts.mode ?? 'deep',
         provider: opts.provider,
         model: opts.model,
+        answer_language: answerLanguageParam(),
       }),
     }),
 
@@ -572,6 +639,7 @@ export const api = {
         mode: opts.mode ?? 'deep',
         provider: opts.provider,
         model: opts.model,
+        answer_language: answerLanguageParam(),
       }),
     }),
 
@@ -860,7 +928,13 @@ export const api = {
   ): () => void {
     return sseChatStream(
       '/chat/interview-review/stream',
-      { transcript, mode: 'deep', provider: opts.provider, model: opts.model },
+      {
+        transcript,
+        mode: 'deep',
+        provider: opts.provider,
+        model: opts.model,
+        answer_language: answerLanguageParam(),
+      },
       handlers,
     );
   },
@@ -893,7 +967,13 @@ export const api = {
   ): () => void {
     return sseChatStream(
       '/chat/meeting-summary/stream',
-      { transcript, mode: 'deep', provider: opts.provider, model: opts.model },
+      {
+        transcript,
+        mode: 'deep',
+        provider: opts.provider,
+        model: opts.model,
+        answer_language: answerLanguageParam(),
+      },
       handlers,
     );
   },
@@ -1067,6 +1147,31 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(settings),
     }),
+
+  transcribeMockAnswer: async (
+    wav: Blob,
+    context: MockAnswerTranscriptionContext,
+    options: { signal?: AbortSignal } = {},
+  ) => {
+    const resp = await fetchWithTimeout('/stt/answer', {
+      method: 'POST',
+      headers: await authHeaders(),
+      body: createMockAnswerTranscriptionForm(wav, context),
+      signal: options.signal,
+      timeoutMs: LONG_REQUEST_TIMEOUT_MS,
+    });
+    if (!resp.ok) {
+      let message = `Ошибка ${resp.status}`;
+      try {
+        const data = await resp.json();
+        message = data?.error?.message ?? data?.detail ?? message;
+      } catch {
+        // ignore non-JSON errors
+      }
+      throw new Error(message);
+    }
+    return resp.json() as Promise<{ text: string; model: 'gpt-transcribe' }>;
+  },
 
   // --- STT Benchmark (audio -> transcript only, no LLM) ---
   sttBenchmarkCases: () =>

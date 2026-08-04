@@ -13,6 +13,7 @@ const THEME_KEY = 'skillcue.theme';
 
 const listeners = new Set<() => void>();
 let current: ThemePref = 'dark';
+let darkThemeForced = false;
 
 const media =
   typeof window !== 'undefined' && window.matchMedia
@@ -25,7 +26,9 @@ function resolved(pref: ThemePref): 'dark' | 'light' {
 }
 
 function apply(): void {
-  document.documentElement.dataset.theme = resolved(current);
+  const effective = darkThemeForced ? 'dark' : resolved(current);
+  document.documentElement.dataset.theme = effective;
+  void window.electronAPI?.window.setTitleBarTheme?.(effective);
 }
 
 /** Вызывается один раз при старте приложения (main.tsx). */
@@ -62,7 +65,8 @@ export function setThemePref(pref: ThemePref): void {
 
 /** Принудительно тёмная тема для окна оверлея (игнорирует предпочтение). */
 export function forceDarkTheme(): void {
-  document.documentElement.dataset.theme = 'dark';
+  darkThemeForced = true;
+  apply();
 }
 
 export function useTheme(): { pref: ThemePref; setPref: (p: ThemePref) => void } {

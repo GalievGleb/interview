@@ -22,7 +22,7 @@ from app.prompts.vacancy import (
 from app.services import model_router, provider_adapter
 from app.services.preferences import load_preferences
 from app.services.provider_adapter import vacancy_eval_options
-from app.services.vacancy_guard import harden_vacancy_evaluation, strip_asr_noise_for_evaluation
+from app.services.vacancy_guard import detect_asr_noise, harden_vacancy_evaluation
 
 logger = logging.getLogger("vacancy")
 
@@ -176,13 +176,14 @@ async def analyze(payload: AnalyzePayload, db=Depends(get_db)) -> dict:
         language="Russian" if payload.language == "ru" else "English",
     )
     try:
-        # 2200 (было 1600): полный разбор с темами/компетенциями упирался в лимит,
-        # JSON обрывался → _parse_json падал 502 → клиент показывал локальный разбор.
+        # Полный JSON с темами и компетенциями занимает около 2.5–3k токенов
+        # даже для короткой вакансии. При лимите 2200 ответ обрывался посреди
+        # массива, _parse_json возвращал 502, а desktop включал эвристику.
         raw, model = await _complete_or_fallback(
             [{"role": "user", "content": prompt}],
             provider,
             model,
-            max_tokens=2200,
+            max_tokens=5000,
             temperature=0.3,
         )
     except Exception as exc:  # noqa: BLE001 — surface as 502 so desktop falls back
@@ -313,7 +314,10 @@ async def report(payload: ReportPayload, db=Depends(get_db)) -> dict:
 async def evaluate(payload: EvaluatePayload, db=Depends(get_db)) -> dict:
     _ensure_vacancy_quota(db)
     provider, model = _resolve("vacancy")
-    clean_answer, detected_noise = strip_asr_noise_for_evaluation(payload.answer or "")
+    answer = (payload.answer or "").strip()
+    if not answer:
+        raise HTTPException(status_code=400, detail="Answer is empty")
+    detected_noise = detect_asr_noise(answer)
     prompt = VACANCY_EVALUATE_PROMPT.format(
         topic=payload.topic or "(unspecified)",
         level=payload.level or "(unspecified)",
@@ -323,7 +327,7 @@ async def evaluate(payload: EvaluatePayload, db=Depends(get_db)) -> dict:
         vacancy=(payload.vacancyText or "")[:8000] or "(none)",
         legend=(payload.legendText or "")[:2000] or "(none)",
         question=payload.question[:600],
-        answer=(clean_answer or "(empty)")[:1500],
+        answer=answer[:6000],
         has_resume="true" if payload.hasResume else "false",
         language="Russian" if payload.language == "ru" else "English",
     )
@@ -350,7 +354,7 @@ async def evaluate(payload: EvaluatePayload, db=Depends(get_db)) -> dict:
         data,
         resume_text=payload.resumeText or "",
         vacancy_text=payload.vacancyText or "",
-        candidate_answer=clean_answer or "",
+        candidate_answer=answer,
         expected_signals=payload.expectedSignals,
         topic=payload.topic,
         level=payload.level,

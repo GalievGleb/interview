@@ -1,12 +1,25 @@
 import { useEffect, useRef, useState } from 'react';
+import {
+  Check,
+  ChevronDown,
+  Clock3,
+  LoaderCircle,
+  Mic,
+  MoreHorizontal,
+  RefreshCw,
+  Square,
+  Volume2,
+  VolumeX,
+} from 'lucide-react';
 import { useApp } from '../../context/AppContext';
+import { useQuestionSpeech } from '../../hooks/useQuestionSpeech';
 import { topicStatusFromScore, topicStatusTone } from '../../lib/vacancyReview/readiness';
 import { useVoiceAnswer } from '../../lib/vacancyReview/useVoiceAnswer';
+import { resolveVoiceAnswerSubmission } from '../../lib/voiceAnswerSubmission';
 import { MAX_DRILL_DEPTH, drillDepth } from '../../lib/vacancyReview/vacancyReviewService';
 import { useI18n, type I18nKey } from '../../lib/i18n';
 import type { Difficulty, QuestionLevel, SmokeReviewSession } from '../../lib/vacancyReview/types';
 
-/** Same thresholds as the readiness map, so scores read identically everywhere. */
 function scoreColor(value: number): string {
   return `var(--prep-${topicStatusTone(topicStatusFromScore(value))})`;
 }
@@ -17,7 +30,6 @@ interface Props {
   onSubmitAnswer: (text: string, source: 'voice' | 'text', skipped?: boolean) => void;
   onNext: () => void;
   onFinish: () => void;
-  /** Дожим: вставить уточняющий вопрос интервьюера следующим и перейти к нему. */
   onAskFollowUp?: (text: string) => void;
 }
 
@@ -52,7 +64,7 @@ export default function SmokeInterviewView({
   const { hasAnyKey, backendOnline, hasStt } = useApp();
   const { questions, currentIndex, vacancyAnalysis } = session;
   const question = questions[currentIndex];
-  const existing = session.answers.find((a) => a.questionId === question?.id);
+  const existing = session.answers.find((answer) => answer.questionId === question?.id);
   const [text, setText] = useState(existing?.text ?? '');
 
   useEffect(() => {
@@ -60,466 +72,534 @@ export default function SmokeInterviewView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentIndex]);
 
-  const voice = useVoiceAnswer((vt) => setText(vt), vacancyAnalysis.language);
-
-  // Таймер ответа: лёгкое давление времени, как на реальном интервью.
-  // Стартует при показе вопроса, замирает после оценки.
+  const voice = useVoiceAnswer((voiceText) => setText(voiceText), {
+    language: vacancyAnalysis.language,
+    question: question?.question ?? '',
+    topicLabels: vacancyAnalysis.interviewTopics
+      .filter((item) => item.id === question?.topicId)
+      .map((item) => item.title),
+  });
   const [elapsedS, setElapsedS] = useState(0);
+
   useEffect(() => {
     setElapsedS(0);
     if (existing) return;
     const startedAt = Date.now();
-    const timer = setInterval(() => setElapsedS(Math.floor((Date.now() - startedAt) / 1000)), 1000);
-    return () => clearInterval(timer);
+    const timer = window.setInterval(
+      () => setElapsedS(Math.floor((Date.now() - startedAt) / 1000)),
+      1000,
+    );
+    return () => window.clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentIndex, Boolean(existing)]);
 
-  // Оценка появляется НИЖЕ карточки вопроса — доводим пользователя до неё,
-  // иначе на небольшом экране легко не заметить, что ответ уже разобран.
-  const evalRef = useRef<HTMLDivElement | null>(null);
+  const evaluationRef = useRef<HTMLDivElement | null>(null);
   const wasEvaluating = useRef(false);
   const currentEvaluation = existing?.evaluation;
   useEffect(() => {
     if (wasEvaluating.current && !evaluating && currentEvaluation) {
-      evalRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      evaluationRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
     wasEvaluating.current = evaluating;
   }, [evaluating, currentEvaluation]);
 
   if (!question) return null;
-  const topic = vacancyAnalysis.interviewTopics.find((top) => top.id === question.topicId);
+
+  const topic = vacancyAnalysis.interviewTopics.find((item) => item.id === question.topicId);
   const evaluation = existing?.evaluation;
   const answered = Boolean(existing);
   const isLast = currentIndex === questions.length - 1;
-  // Дожим доступен, пока по этому вопросу не дожимали и цепочка не упёрлась в
-  // потолок (вопрос → дожим → дожим, как у живого интервьюера).
   const canDrill =
     Boolean(onAskFollowUp) &&
-    !questions.some((q) => q.parentQuestionId === question.id) &&
+    !questions.some((item) => item.parentQuestionId === question.id) &&
     drillDepth(question, questions) < MAX_DRILL_DEPTH;
   const progress = Math.round(((currentIndex + (answered ? 1 : 0)) / questions.length) * 100);
-  const canEvaluate = text.trim().length >= 2 && !evaluating;
-  const submitCurrentAnswer = () => {
-    const voiceText = voice.stop();
-    onSubmitAnswer(voiceText || text, voice.recording ? 'voice' : 'text');
+  const canEvaluate = text.trim().length >= 2 && !evaluating && !voice.finalizing;
+
+  const submitCurrentAnswer = async () => {
+    if (voice.finalizing) return;
+    if (voice.recording) {
+      const voiceText = await voice.finish();
+      const submission = resolveVoiceAnswerSubmission(voiceText, text);
+      if (!submission) return;
+      onSubmitAnswer(submission.text, submission.source);
+      return;
+    }
+    if (!text.trim()) return;
+    onSubmitAnswer(text, 'text');
   };
 
   return (
-    <div className="prep-rise grid gap-5 lg:grid-cols-[1fr_240px]">
-      <div className="space-y-4">
-        <div>
-          <div className="flex items-center justify-between gap-2">
-            <p className="prep-faint">
-              {t('prep.smoke.question')} {currentIndex + 1} {t('home.report.of')} {questions.length}
-              {!answered && elapsedS >= 5 && (
-                <span
-                  title={t('prep.smoke.timerTitle')}
-                  style={elapsedS >= 180 ? { color: 'var(--prep-amber)' } : undefined}
-                >
-                  {' '}
-                  · ⏱ {Math.floor(elapsedS / 60)}:{String(elapsedS % 60).padStart(2, '0')}
-                </span>
-              )}
-            </p>
-            <div className="flex gap-1.5">
-              {question.isFollowUp && <span className="prep-chip prep-tone-amber">{t('prep.smoke.followUpChip')}</span>}
-              <span className="prep-chip prep-tone-violet">{topic?.title}</span>
-              {question.level && (
-                <span className="prep-chip prep-tone-blue">{t(LEVEL_KEY[question.level])}</span>
-              )}
-              <span className={`prep-chip ${DIFF_TONE[question.difficulty]}`}>
-                {t(DIFF_KEY[question.difficulty])}
-              </span>
-            </div>
-          </div>
-          <div className="prep-bar prep-bar-green mt-2">
-            <span style={{ width: `${progress}%` }} />
+    <div className="prep-rise prep-mock-shell">
+      <header className="prep-mock-header">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="prep-mock-counter">
+            {currentIndex + 1}/{questions.length}
+          </span>
+          <div className="min-w-0">
+            <p className="prep-faint">{vacancyAnalysis.targetRole}</p>
+            <strong className="block truncate">{topic?.title}</strong>
           </div>
         </div>
-
-        <div className="prep-card prep-card-pad">
-          <div className="flex items-start justify-between gap-2">
-            <p className="text-[17px] font-semibold leading-snug" style={{ color: 'var(--prep-ink)' }}>
-              {question.question}
-            </p>
-            <SpeakButton text={question.question} lang={vacancyAnalysis.language} />
-          </div>
-
-          {question.whyAsked && (
-            <p className="prep-faint mt-2">{t('prep.smoke.whyAsked')} {question.whyAsked}</p>
+        <div className="flex items-center gap-2">
+          {!answered && elapsedS >= 5 && (
+            <span
+              className="prep-mock-timer"
+              title={t('prep.smoke.timerTitle')}
+              style={elapsedS >= 180 ? { color: 'var(--prep-amber)' } : undefined}
+            >
+              <Clock3 size={13} aria-hidden="true" />
+              {Math.floor(elapsedS / 60)}:{String(elapsedS % 60).padStart(2, '0')}
+            </span>
           )}
-
-          {question.expectedAnswerPoints && question.expectedAnswerPoints.length > 0 && (
-            <details className="mt-2">
-              <summary className="cursor-pointer text-[12.5px] font-bold" style={{ color: 'var(--prep-green)' }}>
-                {t('prep.smoke.wantsToHear')}
-              </summary>
-              <ul className="mt-1.5 space-y-1 pl-1">
-                {question.expectedAnswerPoints.map((p) => (
-                  <li key={p} className="prep-sub flex gap-2">
-                    <span style={{ color: 'var(--prep-green)' }}>•</span>
-                    {p}
-                  </li>
-                ))}
-              </ul>
-            </details>
+          {question.isFollowUp && (
+            <span className="prep-chip prep-tone-amber">{t('prep.smoke.followUpChip')}</span>
           )}
-
-          <textarea
-            className="prep-textarea mt-3"
-            style={{ minHeight: 150 }}
-            placeholder={t('prep.smoke.answerPlaceholder')}
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            disabled={answered}
-          />
-
-          {!answered && (
-            <div className={`prep-voice-strip mt-3 ${voice.recording ? 'is-recording' : ''}`}>
-              <span className="prep-voice-dot" />
-              <div className="min-w-0 flex-1">
-                <p>{voice.recording ? t('prep.smoke.recording') : t('prep.smoke.voiceAnswer')}</p>
-                <span>
-                  {voice.error
-                    ? voice.error
-                    : !hasStt
-                      ? t('prep.smoke.voiceNotReady')
-                      : voice.recording
-                        ? t('prep.smoke.recordingHint')
-                        : t('prep.smoke.voiceHint')}
-                </span>
-              </div>
-            </div>
-          )}
-
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            {!answered ? (
-              <>
-                <button
-                  type="button"
-                  className="prep-btn"
-                  disabled={voice.recording ? evaluating : !canEvaluate}
-                  onClick={submitCurrentAnswer}
-                >
-                  {evaluating
-                    ? t('prep.smoke.evaluating')
-                    : voice.recording
-                      ? t('prep.smoke.stopAndScore')
-                      : t('prep.smoke.scoreAnswer')}
-                </button>
-                <button
-                  type="button"
-                  className={`prep-btn-sm ${voice.recording ? 'prep-btn' : 'prep-btn-ghost'}`}
-                  onClick={voice.toggle}
-                  disabled={!hasStt && !voice.recording}
-                  title={
-                    !hasStt && !voice.recording
-                      ? t('prep.smoke.voiceNotReady')
-                      : t('prep.smoke.voiceAnswerTitle')
-                  }
-                >
-                  {voice.recording ? t('prep.smoke.pauseRec') : t('prep.smoke.startRec')}
-                </button>
-              </>
-            ) : (
-              <>
-                {isLast ? (
-                  <button type="button" className="prep-btn" onClick={onFinish}>
-                    {t('prep.smoke.finishReview')}
-                  </button>
-                ) : (
-                  <button type="button" className="prep-btn" onClick={onNext}>
-                    {t('prep.smoke.nextQuestion')}
-                  </button>
-                )}
-              </>
-            )}
-            <span className="flex-1" />
-            {/* Пропуск — не соседняя кнопка с «Оценить», а тихая ссылка справа. */}
-            {!answered && (
-              <button
-                type="button"
-                className="prep-link-btn"
-                onClick={() => {
-                  voice.stop();
-                  onSubmitAnswer('', 'text', true);
-                }}
-              >
-                {t('prep.smoke.skipQuestion')}
-              </button>
-            )}
-            {!(answered && isLast) && (
-              <button type="button" className="prep-btn-ghost prep-btn-sm" onClick={onFinish}>
-                {t('prep.smoke.finishEarly')}
-              </button>
-            )}
-          </div>
+          <span className={`prep-chip ${DIFF_TONE[question.difficulty]}`}>
+            {t(DIFF_KEY[question.difficulty])}
+          </span>
         </div>
+        <div className="prep-bar prep-bar-green prep-mock-progress">
+          <span style={{ width: `${progress}%` }} />
+        </div>
+      </header>
 
-        {evaluation && (
-          <div ref={evalRef} className="prep-card prep-card-pad space-y-3">
-            {evaluation.evaluationSource === 'heuristic' && (
-              <p
-                className="rounded-md px-3 py-2 text-[12.5px] font-semibold"
-                style={{ background: 'color-mix(in srgb, var(--prep-amber) 14%, transparent)', color: 'var(--prep-amber)' }}
-              >
-                {/* Причина падения важна: без ключа — одно, с ключом (значит,
-                    сам вызов не удался) — другое. Не утверждаем «нет ключа», если он есть. */}
-                {!backendOnline
-                  ? t('prep.smoke.heuristic.backend')
-                  : !hasAnyKey
-                    ? t('prep.smoke.heuristic.noKey')
-                    : evaluation.evaluationError === 'timeout'
-                      ? t('prep.smoke.heuristic.timeout')
-                      : evaluation.evaluationError === 'quota'
-                        ? t('prep.smoke.heuristic.quota')
-                        : t('prep.smoke.heuristic.generic')}
-              </p>
-            )}
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <p className="prep-h2">{t('prep.smoke.answerEval')}</p>
-                {evaluation.verdict && <p className="prep-sub mt-0.5">{evaluation.verdict}</p>}
-              </div>
-              <div className="shrink-0 text-right">
-                <span
-                  className="text-[26px] font-bold leading-none"
-                  style={{ color: scoreColor(evaluation.score) }}
-                >
-                  {evaluation.score}%
-                </span>
-                {evaluation.levelEstimate && (
-                  <p className="mt-1">
-                    <span className="prep-chip prep-tone-violet">
-                      {t('prep.smoke.soundsLike')} {t(LEVEL_KEY[evaluation.levelEstimate])}
-                    </span>
-                  </p>
-                )}
-              </div>
-            </div>
-
-            {/* Эвристическая «сильная версия» — шаблон, не привязанный к вопросу;
-                без AI она вводит в заблуждение, поэтому показываем только AI-версию. */}
-            {evaluation.suggestedBetterAnswer && evaluation.evaluationSource !== 'heuristic' && (
-              <div className="prep-strong-answer">
-                <p className="prep-eyebrow">{t('prep.smoke.strongVersion')}</p>
-                <p className="mt-2 whitespace-pre-wrap">{evaluation.suggestedBetterAnswer}</p>
-                {evaluation.hallucinationGuard && evaluation.hallucinationGuard.length > 0 && (
-                  <p className="mt-2 text-[11.5px]" style={{ color: 'var(--prep-ink-faint)' }}>
-                    {t('prep.smoke.noFiction')} {evaluation.hallucinationGuard.join(' · ')}
-                  </p>
-                )}
-              </div>
-            )}
-
-            <div className="flex flex-wrap gap-x-4 gap-y-1">
-              <Metric label={t('prep.metric.accuracy')} value={evaluation.technicalAccuracyScore} />
-              {typeof evaluation.coverageScore === 'number' && (
-                <Metric label={t('prep.metric.coverage')} value={evaluation.coverageScore} />
-              )}
-              <Metric label={t('prep.metric.specifics')} value={evaluation.specificityScore} />
-              <Metric label={t('prep.metric.structure')} value={evaluation.clarityScore} />
-              <Metric label={t('prep.metric.confidence')} value={evaluation.confidenceScore} />
-              {typeof evaluation.ownershipScore === 'number' && evaluation.ownershipScore > 0 && (
-                <Metric label={t('prep.metric.ownership')} value={evaluation.ownershipScore} />
-              )}
-            </div>
-
-            <p className="prep-sub">{evaluation.feedback}</p>
-
-            {evaluation.detectedNoiseOrAsrErrors && evaluation.detectedNoiseOrAsrErrors.length > 0 && (
-              <div className="text-[12px]" style={{ color: 'var(--prep-ink-faint)' }}>
-                <p>
-                  {t('prep.smoke.noisePre')} «
-                  {evaluation.detectedNoiseOrAsrErrors.join(' » · «')}»
-                </p>
-                {evaluation.normalizedAnswerSummary && (
-                  <details className="mt-1">
-                    <summary className="cursor-pointer font-semibold" style={{ color: 'var(--prep-green)' }}>
-                      {t('prep.smoke.howUnderstood')}
-                    </summary>
-                    <p className="mt-1 whitespace-pre-wrap">{evaluation.normalizedAnswerSummary}</p>
-                  </details>
-                )}
-              </div>
-            )}
-
-            {evaluation.overclaimed && (
-              <p className="text-[12.5px] font-semibold" style={{ color: 'var(--prep-red)' }}>
-                {t('prep.smoke.overclaimed')}
-              </p>
-            )}
-
-            {evaluation.extractedValidPoints && evaluation.extractedValidPoints.length > 0 && (
-              <FeedbackList
-                label={t('prep.smoke.parsed')}
-                items={evaluation.extractedValidPoints}
-                color="var(--prep-ink-muted)"
-                mark="»"
-              />
-            )}
-
-            {evaluation.goodPoints.length > 0 && (
-              <FeedbackList label={t('history.mock.strengths')} items={evaluation.goodPoints} color="var(--prep-green)" mark="✓" />
-            )}
-            {evaluation.weakPoints && evaluation.weakPoints.length > 0 && (
-              <FeedbackList label={t('history.mock.weakAreas')} items={evaluation.weakPoints} color="var(--prep-amber)" mark="•" />
-            )}
-            {evaluation.missingPoints.length > 0 && (
-              <FeedbackList label={t('prep.smoke.mustAdd')} items={evaluation.missingPoints} color="var(--prep-amber)" mark="+" />
-            )}
-            {evaluation.technicalCorrections && evaluation.technicalCorrections.length > 0 && (
-              <FeedbackList label={t('prep.smoke.techCorrections')} items={evaluation.technicalCorrections} color="var(--prep-red)" mark="→" />
-            )}
-
-            {evaluation.betterStructure && evaluation.betterStructure.length > 0 && (
-              <details>
-                <summary className="cursor-pointer text-[12.5px] font-bold" style={{ color: 'var(--prep-green)' }}>
-                  {t('prep.smoke.howToStructure')}
-                </summary>
-                <ol className="mt-1.5 space-y-1 pl-1">
-                  {evaluation.betterStructure.map((s, i) => (
-                    <li key={s} className="prep-sub flex gap-2">
-                      <span className="font-semibold" style={{ color: 'var(--prep-green)' }}>
-                        {i + 1}.
-                      </span>
-                      {s}
-                    </li>
-                  ))}
-                </ol>
-              </details>
-            )}
-
-            {evaluation.followUpQuestions && evaluation.followUpQuestions.length > 0 && (
-              <div>
-                <p
-                  className="text-[12px] font-bold uppercase tracking-wide"
-                  style={{ color: 'var(--prep-ink-faint)' }}
-                >
-                  {t('prep.smoke.interviewerDrill')}
-                </p>
-                <ul className="mt-1 space-y-1">
-                  {evaluation.followUpQuestions.map((fq) => (
-                    <li key={fq} className="prep-sub flex items-start gap-2">
-                      <span className="shrink-0 font-bold" style={{ color: 'var(--prep-ink-muted)' }}>
-                        ?
-                      </span>
-                      <span className="min-w-0 flex-1">{fq}</span>
-                      {canDrill && onAskFollowUp && (
-                        <button
-                          type="button"
-                          className="prep-link-btn shrink-0"
-                          onClick={() => onAskFollowUp(fq)}
-                          title={t('prep.smoke.answerDrillTitle')}
-                        >
-                          {t('prep.smoke.answerArrow')}
-                        </button>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-                {canDrill && onAskFollowUp && (
-                  <p className="prep-faint mt-1.5">{t('prep.smoke.drillHint')}</p>
-                )}
-              </div>
-            )}
-
-            {evaluation.nextTrainingFocus && (
-              <p className="text-[12.5px]" style={{ color: 'var(--prep-ink-muted)' }}>
-                <span className="font-bold" style={{ color: 'var(--prep-green)' }}>
-                  {t('prep.smoke.trainWhat')}
-                </span>
-                {evaluation.nextTrainingFocus}
-              </p>
-            )}
-          </div>
-        )}
-      </div>
-
-      <aside className="prep-card prep-card-pad h-fit">
-        <p className="prep-faint">{t('prep.smoke.vacancyTopics')}</p>
-        <div className="mt-2 space-y-1.5">
-          {vacancyAnalysis.interviewTopics.map((top) => {
-            const planned = questions.filter((q) => q.topicId === top.id).length;
+      <details className="prep-session-topics">
+        <summary>
+          <span>{t('prep.smoke.sessionTopics')}</span>
+          <span>
+            {session.answers.length}/{questions.length}
+            <ChevronDown size={14} aria-hidden="true" />
+          </span>
+        </summary>
+        <div className="prep-session-topics__list">
+          {vacancyAnalysis.interviewTopics.map((item) => {
+            const planned = questions.filter((candidate) => candidate.topicId === item.id).length;
             const asked = session.answers.filter(
-              (a) => questions.find((q) => q.id === a.questionId)?.topicId === top.id,
+              (answer) =>
+                questions.find((candidate) => candidate.id === answer.questionId)?.topicId ===
+                item.id,
             ).length;
-            const active = top.id === question.topicId;
+            const active = item.id === question.topicId;
             const done = planned > 0 && asked >= planned;
             return (
-              <div
-                key={top.id}
-                className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5"
-                style={{ background: active ? 'var(--prep-green-soft)' : 'transparent' }}
-              >
-                <span className="truncate text-[12.5px]" style={{ color: 'var(--prep-ink-muted)' }}>
-                  {top.title}
-                </span>
-                <span
-                  className="prep-faint shrink-0"
-                  title={t('prep.smoke.topicProgressTitle')}
-                  style={done ? { color: 'var(--prep-green)' } : undefined}
-                >
-                  {done ? '✓ ' : ''}
+              <div key={item.id} className={active ? 'is-active' : ''}>
+                <span className="truncate">{item.title}</span>
+                <span title={t('prep.smoke.topicProgressTitle')}>
+                  {done && <Check size={12} aria-hidden="true" />}
                   {asked}/{planned}
                 </span>
               </div>
             );
           })}
         </div>
-      </aside>
+      </details>
+
+      <section className="prep-question-card">
+        <div className="prep-question-card__heading">
+          <div className="min-w-0">
+            <p className="prep-eyebrow">
+              {t('prep.smoke.question')} {currentIndex + 1}
+            </p>
+            <h1>{question.question}</h1>
+          </div>
+          <SpeakButton
+            text={question.question}
+            nextText={questions[currentIndex + 1]?.question}
+            lang={vacancyAnalysis.language}
+          />
+        </div>
+
+        {(question.whyAsked ||
+          (question.expectedAnswerPoints && question.expectedAnswerPoints.length > 0)) && (
+          <details className="prep-question-context">
+            <summary>
+              {t('prep.smoke.questionContext')}
+              <ChevronDown size={14} aria-hidden="true" />
+            </summary>
+            <div>
+              {question.whyAsked && (
+                <p>
+                  <strong>{t('prep.smoke.whyAsked')}</strong> {question.whyAsked}
+                </p>
+              )}
+              {question.expectedAnswerPoints && question.expectedAnswerPoints.length > 0 && (
+                <ul>
+                  {question.expectedAnswerPoints.map((point) => (
+                    <li key={point}>{point}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </details>
+        )}
+
+        <textarea
+          className="prep-textarea prep-answer-textarea"
+          aria-label={t('prep.smoke.answerPlaceholder')}
+          name="practiceAnswer"
+          autoComplete="off"
+          placeholder={t('prep.smoke.answerPlaceholder')}
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+          disabled={answered}
+        />
+
+        {!answered && (
+          <div
+            className={`prep-voice-strip ${voice.recording || voice.finalizing ? 'is-recording' : ''}`}
+          >
+            <span className="prep-voice-dot" />
+            <div className="min-w-0 flex-1">
+              <p>
+                {voice.finalizing
+                  ? t('prep.smoke.finalizing')
+                  : voice.recording
+                    ? t('prep.smoke.recording')
+                    : t('prep.smoke.voiceAnswer')}
+              </p>
+              <span>
+                {voice.error
+                  ? voice.error
+                  : !hasStt
+                    ? t('prep.smoke.voiceNotReady')
+                    : voice.finalizing
+                      ? t('prep.smoke.finalizingHint')
+                      : voice.recording
+                      ? t('prep.smoke.recordingHint')
+                      : t('prep.smoke.voiceHint')}
+              </span>
+            </div>
+          </div>
+        )}
+
+        <div className="prep-question-actions">
+          {!answered ? (
+            <>
+              <button
+                type="button"
+                className="prep-btn"
+                onClick={voice.recording ? () => void submitCurrentAnswer() : voice.toggle}
+                disabled={evaluating || voice.finalizing || (!hasStt && !voice.recording)}
+                title={!hasStt ? t('prep.smoke.voiceNotReady') : t('prep.smoke.voiceAnswerTitle')}
+              >
+                {voice.finalizing ? (
+                  <>{t('prep.smoke.finalizing')}</>
+                ) : voice.recording ? (
+                  <>
+                    <Square size={14} fill="currentColor" aria-hidden="true" />
+                    {t('prep.smoke.stopAndScore')}
+                  </>
+                ) : (
+                  <>
+                    <Mic size={16} aria-hidden="true" />
+                    {t('prep.smoke.startRec')}
+                  </>
+                )}
+              </button>
+              <button
+                type="button"
+                className="prep-btn-secondary prep-btn-sm"
+                disabled={!canEvaluate || voice.recording || voice.finalizing}
+                onClick={() => void submitCurrentAnswer()}
+              >
+                {evaluating ? t('prep.smoke.evaluating') : t('prep.smoke.scoreAnswer')}
+              </button>
+            </>
+          ) : isLast ? (
+            <button type="button" className="prep-btn" onClick={onFinish}>
+              {t('prep.smoke.finishReview')}
+            </button>
+          ) : (
+            <button type="button" className="prep-btn" onClick={onNext}>
+              {t('prep.smoke.nextQuestion')}
+            </button>
+          )}
+
+          <span className="flex-1" />
+          {!(answered && isLast) && (
+            <details className="prep-action-menu">
+              <summary aria-label={t('prep.smoke.moreActions')}>
+                <MoreHorizontal size={17} aria-hidden="true" />
+              </summary>
+              <div>
+                {!answered && (
+                  <button
+                    type="button"
+                    disabled={voice.finalizing}
+                    onClick={() => {
+                      if (voice.finalizing) return;
+                      voice.stop();
+                      onSubmitAnswer('', 'text', true);
+                    }}
+                  >
+                    {t('prep.smoke.skipQuestion')}
+                  </button>
+                )}
+                <button type="button" disabled={voice.finalizing} onClick={onFinish}>
+                  {t('prep.smoke.finishEarly')}
+                </button>
+              </div>
+            </details>
+          )}
+        </div>
+      </section>
+
+      {evaluation && (
+        <section ref={evaluationRef} className="prep-evaluation-card">
+          {evaluation.evaluationSource === 'heuristic' && (
+            <p className="prep-evaluation-warning">
+              {!backendOnline
+                ? t('prep.smoke.heuristic.backend')
+                : !hasAnyKey
+                  ? t('prep.smoke.heuristic.noKey')
+                  : evaluation.evaluationError === 'timeout'
+                    ? t('prep.smoke.heuristic.timeout')
+                    : evaluation.evaluationError === 'quota'
+                      ? t('prep.smoke.heuristic.quota')
+                      : t('prep.smoke.heuristic.generic')}
+            </p>
+          )}
+
+          <div className="prep-evaluation-heading">
+            <div className="min-w-0">
+              <p className="prep-eyebrow">{t('prep.smoke.answerEval')}</p>
+              {evaluation.verdict && <h2>{evaluation.verdict}</h2>}
+            </div>
+            <div className="prep-evaluation-score">
+              <strong style={{ color: scoreColor(evaluation.score) }}>{evaluation.score}%</strong>
+              {evaluation.levelEstimate && (
+                <span>
+                  {t('prep.smoke.soundsLike')} {t(LEVEL_KEY[evaluation.levelEstimate])}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {evaluation.suggestedBetterAnswer && evaluation.evaluationSource !== 'heuristic' && (
+            <div className="prep-strong-answer">
+              <p className="prep-eyebrow">{t('prep.smoke.strongVersion')}</p>
+              <p className="mt-2 whitespace-pre-wrap">{evaluation.suggestedBetterAnswer}</p>
+              {evaluation.hallucinationGuard && evaluation.hallucinationGuard.length > 0 && (
+                <small>
+                  {t('prep.smoke.noFiction')} {evaluation.hallucinationGuard.join(' · ')}
+                </small>
+              )}
+            </div>
+          )}
+
+          <p className="prep-sub">{evaluation.feedback}</p>
+
+          {evaluation.nextTrainingFocus && (
+            <div className="prep-training-focus">
+              <strong>{t('prep.smoke.trainWhat')}</strong>
+              <span>{evaluation.nextTrainingFocus}</span>
+            </div>
+          )}
+
+          {evaluation.followUpQuestions && evaluation.followUpQuestions.length > 0 && (
+            <div className="prep-follow-ups">
+              <p className="prep-faint">{t('prep.smoke.interviewerDrill')}</p>
+              {evaluation.followUpQuestions.map((followUp) => (
+                <div key={followUp}>
+                  <span>{followUp}</span>
+                  {canDrill && onAskFollowUp && (
+                    <button
+                      type="button"
+                      className="prep-link-btn"
+                      onClick={() => onAskFollowUp(followUp)}
+                      title={t('prep.smoke.answerDrillTitle')}
+                    >
+                      {t('prep.smoke.answerArrow')}
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          <details className="prep-feedback-details">
+            <summary>
+              {t('prep.smoke.detailedFeedback')}
+              <ChevronDown size={15} aria-hidden="true" />
+            </summary>
+            <div className="prep-feedback-details__body">
+              <div className="prep-metrics">
+                <Metric
+                  label={t('prep.metric.accuracy')}
+                  value={evaluation.technicalAccuracyScore}
+                />
+                {typeof evaluation.coverageScore === 'number' && (
+                  <Metric label={t('prep.metric.coverage')} value={evaluation.coverageScore} />
+                )}
+                <Metric
+                  label={t('prep.metric.specifics')}
+                  value={evaluation.specificityScore}
+                />
+                <Metric label={t('prep.metric.structure')} value={evaluation.clarityScore} />
+                <Metric
+                  label={t('prep.metric.confidence')}
+                  value={evaluation.confidenceScore}
+                />
+                {typeof evaluation.ownershipScore === 'number' &&
+                  evaluation.ownershipScore > 0 && (
+                    <Metric
+                      label={t('prep.metric.ownership')}
+                      value={evaluation.ownershipScore}
+                    />
+                  )}
+              </div>
+
+              {evaluation.detectedNoiseOrAsrErrors &&
+                evaluation.detectedNoiseOrAsrErrors.length > 0 && (
+                  <div className="prep-noise-note">
+                    <p>
+                      {t('prep.smoke.noisePre')} «
+                      {evaluation.detectedNoiseOrAsrErrors.join(' » · «')}»
+                    </p>
+                    {evaluation.normalizedAnswerSummary && (
+                      <p className="mt-1 whitespace-pre-wrap">
+                        {t('prep.smoke.howUnderstood')}: {evaluation.normalizedAnswerSummary}
+                      </p>
+                    )}
+                  </div>
+                )}
+
+              {evaluation.overclaimed && (
+                <p className="prep-overclaim">{t('prep.smoke.overclaimed')}</p>
+              )}
+              {evaluation.extractedValidPoints &&
+                evaluation.extractedValidPoints.length > 0 && (
+                  <FeedbackList
+                    label={t('prep.smoke.parsed')}
+                    items={evaluation.extractedValidPoints}
+                    color="var(--prep-ink-muted)"
+                    mark="›"
+                  />
+                )}
+              {evaluation.goodPoints.length > 0 && (
+                <FeedbackList
+                  label={t('history.mock.strengths')}
+                  items={evaluation.goodPoints}
+                  color="var(--prep-green)"
+                  mark="✓"
+                />
+              )}
+              {evaluation.weakPoints && evaluation.weakPoints.length > 0 && (
+                <FeedbackList
+                  label={t('history.mock.weakAreas')}
+                  items={evaluation.weakPoints}
+                  color="var(--prep-amber)"
+                  mark="•"
+                />
+              )}
+              {evaluation.missingPoints.length > 0 && (
+                <FeedbackList
+                  label={t('prep.smoke.mustAdd')}
+                  items={evaluation.missingPoints}
+                  color="var(--prep-amber)"
+                  mark="+"
+                />
+              )}
+              {evaluation.technicalCorrections &&
+                evaluation.technicalCorrections.length > 0 && (
+                  <FeedbackList
+                    label={t('prep.smoke.techCorrections')}
+                    items={evaluation.technicalCorrections}
+                    color="var(--prep-red)"
+                    mark="→"
+                  />
+                )}
+              {evaluation.betterStructure && evaluation.betterStructure.length > 0 && (
+                <div>
+                  <p className="prep-faint">{t('prep.smoke.howToStructure')}</p>
+                  <ol className="mt-1.5 space-y-1">
+                    {evaluation.betterStructure.map((step, index) => (
+                      <li key={step} className="prep-sub flex gap-2">
+                        <span style={{ color: 'var(--prep-green)' }}>{index + 1}.</span>
+                        {step}
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              )}
+            </div>
+          </details>
+        </section>
+      )}
     </div>
   );
 }
 
-/**
- * Озвучка вопроса системным голосом (Web Speech API) — тренировка на слух,
- * как на реальном интервью. Кнопка прячется, если синтез речи недоступен.
- */
-function SpeakButton({ text, lang }: { text: string; lang: 'ru' | 'en' }) {
+function SpeakButton({
+  text,
+  nextText,
+  lang,
+}: {
+  text: string;
+  nextText?: string;
+  lang: 'ru' | 'en';
+}) {
   const { t } = useI18n();
-  const [speaking, setSpeaking] = useState(false);
+  const questionSpeech = useQuestionSpeech();
+  const { prefetch, stop } = questionSpeech;
 
   useEffect(() => {
-    // Смена вопроса или уход со страницы — обрываем озвучку.
-    return () => window.speechSynthesis?.cancel();
-  }, [text]);
+    prefetch(nextText, lang);
+  }, [lang, nextText, prefetch]);
 
-  if (typeof window === 'undefined' || !('speechSynthesis' in window)) return null;
+  useEffect(() => {
+    stop();
+    return stop;
+  }, [lang, stop, text]);
 
   const toggle = () => {
-    const synth = window.speechSynthesis;
-    if (speaking) {
-      synth.cancel();
-      setSpeaking(false);
+    if (questionSpeech.state === 'loading' || questionSpeech.state === 'playing') {
+      questionSpeech.stop();
       return;
     }
-    synth.cancel();
-    const utter = new SpeechSynthesisUtterance(text);
-    utter.lang = lang === 'ru' ? 'ru-RU' : 'en-US';
-    utter.rate = 1;
-    utter.onend = () => setSpeaking(false);
-    utter.onerror = () => setSpeaking(false);
-    setSpeaking(true);
-    synth.speak(utter);
+    void questionSpeech.play(text, lang);
   };
 
+  const label =
+    questionSpeech.state === 'loading'
+      ? t('prep.smoke.speechLoading')
+      : questionSpeech.state === 'playing'
+        ? t('prep.smoke.speakStop')
+        : questionSpeech.state === 'error'
+          ? t('prep.smoke.speechRetry')
+          : t('prep.smoke.speakTitle');
   return (
-    <button
-      type="button"
-      className="prep-btn-ghost prep-btn-sm shrink-0"
-      onClick={toggle}
-      title={speaking ? t('prep.smoke.speakStop') : t('prep.smoke.speakTitle')}
-    >
-      {speaking ? t('prep.smoke.speakStopBtn') : t('prep.smoke.speakBtn')}
-    </button>
+    <div className="prep-question-speech">
+      <button
+        type="button"
+        className={`prep-icon-button prep-question-speech__button is-${questionSpeech.state}`}
+        onClick={toggle}
+        title={label}
+        aria-label={label}
+        aria-busy={questionSpeech.state === 'loading'}
+      >
+        {questionSpeech.state === 'loading' ? (
+          <LoaderCircle className="prep-question-speech__spinner" size={17} aria-hidden="true" />
+        ) : questionSpeech.state === 'playing' ? (
+          <VolumeX size={17} aria-hidden="true" />
+        ) : questionSpeech.state === 'error' ? (
+          <RefreshCw size={16} aria-hidden="true" />
+        ) : (
+          <Volume2 size={17} aria-hidden="true" />
+        )}
+      </button>
+      <span className="prep-question-speech__source">
+        {t(questionSpeech.usedFallback ? 'prep.smoke.localVoice' : 'prep.smoke.aiVoice')}
+      </span>
+    </div>
   );
 }
 
 function Metric({ label, value }: { label: string; value: number }) {
   return (
-    <span className="text-[12px]" style={{ color: 'var(--prep-ink-faint)' }}>
-      {label}{' '}
+    <span>
+      {label}
       <strong style={{ color: scoreColor(value) }}>{value}</strong>
     </span>
   );
@@ -538,16 +618,14 @@ function FeedbackList({
 }) {
   return (
     <div>
-      <p className="text-[12px] font-bold uppercase tracking-wide" style={{ color: 'var(--prep-ink-faint)' }}>
-        {label}
-      </p>
+      <p className="prep-faint">{label}</p>
       <ul className="mt-1 space-y-1">
-        {items.map((it) => (
-          <li key={it} className="prep-sub flex gap-2">
+        {items.map((item) => (
+          <li key={item} className="prep-sub flex gap-2">
             <span className="shrink-0 font-bold" style={{ color }}>
               {mark}
             </span>
-            {it}
+            {item}
           </li>
         ))}
       </ul>

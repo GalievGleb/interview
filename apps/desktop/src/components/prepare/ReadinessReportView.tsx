@@ -1,8 +1,29 @@
+import { useMemo } from 'react';
+import {
+  AlertTriangle,
+  ArrowRight,
+  ChevronDown,
+  Download,
+  Mic2,
+  MoreHorizontal,
+  Printer,
+  RotateCcw,
+  TrendingUp,
+} from 'lucide-react';
 import ReadinessRing from './ReadinessRing';
 import TopicCard from './TopicCard';
-import { readinessLabelText, readinessTone } from '../../lib/vacancyReview/readiness';
+import {
+  readinessLabelText,
+  readinessTone,
+  topicStatusText,
+  topicStatusTone,
+} from '../../lib/vacancyReview/readiness';
 import { useI18n } from '../../lib/i18n';
-import type { ReadinessReport, VacancyAnalysis } from '../../lib/vacancyReview/types';
+import type {
+  ReadinessReport,
+  TopicScore,
+  VacancyAnalysis,
+} from '../../lib/vacancyReview/types';
 
 interface Props {
   report: ReadinessReport;
@@ -13,7 +34,6 @@ interface Props {
   onNewReview: () => void;
   onFollowUpRound?: () => void;
   onPracticeTopic?: (topicId: string) => void;
-  /** Скоры прошлых раундов по этой же вакансии (старые → новые), включая текущий. */
   scoreHistory?: number[];
 }
 
@@ -31,137 +51,267 @@ export default function ReadinessReportView({
   const { t } = useI18n();
   const tone = readinessTone(report.status);
   const hasWeak = report.weakAreas.length > 0 || report.criticalGaps.length > 0;
+  const priorityTopics = useMemo(
+    () => [...report.topicScores].sort((a, b) => a.score - b.score).slice(0, 3),
+    [report.topicScores],
+  );
+
   return (
     <div className="prep-rise space-y-5">
-      <div className="prep-card prep-card-pad">
-        <div className="flex flex-col items-center gap-5 sm:flex-row sm:items-center">
-          <ReadinessRing score={report.overallScore} label={readinessLabelText(report.status)} tone={tone} />
-          <div className="min-w-0 flex-1 text-center sm:text-left">
-            <p className="prep-eyebrow">{t('prep.report.eyebrow')}</p>
-            <h1 className="prep-h1 mt-1">{analysis.targetRole}</h1>
-            <p className="prep-sub mt-1.5">
-              {report.overallScore >= 70
-                ? t('prep.report.verdictHigh')
-                : report.overallScore >= 50
-                  ? t('prep.report.verdictMid')
-                  : t('prep.report.verdictLow')}
-            </p>
-            {scoreHistory && scoreHistory.length >= 2 && (
-              <p className="prep-faint mt-1.5" title={t('prep.report.progressTitle')}>
-                {t('prep.report.progress')}{' '}
-                {scoreHistory.map((s, i) => (
-                  <span key={`${i}-${s}`}>
-                    {i > 0 && ' → '}
-                    <span
-                      style={
-                        i === scoreHistory.length - 1
-                          ? { color: 'var(--prep-green)', fontWeight: 700 }
-                          : undefined
-                      }
-                    >
-                      {s}
-                    </span>
-                  </span>
-                ))}
-                {scoreHistory[scoreHistory.length - 1] > scoreHistory[0] && ' 📈'}
-              </p>
-            )}
-            <div className="mt-3 flex flex-wrap justify-center gap-2 sm:justify-start">
-              {onFollowUpRound && hasWeak && (
-                <button type="button" className="prep-btn prep-btn-sm" onClick={onFollowUpRound}>
+      <section className="prep-report-hero">
+        <ReadinessRing
+          score={report.overallScore}
+          label={readinessLabelText(report.status)}
+          tone={tone}
+          size={128}
+        />
+        <div className="min-w-0">
+          <p className="prep-eyebrow">{t('prep.report.eyebrow')}</p>
+          <h1 className="prep-h1 mt-1">{analysis.targetRole}</h1>
+          <p className="prep-sub mt-2">
+            {report.overallScore >= 70
+              ? t('prep.report.verdictHigh')
+              : report.overallScore >= 50
+                ? t('prep.report.verdictMid')
+                : t('prep.report.verdictLow')}
+          </p>
+
+          {scoreHistory && scoreHistory.length >= 2 && (
+            <div className="prep-report-progress" title={t('prep.report.progressTitle')}>
+              <TrendingUp size={14} aria-hidden="true" />
+              <span>{t('prep.report.progress')}</span>
+              <strong>{scoreHistory.join(' → ')}</strong>
+            </div>
+          )}
+
+          <div className="prep-report-actions">
+            {onFollowUpRound && hasWeak ? (
+              <>
+                <button type="button" className="prep-btn" onClick={onFollowUpRound}>
+                  <RotateCcw size={15} aria-hidden="true" />
                   {t('prep.report.anotherRound')}
                 </button>
-              )}
-              <button
-                type="button"
-                className={`prep-btn-sm ${onFollowUpRound && hasWeak ? 'prep-btn-secondary' : 'prep-btn'}`}
-                onClick={onStartLive}
-              >
+                <button type="button" className="prep-btn-secondary" onClick={onStartLive}>
+                  <Mic2 size={15} aria-hidden="true" />
+                  {t('prep.report.startLive')}
+                </button>
+              </>
+            ) : (
+              <button type="button" className="prep-btn" onClick={onStartLive}>
+                <Mic2 size={15} aria-hidden="true" />
                 {t('prep.report.startLive')}
               </button>
-              {onPrint && (
-                <button type="button" className="prep-btn-ghost prep-btn-sm" onClick={onPrint}>
-                  {t('prep.report.print')}
+            )}
+
+            <details className="prep-action-menu">
+              <summary aria-label={t('prep.report.moreActions')}>
+                <MoreHorizontal size={17} aria-hidden="true" />
+              </summary>
+              <div>
+                {onPrint && (
+                  <button type="button" onClick={onPrint}>
+                    <Printer size={14} aria-hidden="true" />
+                    {t('prep.report.print')}
+                  </button>
+                )}
+                <button type="button" onClick={onSave}>
+                  <Download size={14} aria-hidden="true" />
+                  {t('prep.report.save')}
                 </button>
-              )}
-              <button type="button" className="prep-btn-ghost prep-btn-sm" onClick={onSave}>
-                {t('prep.report.save')}
-              </button>
-              <button type="button" className="prep-btn-ghost prep-btn-sm" onClick={onNewReview}>
-                {t('prep.report.newVacancy')}
-              </button>
-            </div>
+                <button type="button" onClick={onNewReview}>
+                  <RotateCcw size={14} aria-hidden="true" />
+                  {t('prep.report.newVacancy')}
+                </button>
+              </div>
+            </details>
           </div>
         </div>
-      </div>
+
+        <div className="prep-report-summary">
+          <SummaryStat
+            tone="green"
+            value={report.strengths.length}
+            label={t('history.mock.strengths')}
+          />
+          <SummaryStat
+            tone="amber"
+            value={report.weakAreas.length}
+            label={t('history.mock.weakAreas')}
+          />
+          <SummaryStat
+            tone="red"
+            value={report.criticalGaps.length}
+            label={t('history.mock.criticalGaps')}
+          />
+        </div>
+      </section>
 
       {analysis.analysisSource === 'heuristic' && (
-        <div className="prep-card prep-card-pad prep-topic prep-topic-amber">
-          <p className="prep-sub pl-2">
+        <div className="prep-analysis-warning" role="status">
+          <AlertTriangle size={17} aria-hidden="true" />
+          <div>
             <strong>{t('prep.report.noAiTitle')}</strong>
-            {t('prep.report.noAiBody')}
-          </p>
+            <p>{t('prep.report.noAiBody')}</p>
+          </div>
         </div>
       )}
 
-      {report.narrativeVerdict && (
-        <div className="prep-card prep-card-pad">
+      {(report.narrativeVerdict || report.interviewerImpression || report.focusTopic) && (
+        <section className="prep-coach-note">
           <p className="prep-eyebrow">{t('prep.report.coachVerdict')}</p>
-          <p className="prep-sub mt-1.5">{report.narrativeVerdict}</p>
-          {report.interviewerImpression && (
-            <p className="prep-faint mt-2">
-              {t('prep.report.impression')} {report.interviewerImpression}
-            </p>
-          )}
-          {report.focusTopic && (
-            <p className="prep-faint mt-1">
-              {t('prep.report.startWith')} <span className="font-semibold">{report.focusTopic}</span>
-            </p>
-          )}
-        </div>
+          {report.narrativeVerdict && <p>{report.narrativeVerdict}</p>}
+          <div>
+            {report.interviewerImpression && (
+              <span>
+                <strong>{t('prep.report.impression')}</strong> {report.interviewerImpression}
+              </span>
+            )}
+            {report.focusTopic && (
+              <span>
+                <strong>{t('prep.report.startWith')}</strong> {report.focusTopic}
+              </span>
+            )}
+          </div>
+        </section>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        <SummaryCard tone="green" title={t('history.mock.strengths')} items={report.strengths} empty={t('prep.report.strengthsEmpty')} />
-        <SummaryCard tone="amber" title={t('history.mock.weakAreas')} items={report.weakAreas} empty={t('prep.report.weakEmpty')} />
-        <SummaryCard
-          tone="red"
-          title={t('history.mock.criticalGaps')}
-          items={report.criticalGaps}
-          empty={report.overallScore >= 50 ? t('prep.report.gapsEmptyWin') : t('prep.report.gapsEmpty')}
-        />
-      </div>
-
-      <div>
-        <h2 className="prep-h2">{t('prep.analysis.readinessMap')}</h2>
-        <p className="prep-faint mt-0.5">{t('prep.report.readinessByAnswers')}</p>
-        <div className="mt-3 grid gap-3 sm:grid-cols-2">
-          {report.topicScores.map((topic) => (
-            <TopicCard key={topic.topicId} topic={topic} onPractice={onPracticeTopic} />
+      <section>
+        <div className="prep-report-section-heading">
+          <div>
+            <p className="prep-eyebrow">{t('prep.report.priorityEyebrow')}</p>
+            <h2 className="prep-h2 mt-1">{t('prep.report.priorityTitle')}</h2>
+          </div>
+          <p className="prep-faint">{t('prep.report.readinessByAnswers')}</p>
+        </div>
+        <div className="prep-report-priorities">
+          {priorityTopics.map((topic) => (
+            <PriorityTopic key={topic.topicId} topic={topic} onPractice={onPracticeTopic} />
           ))}
         </div>
-      </div>
+      </section>
 
       {report.nextPracticePlan.length > 0 && (
-        <div className="prep-card prep-card-pad prep-topic prep-topic-green">
-          <p className="prep-h2 pl-2">{t('prep.report.recommendations')}</p>
-          <ol className="mt-2 space-y-1.5 pl-2">
-            {report.nextPracticePlan.map((step, i) => (
-              <li key={step} className="prep-sub flex gap-2">
-                <span className="font-semibold" style={{ color: 'var(--prep-green)' }}>
-                  {i + 1}.
-                </span>
-                {step}
-              </li>
+        <section className="prep-next-plan">
+          <div>
+            <p className="prep-eyebrow">{t('prep.report.recommendations')}</p>
+            <h2>{report.nextPracticePlan[0]}</h2>
+          </div>
+          {report.nextPracticePlan.length > 1 && (
+            <ol>
+              {report.nextPracticePlan.slice(1, 4).map((step, index) => (
+                <li key={step}>
+                  <span>{index + 2}</span>
+                  {step}
+                </li>
+              ))}
+            </ol>
+          )}
+        </section>
+      )}
+
+      <details className="prep-full-report">
+        <summary>
+          <span>{t('prep.report.fullMap')}</span>
+          <span>
+            {report.topicScores.length}
+            <ChevronDown size={15} aria-hidden="true" />
+          </span>
+        </summary>
+        <div className="prep-full-report__body">
+          <div className="grid gap-3 sm:grid-cols-2">
+            {report.topicScores.map((topic) => (
+              <TopicCard key={topic.topicId} topic={topic} onPractice={onPracticeTopic} />
             ))}
-          </ol>
+          </div>
+          <div className="prep-report-lists">
+            <SummaryList
+              tone="green"
+              title={t('history.mock.strengths')}
+              items={report.strengths}
+              empty={t('prep.report.strengthsEmpty')}
+            />
+            <SummaryList
+              tone="amber"
+              title={t('history.mock.weakAreas')}
+              items={report.weakAreas}
+              empty={t('prep.report.weakEmpty')}
+            />
+            <SummaryList
+              tone="red"
+              title={t('history.mock.criticalGaps')}
+              items={report.criticalGaps}
+              empty={
+                report.overallScore >= 50
+                  ? t('prep.report.gapsEmptyWin')
+                  : t('prep.report.gapsEmpty')
+              }
+            />
+          </div>
         </div>
+      </details>
+    </div>
+  );
+}
+
+function PriorityTopic({
+  topic,
+  onPractice,
+}: {
+  topic: TopicScore;
+  onPractice?: (topicId: string) => void;
+}) {
+  const { t } = useI18n();
+  const tone = topicStatusTone(topic.status);
+  return (
+    <div className={`prep-report-priority prep-topic-${tone}`}>
+      <div className="flex min-w-0 items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="prep-faint">{topic.category}</p>
+          <h3 className="truncate">{topic.title}</h3>
+        </div>
+        <span className={`prep-chip prep-tone-${tone}`}>
+          {topicStatusText(topic.status)}
+        </span>
+      </div>
+      <div className="prep-report-priority__score">
+        <strong style={{ color: `var(--prep-${tone})` }}>{topic.score}%</strong>
+        <div className={`prep-bar prep-bar-${tone}`}>
+          <span style={{ width: `${topic.score}%` }} />
+        </div>
+      </div>
+      <p>{topic.feedback}</p>
+      {onPractice && (
+        <button
+          type="button"
+          className="prep-link-btn"
+          onClick={() => onPractice(topic.topicId)}
+        >
+          {t('prep.practiceTopic')}
+          <ArrowRight size={14} aria-hidden="true" />
+        </button>
       )}
     </div>
   );
 }
 
-function SummaryCard({
+function SummaryStat({
+  tone,
+  value,
+  label,
+}: {
+  tone: 'green' | 'amber' | 'red';
+  value: number;
+  label: string;
+}) {
+  return (
+    <div className={`prep-report-stat prep-topic-${tone}`}>
+      <strong>{value}</strong>
+      <span>{label}</span>
+    </div>
+  );
+}
+
+function SummaryList({
   tone,
   title,
   items,
@@ -175,11 +325,11 @@ function SummaryCard({
   return (
     <div className={`prep-card p-4 prep-topic prep-topic-${tone}`}>
       <p className="prep-h2 pl-2">{title}</p>
-      {items.length ? (
+      {items.length > 0 ? (
         <ul className="mt-2 space-y-1 pl-2">
-          {items.map((i) => (
-            <li key={i} className="text-[13px]" style={{ color: 'var(--prep-ink-muted)' }}>
-              {i}
+          {items.map((item) => (
+            <li key={item} className="prep-sub">
+              {item}
             </li>
           ))}
         </ul>

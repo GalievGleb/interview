@@ -1,14 +1,16 @@
 {
   "name": "@interview/desktop",
-  "version": "0.0.10",
+  "version": "0.0.18",
   "private": true,
   "main": "dist-electron/main.js",
   "scripts": {
+    "assets:installer": "python build/make_icon.py",
+    "prebuild": "pnpm assets:installer",
     "dev": "concurrently -k -n vite,electron -c blue,green \"vite\" \"wait-on http://localhost:5173 && tsc -p tsconfig.electron.json && electron .\"",
     "build": "vite build && tsc -p tsconfig.electron.json",
     "dist": "pnpm dist:full",
     "dist:app": "pnpm build && electron-builder",
-    "build:backend": "cd ../api-py && pyinstaller skillcue-backend.spec",
+    "build:backend": "cd ../api-py && .venv\\Scripts\\pyinstaller.exe -y skillcue-backend.spec",
     "dist:full": "pnpm build:backend && pnpm build && electron-builder",
     "preview": "vite preview",
     "test": "vitest run",
@@ -21,6 +23,7 @@
     "electron-updater": "^6.3.9",
     "keytar": "^7.9.0",
     "lucide-react": "^0.468.0",
+    "playwright-core": "1.62.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.1.1"
@@ -64,6 +67,17 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "../../tests/stt-benchmark/cases.json",
+        "to": "tests/stt-benchmark/cases.json"
+      },
+      {
+        "from": "../../tests/voice/audio",
+        "to": "tests/voice/audio",
+        "filter": [
+          "*.wav"
+        ]
       }
     ],
     "win": {
@@ -73,8 +87,10 @@
       "icon": "build/icon.ico"
     },
     "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false,
+      "deleteAppDataOnUninstall": false,
       "artifactName": "SkillCue-Setup.${ext}"
     },
     "publish": {

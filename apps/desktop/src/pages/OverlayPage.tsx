@@ -1,14 +1,30 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { api } from '../lib/api';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { api, type SessionAssessment } from '../lib/api';
 import { useLiveCopilot } from '../hooks/useLiveCopilot';
 import { useLiveCopilotPrefs } from '../hooks/useLiveCopilotPrefs';
 import { useApp } from '../context/AppContext';
 import type { TranscriptLine } from '../hooks/useLiveCopilot';
 import MarkdownText from '../components/MarkdownText';
+import OverlayTooltipLayer from '../components/OverlayTooltipLayer';
 import { forceDarkTheme } from '../lib/theme';
 import { modeInstructionPrefix, useAnswerModes } from '../lib/answerModes';
 import { deriveLiveExchange } from '../lib/liveOverlaySync';
+import {
+  acceptForceHotkey,
+  type ForceHotkeyEvent,
+  type ForceHotkeySource,
+} from '../lib/forceHotkeyDeduper';
+import {
+  resolveOverlayRequestRoute,
+  type OverlayActionId,
+} from '../lib/overlayRequestRoute';
+import {
+  OverlayPointerController,
+  clampFloatingPanel,
+} from '../lib/overlayPointerPolicy';
 import { useI18n, type I18nKey } from '../lib/i18n';
+import { refreshSessionKnowledge } from '../lib/sessionKnowledge';
+import { answerLanguageParam } from '../lib/answerLanguage';
 
 /**
  * Плавающий оверлей SkillCue (вдохновлён Cluely, но в навы+зелёном стиле):
@@ -20,7 +36,7 @@ import { useI18n, type I18nKey } from '../lib/i18n';
  * Undetectability прячет оверлей от скринов/записи и рисует пунктирную обводку.
  */
 
-type ActionId = 'assist' | 'say' | 'followup' | 'recap' | 'screen';
+type ActionId = OverlayActionId;
 
 const ACTIONS: Record<
   ActionId,
@@ -73,7 +89,13 @@ function clampOpacity(v: number): number {
   return Number.isFinite(v) && v >= 40 && v <= 100 ? v : 100;
 }
 
-type RecapTab = 'summary' | 'transcript' | 'usage';
+type RecapTab = 'summary' | 'analysis' | 'transcript' | 'usage';
+
+interface RecapSnapshot {
+  lines: TranscriptLine[];
+  at: number;
+  sessionId: string | null;
+}
 
 interface Exchange {
   label: string;
@@ -159,7 +181,7 @@ function buildTranscript(ls: TranscriptLine[], me: string, other: string): strin
 }
 
 export default function OverlayPage() {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const { hasStt } = useApp();
   const {
     active,
@@ -168,6 +190,11 @@ export default function OverlayPage() {
     currentQuestion,
     streamText,
     streaming,
+    forceGeneration,
+    forcePhase,
+    forceScreenFallbackGeneration,
+    error,
+    sessionId,
     forceAnswer,
     start,
     stop,
@@ -197,18 +224,29 @@ export default function OverlayPage() {
 
   // Итоги сессии.
   const [usageLog, setUsageLog] = useState<UsageEntry[]>([]);
-  const [recap, setRecap] = useState<{ lines: TranscriptLine[]; at: number } | null>(null);
+  const [recap, setRecap] = useState<RecapSnapshot | null>(null);
   const [recapTab, setRecapTab] = useState<RecapTab>('summary');
   const [recapSummary, setRecapSummary] = useState('');
   const [recapSummaryStreaming, setRecapSummaryStreaming] = useState(false);
+  const [analysis, setAnalysis] = useState<SessionAssessment | null>(null);
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [analysisError, setAnalysisError] = useState('');
 
   const cancelRef = useRef<(() => void) | null>(null);
   const summaryCancelRef = useRef<(() => void) | null>(null);
+  const analysisRequestGenerationRef = useRef(0);
+  const screenAssistGenerationRef = useRef(0);
   const manualBusyRef = useRef(false);
+  const lastForceScreenFallbackRef = useRef(0);
+  const rootRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const menuPanelRef = useRef<HTMLDivElement>(null);
   const hideMenuRef = useRef<HTMLDivElement>(null);
   const answerBodyRef = useRef<HTMLDivElement>(null);
-  const forceHotkeyAtRef = useRef(0);
+  const lastForceHotkeyRef = useRef<ForceHotkeyEvent | null>(null);
+  const pointerControllerRef = useRef<OverlayPointerController | null>(null);
+  const [menuPosition, setMenuPosition] = useState({ left: 8, top: 8 });
 
   // Прозрачный фон окна: панели «плавают» над рабочим столом.
   // Оверлей всегда тёмный, независимо от темы приложения.
@@ -248,31 +286,33 @@ export default function OverlayPage() {
   useEffect(() => {
     const ct = window.electronAPI?.overlay.setClickThrough;
     if (!ct) return;
-    if (!avoidFocus) {
-      void ct(false);
-      return;
-    }
-    const SEL =
-      'button, a, input, textarea, select, [role="switch"], .ovl-answer-body, .ovl-recap-body';
-    let over = false;
-    void ct(true);
+    const controller = new OverlayPointerController(
+      (enabled) => void ct(enabled),
+      (x, y) => document.elementFromPoint(x, y),
+    );
+    pointerControllerRef.current = controller;
+    controller.initialize();
     const onMove = (e: MouseEvent) => {
-      const el = document.elementFromPoint(e.clientX, e.clientY) as Element | null;
-      const nowOver = !!el && !!el.closest(SEL);
-      if (nowOver !== over) {
-        over = nowOver;
-        void ct(!nowOver);
-      }
+      controller.move(e.clientX, e.clientY);
     };
     window.addEventListener('mousemove', onMove);
     return () => {
       window.removeEventListener('mousemove', onMove);
-      void ct(false);
+      if (pointerControllerRef.current === controller) pointerControllerRef.current = null;
+      controller.dispose();
     };
-  }, [avoidFocus]);
+  }, []);
+
+  // Opening or removing a card/menu changes the hit region under a stationary
+  // cursor. Refresh after every committed layout so the next click cannot be
+  // swallowed by a surface that is no longer visible.
+  useLayoutEffect(() => {
+    pointerControllerRef.current?.refresh();
+  });
 
   useEffect(
     () => () => {
+      screenAssistGenerationRef.current += 1;
       cancelRef.current?.();
       summaryCancelRef.current?.();
     },
@@ -287,7 +327,8 @@ export default function OverlayPage() {
   }, [lines, t]);
 
   const runScreenAssist = useCallback(
-    async (customText: string) => {
+    async (customText: string, mode: 'general' | 'deep') => {
+      const requestGeneration = ++screenAssistGenerationRef.current;
       const capture = window.electronAPI?.overlay.captureScreen;
       if (!capture) {
         setNotice(t('overlay.screenOnlyDesktop'));
@@ -295,12 +336,14 @@ export default function OverlayPage() {
       }
       setNotice('');
       cancelRef.current?.();
+      cancelRef.current = null;
       manualBusyRef.current = true;
       const request = customText || t('overlay.whatOnScreen');
       setExchange({ label: t('overlay.action.screen'), request, text: '', streaming: true });
       setInput('');
 
       const image = await capture().catch(() => '');
+      if (requestGeneration !== screenAssistGenerationRef.current) return;
       if (!image) {
         manualBusyRef.current = false;
         setExchange(null);
@@ -315,15 +358,20 @@ export default function OverlayPage() {
         `${modeInstructionPrefix()}${customText}`.trim(),
         {
           onChunk: (t) => {
+            if (requestGeneration !== screenAssistGenerationRef.current) return;
             acc += t;
             setExchange((prev) => (prev ? { ...prev, text: prev.text + t } : prev));
           },
           onDone: () => {
+            if (requestGeneration !== screenAssistGenerationRef.current) return;
+            cancelRef.current = null;
             manualBusyRef.current = false;
             setExchange((prev) => (prev ? { ...prev, streaming: false } : prev));
             setUsageLog((log) => [...log, { label: t('overlay.action.screen'), request, text: acc, image }]);
           },
           onError: (msg) => {
+            if (requestGeneration !== screenAssistGenerationRef.current) return;
+            cancelRef.current = null;
             manualBusyRef.current = false;
             setExchange((prev) =>
               prev ? { ...prev, streaming: false, text: prev.text || `⚠ ${msg}` } : prev,
@@ -332,11 +380,11 @@ export default function OverlayPage() {
         },
         {
           context: transcriptContext() || undefined,
-          mode: smart ? 'deep' : 'general',
+          mode,
         },
       );
     },
-    [smart, transcriptContext, t],
+    [transcriptContext, t],
   );
 
   const runAction = useCallback(
@@ -345,27 +393,26 @@ export default function OverlayPage() {
       const context = transcriptContext();
       const custom = (customText ?? '').trim();
 
-      if (id === 'screen') {
-        void runScreenAssist(custom);
+      const route = resolveOverlayRequestRoute({
+        action: id,
+        customText: custom,
+        hasTranscript: Boolean(context),
+        canCaptureScreen: Boolean(window.electronAPI?.overlay.captureScreen),
+        useScreenFallback: localStorage.getItem(USE_SCREEN_KEY) !== '0',
+        smart,
+      });
+
+      if (route.kind === 'screen') {
+        void runScreenAssist(custom, route.mode);
         return;
       }
 
-      // Как в референсе: если текстового контекста не хватает, Подсказка сама
-      // «смотрит» на экран (скриншот) вместо отказа. Отключается в настройках.
-      if (
-        id === 'assist' &&
-        !context &&
-        window.electronAPI?.overlay.captureScreen &&
-        localStorage.getItem(USE_SCREEN_KEY) !== '0'
-      ) {
-        void runScreenAssist(custom);
-        return;
-      }
-
-      if (!custom && !context) {
+      if (route.kind === 'notice') {
+        screenAssistGenerationRef.current += 1;
         setNotice(action.needsContext ? t('overlay.noConvContext') : t('overlay.noConvManual'));
         return;
       }
+      screenAssistGenerationRef.current += 1;
       setNotice('');
       cancelRef.current?.();
       manualBusyRef.current = true;
@@ -402,7 +449,7 @@ export default function OverlayPage() {
           },
         },
         {
-          mode: smart ? 'deep' : 'general',
+          mode: route.mode,
           context: context || undefined,
         },
       );
@@ -413,13 +460,66 @@ export default function OverlayPage() {
   // Live-ответы (авто) — в ту же панель, пока нет ручного запроса.
   const lastEntry = answerHistory[answerHistory.length - 1];
   useEffect(() => {
+    if (!forceScreenFallbackGeneration) {
+      lastForceScreenFallbackRef.current = 0;
+      return;
+    }
+    if (lastForceScreenFallbackRef.current === forceScreenFallbackGeneration) return;
+    lastForceScreenFallbackRef.current = forceScreenFallbackGeneration;
+    void runScreenAssist('', smart ? 'deep' : 'general');
+  }, [forceScreenFallbackGeneration, runScreenAssist, smart]);
+
+  useEffect(() => {
+    if (!forceGeneration) return;
+    if (forcePhase === 'finalizing-transcript' || forcePhase === 'waiting-first-token') {
+      setExchange({
+        label: 'Live',
+        request: currentQuestion || t('overlay.forceRequest'),
+        text: '',
+        streaming: true,
+      });
+    }
+  }, [forceGeneration, forcePhase, currentQuestion, t]);
+
+  useEffect(() => {
     if (manualBusyRef.current) return;
-    const view = deriveLiveExchange(streamText, streaming, lastEntry?.spoken);
+    if (forcePhase === 'error' && !error) return;
+    const forcedError = forcePhase === 'error' ? error : '';
+    const view = deriveLiveExchange(
+      streamText,
+      streaming,
+      lastEntry?.spoken,
+      forcePhase,
+      forcedError,
+    );
     if (!view.show) return;
-    const question = currentQuestion || lastEntry?.question || t('overlay.interviewerQuestion');
-    setExchange({ label: 'Live', request: question, text: view.text, streaming });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [streamText, streaming, lastEntry?.id, lastEntry?.spoken, currentQuestion]);
+    const forcedCard =
+      forcePhase === 'finalizing-transcript' ||
+      forcePhase === 'waiting-first-token' ||
+      forcePhase === 'streaming' ||
+      forcePhase === 'error';
+    const question =
+      currentQuestion ||
+      (forcedCard ? t('overlay.forceRequest') : lastEntry?.question) ||
+      t('overlay.interviewerQuestion');
+    const pending =
+      streaming ||
+      forcePhase === 'finalizing-transcript' ||
+      forcePhase === 'waiting-first-token' ||
+      forcePhase === 'streaming';
+    setExchange({ label: 'Live', request: question, text: view.text, streaming: pending });
+  }, [
+    streamText,
+    streaming,
+    forceGeneration,
+    forcePhase,
+    lastEntry?.id,
+    lastEntry?.spoken,
+    lastEntry?.question,
+    currentQuestion,
+    error,
+    t,
+  ]);
 
   const toggleSmart = () => {
     const next = !smart;
@@ -428,7 +528,9 @@ export default function OverlayPage() {
   };
 
   const closeExchange = useCallback(() => {
+    screenAssistGenerationRef.current += 1;
     cancelRef.current?.();
+    cancelRef.current = null;
     manualBusyRef.current = false;
     setExchange(null);
   }, []);
@@ -455,28 +557,69 @@ export default function OverlayPage() {
   }, [t]);
 
   const openRecap = useCallback(
-    (snapshot: TranscriptLine[]) => {
-      setRecap({ lines: snapshot, at: Date.now() });
+    (snapshot: TranscriptLine[], endedSessionId: string | null) => {
+      analysisRequestGenerationRef.current += 1;
+      setRecap({ lines: snapshot, at: Date.now(), sessionId: endedSessionId });
       setRecapTab('summary');
+      setAnalysis(null);
+      setAnalysisError('');
+      setAnalysisLoading(false);
       generateSummary(snapshot);
     },
     [generateSummary],
   );
 
   const closeRecap = useCallback(() => {
+    analysisRequestGenerationRef.current += 1;
     summaryCancelRef.current?.();
     setRecap(null);
     setRecapSummary('');
     setRecapSummaryStreaming(false);
+    setAnalysis(null);
+    setAnalysisError('');
+    setAnalysisLoading(false);
   }, []);
 
   const stopSession = useCallback(() => {
     if (!active) return;
     const snapshot = lines.slice();
+    const endedSessionId = sessionId;
     void stop().then(() => {
-      if (snapshot.some((l) => l.isFinal)) openRecap(snapshot);
+      if (snapshot.some((l) => l.isFinal)) openRecap(snapshot, endedSessionId);
     });
-  }, [active, lines, stop, openRecap]);
+  }, [active, lines, sessionId, stop, openRecap]);
+
+  const analyzeRecap = useCallback(async () => {
+    if (!recap?.sessionId) {
+      setAnalysisError(t('overlay.recap.analysisUnavailable'));
+      return;
+    }
+
+    const requestGeneration = ++analysisRequestGenerationRef.current;
+    const requestSessionId = recap.sessionId;
+    setAnalysisLoading(true);
+    setAnalysisError('');
+    try {
+      const analysisLanguage = (answerLanguageParam() ?? lang) as 'ru' | 'en';
+      const result = await api.createSessionAnalysis(requestSessionId, analysisLanguage);
+      void refreshSessionKnowledge().catch(() => {
+        // The assessment itself is already persisted; cache refresh is best-effort.
+      });
+      if (requestGeneration !== analysisRequestGenerationRef.current) return;
+      setAnalysis(result);
+    } catch (err) {
+      if (requestGeneration !== analysisRequestGenerationRef.current) return;
+      setAnalysisError(
+        err instanceof Error && err.message.trim()
+          ? err.message
+          : t('overlay.recap.analysisFailed'),
+      );
+    } finally {
+      if (requestGeneration === analysisRequestGenerationRef.current) {
+        setAnalysisLoading(false);
+      }
+    }
+  }, [lang, recap, t]);
 
   const toggleSession = () => {
     if (active) stopSession();
@@ -525,21 +668,21 @@ export default function OverlayPage() {
     else setCollapsed((v) => !v);
   };
 
-  const submitForcedAnswer = useCallback(() => {
-    const now = Date.now();
-    if (now - forceHotkeyAtRef.current < 200) return;
-    forceHotkeyAtRef.current = now;
+  const submitForcedAnswer = useCallback((source: ForceHotkeySource = 'button') => {
+    const event = { source, at: Date.now() } satisfies ForceHotkeyEvent;
+    if (!acceptForceHotkey(lastForceHotkeyRef.current, event)) return;
+    lastForceHotkeyRef.current = event;
 
-    if (input.trim()) {
-      runAction('assist', input);
-      return;
-    }
-    if (forceAnswer()) {
-      setNotice(t('overlay.forceSent'));
-      return;
-    }
-    setNotice(t('overlay.forceUnavailable'));
-  }, [forceAnswer, input, runAction, t]);
+    screenAssistGenerationRef.current += 1;
+    cancelRef.current?.();
+    cancelRef.current = null;
+    manualBusyRef.current = false;
+    setNotice('');
+    const status = input.trim() ? forceAnswer(input) : forceAnswer();
+    if (input.trim()) setInput('');
+    if (status === 'started' || status === 'finalizing') return;
+    void runScreenAssist('', smart ? 'deep' : 'general');
+  }, [forceAnswer, input, runScreenAssist, smart]);
 
   // ---------- Горячие клавиши ----------
   useEffect(() => {
@@ -583,7 +726,8 @@ export default function OverlayPage() {
       }
       if (mod && e.key === 'Enter') {
         e.preventDefault();
-        submitForcedAnswer();
+        if (e.repeat) return;
+        submitForcedAnswer('renderer');
         return;
       }
       if (mod && (e.key === 'r' || e.key === 'R')) {
@@ -616,7 +760,7 @@ export default function OverlayPage() {
   }, [menuOpen, hideMenuOpen, exchange, recap, submitForcedAnswer, closeExchange, stopSession]);
 
   useEffect(
-    () => window.electronAPI?.overlay.onForceAnswer?.(submitForcedAnswer),
+    () => window.electronAPI?.overlay.onForceAnswer?.(() => submitForcedAnswer('global')),
     [submitForcedAnswer],
   );
 
@@ -633,6 +777,28 @@ export default function OverlayPage() {
     return () => document.removeEventListener('mousedown', onClick);
   }, [menuOpen, hideMenuOpen]);
 
+  const positionMainMenu = useCallback(() => {
+    if (!menuButtonRef.current || !menuPanelRef.current) return;
+    setMenuPosition(
+      clampFloatingPanel(
+        menuButtonRef.current.getBoundingClientRect(),
+        menuPanelRef.current.getBoundingClientRect(),
+        { width: window.innerWidth, height: window.innerHeight },
+        'top',
+      ),
+    );
+  }, []);
+
+  useLayoutEffect(() => {
+    if (menuOpen) positionMainMenu();
+  }, [menuOpen, modesOpen, positionMainMenu]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    window.addEventListener('resize', positionMainMenu);
+    return () => window.removeEventListener('resize', positionMainMenu);
+  }, [menuOpen, positionMainMenu]);
+
   const KEYBINDS: Array<{ labelKey: I18nKey; keys: string; d: string }> = [
     { labelKey: 'overlay.kb.toggle', keys: 'Ctrl+Shift+H', d: 'M2 4h20v13H2z|M8 20h8' },
     { labelKey: 'overlay.kb.ask', keys: 'Ctrl+↵', d: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z' },
@@ -646,11 +812,12 @@ export default function OverlayPage() {
 
   return (
     <div
+      ref={rootRef}
       className={`ovl-root ${stealth ? 'ovl-root--stealth' : ''}`}
       style={{ opacity: opacity / 100 }}
     >
       {/* ---------- Пилл ---------- */}
-      <div className="ovl-pill">
+      <div className="ovl-pill" data-overlay-hit="true">
         <button
           type="button"
           className="ovl-logo tip"
@@ -696,7 +863,10 @@ export default function OverlayPage() {
           </button>
 
           {hideMenuOpen && (
-            <div className="overlay-menu ovl-hide-menu left-0 top-full mt-1.5">
+            <div
+              className="overlay-menu ovl-hide-menu left-0 top-full mt-1.5"
+              data-overlay-hit="true"
+            >
               <button
                 type="button"
                 className="ovl-menu-toggle"
@@ -761,7 +931,7 @@ export default function OverlayPage() {
 
       {/* ---------- Экран итогов сессии ---------- */}
       {recap ? (
-        <div className="ovl-card ovl-recap animate-scale-in">
+        <div className="ovl-card ovl-recap animate-scale-in" data-overlay-hit="true">
           <div className="mb-3 flex items-start justify-between gap-3">
             <div>
               <p className="text-[15px] font-semibold text-ink">{t('overlay.recap.title')}</p>
@@ -792,6 +962,7 @@ export default function OverlayPage() {
             {(
               [
                 ['summary', t('overlay.recap.tab.summary')],
+                ['analysis', t('overlay.recap.tab.analysis')],
                 ['transcript', t('overlay.recap.tab.transcript')],
                 ['usage', t('overlay.recap.tab.usage')],
               ] as const
@@ -816,6 +987,119 @@ export default function OverlayPage() {
                   <span className="ovl-think-dot" aria-label={t('overlay.recap.preparing')} />
                 )}
                 {recapSummaryStreaming && recapSummary && <span className="sc-caret" />}
+              </div>
+            )}
+
+            {recapTab === 'analysis' && (
+              <div className="ovl-analysis">
+                {analysisLoading ? (
+                  <div className="ovl-analysis-loading" role="status">
+                    <span className="ovl-analysis-spinner" aria-hidden="true" />
+                    <div>
+                      <p className="ovl-analysis-loading-title">
+                        {t('overlay.recap.analysisLoading')}
+                      </p>
+                      <div className="ovl-analysis-steps">
+                        <span>{t('overlay.recap.analysisLoadingEvidence')}</span>
+                        <span>{t('overlay.recap.analysisLoadingTopics')}</span>
+                        <span>{t('overlay.recap.analysisLoadingSave')}</span>
+                      </div>
+                    </div>
+                  </div>
+                ) : analysis ? (
+                  <div className="ovl-analysis-result">
+                    <section className="ovl-analysis-conclusion">
+                      <span className="ovl-analysis-eyebrow">
+                        {t('overlay.recap.overallLevel')}
+                      </span>
+                      <strong>{analysis.overallLevel}</strong>
+                      <p>{analysis.conclusion}</p>
+                    </section>
+
+                    <div className="ovl-analysis-columns">
+                      <section className="ovl-analysis-section ovl-analysis-section--strong">
+                        <h3>{t('overlay.recap.strengths')}</h3>
+                        {analysis.strengths.map((item, index) => (
+                          <article key={`${item.topic}-${index}`} className="ovl-analysis-evidence">
+                            <strong>{item.topic}</strong>
+                            <p>{item.evidence}</p>
+                          </article>
+                        ))}
+                      </section>
+
+                      <section className="ovl-analysis-section ovl-analysis-section--weak">
+                        <h3>{t('overlay.recap.weaknesses')}</h3>
+                        {analysis.weaknesses.map((item, index) => (
+                          <article key={`${item.topic}-${index}`} className="ovl-analysis-evidence">
+                            <strong>{item.topic}</strong>
+                            <p>{item.evidence}</p>
+                            <div className="ovl-analysis-action-note">
+                              <span>{t('overlay.recap.learningAction')}</span>
+                              {item.learningAction}
+                            </div>
+                          </article>
+                        ))}
+                      </section>
+                    </div>
+
+                    <section className="ovl-analysis-topics">
+                      <h3>{t('overlay.recap.topicScores')}</h3>
+                      {analysis.topicAssessments.map((item) => (
+                        <div key={item.topic} className="ovl-analysis-score">
+                          <div className="ovl-analysis-score-head">
+                            <span>{item.topic}</span>
+                            <strong>{item.score}/100</strong>
+                          </div>
+                          <div className="ovl-analysis-score-track" aria-hidden="true">
+                            <span
+                              className="ovl-analysis-score-fill"
+                              style={{ width: `${Math.max(0, Math.min(100, item.score))}%` }}
+                            />
+                          </div>
+                          <span className="ovl-analysis-confidence">
+                            {t('overlay.recap.confidence')} {Math.round(item.confidence * 100)}%
+                          </span>
+                        </div>
+                      ))}
+                    </section>
+                  </div>
+                ) : analysisError ? (
+                  <div className="ovl-analysis-error" role="alert">
+                    <Icon d="M12 9v4|M12 17h.01|M10.3 3.7 2.5 17.2A2 2 0 0 0 4.2 20h15.6a2 2 0 0 0 1.7-2.8L13.7 3.7a2 2 0 0 0-3.4 0z" size={18} />
+                    <div>
+                      <strong>{t('overlay.recap.analysisFailed')}</strong>
+                      <p>{analysisError}</p>
+                      {recap.sessionId && (
+                        <button type="button" className="ovl-analysis-retry" onClick={analyzeRecap}>
+                          {t('overlay.recap.retryAnalysis')}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="ovl-analysis-empty">
+                    <div className="ovl-analysis-empty-icon" aria-hidden="true">
+                      <Icon d="M12 3v18|M3 12h18" size={18} />
+                    </div>
+                    <div>
+                      <h3>{t('overlay.recap.analysisTitle')}</h3>
+                      <p>
+                        {recap.sessionId
+                          ? t('overlay.recap.analysisIntro')
+                          : t('overlay.recap.analysisUnavailable')}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className="ovl-analysis-action"
+                      onClick={analyzeRecap}
+                      disabled={!recap.sessionId}
+                    >
+                      <Icon d="M12 3v18|M3 12h18" size={14} />
+                      {t('overlay.recap.analyze')}
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 
@@ -890,7 +1174,9 @@ export default function OverlayPage() {
                   ? buildTranscript(recap.lines, t('overlay.me'), t('overlay.interviewer'))
                   : recapTab === 'usage'
                     ? usageLog.map((u) => `▸ ${u.request}\n${u.text}`).join('\n\n')
-                    : recapSummary
+                    : recapTab === 'analysis'
+                      ? analysis?.markdown ?? ''
+                      : recapSummary
               }
             />
           </div>
@@ -900,7 +1186,10 @@ export default function OverlayPage() {
           <>
             {/* ---------- Панель ответа ---------- */}
             {exchange && (
-              <div className="ovl-card ovl-response animate-scale-in">
+              <div
+                className="ovl-card ovl-response animate-scale-in"
+                data-overlay-hit="true"
+              >
                 <div className="mb-2 flex items-start justify-between gap-3">
                   <button
                     type="button"
@@ -944,7 +1233,7 @@ export default function OverlayPage() {
             )}
 
             {/* ---------- Командная панель ---------- */}
-            <div className="ovl-bar ovl-card">
+            <div className="ovl-bar ovl-card" data-overlay-hit="true">
               <div className="ovl-actions">
                 {(Object.keys(ACTIONS) as ActionId[]).map((id, i) => (
                   <span key={id} className="flex items-center gap-0.5">
@@ -980,7 +1269,7 @@ export default function OverlayPage() {
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
+                    if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
                       e.preventDefault();
                       runAction('assist', input);
                     }
@@ -1000,6 +1289,7 @@ export default function OverlayPage() {
 
                   <div className="relative" ref={menuRef}>
                     <button
+                      ref={menuButtonRef}
                       type="button"
                       className="overlay-icon-btn tip"
                       data-tip={t('overlay.menuTip')}
@@ -1009,7 +1299,18 @@ export default function OverlayPage() {
                       <Icon d="M5 12h.01M12 12h.01M19 12h.01" />
                     </button>
                     {menuOpen && (
-                      <div className="overlay-menu ovl-main-menu bottom-full left-0 mb-1.5">
+                      <div
+                        ref={menuPanelRef}
+                        className="overlay-menu ovl-main-menu"
+                        data-overlay-hit="true"
+                        style={{
+                          position: 'fixed',
+                          left: menuPosition.left,
+                          top: menuPosition.top,
+                          maxHeight: 'calc(100vh - 16px)',
+                          margin: 0,
+                        }}
+                      >
                         <p className="ovl-menu-head">{t('overlay.shortcutsHead')}</p>
                         {KEYBINDS.map((k) => (
                           <div key={k.labelKey} className="ovl-menu-row">
@@ -1186,7 +1487,10 @@ export default function OverlayPage() {
 
             {/* ---------- Транскрипт (по запросу) ---------- */}
             {showTranscript && (
-              <div className="ovl-card mt-2 max-h-[30vh] overflow-y-auto p-3">
+              <div
+                className="ovl-card mt-2 max-h-[30vh] overflow-y-auto p-3"
+                data-overlay-hit="true"
+              >
                 <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-ink-faint">
                   {t('overlay.kb.transcript')}
                 </p>
@@ -1215,6 +1519,7 @@ export default function OverlayPage() {
           </>
         )
       )}
+      <OverlayTooltipLayer rootRef={rootRef} />
     </div>
   );
 }

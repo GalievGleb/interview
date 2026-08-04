@@ -205,8 +205,12 @@
 }
 
 .cockpit-command {
-  @apply overflow-hidden rounded-xl border border-surface-border bg-surface shadow-soft transition
-    focus-within:border-accent/50 focus-within:ring-2 focus-within:ring-accent-ring;
+  @apply overflow-hidden rounded-xl border border-surface-border bg-surface shadow-soft transition;
+}
+
+.cockpit-command:focus-within {
+  border-color: rgba(99, 102, 241, 0.62);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.14);
 }
 
 .cockpit-command-input {

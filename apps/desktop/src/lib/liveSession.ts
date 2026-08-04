@@ -65,6 +65,7 @@ export interface LiveHandlers {
 
 export interface LiveSession {
   flush: (requestId: string) => boolean;
+  stopCapture: () => void;
   stop: () => void;
 }
 
@@ -225,6 +226,7 @@ export async function startLiveSession(
 
   return {
     flush: (requestId) => sendFinalizeControl(ws, requestId),
+    stopCapture,
     stop: cleanup,
   };
 }

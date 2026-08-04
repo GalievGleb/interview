@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { useI18n, type I18nKey } from '../lib/i18n';
 import { launchLive } from '../lib/launchLive';
+import { demoSetupDestination } from '../lib/demoSetupDestination';
 
 /**
  * Демо «как это работает» — скриптованная live-сессия без микрофона, STT и
@@ -132,6 +133,7 @@ export default function DemoPage() {
   }, [demoTurns]);
 
   const setupReady = hasAnyKey && hasStt;
+  const setupDestination = demoSetupDestination(hasAnyKey, hasStt);
 
   return (
     <div className="mx-auto flex h-full max-w-5xl flex-col">
@@ -234,7 +236,9 @@ export default function DemoPage() {
             type="button"
             className="btn-primary btn-sm"
             onClick={() =>
-              setupReady ? launchLive(() => navigate('/overlay')) : navigate('/settings?tab=ai')
+              setupReady
+                ? launchLive(() => navigate('/overlay'))
+                : navigate(setupDestination ?? '/settings')
             }
           >
             {setupReady ? t('demo.startLive') : t('demo.setup')}

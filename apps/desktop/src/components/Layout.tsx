@@ -4,36 +4,42 @@ import Sidebar from './Sidebar';
 import CommandPalette from './CommandPalette';
 import UpdateToast from './UpdateToast';
 import { useApp } from '../context/AppContext';
-import { useI18n } from '../lib/i18n';
+import { useI18n, type I18nKey } from '../lib/i18n';
 import { getBackendBannerKind } from './layout/backendBanner';
 
 const WIDE_ROUTES = new Set(['/meeting']);
 const PREP_ROUTES = new Set(['/home', '/prepare', '/documents', '/history']);
 const NO_TITLEBAR_ROUTES = new Set(['/meeting']);
+const ROUTE_TITLE_KEYS: Record<string, I18nKey> = {
+  '/home': 'nav.home',
+  '/prepare': 'nav.prepare',
+  '/applications': 'nav.applications',
+  '/documents': 'nav.documents',
+  '/history': 'nav.history',
+  '/settings': 'nav.settings',
+  '/test-lab': 'cmd.testlab',
+  '/benchmark': 'cmd.benchmark',
+  '/diagnostics': 'cmd.diagnostics',
+};
 
 function elapsed(ms: number): string {
-  const s = Math.floor(ms / 1000);
-  const hh = String(Math.floor(s / 3600)).padStart(2, '0');
-  const mm = String(Math.floor((s % 3600) / 60)).padStart(2, '0');
-  const ss = String(s % 60).padStart(2, '0');
+  const seconds = Math.floor(ms / 1000);
+  const hh = String(Math.floor(seconds / 3600)).padStart(2, '0');
+  const mm = String(Math.floor((seconds % 3600) / 60)).padStart(2, '0');
+  const ss = String(seconds % 60).padStart(2, '0');
   return `${hh}:${mm}:${ss}`;
 }
 
-function TitleBar() {
+function TitleBar({ pathname }: { pathname: string }) {
   const { t } = useI18n();
   const [live, setLive] = useState(false);
   const [liveStart, setLiveStart] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
-  const [version, setVersion] = useState('');
-
-  useEffect(() => {
-    void window.electronAPI?.getVersion?.().then((v) => setVersion(v));
-  }, []);
 
   useEffect(() => {
     const onStart = () => {
       setLive(true);
-      setLiveStart((prev) => prev ?? Date.now());
+      setLiveStart((previous) => previous ?? Date.now());
     };
     const onStop = () => {
       setLive(false);
@@ -55,48 +61,16 @@ function TitleBar() {
 
   return (
     <header className="skillcue-titlebar">
-      <div className="flex items-center gap-2">
-        <div className="skillcue-logo skillcue-logo--small" aria-hidden />
-        <span className="text-sm font-semibold tracking-tight text-ink">SkillCue</span>
-        {version && (
-          <span className="sc-mono rounded-md border border-surface-border bg-surface-elevated px-1.5 py-0.5 text-[10px] text-ink-faint">
-            v{version}
-          </span>
-        )}
-      </div>
-
-      {/* Статус-хронометр показываем только во время live-сессии;
-          в простое лишний текст «Ожидание» только шумел. */}
+      <span className="text-[13px] font-medium text-ink-muted">
+        {t(ROUTE_TITLE_KEYS[pathname] ?? 'nav.home')}
+      </span>
       {live && (
-        <>
-          <div className="h-5 w-px bg-surface-border" />
-          <div className="flex items-center gap-2 text-[13px] text-ink-muted">
-            <span className="sc-dot sc-dot--live" />
-            <span>{t('shell.liveSession')}</span>
-            {liveStart != null && (
-              <span className="sc-mono text-ink-faint">{elapsed(now - liveStart)}</span>
-            )}
-          </div>
-        </>
+        <div className="ml-auto flex items-center gap-2 text-[12px] text-ink-muted">
+          <span className="sc-dot sc-dot--live" />
+          <span>{t('shell.liveSession')}</span>
+          {liveStart != null && <span className="sc-mono">{elapsed(now - liveStart)}</span>}
+        </div>
       )}
-
-      <div className="ml-auto flex items-center gap-2">
-        <span className="skillcue-local-pill skillcue-local-pill--cloud" title="OpenAI Mini STT">
-          <svg
-            width="13"
-            height="13"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.75"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M17.5 19a4.5 4.5 0 0 0 0-9 6 6 0 0 0-11.6 1.5A4 4 0 0 0 6.5 19z" />
-          </svg>
-          OpenAI Mini STT
-        </span>
-      </div>
     </header>
   );
 }
@@ -116,27 +90,37 @@ export default function Layout({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-surface text-ink">
+      <a href="#skillcue-main" className="skillcue-skip-link">
+        {t('shell.skipContent')}
+      </a>
       <CommandPalette />
       <UpdateToast />
-      {showTitleBar && <TitleBar />}
+      {showTitleBar && <TitleBar pathname={pathname} />}
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <Sidebar />
-        <main className="skillcue-main flex min-w-0 flex-1 flex-col overflow-hidden">
+        <main
+          id="skillcue-main"
+          className="skillcue-main flex min-w-0 flex-1 flex-col overflow-hidden"
+        >
           {backendBannerKind === 'failed' ? (
-            <div className="flex shrink-0 items-center gap-2 border-b border-red-900/40 bg-red-950/20 px-5 py-2 text-sm text-red-200/90">
+            <div
+              className="flex shrink-0 items-center gap-2 border-b border-red-900/40 bg-red-950/20 px-5 py-2 text-sm text-red-200/90"
+              role="status"
+            >
               <span className="sc-dot sc-dot--error" />
               {t('shell.backendFailed')}
             </div>
           ) : (
             backendBannerKind === 'dev-offline' && (
-              <div className="flex shrink-0 items-center gap-2 border-b border-amber-900/30 bg-amber-950/20 px-5 py-2 text-sm text-amber-200/90">
+              <div
+                className="flex shrink-0 items-center gap-2 border-b border-amber-900/30 bg-amber-950/20 px-5 py-2 text-sm text-amber-200/90"
+                role="status"
+              >
                 <span className="sc-dot sc-dot--processing animate-pulse" />
-                <>
-                  {t('shell.backendConnecting')}{' '}
-                  <code className="rounded-md bg-black/30 px-1.5 py-0.5 text-amber-100">
-                    cd apps/api-py; .\run_dev.ps1
-                  </code>
-                </>
+                {t('shell.backendConnecting')}{' '}
+                <code className="rounded-md bg-black/30 px-1.5 py-0.5 text-amber-100">
+                  cd apps/api-py; .\run_dev.ps1
+                </code>
               </div>
             )
           )}

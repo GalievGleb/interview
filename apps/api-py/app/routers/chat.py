@@ -20,7 +20,7 @@ from app.prompts.interview_fast import (
     RESUME_PLACEHOLDER_NONE,
     VACANCY_CONTEXT_LIMIT,
 )
-from app.prompts.meeting import INTERVIEW_REVIEW_PROMPT, MEETING_PROMPT
+from app.prompts.meeting import build_interview_review_prompt, build_meeting_prompt
 from app.prompts.system import SYSTEM_PROMPT
 from app.services import model_router, provider_adapter, rag_service
 from app.services.candidate_profile import get_profile_block
@@ -117,6 +117,7 @@ class ScreenAssistPayload(BaseModel):
 class MeetingPayload(BaseModel):
     transcript: str
     mode: str = "deep"
+    answer_language: str | None = None
     provider: str | None = None
     model: str | None = None
     model_override: str | None = Field(default=None, alias="modelOverride")
@@ -417,13 +418,17 @@ def _resolve_chat(
 async def chat(payload: ChatPayload, db: Session = Depends(get_db)):
     """Стриминговый ответ (SSE). Подмешивает RAG-контекст."""
     _ensure_quota(db)
+    is_fast = payload.mode == "fast"
     provider, model, _ = _resolve_chat(
         payload.mode,
         provider=payload.provider,
         model_override=payload.model_override,
     )
 
-    context_chunks = await rag_service.search(db, payload.message, top_k=5)
+    # A complete typed question in the overlay must start streaming immediately.
+    # Fast mode deliberately skips the extra embeddings request; explicitly
+    # supplied transcript context remains available below.
+    context_chunks = [] if is_fast else await rag_service.search(db, payload.message, top_k=5)
     context = payload.context or "\n\n".join(c["text"] for c in context_chunks)
 
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
@@ -435,7 +440,14 @@ async def chat(payload: ChatPayload, db: Session = Depends(get_db)):
 
     async def event_stream():
         try:
-            async for delta in provider_adapter.stream_chat(messages, provider, model):
+            async for delta in provider_adapter.stream_chat(
+                messages,
+                provider,
+                model,
+                max_tokens=450 if is_fast else 800,
+                temperature=0.3 if is_fast else 0.4,
+                route_fast=is_fast,
+            ):
                 yield f"data: {json.dumps({'type': 'chunk', 'text': delta})}\n\n"
             yield f"data: {json.dumps({'type': 'done', 'model': model})}\n\n"
         except Exception as exc:
@@ -678,7 +690,7 @@ async def meeting_summary(payload: MeetingPayload, db: Session = Depends(get_db)
         model_override=payload.model_override,
     )
 
-    prompt = MEETING_PROMPT.format(transcript=payload.transcript)
+    prompt = build_meeting_prompt(payload.transcript, payload.answer_language)
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": prompt},
@@ -700,7 +712,7 @@ async def interview_review(payload: MeetingPayload, db: Session = Depends(get_db
         model_override=payload.model_override,
     )
 
-    prompt = INTERVIEW_REVIEW_PROMPT.format(transcript=payload.transcript)
+    prompt = build_interview_review_prompt(payload.transcript, payload.answer_language)
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": prompt},
@@ -721,7 +733,7 @@ async def interview_review_stream(payload: MeetingPayload, db: Session = Depends
         model=payload.model,
         model_override=payload.model_override,
     )
-    prompt = INTERVIEW_REVIEW_PROMPT.format(transcript=payload.transcript)
+    prompt = build_interview_review_prompt(payload.transcript, payload.answer_language)
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": prompt},
@@ -759,7 +771,7 @@ async def meeting_summary_stream(payload: MeetingPayload, db: Session = Depends(
         model=payload.model,
         model_override=payload.model_override,
     )
-    prompt = MEETING_PROMPT.format(transcript=payload.transcript)
+    prompt = build_meeting_prompt(payload.transcript, payload.answer_language)
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": prompt},

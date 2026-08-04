@@ -15,6 +15,14 @@
     height: 100%;
   }
 
+  html {
+    color-scheme: dark;
+  }
+
+  :root[data-theme='light'] {
+    color-scheme: light;
+  }
+
   /* Consistent keyboard focus across the app — one brand-green ring for
      keyboard users, invisible on mouse (:focus-visible). Components with their
      own focus style already opt out via focus-visible:outline-none. */
@@ -73,8 +81,15 @@
   /* Кнопки */
   .btn {
     @apply inline-flex select-none items-center justify-center gap-2 rounded-xl px-4 py-2.5
-      text-sm font-medium transition-all duration-150
+      text-sm font-medium duration-150
       disabled:pointer-events-none disabled:opacity-50;
+    transition:
+      color 150ms ease,
+      background-color 150ms ease,
+      border-color 150ms ease,
+      box-shadow 150ms ease,
+      opacity 150ms ease,
+      transform 150ms ease;
   }
   .btn:active:not(:disabled) {
     transform: translateY(0.5px) scale(0.985);
@@ -120,8 +135,7 @@
   }
   .field {
     @apply w-full rounded-xl border border-surface-border bg-surface px-3.5 py-2.5 text-sm
-      text-ink placeholder:text-ink-faint outline-none transition
-      focus:border-accent focus:ring-2 focus:ring-accent-ring;
+      text-ink placeholder:text-ink-faint outline-none transition;
   }
   select.field {
     @apply cursor-pointer appearance-none bg-no-repeat pr-9;
@@ -193,8 +207,13 @@
 
   .select-compact {
     @apply max-w-[160px] rounded-xl border border-surface-border bg-surface px-2.5 py-1.5
-      text-xs text-ink-muted outline-none transition focus:border-accent focus:ring-2
-      focus:ring-accent-ring;
+      text-xs text-ink-muted outline-none transition;
+  }
+
+  .field:focus,
+  .select-compact:focus {
+    border-color: rgba(99, 102, 241, 0.62);
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.14);
   }
 
   /* Answer area */
@@ -263,17 +282,17 @@
 
   /* Sidebar nav pill */
   .nav-pill {
-    @apply flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-semibold transition-all duration-150;
+    @apply flex min-h-10 items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-150;
   }
   .nav-pill-active {
-    @apply bg-accent-soft text-ink shadow-soft ring-1 ring-accent/20;
+    @apply bg-surface-elevated text-ink shadow-soft ring-1 ring-surface-border-strong;
   }
   .nav-pill-idle {
     @apply text-ink-muted hover:bg-surface-hover hover:text-ink;
   }
 
-  .skillcue-titlebar {
-    @apply flex h-[52px] shrink-0 items-center gap-3 border-b border-surface-border pl-4;
+.skillcue-titlebar {
+    @apply flex h-11 shrink-0 items-center gap-3 border-b border-surface-border px-4;
     /* Наш тайтлбар — зона перетаскивания окна (нативная рамка скрыта). Справа
        нативные кнопки окна (titleBarOverlay): резервируем под них место, чтобы
        контент не заезжал. В браузере env() = 0, отступ схлопывается до 16px. */
@@ -282,9 +301,7 @@
     /* Плоский #0c1726 = ровно цвет нативных кнопок окна (titleBarOverlay.color),
        иначе верхний-правый угол под кнопками отличался фоном и «терял» линию.
        Зелёное свечение — слева, вдали от кнопок, поэтому шва не создаёт. */
-    background:
-      radial-gradient(circle at 12% 0%, rgba(52, 199, 123, 0.1), transparent 28rem),
-      #0c1726;
+    background: #0b1421;
   }
   /* Интерактивные элементы тайтлбара должны кликаться, а не таскать окно. */
   .skillcue-titlebar button,
@@ -303,16 +320,79 @@
   }
 
   .skillcue-sidebar {
-    @apply flex w-[248px] shrink-0 flex-col border-r border-surface-border;
-    background:
-      radial-gradient(circle at 18% 8%, rgba(52, 199, 123, 0.12), transparent 18rem),
-      linear-gradient(180deg, #0d1828 0%, #08101d 100%);
+    @apply flex w-[224px] shrink-0 flex-col border-r border-surface-border;
+    background: #09121f;
+    transition: width 160ms ease;
+  }
+
+  .skillcue-sidebar--collapsed {
+    @apply w-16;
+  }
+
+  .skillcue-sidebar__brand {
+    @apply flex h-[60px] shrink-0 items-center gap-2.5 px-3;
+  }
+
+  .skillcue-sidebar--collapsed .skillcue-sidebar__brand {
+    @apply flex-col justify-center gap-1 px-2;
+  }
+
+  .skillcue-sidebar--collapsed .skillcue-logo {
+    @apply h-7 w-7 rounded-lg;
+  }
+
+  .skillcue-sidebar__search {
+    @apply flex min-h-9 w-full items-center gap-2 rounded-lg border border-surface-border bg-transparent px-2.5 text-left text-xs text-ink-faint transition-colors hover:border-surface-border-strong hover:bg-surface-hover hover:text-ink;
+  }
+
+  .skillcue-sidebar__search kbd {
+    @apply rounded border border-surface-border bg-surface-elevated px-1.5 py-0.5 font-mono text-[9px] text-ink-faint;
+  }
+
+  .skillcue-sidebar--collapsed .skillcue-sidebar__search,
+  .skillcue-sidebar--collapsed .nav-pill,
+  .skillcue-sidebar--collapsed .skillcue-live-launch {
+    @apply justify-center px-0;
+  }
+
+  .skillcue-live-launch {
+    @apply mt-3 flex min-h-10 w-full items-center gap-2.5 rounded-lg border border-emerald-400/25 bg-emerald-400/10 px-3 py-2 text-left text-sm font-semibold text-emerald-300 transition-colors hover:border-emerald-400/45 hover:bg-emerald-400/15;
+  }
+
+  .skillcue-live-launch.is-live {
+    @apply border-emerald-300/50 bg-emerald-400/20 text-emerald-200;
+  }
+
+  .skillcue-live-launch__hint {
+    @apply font-mono text-[9px] font-medium text-emerald-300/55;
+  }
+
+  .skillcue-sidebar__footer {
+    @apply flex min-h-12 items-center justify-between gap-2 border-t border-surface-border px-3 py-2;
+  }
+
+  .skillcue-sidebar--collapsed .skillcue-sidebar__footer {
+    @apply justify-center px-2;
+  }
+
+  .skillcue-sidebar__ready {
+    @apply flex items-center gap-2 text-[11px] text-ink-faint;
+  }
+
+  .skillcue-sidebar__error {
+    @apply text-[11px] text-red-300;
+  }
+
+  .skillcue-sidebar__icon-button {
+    @apply inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-ink-faint transition-colors hover:bg-surface-hover hover:text-ink;
+  }
+
+  .skillcue-sidebar__icon-button.is-active {
+    @apply bg-accent-soft text-accent;
   }
 
   :root[data-theme='light'] .skillcue-sidebar {
-    background:
-      radial-gradient(circle at 18% 8%, rgba(52, 199, 123, 0.08), transparent 18rem),
-      linear-gradient(180deg, #f4f8fc 0%, #eaf1f8 100%);
+    background: #edf3f8;
   }
 
   .skillcue-logo {
@@ -364,6 +444,26 @@
   .skillcue-local-pill--icon {
     @apply gap-0 px-1.5 py-1.5;
   }
+}
+
+.skillcue-skip-link {
+  position: fixed;
+  z-index: 100;
+  top: 8px;
+  left: 50%;
+  transform: translate(-50%, -150%);
+  border: 1px solid rgb(var(--twc-surface-border-strong));
+  border-radius: 8px;
+  padding: 8px 12px;
+  background: rgb(var(--twc-surface-elevated));
+  color: rgb(var(--twc-ink));
+  font-size: 12px;
+  font-weight: 700;
+  transition: transform 140ms ease;
+}
+
+.skillcue-skip-link:focus-visible {
+  transform: translate(-50%, 0);
 }
 
 @layer utilities {

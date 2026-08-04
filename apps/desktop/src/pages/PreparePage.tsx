@@ -56,6 +56,15 @@ export default function PreparePage() {
             questionCount={session.questions.length}
             onStart={review.startInterview}
             onBack={review.restart}
+            onRetry={() => {
+              void review.analyze({
+                vacancyText: session.vacancyAnalysis.vacancyText,
+                targetRole: session.vacancyAnalysis.targetRole,
+                language: session.vacancyAnalysis.language,
+                resumeText: session.vacancyAnalysis.resumeText,
+                legendText: session.vacancyAnalysis.legendText,
+              });
+            }}
           />
         )}
 

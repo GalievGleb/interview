@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { LoaderCircle } from 'lucide-react';
 import { api, DocumentItem } from '../lib/api';
 import { useI18n, type I18nKey } from '../lib/i18n';
 
@@ -205,8 +206,9 @@ export default function DocumentsPage() {
   const [kind, setKind] = useState('resume');
   const [title, setTitle] = useState('');
   const [text, setText] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [busyKind, setBusyKind] = useState<'text' | 'file' | null>(null);
   const [error, setError] = useState('');
+  const uploadInFlightRef = useRef(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
 
@@ -233,8 +235,9 @@ export default function DocumentsPage() {
   };
 
   const addText = async () => {
-    if (!text.trim()) return;
-    setBusy(true);
+    if (busyKind !== null || uploadInFlightRef.current || !text.trim()) return;
+    uploadInFlightRef.current = true;
+    setBusyKind('text');
     setError('');
     try {
       await api.uploadText(kind, title || t(KINDS.find((k) => k.value === kind)!.labelKey), text);
@@ -244,14 +247,17 @@ export default function DocumentsPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : t('docs.addTextError'));
     } finally {
-      setBusy(false);
+      uploadInFlightRef.current = false;
+      setBusyKind(null);
     }
   };
 
   const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (busyKind !== null || uploadInFlightRef.current) return;
     const file = e.target.files?.[0];
     if (!file) return;
-    setBusy(true);
+    uploadInFlightRef.current = true;
+    setBusyKind('file');
     setError('');
     try {
       await api.uploadFile(kind, file, file.name);
@@ -259,7 +265,8 @@ export default function DocumentsPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : t('docs.uploadError'));
     } finally {
-      setBusy(false);
+      uploadInFlightRef.current = false;
+      setBusyKind(null);
       if (fileRef.current) fileRef.current.value = '';
     }
   };
@@ -310,7 +317,12 @@ export default function DocumentsPage() {
             <p className="prep-eyebrow">{t('docs.add.eyebrow')}</p>
             <h2 className="prep-h2 prep-card-title">{t('docs.add.title')}</h2>
             <div className="mt-4 grid gap-3 sm:grid-cols-[180px_1fr]">
-              <select value={kind} onChange={(e) => setKind(e.target.value)} className="prep-input">
+              <select
+                value={kind}
+                onChange={(e) => setKind(e.target.value)}
+                className="prep-input"
+                disabled={busyKind !== null}
+              >
                 {KINDS.map((k) => (
                   <option key={k.value} value={k.value}>
                     {t(k.labelKey)}
@@ -322,6 +334,7 @@ export default function DocumentsPage() {
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 className="prep-input"
+                disabled={busyKind !== null}
               />
             </div>
             <textarea
@@ -331,12 +344,22 @@ export default function DocumentsPage() {
               onChange={(e) => setText(e.target.value)}
               rows={7}
               className="prep-textarea mt-3"
+              disabled={busyKind !== null}
             />
             <div className="mt-4 flex flex-wrap items-center gap-3">
-              <button onClick={addText} disabled={busy || !text.trim()} className="prep-btn">
-                {busy ? t('docs.add.adding') : t('docs.add.addText')}
+              <button
+                onClick={addText}
+                disabled={busyKind !== null || !text.trim()}
+                className="prep-btn"
+              >
+                {t('docs.add.addText')}
               </button>
-              <label className="prep-btn prep-btn-secondary cursor-pointer">
+              <label
+                className={`prep-btn prep-btn-secondary ${
+                  busyKind !== null ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
+                }`}
+                aria-disabled={busyKind !== null ? 'true' : undefined}
+              >
                 {t('docs.add.uploadFile')}
                 <input
                   ref={fileRef}
@@ -344,9 +367,18 @@ export default function DocumentsPage() {
                   accept=".pdf,.docx,.txt"
                   onChange={onFile}
                   className="hidden"
+                  disabled={busyKind !== null}
                 />
               </label>
               <span className="prep-faint">PDF, DOCX, TXT</span>
+              {busyKind && (
+                <span className="prep-upload-progress" role="status" aria-live="polite">
+                  <LoaderCircle size={15} className="animate-spin" aria-hidden="true" />
+                  {kind === 'resume'
+                    ? t('docs.add.addingResume')
+                    : t('docs.add.addingContext')}
+                </span>
+              )}
             </div>
             {error && (
               <p className="mt-3 text-[13px]" style={{ color: 'var(--prep-red)' }}>

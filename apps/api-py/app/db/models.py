@@ -78,6 +78,9 @@ class InterviewSession(Base):
     answers: Mapped[list["Answer"]] = relationship(
         back_populates="session", cascade="all, delete-orphan"
     )
+    assessment: Mapped["SessionAssessment | None"] = relationship(
+        back_populates="session", cascade="all, delete-orphan", uselist=False
+    )
 
 
 class Transcript(Base):
@@ -91,6 +94,22 @@ class Transcript(Base):
     ts: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
     session: Mapped[InterviewSession] = relationship(back_populates="transcripts")
+
+
+class SessionAssessment(Base):
+    __tablename__ = "session_assessments"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    session_id: Mapped[str] = mapped_column(
+        ForeignKey("sessions.id", ondelete="CASCADE"), unique=True, index=True
+    )
+    language: Mapped[str] = mapped_column(String, default="ru")
+    analysis_json: Mapped[str] = mapped_column(Text)
+    markdown: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
+
+    session: Mapped[InterviewSession] = relationship(back_populates="assessment")
 
 
 class Answer(Base):

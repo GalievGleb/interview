@@ -29,6 +29,11 @@ export default function CommandPalette() {
       return [
         { id: 'home', label: t('cmd.home'), run: () => navigate('/home') },
         { id: 'prepare', label: t('cmd.prepare'), run: () => navigate('/prepare') },
+        {
+          id: 'applications',
+          label: t('nav.applications'),
+          run: () => navigate('/applications'),
+        },
         { id: 'documents', label: t('cmd.documents'), run: () => navigate('/documents') },
         { id: 'history', label: t('cmd.history'), run: () => navigate('/history') },
         { id: 'settings', label: t('cmd.settings'), run: () => navigate('/settings') },
@@ -117,6 +122,9 @@ export default function CommandPalette() {
         <input
           ref={inputRef}
           value={query}
+          aria-label={t('cmd.placeholder')}
+          name="commandSearch"
+          autoComplete="off"
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'ArrowDown') {

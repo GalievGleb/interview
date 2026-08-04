@@ -142,7 +142,7 @@ def test_vacancy_evaluate_prompt_contains_strict_allowed_sources(client, monkeyp
     assert "INTERVIEW LEGEND" not in prompt
 
 
-def test_vacancy_evaluate_strips_voice_noise_before_prompt(client, monkeypatch):
+def test_vacancy_evaluate_preserves_raw_voice_answer_in_prompt(client, monkeypatch):
     captured = {}
 
     async def fake_complete(
@@ -205,9 +205,35 @@ def test_vacancy_evaluate_strips_voice_noise_before_prompt(client, monkeypatch):
     assert "CI-CD GitLab" in prompt
     assert "Requests, HTTPX" in prompt
     assert "Allure" in prompt
-    assert "меня не записывает" not in prompt
-    assert "Раз, раз" not in prompt
-    assert "Ммммм" not in prompt
+    assert "меня не записывает" in prompt
+    assert "Раз, раз" in prompt
+    assert "Ммммм" in prompt
+    assert any("записывает" in item or "Раз, раз" in item for item in res.json()["detectedNoiseOrAsrErrors"])
+
+
+def test_vacancy_evaluate_rejects_empty_answer_before_calling_model(client, monkeypatch):
+    called = False
+
+    async def fake_complete(*_args, **_kwargs):
+        nonlocal called
+        called = True
+        return "{}"
+
+    monkeypatch.setattr(provider_adapter, "complete", fake_complete)
+    res = client.post(
+        "/vacancy/evaluate",
+        json={
+            "question": "Что проверяете в API?",
+            "answer": "   \n  ",
+            "topic": "API",
+            "language": "ru",
+            "hasResume": False,
+        },
+    )
+
+    assert res.status_code == 400
+    assert res.json()["detail"] == "Answer is empty"
+    assert called is False
 
 
 def test_vacancy_evaluate_hardens_semantic_matching_and_consistency(client, monkeypatch):

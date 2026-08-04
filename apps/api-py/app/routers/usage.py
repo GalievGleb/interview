@@ -10,9 +10,11 @@ from app.db.models import (
     DocChunk,
     Document,
     InterviewSession,
+    SessionAssessment,
     Transcript,
 )
 from app.db.session import get_db
+from app.services.session_mutation_lock import session_mutation_locks
 
 router = APIRouter(tags=["usage"])
 
@@ -54,7 +56,17 @@ def usage(db: Session = Depends(get_db)) -> dict:
 @router.delete("/data")
 def delete_all_data(db: Session = Depends(get_db)) -> dict:
     """Privacy: полное удаление пользовательских данных."""
-    for model in (Answer, Transcript, DocChunk, Document, InterviewSession, ApiUsage):
-        db.query(model).delete()
-    db.commit()
+    session_ids = [row[0] for row in db.query(InterviewSession.id).all()]
+    with session_mutation_locks(session_ids):
+        for model in (
+            SessionAssessment,
+            Answer,
+            Transcript,
+            DocChunk,
+            Document,
+            InterviewSession,
+            ApiUsage,
+        ):
+            db.query(model).delete()
+        db.commit()
     return {"deleted": True}

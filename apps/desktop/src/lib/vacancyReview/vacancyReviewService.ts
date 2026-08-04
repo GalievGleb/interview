@@ -7,7 +7,6 @@
  * directly — it goes through these functions.
  */
 import { api } from '../api';
-import { cleanVoiceAnswerTranscriptText } from '../voiceAnswerTranscript';
 import { conceptSignalsForQuestion } from './conceptSignals';
 import { difficultyForIndex, detectRole, detectSeniority, extractTopics } from './topicExtraction';
 import { readinessLabelFromScore, topicStatusFromScore } from './readiness';
@@ -776,7 +775,7 @@ export async function evaluateAnswer(
   answerText: string,
   analysis: VacancyAnalysis,
 ): Promise<SmokeAnswerEvaluation> {
-  const text = cleanVoiceAnswerTranscriptText(answerText || '').trim();
+  const text = (answerText || '').trim();
   if (text) {
     try {
       const topic = analysis.interviewTopics.find((t) => t.id === question.topicId);

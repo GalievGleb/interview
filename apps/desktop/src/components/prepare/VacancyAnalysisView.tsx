@@ -1,5 +1,12 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import {
+  AlertTriangle,
+  ArrowRight,
+  Check,
+  ChevronDown,
+  Pencil,
+  ShieldCheck,
+} from 'lucide-react';
 import { pluralRu } from '../../lib/pluralRu';
 import { useI18n, type I18nKey } from '../../lib/i18n';
 import { buildSmokePlan } from '../../lib/vacancyReview/vacancyReviewService';
@@ -12,9 +19,9 @@ import type {
 
 interface Props {
   analysis: VacancyAnalysis;
-  /** Запуск mock по отмеченным темам (по умолчанию — все). */
   onStart: (topicIds: string[]) => void;
   onBack: () => void;
+  onRetry: () => void;
   questionCount: number;
 }
 
@@ -39,11 +46,10 @@ const IMPORTANCE_KEY: Record<TopicImportance, I18nKey> = {
   low: 'prep.importance.low',
 };
 
-/** Render order: gaps first — that is what the interview will drill into. */
-const MATCH_GROUPS: Array<{ match: ResumeMatch; titleKey: I18nKey; color: string }> = [
-  { match: 'gap', titleKey: 'prep.match.gap', color: 'var(--prep-red)' },
-  { match: 'partial', titleKey: 'prep.match.partial', color: 'var(--prep-amber)' },
-  { match: 'strong', titleKey: 'prep.match.strong', color: 'var(--prep-green)' },
+const MATCH_GROUPS: Array<{ match: ResumeMatch; titleKey: I18nKey; tone: string }> = [
+  { match: 'gap', titleKey: 'prep.match.gap', tone: 'red' },
+  { match: 'partial', titleKey: 'prep.match.partial', tone: 'amber' },
+  { match: 'strong', titleKey: 'prep.match.strong', tone: 'green' },
 ];
 
 const EXPECTED_LEVEL_KEY: Record<Competency['expectedLevel'], I18nKey> = {
@@ -53,35 +59,50 @@ const EXPECTED_LEVEL_KEY: Record<Competency['expectedLevel'], I18nKey> = {
   lead: 'prep.level.lead',
 };
 
-export default function VacancyAnalysisView({ analysis, onStart, onBack, questionCount }: Props) {
+export default function VacancyAnalysisView({
+  analysis,
+  onStart,
+  onBack,
+  onRetry,
+  questionCount,
+}: Props) {
   const { t, lang } = useI18n();
   const pl = (n: number, ru: [I18nKey, I18nKey, I18nKey], en: [I18nKey, I18nKey]) =>
-    lang === 'en' ? (n === 1 ? t(en[0]) : t(en[1])) : pluralRu(n, t(ru[0]), t(ru[1]), t(ru[2]));
-  // По умолчанию отмечены все темы; ученик снимает те, где уже уверен.
+    lang === 'en'
+      ? n === 1
+        ? t(en[0])
+        : t(en[1])
+      : pluralRu(n, t(ru[0]), t(ru[1]), t(ru[2]));
   const [selected, setSelected] = useState<Set<string>>(
     () => new Set(analysis.interviewTopics.map((topic) => topic.id)),
   );
-  const toggleTopic = (id: string) =>
-    setSelected((prev) => {
-      const next = new Set(prev);
+
+  const toggleTopic = (id: string) => {
+    setSelected((current) => {
+      const next = new Set(current);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
+  };
+
   const allSelected = selected.size === analysis.interviewTopics.length;
-  // Сколько вопросов даст выбранный набор тем (весь набор → исходный questionCount).
   const plannedCount = useMemo(
     () => (allSelected ? questionCount : buildSmokePlan(analysis, [...selected]).length),
     [allSelected, analysis, selected, questionCount],
   );
+  const competencies = analysis.competencies ?? [];
+
   return (
     <div className="prep-rise space-y-5">
-      <div className="flex items-start justify-between gap-3">
-        <div>
+      <header className="prep-analysis-heading">
+        <div className="min-w-0">
           <p className="prep-eyebrow">{t('prep.analysis.basedOn')}</p>
           <h1 className="prep-h1 mt-1">{analysis.targetRole}</h1>
           <div className="mt-2 flex flex-wrap gap-2">
-            <span className="prep-chip prep-tone-violet">{t(SENIORITY_KEY[analysis.seniorityLevel])}</span>
+            <span className="prep-chip prep-tone-violet">
+              {t(SENIORITY_KEY[analysis.seniorityLevel])}
+            </span>
             <span className="prep-chip">
               {analysis.interviewTopics.length}{' '}
               {pl(
@@ -90,188 +111,208 @@ export default function VacancyAnalysisView({ analysis, onStart, onBack, questio
                 ['prep.topicOne', 'prep.topicFew'],
               )}
             </span>
-            <span className="prep-chip">{t('prep.analysis.answers')} {analysis.language.toUpperCase()}</span>
+            <span className="prep-chip">
+              {t('prep.analysis.answers')} {analysis.language.toUpperCase()}
+            </span>
           </div>
         </div>
         <button type="button" className="prep-btn-ghost prep-btn-sm" onClick={onBack}>
+          <Pencil size={14} aria-hidden="true" />
           {t('prep.analysis.changeVacancy')}
         </button>
-      </div>
+      </header>
 
       {analysis.analysisSource === 'heuristic' && (
-        <div className="prep-card prep-card-pad prep-topic prep-topic-amber">
-          <p className="prep-h2 pl-2">{t('prep.analysis.heuristicTitle')}</p>
-          <p className="prep-sub mt-1.5 pl-2">{t('prep.analysis.heuristicBody')}</p>
-          <div className="mt-2.5 pl-2">
-            <Link to="/settings?tab=ai" className="prep-btn prep-btn-sm inline-block">
-              {t('prep.analysis.connectKey')}
-            </Link>
+        <div className="prep-analysis-warning" role="status">
+          <AlertTriangle size={17} aria-hidden="true" />
+          <div>
+            <strong>{t('prep.analysis.heuristicTitle')}</strong>
+            <p>{t('prep.analysis.heuristicBody')}</p>
           </div>
+          <button type="button" className="prep-link-btn" onClick={onRetry}>
+            {t('prep.analysis.retryAi')}
+          </button>
         </div>
       )}
 
-      {analysis.riskAreas.length > 0 && (
-        <div className="prep-card prep-card-pad prep-topic prep-topic-amber">
-          <p className="prep-h2 pl-2">{t('prep.analysis.beforeStart')}</p>
-          <ul className="mt-2 space-y-1.5 pl-2">
-            {analysis.riskAreas.map((r) => (
-              <li key={r} className="prep-sub flex gap-2">
-                <span style={{ color: 'var(--prep-amber)' }}>•</span>
-                {r}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      <section className="prep-analysis-shell">
+        <div className="prep-analysis-main">
+          <div className="prep-analysis-section-heading">
+            <div>
+              <p className="prep-eyebrow">{t('prep.analysis.planEyebrow')}</p>
+              <h2 className="prep-h2 mt-1">{t('prep.analysis.readinessMap')}</h2>
+              <p className="prep-faint mt-1">{t('prep.analysis.readinessDesc')}</p>
+            </div>
+            <button
+              type="button"
+              className="prep-link-btn"
+              onClick={() =>
+                setSelected(
+                  allSelected
+                    ? new Set()
+                    : new Set(analysis.interviewTopics.map((topic) => topic.id)),
+                )
+              }
+            >
+              {allSelected ? t('prep.analysis.clearAll') : t('prep.analysis.selectAll')}
+            </button>
+          </div>
 
-      {analysis.competencies && analysis.competencies.length > 0 && (
-        <div>
-          <h2 className="prep-h2">{t('prep.analysis.competencies')}</h2>
-          <p className="prep-faint mt-0.5">{t('prep.analysis.competenciesDesc')}</p>
-          <div className="mt-3 space-y-4">
-            {MATCH_GROUPS.map((group) => {
-              const items = analysis.competencies!.filter((c) => c.resumeMatch === group.match);
-              if (!items.length) return null;
+          <div className="prep-analysis-topics">
+            {analysis.interviewTopics.map((topic) => {
+              const active = selected.has(topic.id);
               return (
-                <div key={group.match}>
-                  <p
-                    className="text-[11px] font-extrabold uppercase tracking-wider"
-                    style={{ color: group.color }}
-                  >
-                    {t(group.titleKey)} · {items.length}
-                  </p>
-                  <div className="mt-2 grid gap-2">
-                    {items.map((c) => (
-                      <div
-                        key={c.name}
-                        className="prep-card flex flex-wrap items-center gap-x-3 gap-y-1.5 p-3"
-                      >
-                        <span className={`prep-chip shrink-0 ${IMPORTANCE_TONE[c.priority]}`}>
-                          {t(IMPORTANCE_KEY[c.priority])}
-                        </span>
-                        <span
-                          className="min-w-0 flex-1 truncate text-[14px] font-semibold"
-                          style={{ color: 'var(--prep-ink)' }}
-                        >
-                          {c.name}
-                        </span>
-                        <span className="prep-faint shrink-0">
-                          {t('prep.analysis.expected')} {t(EXPECTED_LEVEL_KEY[c.expectedLevel])}
-                        </span>
-                        {c.note && (
-                          <p className="w-full text-[12.5px]" style={{ color: 'var(--prep-ink-muted)' }}>
-                            {c.note}
-                          </p>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
+                <button
+                  key={topic.id}
+                  type="button"
+                  aria-pressed={active}
+                  className={`prep-analysis-topic ${active ? 'is-selected' : ''}`}
+                  onClick={() => toggleTopic(topic.id)}
+                >
+                  <span className="prep-analysis-topic__check" aria-hidden="true">
+                    {active && <Check size={13} />}
+                  </span>
+                  <span className="min-w-0 flex-1 text-left">
+                    <span className="prep-faint">{topic.category}</span>
+                    <strong>{topic.title}</strong>
+                    <small>{topic.expectedKnowledge}</small>
+                  </span>
+                  <span className={`prep-chip shrink-0 ${IMPORTANCE_TONE[topic.importance]}`}>
+                    {t(IMPORTANCE_KEY[topic.importance])}
+                  </span>
+                </button>
               );
             })}
           </div>
         </div>
-      )}
 
-      <div>
-        <h2 className="prep-h2">{t('prep.analysis.readinessMap')}</h2>
-        <p className="prep-faint mt-0.5">{t('prep.analysis.readinessDesc')}</p>
-        <div className="mt-3 grid gap-3 sm:grid-cols-2">
-          {analysis.interviewTopics.map((topic) => {
-            const on = selected.has(topic.id);
-            return (
-              <div
-                key={topic.id}
-                role="checkbox"
-                aria-checked={on}
-                tabIndex={0}
-                onClick={() => toggleTopic(topic.id)}
-                onKeyDown={(e) => {
-                  if (e.key === ' ' || e.key === 'Enter') {
-                    e.preventDefault();
-                    toggleTopic(topic.id);
-                  }
-                }}
-                className="prep-card cursor-pointer p-4 transition-all"
-                style={{
-                  opacity: on ? 1 : 0.5,
-                  borderColor: on ? 'var(--prep-green)' : undefined,
-                }}
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex min-w-0 items-start gap-2.5">
-                    <span
-                      aria-hidden
-                      className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border"
-                      style={{
-                        borderColor: on ? 'var(--prep-green)' : 'var(--prep-border-strong)',
-                        background: on ? 'var(--prep-green)' : 'transparent',
-                      }}
-                    >
-                      {on && (
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#04240f" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M20 6 9 17l-5-5" />
-                        </svg>
-                      )}
-                    </span>
-                    <div className="min-w-0">
-                      <p className="prep-faint">{topic.category}</p>
-                      <p className="prep-h2 truncate">{topic.title}</p>
-                    </div>
-                  </div>
-                  <span className={`prep-chip shrink-0 ${IMPORTANCE_TONE[topic.importance]}`}>
-                    {t(IMPORTANCE_KEY[topic.importance])}
-                  </span>
-                </div>
-                <p className="prep-sub mt-2">{topic.expectedKnowledge}</p>
-                {topic.whyAsked && <p className="prep-faint mt-1.5">{topic.whyAsked}</p>}
-                <p className="mt-2 text-[12px] italic" style={{ color: 'var(--prep-ink-faint)' }}>
-                  “{topic.vacancyEvidence}”
-                </p>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {analysis.extractedRequirements.length > 0 && (
-        <div className="prep-card prep-card-pad">
-          <p className="prep-h2">{t('prep.analysis.keyRequirements')}</p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {analysis.extractedRequirements.map((r) => (
-              <span key={r} className="prep-chip">
-                {r}
-              </span>
-            ))}
-            {analysis.optionalSkills.map((r) => (
-              <span key={r} className="prep-chip prep-tone-violet">
-                {r} · {t('prep.analysis.optional')}
-              </span>
-            ))}
+        <aside className="prep-analysis-aside">
+          <div>
+            <p className="prep-eyebrow">{t('prep.analysis.riskEyebrow')}</p>
+            <h2 className="prep-h2 mt-1">{t('prep.analysis.beforeStart')}</h2>
           </div>
-        </div>
-      )}
 
-      <div className="flex flex-wrap items-center gap-3">
+          {analysis.riskAreas.length > 0 ? (
+            <ul className="prep-risk-list">
+              {analysis.riskAreas.slice(0, 4).map((risk) => (
+                <li key={risk}>
+                  <AlertTriangle size={14} aria-hidden="true" />
+                  <span>{risk}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="prep-analysis-clear">
+              <ShieldCheck size={17} aria-hidden="true" />
+              <span>{t('prep.analysis.noRisks')}</span>
+            </div>
+          )}
+
+          {competencies.length > 0 && (
+            <div className="prep-match-summary">
+              <p className="prep-faint">{t('prep.analysis.competencies')}</p>
+              {MATCH_GROUPS.map((group) => {
+                const count = competencies.filter(
+                  (competency) => competency.resumeMatch === group.match,
+                ).length;
+                return (
+                  <div key={group.match}>
+                    <span className={`prep-match-dot prep-tone-${group.tone}`} />
+                    <span>{t(group.titleKey)}</span>
+                    <strong>{count}</strong>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          <details className="prep-disclosure">
+            <summary>
+              <span>{t('prep.analysis.details')}</span>
+              <ChevronDown size={15} aria-hidden="true" />
+            </summary>
+            <div className="prep-disclosure__body space-y-4">
+              {competencies.length > 0 && (
+                <CompetencyDetails competencies={competencies} />
+              )}
+              {analysis.extractedRequirements.length > 0 && (
+                <div>
+                  <p className="prep-faint">{t('prep.analysis.keyRequirements')}</p>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {analysis.extractedRequirements.map((requirement) => (
+                      <span key={requirement} className="prep-chip">
+                        {requirement}
+                      </span>
+                    ))}
+                    {analysis.optionalSkills.map((skill) => (
+                      <span key={skill} className="prep-chip prep-tone-violet">
+                        {skill}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </details>
+        </aside>
+      </section>
+
+      <footer className="prep-analysis-action">
+        <div>
+          <strong>
+            {plannedCount}{' '}
+            {pl(
+              plannedCount,
+              ['prep.questionOne', 'prep.questionFew', 'prep.questionMany'],
+              ['prep.questionOne', 'prep.questionFew'],
+            )}
+          </strong>
+          <span>
+            {selected.size} {t('home.report.of')} {analysis.interviewTopics.length}{' '}
+            {t('prep.analysis.topicsWord')} · ~20–30 {t('prep.analysis.min')}
+          </span>
+        </div>
         <button
           type="button"
           className="prep-btn"
           onClick={() => onStart([...selected])}
           disabled={plannedCount === 0}
         >
-          {t('prep.analysis.startMock')} {plannedCount}{' '}
-          {pl(
-            plannedCount,
-            ['prep.questionOne', 'prep.questionFew', 'prep.questionMany'],
-            ['prep.questionOne', 'prep.questionFew'],
-          )}
-        </button>
-        <span className="prep-faint">
-          {selected.size === 0
+          {plannedCount === 0
             ? t('prep.analysis.selectAtLeastOne')
-            : `${selected.size} ${t('home.report.of')} ${analysis.interviewTopics.length} ${t('prep.analysis.topicsWord')} · ~20–30 ${t('prep.analysis.min')}`}
-        </span>
-      </div>
+            : t('prep.analysis.startPractice')}
+          <ArrowRight size={16} aria-hidden="true" />
+        </button>
+      </footer>
+    </div>
+  );
+}
+
+function CompetencyDetails({ competencies }: { competencies: Competency[] }) {
+  const { t } = useI18n();
+  return (
+    <div className="space-y-3">
+      {MATCH_GROUPS.map((group) => {
+        const items = competencies.filter((competency) => competency.resumeMatch === group.match);
+        if (items.length === 0) return null;
+        return (
+          <div key={group.match}>
+            <p className="prep-faint">{t(group.titleKey)}</p>
+            <div className="mt-1 space-y-1">
+              {items.map((competency) => (
+                <div key={competency.name} className="prep-competency-row">
+                  <strong>{competency.name}</strong>
+                  <small>
+                    {t('prep.analysis.expected')}{' '}
+                    {t(EXPECTED_LEVEL_KEY[competency.expectedLevel])}
+                  </small>
+                  {competency.note && <p>{competency.note}</p>}
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

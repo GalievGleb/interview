@@ -43,7 +43,7 @@ def test_pick_auto_vacancy_empty_cache_uses_strong_default():
     assert pick_auto_model("vacancy", set()) == "openai/gpt-4o"
 
 
-def test_resolve_vacancy_uses_dedicated_setting_when_explicit():
+def test_resolve_vacancy_ignores_dedicated_setting_when_explicit():
     prefs = AiPreferencesModel(
         deep_reasoning_model="openai/gpt-4o-mini",
         vacancy_review_model="anthropic/claude-sonnet-4",
@@ -55,7 +55,23 @@ def test_resolve_vacancy_uses_dedicated_setting_when_explicit():
         available={"openai/gpt-5.4", "anthropic/claude-sonnet-4"},
     )
     assert model == "anthropic/claude-sonnet-4"
-    assert source == "setting"
+    assert source == "auto"
+
+
+def test_resolve_vacancy_ignores_stale_manual_setting():
+    prefs = AiPreferencesModel(
+        vacancy_review_model="openai/gpt-5.5",
+        models_cache=[],
+    )
+
+    model, source = resolve_model(
+        "vacancy",
+        prefs=prefs,
+        available={"openai/gpt-4o", "openai/gpt-5.5"},
+    )
+
+    assert model == "openai/gpt-4o"
+    assert source == "auto"
 
 
 def test_resolve_vacancy_ignores_deep_setting_when_vacancy_setting_is_auto():
@@ -83,16 +99,16 @@ def test_resolve_auto():
     assert source == "auto"
 
 
-def test_resolve_override():
+def test_resolve_client_override_is_ignored():
     prefs = AiPreferencesModel(default_copilot_model="auto")
     model, source = resolve_model(
         "general",
         model_override="anthropic/claude-3.5-sonnet",
         prefs=prefs,
-        available={"anthropic/claude-3.5-sonnet"},
+        available={"openai/gpt-4o-mini", "anthropic/claude-3.5-sonnet"},
     )
-    assert model == "anthropic/claude-3.5-sonnet"
-    assert source == "override"
+    assert model == "openai/gpt-4o-mini"
+    assert source == "auto"
 
 
 def test_resolve_unavailable_fallback():
@@ -103,4 +119,4 @@ def test_resolve_unavailable_fallback():
         available={"openai/gpt-4o-mini"},
     )
     assert model == "openai/gpt-4o-mini"
-    assert source == "fallback_unavailable_setting"
+    assert source == "auto"

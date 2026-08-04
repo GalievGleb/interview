@@ -1,4 +1,4 @@
-"""Auto Select и выбор модели по mode."""
+"""Фиксированная продуктовая маршрутизация моделей по режиму."""
 
 from __future__ import annotations
 
@@ -164,25 +164,12 @@ def resolve_model(
     available: set[str] | None = None,
 ) -> tuple[str, str]:
     """
-    Возвращает (model_id, source): source = override | setting | auto | fallback.
+    Возвращает (model_id, source). Сохранённые настройки и model_override
+    намеренно игнорируются: выбор облачных моделей задаётся продуктовым планом.
+    Аргумент override пока сохранён только ради совместимости старых клиентов.
     """
     prefs = prefs or load_preferences()
     available = available if available is not None else {m.id for m in prefs.models_cache}
     mode = mode if mode in MODE_SETTING else "general"
 
-    if model_override and model_override != AUTO:
-        if available and model_override not in available:
-            auto = pick_auto_model(mode, available)
-            return auto, "fallback_unavailable_override"
-        return model_override, "override"
-
-    setting_field = MODE_SETTING[mode]
-    selected: str = getattr(prefs, setting_field, AUTO)
-
-    if selected == AUTO:
-        return pick_auto_model(mode, available), "auto"
-
-    if available and selected not in available:
-        return pick_auto_model(mode, available), "fallback_unavailable_setting"
-
-    return selected, "setting"
+    return pick_auto_model(mode, available), "auto"

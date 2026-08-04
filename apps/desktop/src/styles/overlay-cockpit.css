@@ -133,25 +133,17 @@
 }
 
 .ovl-input-wrap {
-  @apply rounded-xl border px-3 pb-2 pt-2.5 transition-colors;
+  @apply rounded-xl border px-3 pb-2 pt-2.5;
   border-color: rgba(255, 255, 255, 0.1);
   background: rgba(255, 255, 255, 0.04);
-}
-.ovl-input-wrap:focus-within {
-  border-color: rgba(99, 102, 241, 0.55);
 }
 
 .ovl-input {
   @apply w-full resize-none border-0 bg-transparent text-sm text-ink outline-none placeholder:text-ink-faint;
   height: 24px;
-  transition: height 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 }
-/* Чат «раскрывается», когда сфокусировано САМО поле (не любой сосед в строке).
-   Раньше было :focus-within — фокус на кнопке «…»/Smart в той же строке growил
-   поле, слой сдвигался между mousedown и mouseup, и первый клик по «…» не
-   срабатывал (меню открывалось лишь со второго раза). */
-.ovl-input:focus {
-  height: 68px;
+.ovl-input:focus-visible {
+  outline: none;
 }
 
 /* Пульсирующая белая точка — ИИ думает (до первого токена). */
@@ -343,6 +335,280 @@
 .ovl-recap-body {
   @apply min-h-0 flex-1 overflow-y-auto pr-1;
 }
+.ovl-analysis {
+  min-height: 250px;
+}
+.ovl-analysis-empty {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  min-height: 250px;
+  padding: 22px;
+  border: 1px dashed rgba(116, 226, 174, 0.28);
+  border-radius: 16px;
+  background: rgba(19, 49, 43, 0.2);
+}
+.ovl-analysis-empty-icon {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border: 1px solid rgba(116, 226, 174, 0.25);
+  border-radius: 13px;
+  color: #74e2ae;
+  background: rgba(116, 226, 174, 0.08);
+}
+.ovl-analysis-empty h3,
+.ovl-analysis-section h3,
+.ovl-analysis-topics h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+}
+.ovl-analysis-empty p {
+  max-width: 430px;
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.ovl-analysis-action,
+.ovl-analysis-retry {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid rgba(116, 226, 174, 0.38);
+  border-radius: 10px;
+  color: #dffbef;
+  background: rgba(54, 197, 129, 0.18);
+  font-size: 12.5px;
+  font-weight: 700;
+  transition: border-color 140ms ease, background 140ms ease, transform 140ms ease;
+}
+.ovl-analysis-action:hover:not(:disabled),
+.ovl-analysis-retry:hover {
+  border-color: rgba(116, 226, 174, 0.72);
+  background: rgba(54, 197, 129, 0.28);
+  transform: translateY(-1px);
+}
+.ovl-analysis-action:focus-visible,
+.ovl-analysis-retry:focus-visible {
+  outline: 2px solid rgba(116, 226, 174, 0.75);
+  outline-offset: 2px;
+}
+.ovl-analysis-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+.ovl-analysis-loading,
+.ovl-analysis-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  min-height: 250px;
+  padding: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.025);
+}
+.ovl-analysis-loading {
+  align-items: center;
+}
+.ovl-analysis-spinner {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  border: 2px solid rgba(116, 226, 174, 0.16);
+  border-top-color: #74e2ae;
+  border-radius: 999px;
+  animation: ovl-analysis-spin 850ms linear infinite;
+}
+.ovl-analysis-loading-title {
+  margin: 0;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 700;
+}
+.ovl-analysis-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 9px;
+}
+.ovl-analysis-steps span {
+  padding: 4px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.035);
+  font-size: 10.5px;
+}
+.ovl-analysis-error {
+  color: #f5a9a9;
+}
+.ovl-analysis-error strong {
+  color: #ffd2d2;
+  font-size: 13px;
+}
+.ovl-analysis-error p {
+  margin: 5px 0 13px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.ovl-analysis-result {
+  display: grid;
+  gap: 12px;
+}
+.ovl-analysis-conclusion {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: baseline;
+  gap: 6px 10px;
+  padding: 14px 16px;
+  border: 1px solid rgba(116, 226, 174, 0.18);
+  border-radius: 14px;
+  background: rgba(31, 81, 65, 0.16);
+}
+.ovl-analysis-eyebrow {
+  color: #74e2ae;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.ovl-analysis-conclusion strong {
+  color: var(--text);
+  font-size: 14px;
+}
+.ovl-analysis-conclusion p {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+.ovl-analysis-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.ovl-analysis-section,
+.ovl-analysis-topics {
+  padding: 13px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.025);
+}
+.ovl-analysis-section--strong {
+  border-top-color: rgba(116, 226, 174, 0.45);
+}
+.ovl-analysis-section--weak {
+  border-top-color: rgba(244, 186, 89, 0.48);
+}
+.ovl-analysis-evidence {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+.ovl-analysis-evidence strong {
+  color: var(--text);
+  font-size: 12px;
+}
+.ovl-analysis-evidence p {
+  margin: 3px 0 0;
+  color: var(--text-muted);
+  font-size: 11.5px;
+  line-height: 1.48;
+}
+.ovl-analysis-action-note {
+  margin-top: 7px;
+  padding: 7px 8px;
+  border-left: 2px solid rgba(244, 186, 89, 0.72);
+  border-radius: 0 7px 7px 0;
+  color: #e9dfca;
+  background: rgba(244, 186, 89, 0.07);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.ovl-analysis-action-note span {
+  display: block;
+  margin-bottom: 2px;
+  color: #f4ba59;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+.ovl-analysis-topics {
+  display: grid;
+  gap: 10px;
+}
+.ovl-analysis-score {
+  display: grid;
+  gap: 5px;
+}
+.ovl-analysis-score-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text-muted);
+  font-size: 11.5px;
+}
+.ovl-analysis-score-head strong {
+  flex: 0 0 auto;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.ovl-analysis-score-track {
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+.ovl-analysis-score-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #f4ba59 0%, #74e2ae 100%);
+}
+.ovl-analysis-confidence {
+  color: var(--text-faint);
+  font-size: 9.5px;
+  font-variant-numeric: tabular-nums;
+}
+@keyframes ovl-analysis-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (max-width: 620px) {
+  .ovl-analysis-empty {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .ovl-analysis-action {
+    grid-column: 1 / -1;
+    justify-self: stretch;
+  }
+  .ovl-analysis-columns {
+    grid-template-columns: 1fr;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ovl-analysis-spinner {
+    animation-duration: 1.8s;
+  }
+  .ovl-analysis-action,
+  .ovl-analysis-retry {
+    transition: none;
+  }
+}
 .ovl-resume {
   @apply flex items-center gap-2 rounded-lg px-3.5 py-2 text-[13px] font-semibold text-white transition-transform;
   background: var(--accent);
@@ -357,21 +623,36 @@
    скрытность, источник звука, настройки») уезжали за край окна и обрезались.
    В оверлее разрешаем перенос и ограничиваем ширину, чтобы весь текст был виден. */
 .ovl-root .tip::after {
-  z-index: 80;
-  white-space: normal;
-  width: max-content;
-  max-width: 220px;
-  line-height: 1.35;
-  text-align: center;
+  content: none;
+  display: none;
 }
 /* Кнопки нижней панели: тултип вниз упирался бы в край окна — показываем вверх. */
 .ovl-bar .tip::after {
-  top: auto;
-  bottom: 100%;
-  margin-top: 0;
-  margin-bottom: 0.5rem;
+  content: none;
+  display: none;
 }
 .ovl-bar .tip:hover::after,
 .ovl-bar .tip:focus-visible::after {
-  transform: translate(-50%, 0);
+  content: none;
+  display: none;
+}
+
+.ovl-tooltip-layer {
+  position: fixed;
+  z-index: 100;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: min(220px, calc(100vw - 16px));
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0.5rem;
+  padding: 0.375rem 0.625rem;
+  background: var(--surface-elevated);
+  color: var(--text);
+  box-shadow: 0 18px 50px -18px rgba(0, 0, 0, 0.8);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.35;
+  text-align: center;
+  white-space: normal;
+  pointer-events: none;
 }

@@ -17,7 +17,23 @@ import os from 'os';
 import crypto from 'crypto';
 import { spawn, type ChildProcess } from 'child_process';
 import { autoUpdater } from 'electron-updater';
+import { HhBrowserAssistant } from './hhBrowserAssistant';
+import type { HhAssistantConfig } from './hhAssistantPolicy';
+import { HhOAuthService } from './hhOAuthService';
+import { HhChatBrowser } from './hhChatBrowser';
 import { isReservedOverlayShortcut } from './shortcutPolicy';
+import { createAutoUpdateCoordinator } from './autoUpdateCoordinator';
+import { createUpdaterStatusStore } from './updaterStatusStore';
+import {
+  hideOverlayAndShowMain,
+  hideOverlayOnly,
+  hideWindowOnClose,
+  isLiveWindow,
+} from './windowLifecycle';
+import { bindOverlayShortcutLifecycle } from './overlayShortcutLifecycle';
+import { bindOverlayPointerRecovery } from './overlayPointerRecovery';
+import { getTitleBarOverlayTheme } from './titleBarTheme';
+import { preparePersistentBackendData, sqliteDatabaseUrl } from './backendData';
 
 const API_URL = process.env.API_URL ?? 'http://127.0.0.1:8000';
 const isDev = !app.isPackaged;
@@ -45,6 +61,10 @@ let backendProcess: ChildProcess | null = null;
 let backendLogStream: fs.WriteStream | null = null;
 let backendRestartAttempts = 0;
 let backendRestartTimer: NodeJS.Timeout | null = null;
+let hhBrowserAssistant: HhBrowserAssistant | null = null;
+let hhOAuthService: HhOAuthService | null = null;
+let hhChatBrowser: HhChatBrowser | null = null;
+let closingHhBrowserForQuit = false;
 let quitting = false;
 // Ключ лицензии из ссылки skillcue://activate?key=… ждёт здесь, пока окно
 // не догрузится (холодный старт по ссылке), затем уходит в рендерер.
@@ -52,6 +72,17 @@ let pendingDeepLinkKey: string | null = null;
 
 // Живой процесс не перезапускаем бесконечно: 3 попытки, дальше баннер «не в сети».
 const MAX_BACKEND_RESTARTS = 3;
+const updaterStatusStore = createUpdaterStatusStore((status) => {
+  sendToWindows('updater:status', status);
+});
+const updateCoordinator = createAutoUpdateCoordinator({
+  checkForUpdates: () => autoUpdater.checkForUpdates(),
+  installSilently: () => autoUpdater.quitAndInstall(true, true),
+  publish: (status) => updaterStatusStore.publish(status),
+  schedule: (fn) => {
+    setTimeout(fn, 900);
+  },
+});
 
 function sendToWindows(channel: string, payload: unknown): void {
   for (const win of [mainWindow, overlayWindow]) {
@@ -128,6 +159,9 @@ async function ensureBackend(): Promise<void> {
     return;
   }
   try {
+    const persistentDatabase = app.isPackaged
+      ? preparePersistentBackendData(app.getPath('userData'), process.resourcesPath)
+      : null;
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       PYTHONPATH: '.',
@@ -135,6 +169,9 @@ async function ensureBackend(): Promise<void> {
       SKILLCUE_API_TOKEN: API_TOKEN,
       // Бэкенд подхватит как settings.skillcue_gateway_url (BYOK-фолбэк на гейтвей).
       SKILLCUE_GATEWAY_URL,
+      ...(persistentDatabase
+        ? { DATABASE_URL: sqliteDatabaseUrl(persistentDatabase) }
+        : {}),
     };
     backendProcess = spawn(cfg.cmd, cfg.args, {
       cwd: cfg.cwd,
@@ -284,11 +321,7 @@ function createMainWindow(): BrowserWindow {
     // Прячем светлую системную рамку Windows и рисуем кнопки окна поверх нашего
     // тёмного тайтлбара — сам тайтлбар отвечает за перетаскивание (app-region).
     titleBarStyle: 'hidden',
-    titleBarOverlay: {
-      color: '#0c1726',
-      symbolColor: '#c7d3e2',
-      height: 52,
-    },
+    titleBarOverlay: getTitleBarOverlayTheme('dark'),
     webPreferences: {
       preload: getPreloadPath(),
       contextIsolation: true,
@@ -300,6 +333,12 @@ function createMainWindow(): BrowserWindow {
   win.once('ready-to-show', () => {
     win.show();
     win.focus();
+  });
+  win.on('close', (event) => {
+    hideWindowOnClose(event, win, quitting);
+  });
+  win.once('closed', () => {
+    if (mainWindow === win) mainWindow = null;
   });
   win.setMenuBarVisibility(false);
 
@@ -323,9 +362,7 @@ function createMainWindow(): BrowserWindow {
 }
 
 function hideOverlay(): void {
-  overlayWindow?.hide();
-  mainWindow?.show();
-  mainWindow?.focus();
+  hideOverlayOnly(overlayWindow);
 }
 
 function createOverlayWindow(): BrowserWindow {
@@ -355,9 +392,25 @@ function createOverlayWindow(): BrowserWindow {
     ? 'http://localhost:5173/#/overlay'
     : `file://${path.join(__dirname, '../dist/index.html')}#/overlay`;
   hardenWindow(win);
+  bindOverlayShortcutLifecycle(
+    win,
+    globalShortcut,
+    FORCE_ANSWER_SHORTCUT,
+    hideOverlay,
+    (accelerator) => console.warn(`[overlay] global shortcut unavailable: ${accelerator}`),
+  );
+  bindOverlayPointerRecovery(win);
   void win.loadURL(overlayRoute);
   win.hide();
+  win.once('closed', () => {
+    if (overlayWindow === win) overlayWindow = null;
+  });
   return win;
+}
+
+function getOrCreateOverlayWindow(): BrowserWindow {
+  if (!isLiveWindow(overlayWindow)) overlayWindow = createOverlayWindow();
+  return overlayWindow;
 }
 
 function registerIpc(): void {
@@ -366,6 +419,97 @@ function registerIpc(): void {
   ipcMain.handle('app:openExternal', (_e, url: string) => safeOpenExternal(url));
   // «Выйти из SkillCue» в настройках — то же, что «Выход» в трее.
   ipcMain.handle('app:quit', () => app.quit());
+
+  ipcMain.handle('hh-assistant:get-state', () => hhBrowserAssistant?.getState());
+  ipcMain.handle(
+    'hh-assistant:save-config',
+    (_e, config: Partial<HhAssistantConfig>) => hhBrowserAssistant?.saveConfig(config),
+  );
+  ipcMain.handle('hh-assistant:open-browser', () => hhBrowserAssistant?.openBrowser());
+  ipcMain.handle('hh-assistant:scan', () => hhBrowserAssistant?.scan());
+  ipcMain.handle('hh-assistant:apply-all', () => hhBrowserAssistant?.applyAll());
+  ipcMain.handle('hh-assistant:apply-one', (_e, vacancyId: string) =>
+    hhBrowserAssistant?.applyOne(vacancyId),
+  );
+  ipcMain.handle('hh-assistant:stop-apply', () => hhBrowserAssistant?.stopApply());
+  ipcMain.handle('hh-assistant:set-daily-schedule', (_e, enabled: boolean) =>
+    hhBrowserAssistant?.setDailySchedule(Boolean(enabled)),
+  );
+  ipcMain.handle('hh-assistant:open-vacancy', (_e, vacancyId: string) =>
+    hhBrowserAssistant?.openVacancy(vacancyId),
+  );
+  ipcMain.handle('hh-assistant:fill-letter', (_e, vacancyId: string) =>
+    hhBrowserAssistant?.fillCoverLetter(vacancyId),
+  );
+  ipcMain.handle(
+    'hh-assistant:mark',
+    (_e, vacancyId: string, status: string) => {
+      if (status !== 'sent' && status !== 'skipped') {
+        return hhBrowserAssistant?.getState();
+      }
+      return hhBrowserAssistant?.mark(vacancyId, status);
+    },
+  );
+  ipcMain.handle('hh-assistant:close-browser', async () => {
+    await hhBrowserAssistant?.close();
+    return hhBrowserAssistant?.getState();
+  });
+  ipcMain.handle(
+    'hh-assistant:login',
+    async (_e, login: string, password: string) =>
+      hhBrowserAssistant?.loginWithCredentials(login, password),
+  );
+
+  // ─── HH OAuth ───────────────────────────────────────────────────────
+  ipcMain.handle('hh-oauth:get-state', () => hhOAuthService?.getState());
+  ipcMain.handle('hh-oauth:get-config', () => hhOAuthService?.getConfig());
+  ipcMain.handle(
+    'hh-oauth:save-config',
+    (_e, config: Record<string, unknown>) => hhOAuthService?.saveConfig(config),
+  );
+  ipcMain.handle('hh-oauth:start-auth', async () => {
+    try {
+      const tokens = await hhOAuthService?.startAuth();
+      return { ok: true, tokens };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+  ipcMain.handle('hh-oauth:exchange-code', async (_e, code: string) => {
+    try {
+      const tokens = await hhOAuthService?.exchangeCode(code);
+      return { ok: true, tokens };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+  ipcMain.handle('hh-oauth:logout', () => hhOAuthService?.logout());
+  ipcMain.handle('hh-oauth:get-resumes', async () => {
+    try {
+      return await hhOAuthService?.getResumes();
+    } catch {
+      return [];
+    }
+  });
+  ipcMain.handle('hh-oauth:get-me', async () => {
+    try {
+      return await hhOAuthService?.getMe();
+    } catch {
+      return null;
+    }
+  });
+
+  // ─── HH Chat Browser ─────────────────────────────────────────────────
+  ipcMain.handle('hh-chat:get-state', () => hhChatBrowser?.getState());
+  ipcMain.handle('hh-chat:get-config', () => hhChatBrowser?.getConfig());
+  ipcMain.handle(
+    'hh-chat:save-config',
+    (_e, config: Record<string, unknown>) => hhChatBrowser?.saveConfig(config),
+  );
+  ipcMain.handle('hh-chat:set-enabled', (_e, enabled: boolean) =>
+    hhChatBrowser?.setEnabled(enabled),
+  );
+  ipcMain.handle('hh-chat:poll-now', async () => hhChatBrowser?.pollNow());
 
   ipcMain.handle('keybinds:get', () => ({
     toggleOverlay: toggleOverlayShortcut,
@@ -466,12 +610,10 @@ function registerIpc(): void {
   );
 
   ipcMain.handle('overlay:toggle', () => {
-    if (!overlayWindow) return;
-    if (overlayWindow.isVisible()) hideOverlay();
-    else overlayWindow.show();
+    toggleOverlay();
   });
 
-  ipcMain.handle('overlay:show', () => overlayWindow?.show());
+  ipcMain.handle('overlay:show', () => getOrCreateOverlayWindow().show());
   ipcMain.handle('overlay:hide', () => hideOverlay());
 
   ipcMain.handle('overlay:captureScreen', async () => {
@@ -492,29 +634,25 @@ function registerIpc(): void {
   });
 
   ipcMain.handle('overlay:openApp', () => {
-    // Клик по логотипу в пилле: поднять главное окно, оверлей не трогаем.
-    if (!mainWindow) return;
-    mainWindow.show();
-    mainWindow.focus();
+    // Явный переход из оверлея в основное окно скрывает плавающую панель.
+    hideOverlayAndShowMain(overlayWindow, mainWindow);
   });
 
   ipcMain.handle('overlay:openSettings', (_e, section?: string) => {
-    if (!mainWindow) return;
-    overlayWindow?.hide();
-    mainWindow.show();
-    mainWindow.focus();
+    if (!isLiveWindow(mainWindow)) return;
+    hideOverlayAndShowMain(overlayWindow, mainWindow);
     const safe = section && /^[a-z-]+$/.test(section) ? `?tab=${section}` : '';
     mainWindow.webContents.send('app:navigate', `/settings${safe}`);
   });
 
   ipcMain.handle('overlay:setContentProtection', (_e, enable: boolean) => {
-    overlayWindow?.setContentProtection(enable);
-    mainWindow?.setContentProtection(enable);
+    if (isLiveWindow(overlayWindow)) overlayWindow.setContentProtection(enable);
+    if (isLiveWindow(mainWindow)) mainWindow.setContentProtection(enable);
   });
 
   ipcMain.handle('overlay:move', (_e, dx: number, dy: number) => {
     // Перемещение окна оверлея с клавиатуры (Ctrl+стрелки), как «Move Cluely».
-    if (!overlayWindow) return;
+    if (!isLiveWindow(overlayWindow)) return;
     const [x, y] = overlayWindow.getPosition();
     overlayWindow.setPosition(Math.round(x + dx), Math.round(y + dy));
   });
@@ -523,18 +661,20 @@ function registerIpc(): void {
     // «Не забирать фокус»: оверлей не становится активным окном, фокус
     // остаётся в приложении под ним. Внимание: при false ввод в поле
     // оверлея недоступен, поэтому включается осознанно из меню.
-    overlayWindow?.setFocusable(focusable);
+    if (isLiveWindow(overlayWindow)) overlayWindow.setFocusable(focusable);
   });
 
   ipcMain.handle('overlay:setClickThrough', (_e, enable: boolean) => {
     // Клики проходят «сквозь» оверлей в приложение под ним. forward:true шлёт
     // события движения курсора в рендерер, чтобы он мог временно вернуть
     // интерактивность при наведении на свои элементы (см. OverlayPage).
-    overlayWindow?.setIgnoreMouseEvents(enable, { forward: true });
+    if (isLiveWindow(overlayWindow)) {
+      overlayWindow.setIgnoreMouseEvents(enable, { forward: true });
+    }
   });
 
   ipcMain.handle('overlay:resize', (_e, dw: number, dh: number) => {
-    if (!overlayWindow) return;
+    if (!isLiveWindow(overlayWindow)) return;
     const [w, h] = overlayWindow.getSize();
     const nw = Math.max(420, Math.min(1400, Math.round(w + (dw || 0))));
     const nh = Math.max(360, Math.min(1200, Math.round(h + (dh || 0))));
@@ -542,6 +682,7 @@ function registerIpc(): void {
   });
 
   ipcMain.handle('overlay:liveState', (_e, active: boolean) => {
+    updateCoordinator.setLive(!!active);
     // Live-сессия крутится в окне оверлея; главное окно не видит его событий,
     // поэтому пробрасываем состояние туда — сайдбар-хронометр и веха активации.
     mainWindow?.webContents.send('app:live-state', !!active);
@@ -551,22 +692,41 @@ function registerIpc(): void {
     mainWindow?.setSkipTaskbar(skip);
   });
 
+  ipcMain.handle('window:setTitleBarTheme', (event, theme: unknown) => {
+    if (
+      !isLiveWindow(mainWindow) ||
+      event.sender !== mainWindow.webContents ||
+      (theme !== 'dark' && theme !== 'light')
+    ) {
+      return;
+    }
+    mainWindow.setTitleBarOverlay(getTitleBarOverlayTheme(theme));
+  });
+
   ipcMain.handle('app:getVersion', () => app.getVersion());
 
   ipcMain.handle('updater:check', async () => {
     // Ручная проверка из настроек. В dev автообновление не настроено.
-    if (isDev) return { state: 'none' as const, message: 'dev-режим: обновления недоступны' };
+    if (isDev) {
+      const status = {
+        state: 'none' as const,
+        message: 'dev-режим: обновления недоступны',
+      };
+      updaterStatusStore.publish(status);
+      return status;
+    }
     try {
-      const result = await autoUpdater.checkForUpdates();
-      const version = result?.updateInfo?.version;
-      if (version && version !== app.getVersion()) {
-        return { state: 'available' as const, version };
-      }
-      return { state: 'none' as const };
+      await updateCoordinator.check();
+      return updaterStatusStore.get();
     } catch (err) {
-      return { state: 'error' as const, message: String(err instanceof Error ? err.message : err) };
+      const message = String(err instanceof Error ? err.message : err);
+      if (updaterStatusStore.get().state !== 'error') {
+        updateCoordinator.resetAfterError(message);
+      }
+      return { state: 'error' as const, message };
     }
   });
+  ipcMain.handle('updater:get-status', () => updaterStatusStore.get());
 
   ipcMain.handle('app:getAutoLaunch', () => app.getLoginItemSettings().openAtLogin);
   ipcMain.handle('app:setAutoLaunch', (_e, enable: boolean) => {
@@ -604,9 +764,9 @@ function saveMainSetting(key: string, value: unknown): void {
 }
 
 function toggleOverlay(): void {
-  if (!overlayWindow) return;
-  if (overlayWindow.isVisible()) hideOverlay();
-  else overlayWindow.show();
+  const win = getOrCreateOverlayWindow();
+  if (win.isVisible()) hideOverlay();
+  else win.show();
 }
 
 function registerToggleShortcut(acc: string): boolean {
@@ -627,25 +787,6 @@ function registerShortcuts(): void {
     toggleOverlayShortcut = DEFAULT_TOGGLE_SHORTCUT;
   }
 
-  // Session shortcuts live only while the overlay is visible so Ctrl+Enter and
-  // Escape keep working in the call window without being stolen system-wide.
-  overlayWindow?.on('show', () => {
-    try {
-      globalShortcut.register('Escape', () => hideOverlay());
-      const registered = globalShortcut.register(FORCE_ANSWER_SHORTCUT, () => {
-        overlayWindow?.webContents.send('overlay:force-answer');
-      });
-      if (!registered) {
-        console.warn(`[overlay] global shortcut unavailable: ${FORCE_ANSWER_SHORTCUT}`);
-      }
-    } catch {
-      /* занято другим приложением — не критично */
-    }
-  });
-  overlayWindow?.on('hide', () => {
-    globalShortcut.unregister('Escape');
-    globalShortcut.unregister(FORCE_ANSWER_SHORTCUT);
-  });
 }
 
 function createTray(): void {
@@ -653,8 +794,13 @@ function createTray(): void {
   tray.setToolTip('SkillCue');
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      { label: 'Открыть', click: () => mainWindow?.show() },
-      { label: 'Overlay', click: () => overlayWindow?.show() },
+      {
+        label: 'Открыть',
+        click: () => {
+          if (isLiveWindow(mainWindow)) mainWindow.show();
+        },
+      },
+      { label: 'Overlay', click: () => getOrCreateOverlayWindow().show() },
       { type: 'separator' },
       { label: 'Выход', click: () => app.quit() },
     ]),
@@ -663,17 +809,32 @@ function createTray(): void {
 
 function setupAutoUpdater(): void {
   if (isDev) return;
-  const send = (status: unknown) => mainWindow?.webContents.send('updater:status', status);
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
   autoUpdater.on('update-available', (info) =>
-    send({ state: 'available', version: info.version }),
+    updaterStatusStore.publish({ state: 'available', version: info.version }),
   );
+  autoUpdater.on('update-not-available', () => updateCoordinator.markNoUpdate());
   autoUpdater.on('download-progress', (p) =>
-    send({ state: 'downloading', percent: Math.round(p.percent) }),
+    updaterStatusStore.publish({
+      state: 'downloading',
+      version: updaterStatusStore.get().version,
+      percent: Math.round(p.percent),
+    }),
   );
-  autoUpdater.on('update-downloaded', (info) => send({ state: 'ready', version: info.version }));
-  autoUpdater.on('error', (err) => send({ state: 'error', message: String(err?.message ?? err) }));
-  ipcMain.handle('updater:install', () => autoUpdater.quitAndInstall());
-  autoUpdater.checkForUpdatesAndNotify();
+  autoUpdater.on('update-downloaded', (info) =>
+    updateCoordinator.markDownloaded(info.version),
+  );
+  autoUpdater.on('error', (err) =>
+    updateCoordinator.resetAfterError(String(err?.message ?? err)),
+  );
+  // Backwards compatibility for renderer bundles from before automatic install.
+  ipcMain.handle('updater:install', () => updateCoordinator.requestInstall());
+  void updateCoordinator.check().catch((err: unknown) => {
+    if (updaterStatusStore.get().state !== 'error') {
+      updateCoordinator.resetAfterError(String(err instanceof Error ? err.message : err));
+    }
+  });
 }
 
 function setupDisplayMedia(): void {
@@ -740,7 +901,15 @@ if (!hasSingleInstanceLock) {
 } else {
   app.on('second-instance', (_event, argv) => {
     // Windows/Linux: URL приходит в argv второго процесса.
-    deliverDeepLink(argv.find((a) => a.startsWith(`${DEEP_LINK_PROTOCOL}://`)));
+    const deepLink = argv.find((a) => a.startsWith(`${DEEP_LINK_PROTOCOL}://`));
+    if (deepLink) {
+      deliverDeepLink(deepLink);
+      return;
+    }
+    if (!isLiveWindow(mainWindow)) mainWindow = createMainWindow();
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
   });
   // macOS доставляет протокол отдельным событием.
   app.on('open-url', (event, url) => {
@@ -753,6 +922,62 @@ if (!hasSingleInstanceLock) {
     void ensureBackend();
     setupContentSecurityPolicy();
     setupDisplayMedia();
+    hhBrowserAssistant = new HhBrowserAssistant(app.getPath('userData'), (state) => {
+      sendToWindows('hh-assistant:state', state);
+    });
+    hhBrowserAssistant.restoreSchedule();
+
+    // Инициализируем HH OAuth и Chat-ассистент (браузерный)
+    hhOAuthService = new HhOAuthService(app.getPath('userData'));
+    hhChatBrowser = new HhChatBrowser(
+      app.getPath('userData'),
+      // getPage: берём страницу из браузерного ассистента
+      async () => {
+        return hhBrowserAssistant?.getPage() ?? null;
+      },
+      // llmCall: вызываем LLM через локальный бэкенд
+      async (prompt: string) => {
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+        };
+        if (API_TOKEN) {
+          headers['X-SkillCue-Token'] = API_TOKEN;
+        }
+
+        const res = await fetch(`${API_URL}/chat`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            message: prompt,
+            mode: 'general',
+            answer_language: 'ru',
+          }),
+        });
+
+        if (!res.ok) {
+          throw new Error(`LLM error ${res.status}`);
+        }
+
+        const text = await res.text();
+        const chunks: string[] = [];
+        for (const line of text.split('\n')) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const evt = JSON.parse(line.slice(6));
+            if (evt.type === 'chunk') chunks.push(evt.text);
+            if (evt.type === 'error') throw new Error(evt.message);
+          } catch {
+            // ignore
+          }
+        }
+        return chunks.join('').trim();
+      },
+    );
+
+    // Запускаем браузерный чат, если был включён
+    if (hhChatBrowser.getState().enabled) {
+      hhChatBrowser.startPolling();
+    }
     registerIpc();
     mainWindow = createMainWindow();
     overlayWindow = createOverlayWindow();
@@ -767,10 +992,20 @@ if (!hasSingleInstanceLock) {
     if (process.platform !== 'darwin') app.quit();
   });
 
-  app.on('before-quit', () => {
+  app.on('before-quit', (event) => {
     // Плановый выход: 'exit' убитого бэкенда не должен запускать рестарт.
     quitting = true;
     if (backendRestartTimer) clearTimeout(backendRestartTimer);
+    hhChatBrowser?.dispose();
+    hhOAuthService?.dispose();
+    if (!closingHhBrowserForQuit && hhBrowserAssistant?.getState().browserOpen) {
+      event.preventDefault();
+      closingHhBrowserForQuit = true;
+      void Promise.race([
+        hhBrowserAssistant.close(),
+        new Promise<void>((resolve) => setTimeout(resolve, 2_000)),
+      ]).finally(() => app.quit());
+    }
   });
 
   app.on('will-quit', () => {

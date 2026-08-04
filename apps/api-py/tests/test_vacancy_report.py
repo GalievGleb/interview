@@ -31,6 +31,52 @@ _PAYLOAD = {
     "language": "ru",
 }
 
+_ANALYZE_PAYLOAD = {
+    "vacancyText": (
+        "Senior QA automation Python specialist: Python, pytest, Playwright, "
+        "REST API, SQL, Docker, CI/CD, mentoring and framework design."
+    ),
+    "targetRole": "Senior QA automation Python specialist",
+    "language": "ru",
+}
+
+
+def test_analyze_reserves_enough_output_for_complete_json(client, monkeypatch):
+    captured: dict = {}
+
+    async def fake_complete(messages, provider=None, model=None, **kwargs):
+        captured.update(kwargs)
+        return json.dumps(
+            {
+                "targetRole": "Senior QA automation Python specialist",
+                "seniorityLevel": "senior",
+                "extractedRequirements": ["Python"],
+                "optionalSkills": [],
+                "competencies": [],
+                "interviewTopics": [
+                    {
+                        "title": "Python",
+                        "category": "Automation",
+                        "importance": "high",
+                        "level": "senior",
+                        "expectedKnowledge": "Архитектура тестового фреймворка",
+                        "sampleQuestions": ["Как устроен ваш фреймворк?"],
+                        "vacancyEvidence": "Python",
+                    }
+                ],
+                "projectQuestions": [],
+                "riskAreas": [],
+            },
+            ensure_ascii=False,
+        )
+
+    monkeypatch.setattr(provider_adapter, "complete", fake_complete)
+
+    response = client.post("/vacancy/analyze", json=_ANALYZE_PAYLOAD)
+
+    assert response.status_code == 200, response.text
+    assert captured["max_tokens"] >= 5000
+
 
 def test_report_returns_narrative_and_wires_prompt(client, monkeypatch):
     captured: dict = {}

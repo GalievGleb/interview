@@ -1,15 +1,38 @@
 import { useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import type { UpdaterStatus } from '../types/electron';
 import { useI18n } from '../lib/i18n';
 
 /** Bottom-right toast reflecting electron-updater progress (packaged app only). */
 export default function UpdateToast() {
   const { t } = useI18n();
+  const { pathname } = useLocation();
   const [status, setStatus] = useState<UpdaterStatus | null>(null);
 
-  useEffect(() => window.electronAPI?.updater?.onStatus(setStatus), []);
+  useEffect(() => {
+    const updater = window.electronAPI?.updater;
+    if (!updater) return;
+    let receivedLiveStatus = false;
+    const unsubscribe = updater.onStatus((next) => {
+      receivedLiveStatus = true;
+      setStatus(next);
+    });
+    void updater.getStatus?.().then((current) => {
+      if (!receivedLiveStatus) setStatus(current);
+    });
+    return unsubscribe;
+  }, []);
 
-  if (!status || status.state === 'error') return null;
+  if (
+    pathname === '/settings' ||
+    !status ||
+    status.state === 'idle' ||
+    status.state === 'checking' ||
+    status.state === 'none' ||
+    status.state === 'error'
+  ) {
+    return null;
+  }
 
   return (
     <div className="fixed bottom-4 right-4 z-[85] w-72 rounded-2xl border border-surface-border bg-surface-elevated p-4 shadow-pop">
@@ -24,24 +47,21 @@ export default function UpdateToast() {
             <span>{t('update.downloading')}</span>
             <span className="sc-mono text-ink-muted">{status.percent ?? 0}%</span>
           </p>
-          <span className="sc-progress">
-            <span className="sc-progress__fill" style={{ width: `${status.percent ?? 0}%` }} />
-          </span>
+          <div className="sc-progress">
+            <div className="sc-progress__fill" style={{ width: `${status.percent ?? 0}%` }} />
+          </div>
         </>
       )}
       {status.state === 'ready' && (
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-sm text-ink">
-            {t('update.readyPre')} {status.version} {t('update.readyPost')}
-          </p>
-          <button
-            type="button"
-            onClick={() => void window.electronAPI?.updater?.install()}
-            className="btn-primary btn-sm"
-          >
-            {t('update.restart')}
-          </button>
-        </div>
+        <p className="text-sm text-ink">
+          {t('update.readyPre')} {status.version} {t('update.readyPost')}
+        </p>
+      )}
+      {status.state === 'waiting-for-session-end' && (
+        <p className="text-sm text-ink">{t('update.waitingForSessionEnd')}</p>
+      )}
+      {status.state === 'installing' && (
+        <p className="text-sm text-ink">{t('update.installing')}</p>
       )}
     </div>
   );

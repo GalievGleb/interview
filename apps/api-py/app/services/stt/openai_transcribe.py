@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 import httpx
 
@@ -14,6 +15,24 @@ from .base import PRIVACY_CLOUD, BaseTranscriptionProvider, ProviderMode
 from .pcm_audio import pcm16_mono_wav
 
 MINI_MODEL = "gpt-4o-mini-transcribe"
+ANSWER_MODEL = "gpt-transcribe"
+
+
+def build_answer_request_data(
+    *,
+    question: str,
+    hints: list[str],
+    language: str,
+) -> dict[str, object]:
+    normalized_language = language.lower()
+    languages = ["en"] if normalized_language.startswith("en") else ["ru", "en"]
+    return {
+        "model": ANSWER_MODEL,
+        "response_format": "json",
+        "prompt": f"Техническое интервью. Вопрос интервьюера: {question}",
+        "keywords": hints,
+        "languages": languages,
+    }
 
 
 def build_request_data(*, language: str | None) -> dict[str, str]:
@@ -171,8 +190,115 @@ class OpenAiMiniTranscribeProvider(BaseTranscriptionProvider):
         return str(response.json().get("text") or "").strip()
 
 
+class OpenAiAnswerTranscriber:
+    """One completed mock answer, kept separate from the latency-first live path."""
+
+    def __init__(self) -> None:
+        self._client: httpx.AsyncClient | None = None
+
+    def _http_client(self) -> httpx.AsyncClient:
+        if self._client is None:
+            self._client = httpx.AsyncClient(
+                timeout=60.0,
+                limits=httpx.Limits(max_keepalive_connections=2, max_connections=4),
+            )
+        return self._client
+
+    async def transcribe(
+        self,
+        audio: bytes,
+        *,
+        question: str,
+        hints: list[str],
+        language: str,
+    ) -> str:
+        request_data = build_answer_request_data(
+            question=question,
+            hints=hints,
+            language=language,
+        )
+        key = secrets.get_secret("openai_api_key")
+        if key:
+            return await self._transcribe_direct(audio, request_data=request_data, key=key)
+        return await self._transcribe_via_gateway(audio, request_data=request_data)
+
+    async def _transcribe_direct(
+        self,
+        audio: bytes,
+        *,
+        request_data: dict[str, object],
+        key: str,
+    ) -> str:
+        data = {
+            "model": str(request_data["model"]),
+            "response_format": str(request_data["response_format"]),
+            "prompt": str(request_data["prompt"]),
+            "keywords[]": list(request_data["keywords"]),
+            "languages[]": list(request_data["languages"]),
+        }
+        response = await self._http_client().post(
+            "https://api.openai.com/v1/audio/transcriptions",
+            headers={"Authorization": f"Bearer {key}"},
+            data=data,
+            files={"file": ("answer.wav", audio, "audio/wav")},
+        )
+        return self._response_text(response)
+
+    async def _transcribe_via_gateway(
+        self,
+        audio: bytes,
+        *,
+        request_data: dict[str, object],
+    ) -> str:
+        settings = get_settings()
+        if not settings.skillcue_gateway_url:
+            raise RuntimeError("SkillCue cloud is not configured")
+        license_key = _gateway_license_key()
+        if not license_key:
+            raise RuntimeError("SkillCue license is unavailable")
+        root = _gateway_root_url(settings.skillcue_gateway_url)
+        response = await self._http_client().post(
+            f"{root}/gateway/stt/answer",
+            headers={"Authorization": f"Bearer {license_key}"},
+            data={
+                "prompt": str(request_data["prompt"]),
+                "keywords": json.dumps(request_data["keywords"], ensure_ascii=False),
+                "languages": json.dumps(request_data["languages"], ensure_ascii=False),
+            },
+            files={"file": ("answer.wav", audio, "audio/wav")},
+        )
+        return self._response_text(response)
+
+    async def aclose(self) -> None:
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None
+
+    @staticmethod
+    def _response_text(response: httpx.Response) -> str:
+        if not 200 <= response.status_code < 300:
+            raise RuntimeError(
+                f"OpenAI answer STT {response.status_code}: {response.text[:240]}"
+            )
+        return str(response.json().get("text") or "").strip()
+
+
+_answer_transcriber: OpenAiAnswerTranscriber | None = None
+
+
+def get_answer_transcriber() -> OpenAiAnswerTranscriber:
+    global _answer_transcriber
+    if _answer_transcriber is None:
+        _answer_transcriber = OpenAiAnswerTranscriber()
+    return _answer_transcriber
+
+
 __all__ = [
+    "ANSWER_MODEL",
     "MINI_MODEL",
+    "OpenAiAnswerTranscriber",
     "OpenAiMiniTranscribeProvider",
+    "build_answer_request_data",
     "build_request_data",
+    "get_answer_transcriber",
 ]

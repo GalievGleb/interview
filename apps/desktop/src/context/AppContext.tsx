@@ -1,5 +1,6 @@
-import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from 'react';
+import { createContext, useContext, useEffect, useState, ReactNode, useCallback, useRef } from 'react';
 import { api, KeysStatus } from '../lib/api';
+import { refreshSessionKnowledge } from '../lib/sessionKnowledge';
 import { syncMockSessionsFromBackend } from '../lib/vacancyReview/vacancyReviewStore';
 import type { BackendStatus } from '../types/electron';
 
@@ -36,6 +37,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [sttReady, setSttReady] = useState(false);
   const [license, setLicense] = useState<LicenseInfo | null>(null);
   const [backendStatus, setBackendStatus] = useState<BackendStatus | null>(null);
+  const knowledgeRefreshStartedRef = useRef(false);
 
   const refreshLicense = useCallback(async () => {
     try {
@@ -49,6 +51,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       await api.health();
       setBackendOnline(true);
+      if (!knowledgeRefreshStartedRef.current) {
+        knowledgeRefreshStartedRef.current = true;
+        void refreshSessionKnowledge().catch(() => {
+          knowledgeRefreshStartedRef.current = false;
+        });
+      }
       // Backend is up — reconcile mock-interview sessions into durable SQLite.
       void syncMockSessionsFromBackend();
       const k = await api.getKeys();

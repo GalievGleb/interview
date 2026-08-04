@@ -1,57 +1,140 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { startLiveSession, type LiveSession } from '../liveSession';
-import { createVoiceAnswerTranscript, flushVoiceAnswerTranscript } from '../voiceAnswerTranscript';
+import { api } from '../api';
+import {
+  buildMockAnswerGuidance,
+  startMockAnswerRecording,
+  type MockAnswerRecording,
+} from '../mockAnswerAudio';
 
-/**
- * Lightweight voice capture for a single mock-interview answer. Reuses the live
- * STT WebSocket (mic -> OpenAI Mini) but accumulates only the final transcript and
- * streams it back via `onText`, so the answer textarea fills as you speak.
- */
-export function useVoiceAnswer(onText: (text: string) => void, language = 'ru') {
+interface VoiceAnswerOptions {
+  language?: string;
+  question: string;
+  topicLabels?: string[];
+}
+
+/** One complete mock answer: native-rate mic WAV -> contextual gpt-transcribe. */
+export function useVoiceAnswer(onText: (text: string) => void, options: VoiceAnswerOptions) {
   const [recording, setRecording] = useState(false);
+  const [finalizing, setFinalizing] = useState(false);
   const [error, setError] = useState('');
-  const sessionRef = useRef<LiveSession | null>(null);
-  const transcriptRef = useRef(createVoiceAnswerTranscript());
+  const recordingRef = useRef<MockAnswerRecording | null>(null);
+  const transcriptionAbortRef = useRef<AbortController | null>(null);
+  const onTextRef = useRef(onText);
+  const optionsRef = useRef(options);
+  const mountedRef = useRef(true);
+  const operationRef = useRef(0);
+  const finishRef = useRef<() => Promise<string | null>>(async () => null);
+
+  useEffect(() => {
+    onTextRef.current = onText;
+    optionsRef.current = options;
+  }, [onText, options]);
 
   const stop = useCallback(() => {
-    const flushed = flushVoiceAnswerTranscript(transcriptRef.current);
-    if (flushed) onText(flushed);
-    sessionRef.current?.stop();
-    sessionRef.current = null;
+    operationRef.current += 1;
+    transcriptionAbortRef.current?.abort();
+    transcriptionAbortRef.current = null;
+    recordingRef.current?.cancel();
+    recordingRef.current = null;
+    if (mountedRef.current) {
+      setRecording(false);
+      setFinalizing(false);
+    }
+    return '';
+  }, []);
+
+  const finish = useCallback(async () => {
+    const activeRecording = recordingRef.current;
+    if (!activeRecording) return null;
+    const operation = operationRef.current;
+    recordingRef.current = null;
+    setError('');
     setRecording(false);
-    return flushed;
-  }, [onText]);
+    setFinalizing(true);
+    transcriptionAbortRef.current?.abort();
+    const controller = new AbortController();
+    transcriptionAbortRef.current = controller;
+
+    try {
+      const wav = activeRecording.stop();
+      if (wav.size <= 44) throw new Error('Речь не обнаружена в записи');
+      const currentOptions = optionsRef.current;
+      const guidance = buildMockAnswerGuidance(
+        currentOptions.question,
+        currentOptions.topicLabels ?? [],
+      );
+      const result = await api.transcribeMockAnswer(wav, {
+        ...guidance,
+        language: currentOptions.language ?? 'ru',
+      }, { signal: controller.signal });
+      if (operation !== operationRef.current || !mountedRef.current) return null;
+
+      const transcript = String(result.text ?? '').trim();
+      if (!transcript) {
+        throw new Error(
+          (currentOptions.language ?? 'ru') === 'en'
+            ? 'No speech was recognized. Try recording the answer again.'
+            : 'Речь не распознана. Запишите ответ ещё раз.',
+        );
+      }
+      onTextRef.current(transcript);
+      return transcript;
+    } catch (cause) {
+      if (operation === operationRef.current && mountedRef.current) {
+        setError(cause instanceof Error ? cause.message : 'Не удалось распознать ответ');
+      }
+      return null;
+    } finally {
+      if (transcriptionAbortRef.current === controller) transcriptionAbortRef.current = null;
+      if (operation === operationRef.current && mountedRef.current) setFinalizing(false);
+    }
+  }, []);
+  finishRef.current = finish;
 
   const start = useCallback(async () => {
+    operationRef.current += 1;
+    const operation = operationRef.current;
+    transcriptionAbortRef.current?.abort();
+    transcriptionAbortRef.current = null;
+    recordingRef.current?.cancel();
+    recordingRef.current = null;
     setError('');
-    transcriptRef.current.reset();
+    setFinalizing(false);
     try {
-      const session = await startLiveSession(
-        {
-          onTranscript: (text, isFinal) => {
-            const next = transcriptRef.current.accept(text, isFinal);
-            if (next) onText(next);
-          },
-          onError: (msg) => {
-            setError(msg);
-            stop();
-          },
+      const session = await startMockAnswerRecording({
+        onLimitReached: () => {
+          if (operation === operationRef.current) void finishRef.current();
         },
-        { source: 'mic', speaker: 'me', language },
-      );
-      sessionRef.current = session;
+      });
+      if (!mountedRef.current || operation !== operationRef.current) {
+        session.cancel();
+        return;
+      }
+      recordingRef.current = session;
       setRecording(true);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Нет доступа к микрофону');
+    } catch (cause) {
+      if (mountedRef.current && operation === operationRef.current) {
+        setError(cause instanceof Error ? cause.message : 'Нет доступа к микрофону');
+      }
     }
-  }, [onText, language, stop]);
+  }, []);
 
   const toggle = useCallback(() => {
     if (recording) stop();
     else void start();
   }, [recording, start, stop]);
 
-  useEffect(() => () => sessionRef.current?.stop(), []);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      operationRef.current += 1;
+      transcriptionAbortRef.current?.abort();
+      transcriptionAbortRef.current = null;
+      recordingRef.current?.cancel();
+      recordingRef.current = null;
+    };
+  }, []);
 
-  return { recording, error, start, stop, toggle };
+  return { recording, finalizing, error, start, stop, finish, toggle };
 }

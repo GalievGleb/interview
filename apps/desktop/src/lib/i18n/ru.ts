@@ -8,11 +8,12 @@ export const ru = {
   'nav.group.live': 'Live',
   'nav.group.context': 'Контекст',
   'nav.group.system': 'Система',
-  'nav.home': 'Пульт',
+  'nav.home': 'Подготовка',
   'nav.prepare': 'Разбор вакансии',
+  'nav.applications': 'Отклики',
   'nav.interview': 'Live-интервью',
-  'nav.documents': 'Резюме и опыт',
-  'nav.history': 'История',
+  'nav.documents': 'Профиль и опыт',
+  'nav.history': 'Сессии',
   'nav.settings': 'Настройки',
   'nav.search': 'Поиск',
 
@@ -27,6 +28,10 @@ export const ru = {
   'sidebar.taskbarTitle': 'Скрыть из панели задач',
   'sidebar.noTaskbar': 'Без панели',
   'sidebar.inTaskbar': 'В панели',
+  'sidebar.collapse': 'Свернуть боковую панель',
+  'sidebar.expand': 'Развернуть боковую панель',
+  'sidebar.mainNav': 'Основная навигация',
+  'sidebar.liveNow': 'LIVE',
 
   // Шелл (титул-бар, статусы)
   'shell.liveSession': 'Live-сессия',
@@ -41,6 +46,7 @@ export const ru = {
   'shell.backendFailed':
     'Сервис не смог перезапуститься. Перезапустите приложение; если повторится — соберите отчёт в «Настройки → Сообщить о проблеме».',
   'shell.loading': 'Загрузка…',
+  'shell.skipContent': 'Перейти к содержимому',
 
   // Командная палитра (Ctrl+K)
   'cmd.placeholder': 'Команда или экран…',
@@ -79,6 +85,9 @@ export const ru = {
   'update.readyPre': 'Обновление',
   'update.readyPost': 'готово',
   'update.restart': 'Перезапустить',
+  'update.waitingForSessionEnd':
+    'Обновление установится сразу после завершения live-сессии.',
+  'update.installing': 'Устанавливаю обновление и перезапускаю SkillCue…',
 
   // Экран ошибки (ErrorBoundary)
   'error.title': 'Что-то пошло не так',
@@ -99,6 +108,22 @@ export const ru = {
   'home.title.empty': 'Начните с вакансии, а не с пустого чата.',
   'home.hero.sub':
     'SkillCue ведёт по одному сценарию: разбирает вакансию, задаёт тренировочные вопросы, показывает слабые темы и только потом помогает короткой live-подсказкой.',
+  'home.focused.eyebrow': 'Следующее действие',
+  'home.focused.continueTitle': 'Продолжите с того вопроса, где остановились.',
+  'home.focused.reportTitle': 'Сначала закройте главный пробел.',
+  'home.focused.emptyTitle': 'Подготовка начинается с конкретной вакансии.',
+  'home.focused.weakest': 'Слабее всего сейчас:',
+  'home.focused.emptyBody':
+    'Вставьте описание роли. SkillCue выделит вероятные вопросы и соберёт короткую тренировку под ваши требования.',
+  'home.focused.reportSummary':
+    'Откройте отчёт, чтобы увидеть слабые темы и выбрать следующий вопрос для тренировки.',
+  'home.focused.currentPractice': 'Текущая тренировка',
+  'home.focused.currentPreparation': 'Текущая подготовка',
+  'home.focused.priorityEyebrow': 'Сейчас важнее всего',
+  'home.focused.recentEyebrow': 'Недавняя работа',
+  'home.focused.journey': 'Этапы подготовки к интервью',
+  'home.context.eyebrow': 'Контекст ответа',
+  'home.context.title': 'Что уже готово',
   'home.action.continueMock': 'Продолжить mock',
   'home.action.repeatWeak': 'Повторить слабые темы',
   'home.action.openReadiness': 'Открыть карту готовности',
@@ -227,6 +252,8 @@ export const ru = {
   'docs.add.titlePlaceholder': 'Название, например: QA Automation resume',
   'docs.add.textPlaceholder': 'Вставьте текст резюме, истории опыта или заметок…',
   'docs.add.adding': 'Добавляю…',
+  'docs.add.addingResume': 'Добавляю резюме…',
+  'docs.add.addingContext': 'Добавляю контекст…',
   'docs.add.addText': 'Добавить текст',
   'docs.add.uploadFile': 'Загрузить файл',
   'docs.uses.eyebrow': 'В live SkillCue использует',
@@ -293,6 +320,8 @@ export const ru = {
   'history.detail.empty.sub':
     'Здесь появятся вопросы, ответы и транскрипт для разбора после интервью.',
   'history.detail.eyebrow': 'Разбор сессии',
+  'history.analysis.title': 'Сохранённый AI-разбор',
+  'history.analysis.loading': 'Загружаю сохранённый разбор…',
 
   // Live-статус и панель управления
   'live.listening': 'Слушаю',
@@ -419,6 +448,21 @@ export const ru = {
   'prep.title': 'Поймите, что вас спросят до интервью.',
   'prep.sub':
     'Вставьте реальную вакансию, и SkillCue выделит требования, вероятные вопросы, темы риска и план короткого mock-интервью. Это подготовка под конкретную роль, а не общий список навыков.',
+  'prep.setup.eyebrow': 'Новая подготовка',
+  'prep.setup.sub':
+    'Вставьте описание роли. Резюме и история опыта подключатся автоматически и помогут сделать вопросы персональными.',
+  'prep.setup.vacancyHint': 'Обязанности, требования, стек и формат интервью.',
+  'prep.setup.ready': 'Вакансия готова к разбору. Обычно это занимает меньше минуты.',
+  'prep.setup.contextEyebrow': 'Используем автоматически',
+  'prep.setup.contextTitle': 'Контекст кандидата',
+  'prep.setup.contextBody':
+    'SkillCue сверит требования с вашим опытом. Здесь не нужно заполнять всё заново.',
+  'prep.setup.connected': 'Подключено к разбору',
+  'prep.setup.notConnected': 'Не добавлено',
+  'prep.setup.openProfile': 'Проверить профиль и опыт',
+  'prep.setup.options': 'Роль и язык ответа',
+  'prep.setup.overrideContext': 'Заменить контекст только для этого разбора',
+  'prep.setup.progressEyebrow': 'Разбор вакансии',
   'prep.analyzing.title': 'Разбираю вакансию…',
   'prep.analyzing.sub': 'Обычно это занимает несколько секунд.',
   'prep.analyzing.step1': 'Читаю требования и стек',
@@ -469,10 +513,10 @@ export const ru = {
   'prep.analysis.basedOn': 'На основе этой вакансии',
   'prep.analysis.answers': 'Ответы:',
   'prep.analysis.changeVacancy': 'Изменить вакансию',
-  'prep.analysis.heuristicTitle': 'Упрощённый локальный разбор',
+  'prep.analysis.heuristicTitle': 'Показан базовый разбор',
   'prep.analysis.heuristicBody':
-    'Не удалось получить AI-разбор (нет ключа, нет соединения или модель разбора недоступна), поэтому темы выделены локальным алгоритмом: они точны по списку, но без глубины — уровень, важность и пробелы оценены приблизительно.',
-  'prep.analysis.connectKey': 'Подключить AI-ключ',
+    'AI-разбор временно не завершился, поэтому показан базовый локальный результат. Повторите запрос — выбранная SkillCue модель и лицензия применятся автоматически.',
+  'prep.analysis.retryAi': 'Повторить AI-разбор',
   'prep.analysis.beforeStart': 'Перед началом',
   'prep.analysis.competencies': 'Компетенции против резюме',
   'prep.analysis.competenciesDesc':
@@ -481,6 +525,13 @@ export const ru = {
   'prep.analysis.readinessMap': 'Карта готовности к интервью',
   'prep.analysis.readinessDesc':
     'Отметьте темы для mock-интервью — снимите те, где уже уверенно разбираетесь.',
+  'prep.analysis.planEyebrow': 'План тренировки',
+  'prep.analysis.riskEyebrow': 'Риски вакансии',
+  'prep.analysis.clearAll': 'Снять все',
+  'prep.analysis.selectAll': 'Выбрать все',
+  'prep.analysis.noRisks': 'Явных рисков в требованиях не найдено.',
+  'prep.analysis.details': 'Компетенции и требования',
+  'prep.analysis.startPractice': 'Начать тренировку',
   'prep.analysis.keyRequirements': 'Ключевые требования',
   'prep.analysis.optional': 'опционально',
   'prep.analysis.startMock': 'Начать mock-интервью:',
@@ -514,6 +565,10 @@ export const ru = {
   'prep.report.gapsEmpty': 'Критичных пробелов нет',
   'prep.report.readinessByAnswers': 'Готовность по темам на основе ваших ответов.',
   'prep.report.recommendations': 'Рекомендации по подготовке',
+  'prep.report.moreActions': 'Другие действия с отчётом',
+  'prep.report.priorityEyebrow': 'Следующий фокус',
+  'prep.report.priorityTitle': 'Темы, которые дадут самый быстрый рост',
+  'prep.report.fullMap': 'Вся карта готовности и подробности',
 
   // Разбор вакансии — mock-интервью (SmokeInterviewView)
   'prep.diff.easy': 'лёгкий',
@@ -528,10 +583,16 @@ export const ru = {
   'prep.smoke.question': 'Вопрос',
   'prep.smoke.timerTitle': 'Время на этот ответ. На реальном интервью 2–3 минуты — норма.',
   'prep.smoke.followUpChip': 'Дожим',
+  'prep.smoke.sessionTopics': 'Темы этой тренировки',
+  'prep.smoke.questionContext': 'Зачем спрашивают и что важно раскрыть',
+  'prep.smoke.moreActions': 'Другие действия',
+  'prep.smoke.detailedFeedback': 'Показать подробный разбор',
   'prep.smoke.whyAsked': 'Зачем спрашивают:',
   'prep.smoke.wantsToHear': 'Что хочет услышать интервьюер',
   'prep.smoke.answerPlaceholder': 'Ответьте голосом или исправьте текст перед оценкой…',
   'prep.smoke.recording': 'Идёт запись ответа',
+  'prep.smoke.finalizing': 'Распознаю ответ…',
+  'prep.smoke.finalizingHint': 'Дождитесь финального текста — затем ответ отправится на оценку.',
   'prep.smoke.voiceAnswer': 'Голосовой ответ',
   'prep.smoke.recordingHint':
     'Говорите как на интервью. После остановки SkillCue оценит очищенный текст.',
@@ -552,11 +613,11 @@ export const ru = {
   'prep.smoke.heuristic.noKey':
     '⚠ Локальная оценка — AI не подключён. Проценты ориентировочные, полноценный разбор появится после подключения ключа в Настройках.',
   'prep.smoke.heuristic.timeout':
-    '⚠ Локальная оценка — AI-разбор не успел ответить вовремя. Часто помогает более быстрая модель в Настройках → AI-модели; попробуйте ещё раз.',
+    '⚠ Локальная оценка — AI-разбор не успел ответить вовремя. Попробуйте оценить ответ ещё раз.',
   'prep.smoke.heuristic.quota':
     '⚠ Локальная оценка — исчерпан месячный лимит токенов тарифа. Разбор вернётся после обновления лимита.',
   'prep.smoke.heuristic.generic':
-    '⚠ Локальная оценка — не удалось получить разбор от AI. Проверьте, что для разбора выбрана рабочая модель в Настройках → AI-модели.',
+    '⚠ Локальная оценка — AI-разбор не завершился. Повторите попытку: SkillCue применит модель по тарифному плану автоматически.',
   'prep.smoke.answerEval': 'Оценка ответа',
   'prep.smoke.soundsLike': 'Звучит как',
   'prep.smoke.strongVersion': 'Сильная версия ответа',
@@ -580,6 +641,10 @@ export const ru = {
   'prep.smoke.topicProgressTitle': 'Отвечено / запланировано вопросов по теме',
   'prep.smoke.speakStop': 'Остановить озвучку',
   'prep.smoke.speakTitle': 'Озвучить вопрос — как будто его задал интервьюер',
+  'prep.smoke.aiVoice': 'AI-озвучка',
+  'prep.smoke.localVoice': 'Системный голос',
+  'prep.smoke.speechLoading': 'Готовлю естественную озвучку…',
+  'prep.smoke.speechRetry': 'Повторить озвучку',
   'prep.smoke.speakStopBtn': '■ Стоп',
   'prep.smoke.speakBtn': '🔊 Озвучить',
 
@@ -721,7 +786,7 @@ export const ru = {
   'overlay.copy': 'Скопировать',
   'overlay.copied': 'Скопировано',
   'overlay.copiedTick': 'Скопировано ✓',
-  'overlay.forceSent': 'Реплика отправлена — готовлю ответ',
+  'overlay.forceRequest': 'Последний вопрос · Подсказка',
   'overlay.forceUnavailable': 'Нет новой реплики для отправки',
   'overlay.me': 'Я',
   'overlay.interviewer': 'Интервьюер',
@@ -741,12 +806,31 @@ export const ru = {
   'overlay.recap.close': 'Закрыть итоги',
   'overlay.recap.closeTip': 'Закрыть итоги (Esc)',
   'overlay.recap.tab.summary': 'Резюме',
+  'overlay.recap.tab.analysis': 'Анализ',
   'overlay.recap.tab.transcript': 'Транскрипт',
   'overlay.recap.tab.usage': 'Запросы',
   'overlay.recap.preparing': 'Готовлю резюме…',
   'overlay.recap.noLines': 'Реплик не было записано.',
   'overlay.recap.noUsage':
     'За сессию не было ручных запросов к ИИ. Нажимайте Подсказку/Экран во время разговора — они появятся здесь.',
+  'overlay.recap.analysisTitle': 'Разбор ответов по темам',
+  'overlay.recap.analysisIntro':
+    'SkillCue найдёт сильные и слабые ответы только по записанному транскрипту и сохранит результат для следующих тренировок.',
+  'overlay.recap.analyze': 'Разобрать сессию',
+  'overlay.recap.analysisUnavailable':
+    'Разбор недоступен: сессия не сохранилась. Начните новую сессию и повторите запись.',
+  'overlay.recap.analysisLoading': 'Разбираю ответы',
+  'overlay.recap.analysisLoadingEvidence': 'Собираю факты из транскрипта',
+  'overlay.recap.analysisLoadingTopics': 'Оцениваю темы',
+  'overlay.recap.analysisLoadingSave': 'Обновляю карту знаний',
+  'overlay.recap.analysisFailed': 'Не удалось разобрать сессию',
+  'overlay.recap.retryAnalysis': 'Повторить разбор',
+  'overlay.recap.overallLevel': 'Итоговый уровень',
+  'overlay.recap.strengths': 'Сильные стороны',
+  'overlay.recap.weaknesses': 'Что улучшить',
+  'overlay.recap.learningAction': 'Следующий шаг',
+  'overlay.recap.topicScores': 'Оценка по темам',
+  'overlay.recap.confidence': 'Уверенность:',
   'overlay.viewedScreen': 'Смотрел экран',
   'overlay.resume': 'Продолжить сессию',
   'overlay.regenSummary': 'Перегенерировать резюме',
@@ -838,12 +922,16 @@ export const ru = {
 
   // Настройки — Общие
   'settings.version': 'Версия SkillCue',
-  'settings.version.desc': 'Обновления скачиваются в фоне и ставятся при перезапуске',
+  'settings.version.desc': 'Обновления скачиваются в фоне и устанавливаются автоматически',
   'settings.update.checking': 'Проверяю…',
   'settings.update.check': 'Проверить обновления',
   'settings.update.unavailable': 'Проверка обновлений доступна в установленном приложении.',
   'settings.update.availablePre': 'Версия',
   'settings.update.availablePost': '— скачивается в фоне.',
+  'settings.update.downloading': 'Загрузка',
+  'settings.update.readyPre': 'Версия',
+  'settings.update.readyPost': 'готова к установке.',
+  'settings.update.install': 'Установить и перезапустить',
   'settings.update.latest': 'У вас последняя версия.',
   'settings.update.failed': 'Не удалось проверить:',
   'settings.theme.title': 'Тема оформления',

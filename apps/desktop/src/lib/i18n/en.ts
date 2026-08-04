@@ -6,11 +6,12 @@ export const en: Record<I18nKey, string> = {
   'nav.group.live': 'Live',
   'nav.group.context': 'Context',
   'nav.group.system': 'System',
-  'nav.home': 'Dashboard',
+  'nav.home': 'Preparation',
   'nav.prepare': 'Vacancy review',
+  'nav.applications': 'Applications',
   'nav.interview': 'Live interview',
-  'nav.documents': 'Resume & experience',
-  'nav.history': 'History',
+  'nav.documents': 'Profile & experience',
+  'nav.history': 'Sessions',
   'nav.settings': 'Settings',
   'nav.search': 'Search',
 
@@ -25,6 +26,10 @@ export const en: Record<I18nKey, string> = {
   'sidebar.taskbarTitle': 'Hide from the taskbar',
   'sidebar.noTaskbar': 'No taskbar',
   'sidebar.inTaskbar': 'In taskbar',
+  'sidebar.collapse': 'Collapse sidebar',
+  'sidebar.expand': 'Expand sidebar',
+  'sidebar.mainNav': 'Main navigation',
+  'sidebar.liveNow': 'LIVE',
 
   'shell.liveSession': 'Live session',
   'shell.idle': 'Idle',
@@ -38,6 +43,7 @@ export const en: Record<I18nKey, string> = {
   'shell.backendFailed':
     'The service could not restart. Restart the app; if it recurs, collect a report in "Settings → Report a problem".',
   'shell.loading': 'Loading…',
+  'shell.skipContent': 'Skip to content',
 
   // Command palette (Ctrl+K)
   'cmd.placeholder': 'Command or screen…',
@@ -75,6 +81,9 @@ export const en: Record<I18nKey, string> = {
   'update.readyPre': 'Update',
   'update.readyPost': 'is ready',
   'update.restart': 'Restart',
+  'update.waitingForSessionEnd':
+    'The update will install as soon as the live session ends.',
+  'update.installing': 'Installing the update and restarting SkillCue…',
 
   // Error screen (ErrorBoundary)
   'error.title': 'Something went wrong',
@@ -95,6 +104,22 @@ export const en: Record<I18nKey, string> = {
   'home.title.empty': 'Start with a vacancy, not a blank chat.',
   'home.hero.sub':
     'SkillCue follows one flow: it reviews the vacancy, asks practice questions, shows weak topics, and only then helps with a short live hint.',
+  'home.focused.eyebrow': 'Next action',
+  'home.focused.continueTitle': 'Continue from the question where you stopped.',
+  'home.focused.reportTitle': 'Close the most important gap first.',
+  'home.focused.emptyTitle': 'Preparation starts with a specific vacancy.',
+  'home.focused.weakest': 'Weakest right now:',
+  'home.focused.emptyBody':
+    'Paste the role description. SkillCue will highlight likely questions and build a short practice round around the requirements.',
+  'home.focused.reportSummary':
+    'Open the report to see weak topics and choose the next question to practise.',
+  'home.focused.currentPractice': 'Current practice',
+  'home.focused.currentPreparation': 'Current preparation',
+  'home.focused.priorityEyebrow': 'Most important now',
+  'home.focused.recentEyebrow': 'Recent work',
+  'home.focused.journey': 'Interview preparation steps',
+  'home.context.eyebrow': 'Answer context',
+  'home.context.title': 'What is ready',
   'home.action.continueMock': 'Continue mock',
   'home.action.repeatWeak': 'Review weak topics',
   'home.action.openReadiness': 'Open the readiness map',
@@ -223,6 +248,8 @@ export const en: Record<I18nKey, string> = {
   'docs.add.titlePlaceholder': 'Title, e.g.: QA Automation resume',
   'docs.add.textPlaceholder': 'Paste the text of a resume, experience history or notes…',
   'docs.add.adding': 'Adding…',
+  'docs.add.addingResume': 'Adding resume…',
+  'docs.add.addingContext': 'Adding context…',
   'docs.add.addText': 'Add text',
   'docs.add.uploadFile': 'Upload file',
   'docs.uses.eyebrow': 'In live SkillCue uses',
@@ -289,6 +316,8 @@ export const en: Record<I18nKey, string> = {
   'history.detail.empty.sub':
     'Questions, answers and the transcript for post-interview review will appear here.',
   'history.detail.eyebrow': 'Session review',
+  'history.analysis.title': 'Saved AI analysis',
+  'history.analysis.loading': 'Loading saved analysis…',
 
   // Live status and control bar
   'live.listening': 'Listening',
@@ -415,6 +444,21 @@ export const en: Record<I18nKey, string> = {
   'prep.title': "Understand what you'll be asked before the interview.",
   'prep.sub':
     'Paste a real vacancy and SkillCue will highlight the requirements, likely questions, risk topics and a short mock-interview plan. This is prep tailored to the specific role, not a generic skills list.',
+  'prep.setup.eyebrow': 'New preparation',
+  'prep.setup.sub':
+    'Paste the role description. Your resume and experience history are connected automatically to make the questions personal.',
+  'prep.setup.vacancyHint': 'Responsibilities, requirements, stack and interview format.',
+  'prep.setup.ready': 'The vacancy is ready to analyse. This usually takes less than a minute.',
+  'prep.setup.contextEyebrow': 'Used automatically',
+  'prep.setup.contextTitle': 'Candidate context',
+  'prep.setup.contextBody':
+    'SkillCue compares the requirements with your experience. You do not need to fill everything in again.',
+  'prep.setup.connected': 'Connected to this analysis',
+  'prep.setup.notConnected': 'Not added',
+  'prep.setup.openProfile': 'Review profile and experience',
+  'prep.setup.options': 'Role and answer language',
+  'prep.setup.overrideContext': 'Override context for this analysis only',
+  'prep.setup.progressEyebrow': 'Vacancy analysis',
   'prep.analyzing.title': 'Analyzing the vacancy…',
   'prep.analyzing.sub': 'This usually takes a few seconds.',
   'prep.analyzing.step1': 'Reading requirements and stack',
@@ -465,10 +509,10 @@ export const en: Record<I18nKey, string> = {
   'prep.analysis.basedOn': 'Based on this vacancy',
   'prep.analysis.answers': 'Answers:',
   'prep.analysis.changeVacancy': 'Change vacancy',
-  'prep.analysis.heuristicTitle': 'Simplified local analysis',
+  'prep.analysis.heuristicTitle': 'Basic analysis shown',
   'prep.analysis.heuristicBody':
-    "Couldn't get an AI analysis (no key, no connection, or the analysis model is unavailable), so topics were extracted by a local algorithm: accurate as a list but without depth — level, importance and gaps are estimated approximately.",
-  'prep.analysis.connectKey': 'Connect an AI key',
+    'AI analysis did not finish, so a basic local result is shown. Retry the request — SkillCue will apply the planned model and your license automatically.',
+  'prep.analysis.retryAi': 'Retry AI analysis',
   'prep.analysis.beforeStart': 'Before you start',
   'prep.analysis.competencies': 'Competencies vs your resume',
   'prep.analysis.competenciesDesc':
@@ -477,6 +521,13 @@ export const en: Record<I18nKey, string> = {
   'prep.analysis.readinessMap': 'Interview readiness map',
   'prep.analysis.readinessDesc':
     'Check the topics for the mock interview — uncheck the ones you already know well.',
+  'prep.analysis.planEyebrow': 'Practice plan',
+  'prep.analysis.riskEyebrow': 'Vacancy risks',
+  'prep.analysis.clearAll': 'Clear all',
+  'prep.analysis.selectAll': 'Select all',
+  'prep.analysis.noRisks': 'No obvious risks found in the requirements.',
+  'prep.analysis.details': 'Competencies and requirements',
+  'prep.analysis.startPractice': 'Start practice',
   'prep.analysis.keyRequirements': 'Key requirements',
   'prep.analysis.optional': 'optional',
   'prep.analysis.startMock': 'Start mock interview:',
@@ -510,6 +561,10 @@ export const en: Record<I18nKey, string> = {
   'prep.report.gapsEmpty': 'No critical gaps',
   'prep.report.readinessByAnswers': 'Topic readiness based on your answers.',
   'prep.report.recommendations': 'Preparation recommendations',
+  'prep.report.moreActions': 'More report actions',
+  'prep.report.priorityEyebrow': 'Next focus',
+  'prep.report.priorityTitle': 'Topics that will improve readiness fastest',
+  'prep.report.fullMap': 'Full readiness map and details',
 
   // Vacancy review — mock interview (SmokeInterviewView)
   'prep.diff.easy': 'easy',
@@ -524,10 +579,16 @@ export const en: Record<I18nKey, string> = {
   'prep.smoke.question': 'Question',
   'prep.smoke.timerTitle': 'Time on this answer. On a real interview 2–3 minutes is normal.',
   'prep.smoke.followUpChip': 'Follow-up',
+  'prep.smoke.sessionTopics': 'Topics in this practice',
+  'prep.smoke.questionContext': 'Why they ask and what to cover',
+  'prep.smoke.moreActions': 'More actions',
+  'prep.smoke.detailedFeedback': 'Show detailed feedback',
   'prep.smoke.whyAsked': 'Why they ask:',
   'prep.smoke.wantsToHear': 'What the interviewer wants to hear',
   'prep.smoke.answerPlaceholder': 'Answer by voice or edit the text before scoring…',
   'prep.smoke.recording': 'Recording your answer',
+  'prep.smoke.finalizing': 'Transcribing your answer…',
+  'prep.smoke.finalizingHint': 'Wait for the final text; the answer will then be scored.',
   'prep.smoke.voiceAnswer': 'Voice answer',
   'prep.smoke.recordingHint':
     'Speak as in an interview. After you stop, SkillCue scores the cleaned-up text.',
@@ -548,11 +609,11 @@ export const en: Record<I18nKey, string> = {
   'prep.smoke.heuristic.noKey':
     '⚠ Local score — AI is not connected. The percentages are approximate; a full analysis appears after you connect a key in Settings.',
   'prep.smoke.heuristic.timeout':
-    '⚠ Local score — the AI analysis did not respond in time. A faster model in Settings → AI models often helps; try again.',
+    '⚠ Local score — the AI analysis did not respond in time. Try scoring the answer again.',
   'prep.smoke.heuristic.quota':
     "⚠ Local score — the plan's monthly token limit is used up. The analysis returns after the limit refreshes.",
   'prep.smoke.heuristic.generic':
-    '⚠ Local score — could not get an analysis from AI. Check that a working model is selected in Settings → AI models.',
+    '⚠ Local score — the AI analysis did not finish. Retry it; SkillCue will apply the plan model automatically.',
   'prep.smoke.answerEval': 'Answer score',
   'prep.smoke.soundsLike': 'Sounds like',
   'prep.smoke.strongVersion': 'Stronger version of the answer',
@@ -576,6 +637,10 @@ export const en: Record<I18nKey, string> = {
   'prep.smoke.topicProgressTitle': 'Answered / planned questions per topic',
   'prep.smoke.speakStop': 'Stop reading',
   'prep.smoke.speakTitle': 'Read the question aloud — as if the interviewer asked it',
+  'prep.smoke.aiVoice': 'AI voice',
+  'prep.smoke.localVoice': 'System voice',
+  'prep.smoke.speechLoading': 'Preparing a natural voice…',
+  'prep.smoke.speechRetry': 'Retry question audio',
   'prep.smoke.speakStopBtn': '■ Stop',
   'prep.smoke.speakBtn': '🔊 Read aloud',
 
@@ -717,7 +782,7 @@ export const en: Record<I18nKey, string> = {
   'overlay.copy': 'Copy',
   'overlay.copied': 'Copied',
   'overlay.copiedTick': 'Copied ✓',
-  'overlay.forceSent': 'Question sent — preparing the answer',
+  'overlay.forceRequest': 'Latest question · Assist',
   'overlay.forceUnavailable': 'No new phrase to send',
   'overlay.me': 'Me',
   'overlay.interviewer': 'Interviewer',
@@ -737,12 +802,31 @@ export const en: Record<I18nKey, string> = {
   'overlay.recap.close': 'Close summary',
   'overlay.recap.closeTip': 'Close summary (Esc)',
   'overlay.recap.tab.summary': 'Recap',
+  'overlay.recap.tab.analysis': 'Analysis',
   'overlay.recap.tab.transcript': 'Transcript',
   'overlay.recap.tab.usage': 'Requests',
   'overlay.recap.preparing': 'Preparing the recap…',
   'overlay.recap.noLines': 'No lines were recorded.',
   'overlay.recap.noUsage':
     "No manual AI requests this session. Press Hint/Screen during the conversation — they'll appear here.",
+  'overlay.recap.analysisTitle': 'Answer analysis by topic',
+  'overlay.recap.analysisIntro':
+    'SkillCue will find strong and weak answers using only the saved transcript and retain the result for future practice.',
+  'overlay.recap.analyze': 'Analyze session',
+  'overlay.recap.analysisUnavailable':
+    'Analysis is unavailable because this session was not saved. Start a new session and record it again.',
+  'overlay.recap.analysisLoading': 'Analyzing answers',
+  'overlay.recap.analysisLoadingEvidence': 'Collecting transcript evidence',
+  'overlay.recap.analysisLoadingTopics': 'Scoring topics',
+  'overlay.recap.analysisLoadingSave': 'Updating the knowledge map',
+  'overlay.recap.analysisFailed': 'Could not analyze the session',
+  'overlay.recap.retryAnalysis': 'Retry analysis',
+  'overlay.recap.overallLevel': 'Overall level',
+  'overlay.recap.strengths': 'Strengths',
+  'overlay.recap.weaknesses': 'What to improve',
+  'overlay.recap.learningAction': 'Next step',
+  'overlay.recap.topicScores': 'Topic scores',
+  'overlay.recap.confidence': 'Confidence:',
   'overlay.viewedScreen': 'Looked at the screen',
   'overlay.resume': 'Resume session',
   'overlay.regenSummary': 'Regenerate the recap',
@@ -833,12 +917,16 @@ export const en: Record<I18nKey, string> = {
 
   // Settings — General
   'settings.version': 'SkillCue version',
-  'settings.version.desc': 'Updates download in the background and install on restart',
+  'settings.version.desc': 'Updates download in the background and install automatically',
   'settings.update.checking': 'Checking…',
   'settings.update.check': 'Check for updates',
   'settings.update.unavailable': 'Update checks are available in the installed app.',
   'settings.update.availablePre': 'Version',
   'settings.update.availablePost': 'is available — downloading in the background.',
+  'settings.update.downloading': 'Downloading',
+  'settings.update.readyPre': 'Version',
+  'settings.update.readyPost': 'is ready to install.',
+  'settings.update.install': 'Install and restart',
   'settings.update.latest': 'You have the latest version.',
   'settings.update.failed': 'Update check failed:',
   'settings.theme.title': 'Theme',
