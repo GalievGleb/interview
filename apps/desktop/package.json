@@ -96,7 +96,7 @@
     "publish": {
       "provider": "github",
       "owner": "GalievGleb",
-      "repo": "ScillCue",
+      "repo": "SkillCue",
       "releaseType": "release"
     },
     "protocols": [

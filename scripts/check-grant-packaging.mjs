@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const landingRoot = path.join(projectRoot, 'landing');
 const grantRoot = path.join(projectRoot, 'docs', 'grants');
+const desktopPackagePath = path.join(projectRoot, 'apps', 'desktop', 'package.json');
 
 const forbidden = [
   { label: 'обещание скрытности от записи или демонстрации экрана', pattern: /скрыт\w* от (?:записи|демонстрации) экрана/giu },
@@ -53,6 +54,11 @@ function resolveLandingTarget(sourceFile, href) {
 }
 
 const failures = [];
+const desktopPackage = JSON.parse(fs.readFileSync(desktopPackagePath, 'utf8'));
+if (desktopPackage.build?.publish?.repo !== 'SkillCue') {
+  failures.push('apps/desktop/package.json: release repository must be named SkillCue');
+}
+
 const publicFiles = [path.join(projectRoot, 'README.md'), ...listTextFiles(landingRoot), ...listTextFiles(grantRoot)]
   .filter((file) => fs.existsSync(file));
 
