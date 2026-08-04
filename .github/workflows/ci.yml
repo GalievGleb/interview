@@ -49,6 +49,8 @@ jobs:
           cache: pnpm
       - name: Install deps
         run: pnpm install --frozen-lockfile
+      - name: Grant packaging checks
+        run: node scripts/check-grant-packaging.mjs
       - name: Build shared package
         run: pnpm --filter @interview/shared build
       # tsx is fetched ephemerally (no lockfile change) to run the standalone
