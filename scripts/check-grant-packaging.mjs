@@ -12,6 +12,8 @@ const forbidden = [
   { label: 'позиционирование как незаметный читинг', pattern: /незаметн\w*[^\n]{0,40}чит/giu },
   { label: 'англоязычное обещание читинга', pattern: /cheat on/giu },
   { label: 'ложная штаб-квартира во Вьетнаме', pattern: /штаб-квартир\w* во вьетнаме/giu },
+  { label: 'устаревшее упоминание Whisper', pattern: /\bWhisper\b/giu },
+  { label: 'ложное обещание локальной обработки аудио', pattern: /(?:(?:полностью|обрабатывается|распозна[её]тся) локальн[^\n<]{0,80}(?:аудио|реч)|raw audio[^\n]{0,80}stay[^\n]{0,30}device|on-device speech recognition)/giu },
 ];
 
 const requiredLandingPhrases = [
@@ -20,6 +22,7 @@ const requiredLandingPhrases = [
   { label: 'локальная обработка', pattern: /локальн/iu },
   { label: 'ответственное использование', pattern: /ответственн/iu },
   { label: 'стадия MVP', pattern: /\bMVP\b/iu },
+  { label: 'облачное распознавание OpenAI', pattern: /OpenAI/iu },
 ];
 
 function listTextFiles(root) {
@@ -27,6 +30,7 @@ function listTextFiles(root) {
   return fs.readdirSync(root, { withFileTypes: true }).flatMap((entry) => {
     const absolute = path.join(root, entry.name);
     if (entry.isDirectory()) return listTextFiles(absolute);
+    if (/^index\.(?:legacy-dark|prototype-full)\.html$/iu.test(entry.name)) return [];
     return /\.(?:html|md)$/iu.test(entry.name) ? [absolute] : [];
   });
 }
@@ -66,6 +70,10 @@ for (const requirement of requiredLandingPhrases) {
   if (!requirement.pattern.test(landingContent)) {
     failures.push(`landing/index.html: отсутствует обязательный смысловой блок «${requirement.label}»`);
   }
+}
+
+if (/id=["']live-materials-title["']/iu.test(landingContent)) {
+  failures.push('landing/index.html: оверлей вынесен в отдельный промо-блок вместо второстепенной функции');
 }
 
 for (const file of listTextFiles(landingRoot).filter((candidate) => candidate.endsWith('.html'))) {

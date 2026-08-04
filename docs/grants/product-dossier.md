@@ -36,21 +36,21 @@ The initial segment is Russian-speaking junior and middle-level technology candi
 - The complete workflow starts from a real vacancy instead of a generic prompt.
 - Readiness is organized by skill and topic rather than as an unstructured chat history.
 - Spoken practice and answer feedback are integrated into the desktop product.
-- Speech recognition can run locally, keeping raw audio on the user's device.
+- Speech recognition uses OpenAI transcription models through a direct or managed gateway path.
 - The first market is Russian-speaking candidates and Russian interview conventions.
 
 ## Product architecture
 
 - **Electron desktop client:** preparation workspace and optional compact notes overlay.
 - **Local FastAPI engine:** session orchestration, documents, local data, and speech integration.
-- **On-device speech recognition:** processes raw audio locally in supported configurations.
-- **Managed text inference path:** sends the minimum required text to a configured language-model provider for vacancy analysis and answer feedback.
+- **Cloud speech recognition:** sends completed speech fragments to OpenAI directly or through the SkillCue gateway for transcription.
+- **Managed text inference path:** sends the text required for vacancy analysis and answer feedback to a configured language-model provider.
 - **Licensing and billing:** controls paid access without publishing private implementation details.
 - **Release channel:** distributes Windows installers and update metadata.
 
 ## Privacy model
 
-Raw audio remains on the user's device when local speech recognition is selected. Resumes, vacancies, and preparation history are stored locally by default. Only the minimum text required for the requested AI analysis is sent to the configured model provider. The public privacy notice explains these boundaries and the use of website analytics and payment processors.
+Completed speech fragments are sent to OpenAI directly or through the SkillCue gateway for transcription. Resumes, vacancies, and preparation history are stored locally by default. The public privacy notice explains these boundaries and the use of website analytics and payment processors.
 
 ## Responsible AI
 
@@ -118,4 +118,3 @@ Credits will not be presented as current spend. They fund validation and product
 - Product website: <https://skill-cue.ru/>
 - Public Windows releases: <https://github.com/GalievGleb/ScillCue/releases/latest>
 - Support: <https://t.me/SkillCue_support_bot>
-

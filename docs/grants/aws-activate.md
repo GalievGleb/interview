@@ -8,7 +8,7 @@ AWS Activate Founders for a self-funded, pre-seed software product. SkillCue is 
 
 ## Short company description
 
-SkillCue is a working pre-launch Windows application that turns a specific vacancy into a personalized interview preparation plan, skill-gap map, and spoken mock interview for Russian-speaking job seekers. Speech recognition can run locally for privacy, while a minimal text inference path provides vacancy analysis and answer feedback.
+SkillCue is a working pre-launch Windows application that turns a specific vacancy into a personalized interview preparation plan, skill-gap map, and spoken mock interview for Russian-speaking job seekers. OpenAI transcription models provide speech recognition, while a managed text inference path provides vacancy analysis and answer feedback.
 
 ## Problem and solution
 
@@ -26,7 +26,7 @@ The application is a working pre-launch MVP with no external users or revenue. T
 - Amazon S3 for non-sensitive release metadata and evaluation assets.
 - Amazon CloudWatch for availability, latency, error, usage, and budget monitoring.
 
-Raw interview audio will not be uploaded as part of the planned architecture; supported speech-recognition modes process it on the user's device.
+Completed speech fragments are uploaded to OpenAI directly or through the SkillCue gateway for transcription. Speech recognition in the current release is cloud-based.
 
 ## Twelve-month success metrics
 
@@ -47,4 +47,3 @@ SkillCue helps candidates prepare and explain their real experience. It instruct
 ## Why AWS
 
 AWS provides a path from model experimentation in Bedrock to a rate-limited production gateway, monitoring, storage, and cost controls within one platform. This supports SkillCue's immediate need: validate quality and unit cost before scaling.
-

@@ -184,7 +184,7 @@ hero → пример разбора → как работает → подго�
 <section id="roadmap">
   <p class="eyebrow">Работающий MVP</p>
   <h2>Продукт готов к первым внешним тестировщикам.</h2>
-  <p>Сейчас мы проверяем качество разбора вакансий, пробных интервью и локального распознавания речи. Ближайшая цель — первые 10 активных тестировщиков и измеримая обратная связь.</p>
+  <p>Сейчас мы проверяем качество разбора вакансий, пробных интервью и облачного распознавания речи. Ближайшая цель — первые 10 активных тестировщиков и измеримая обратная связь.</p>
 </section>
 <section id="founder">
   <p class="eyebrow">Независимый продукт</p>
@@ -379,14 +379,16 @@ git clone https://github.com/GalievGleb/ScillCue.git C:\dev\skillcue-showcase
 flowchart LR
     U["Candidate"] --> D["Electron desktop app"]
     D --> L["Local FastAPI engine"]
-    L --> S["On-device speech recognition"]
-    L --> T["Minimal text request"]
+    L --> A["Completed speech fragment"]
+    A --> S["OpenAI transcription"]
+    S --> L
+    L --> T["Analysis text request"]
     T --> M["Cloud language model"]
     M --> L
     L --> D
 ```
 
-Под схемой явно написать: raw audio stays on the device in local speech-recognition modes; only the minimum required text is sent to the configured language-model provider.
+Под схемой явно написать: completed speech fragments are sent to OpenAI directly or through the SkillCue gateway for transcription; vacancies and preparation history are stored locally by default.
 
 - [ ] **Шаг 4: добавить безопасность, правила и roadmap**
 

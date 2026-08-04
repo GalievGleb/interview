@@ -8,7 +8,7 @@ Google for Startups Cloud Program, Start tier. SkillCue is early-stage, self-fun
 
 ## Short startup description
 
-SkillCue is a working pre-launch Windows application that converts a real job vacancy into a personalized preparation plan, skill-gap map, and spoken mock interview for Russian-speaking candidates. It combines local speech processing with minimal cloud text inference for analysis and feedback.
+SkillCue is a working pre-launch Windows application that converts a real job vacancy into a personalized preparation plan, skill-gap map, and spoken mock interview for Russian-speaking candidates. It combines OpenAI speech transcription with cloud text inference for analysis and feedback.
 
 ## User problem
 
@@ -30,7 +30,7 @@ The Windows MVP is working and ready for external testing. SkillCue currently ha
 - Cloud Logging and Cloud Monitoring for latency, errors, usage, and budget alerts.
 - BigQuery only after opt-in analytics volume justifies it; it is not required for the first 10 testers.
 
-Raw audio remains on the user's device in supported local speech-recognition modes. Only the minimum text needed for the requested analysis is sent to the model endpoint.
+Completed speech fragments are sent to OpenAI directly or through the SkillCue gateway for transcription. Vacancy and answer text is sent to the selected model endpoint only for the requested analysis.
 
 ## Validation plan
 
@@ -49,4 +49,3 @@ The product is positioned as an interview-preparation tool. It helps candidates 
 ## Why Google Cloud
 
 Vertex AI and Cloud Run provide a compact path for model evaluation and controlled deployment. The Start tier matches SkillCue's current unfunded pre-launch stage and allows the founder to validate product quality before making a larger infrastructure commitment.
-

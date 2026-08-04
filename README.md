@@ -1,6 +1,6 @@
 # Interview Copilot
 
-Desktop AI-ассистент для интервью: **локальный** STT (on-device Whisper) + подсказки по резюме.
+Desktop AI-приложение для подготовки к интервью: облачное распознавание речи OpenAI + разбор вакансии, пробные собеседования и обратная связь по ответам.
 
 > 📈 **Go-to-Market:** план продаж, SEO и запуска — в [docs/gtm/README.md](docs/gtm/README.md) (стратегия, pre-launch чеклист, воронка, каналы, скрипты продаж, roadmap на 90 дней).
 
@@ -31,7 +31,7 @@ source .venv/bin/activate
 # .venv\Scripts\activate
 
 pip install -r requirements.txt
-# Локальный Whisper (опционально, ~для live STT): pip install -r requirements-whisper.txt
+# Для распознавания речи используется настроенный облачный STT SkillCue/OpenAI.
 cp .env.example .env   # ключи можно также задать в UI приложения
 
 uvicorn app.main:app --reload --port 8000 --reload-exclude "data" --reload-exclude "*.sqlite"
