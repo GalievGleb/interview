@@ -27,6 +27,7 @@ export default function HhApplicationsPage() {
   const [authMessage, setAuthMessage] = useState('');
   const [busy, setBusy] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [resumes, setResumes] = useState<Array<{ id: string; title: string; url: string }>>([]);
 
   useEffect(() => {
     if (!assistant) return;
@@ -56,6 +57,11 @@ export default function HhApplicationsPage() {
   };
   const activeQueue = useMemo(() => (state?.queue ?? []).filter((item) => item.status !== 'skipped').slice(0, 8), [state?.queue]);
   const hhConnected = Boolean(state?.browserOpen && !state.loginRequired);
+
+  useEffect(() => {
+    if (!assistant || !hhConnected) return;
+    void assistant.getResumes().then(setResumes).catch(() => setResumes([]));
+  }, [assistant, hhConnected]);
 
   const requestLoginCode = async () => {
     if (!assistant) return;
@@ -120,6 +126,12 @@ export default function HhApplicationsPage() {
         {authMessage && <p className="mt-2 text-xs text-ink-muted">{authMessage}</p>}
       </section>
 
+      {!hhConnected ? (
+        <div className="rounded-xl border border-dashed border-surface-border px-6 py-10 text-center text-sm text-ink-faint">
+          Сначала подключите HH — после входа появятся ваши резюме и настройки автооткликов.
+        </div>
+      ) : <>
+
       <section className="panel-card overflow-hidden">
         <div className="panel-header"><div><h2 className="panel-title">Что искать</h2><p className="mt-0.5 text-xs text-ink-faint">Основные фильтры</p></div></div>
         <div className="grid gap-4 p-5 md:grid-cols-2">
@@ -131,7 +143,7 @@ export default function HhApplicationsPage() {
           <button type="button" className="flex items-center gap-2 text-sm text-ink-muted md:col-span-2" onClick={() => setShowAdvanced(!showAdvanced)}><ChevronDown className={showAdvanced ? 'rotate-180' : ''} size={16} />Дополнительные фильтры</button>
           {showAdvanced && <div className="grid gap-4 md:col-span-2 md:grid-cols-2">
             <label className="block"><span className="label">Исключить слова</span><input className="field" value={excludedKeywords} onChange={(e) => setExcludedKeywords(e.target.value)} placeholder="стажёр, продажи" /></label>
-            <label className="block"><span className="label">Выбрать резюме</span><input className="field" value={draft.resumeTitleContains} onChange={(e) => setDraft({ ...draft, resumeTitleContains: e.target.value })} placeholder="Часть названия резюме" /></label>
+            <label className="block"><span className="label">Резюме для откликов</span><select className="field" value={draft.resumeTitleContains} onChange={(e) => setDraft({ ...draft, resumeTitleContains: e.target.value })}><option value="">Выберите резюме</option>{resumes.map((resume) => <option key={resume.id} value={resume.title}>{resume.title}</option>)}</select></label>
           </div>}
         </div>
       </section>
@@ -151,6 +163,7 @@ export default function HhApplicationsPage() {
           {activeQueue.length === 0 ? <div className="p-8 text-center text-sm text-ink-faint"><Send className="mx-auto mb-2" size={22} />Здесь появятся найденные вакансии и отправленные отклики</div> : activeQueue.map((item) => <div key={item.id} className="flex items-center gap-3 px-5 py-3"><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium text-ink">{item.title}</p><p className="truncate text-xs text-ink-faint">{item.company}{item.salary ? ` · ${item.salary}` : ''}</p></div><span className={`rounded-full px-2.5 py-1 text-xs ${item.status === 'sent' ? 'bg-emerald-500/10 text-emerald-300' : 'bg-surface-elevated text-ink-muted'}`}>{item.status === 'sent' ? 'Отправлено' : item.status === 'prepared' ? 'Письмо готово' : 'В очереди'}</span></div>)}
         </div>
       </section>
+      </>}
     </div>
   );
 }

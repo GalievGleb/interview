@@ -466,6 +466,7 @@ function registerIpc(): void {
   ipcMain.handle('hh-assistant:confirm-login-code', (_e, code: string) =>
     hhBrowserAssistant?.confirmLoginCode(code),
   );
+  ipcMain.handle('hh-assistant:get-resumes', () => hhBrowserAssistant?.getApplicantResumes());
 
   // ─── HH OAuth ───────────────────────────────────────────────────────
   ipcMain.handle('hh-oauth:get-state', () => hhOAuthService?.getState());

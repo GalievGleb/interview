@@ -377,7 +377,7 @@ export class HhBrowserAssistant {
       const page = await this.ensureBrowser();
 
       // Переходим на страницу входа
-      await page.goto('https://hh.ru/account/login', {
+      await page.goto('https://hh.ru/account/login?backurl=%2Fapplicant%2Fresumes&role=applicant', {
         waitUntil: 'domcontentloaded',
         timeout: 30_000,
       });
@@ -504,7 +504,7 @@ export class HhBrowserAssistant {
         return { ok: false, message: 'Введите корректную почту.' };
       }
       const page = await this.ensureBrowser();
-      await page.goto('https://hh.ru/account/login', {
+      await page.goto('https://hh.ru/account/login?backurl=%2Fapplicant%2Fresumes&role=applicant', {
         waitUntil: 'domcontentloaded',
         timeout: 30_000,
       });
@@ -587,9 +587,19 @@ export class HhBrowserAssistant {
       } else {
         await codeInput.fill(normalized);
       }
-      const submit = page.locator('button[data-qa="account-login-submit"], button[type="submit"], button:has-text("Войти"), button:has-text("Подтвердить")').first();
-      if (await submit.isVisible().catch(() => false)) await submit.click();
-      else await codeInput.press('Enter');
+      // Новая форма HH отправляет код сама после последней цифры. Если сразу
+      // кликнуть по общему button[type=submit], после редиректа можно нажать уже
+      // чужую кнопку и попасть на /404.
+      await page.waitForTimeout(1_200);
+      if (page.url().includes('/account/login')) {
+        const submit = page.locator('button[data-qa="account-login-submit"], button[type="submit"]:has-text("Войти"), button:has-text("Подтвердить")').first();
+        if (await submit.isVisible().catch(() => false)) await submit.click();
+        else await codeInput.press('Enter');
+      }
+      await page.waitForTimeout(1_500);
+      if (page.url().includes('/404')) {
+        await page.goto('https://hh.ru/applicant/resumes', { waitUntil: 'domcontentloaded' });
+      }
       const applicantMenu = page.locator(APPLICANT_MENU_SELECTOR).first();
       const authenticated = await applicantMenu
         .waitFor({ state: 'visible', timeout: 12_000 })
@@ -609,6 +619,27 @@ export class HhBrowserAssistant {
     } catch (error) {
       return { ok: false, message: error instanceof Error ? error.message : 'Не удалось подтвердить код.' };
     }
+  }
+
+  async getApplicantResumes(): Promise<Array<{ id: string; title: string; url: string }>> {
+    const page = await this.ensureBrowser();
+    await page.goto('https://hh.ru/applicant/resumes', { waitUntil: 'domcontentloaded', timeout: 30_000 });
+    if (await this.isLoginRequired(page)) {
+      this.update({ browserOpen: true, loginRequired: true, message: 'Подключите HH, чтобы настроить автоотклики.' });
+      return [];
+    }
+    this.update({ browserOpen: true, loginRequired: false, phase: 'ready' });
+    const links = page.locator('a[href*="/resume/"]');
+    const resumes = new Map<string, { id: string; title: string; url: string }>();
+    for (let index = 0; index < Math.min(await links.count(), 80); index += 1) {
+      const link = links.nth(index);
+      const href = await link.getAttribute('href').catch(() => null);
+      const match = href?.match(/\/resume\/([a-zA-Z0-9-]+)/);
+      if (!href || !match || resumes.has(match[1])) continue;
+      const title = (await link.innerText().catch(() => '')).trim();
+      if (title) resumes.set(match[1], { id: match[1], title, url: new URL(href, 'https://hh.ru').toString() });
+    }
+    return [...resumes.values()];
   }
 
   private async isLoginRequired(page: Page): Promise<boolean> {

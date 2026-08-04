@@ -9,6 +9,10 @@ const assistantSource = fs.readFileSync(
 );
 const mainSource = fs.readFileSync(path.resolve(__dirname, '../../electron/main.ts'), 'utf8');
 const preloadSource = fs.readFileSync(path.resolve(__dirname, '../../electron/preload.ts'), 'utf8');
+const electronTypesSource = fs.readFileSync(
+  path.resolve(__dirname, '../types/electron.d.ts'),
+  'utf8',
+);
 
 describe('HH applications redesign', () => {
   it('uses the passwordless email and one-time-code flow end to end', () => {
@@ -47,6 +51,15 @@ describe('HH applications redesign', () => {
     expect(successAt).toBeGreaterThan(waitAt);
   });
 
+  it('opens the passwordless flow with a post-login resumes destination', () => {
+    const requestAt = assistantSource.indexOf('async requestLoginCode');
+    const confirmAt = assistantSource.indexOf('async confirmLoginCode', requestAt);
+    const requestSource = assistantSource.slice(requestAt, confirmAt);
+    expect(requestSource).toContain(
+      'https://hh.ru/account/login?backurl=%2Fapplicant%2Fresumes&role=applicant',
+    );
+  });
+
   it('confirms login only after the authenticated applicant menu appears', () => {
     const confirmAt = assistantSource.indexOf('async confirmLoginCode');
     const loginRequiredAt = assistantSource.indexOf('private async isLoginRequired', confirmAt);
@@ -57,6 +70,39 @@ describe('HH applications redesign', () => {
     expect(applicantMenuAt).toBeGreaterThan(-1);
     expect(waitAt).toBeGreaterThan(applicantMenuAt);
     expect(successAt).toBeGreaterThan(waitAt);
+  });
+
+  it('does not submit the one-time code twice and recovers HHs post-login 404', () => {
+    const confirmAt = assistantSource.indexOf('async confirmLoginCode');
+    const resumesAt = assistantSource.indexOf('async getApplicantResumes', confirmAt);
+    const confirmSource = assistantSource.slice(confirmAt, resumesAt);
+    expect(confirmSource).toContain("if (page.url().includes('/account/login'))");
+    expect(confirmSource).toContain('button[type="submit"]:has-text("Войти")');
+    expect(confirmSource).not.toContain(
+      'button[data-qa="account-login-submit"], button[type="submit"],',
+    );
+    expect(confirmSource).toContain("if (page.url().includes('/404'))");
+    expect(confirmSource).toContain("page.goto('https://hh.ru/applicant/resumes'");
+  });
+
+  it('loads real resumes through the authenticated browser IPC boundary', () => {
+    expect(assistantSource).toContain('async getApplicantResumes()');
+    expect(mainSource).toContain("ipcMain.handle('hh-assistant:get-resumes'");
+    expect(preloadSource).toContain("ipcRenderer.invoke('hh-assistant:get-resumes')");
+    expect(electronTypesSource).toContain('getResumes: () => Promise<Array<');
+    expect(pageSource).toContain('assistant.getResumes().then(setResumes)');
+    expect(pageSource).toContain('resumes.map((resume) => <option');
+    expect(pageSource).not.toContain('placeholder="Часть названия резюме"');
+  });
+
+  it('keeps search and automation settings hidden until HH is authenticated', () => {
+    const gateAt = pageSource.indexOf('{!hhConnected ? (');
+    const settingsAt = pageSource.indexOf('Что искать');
+    expect(gateAt).toBeGreaterThan(-1);
+    expect(settingsAt).toBeGreaterThan(gateAt);
+    expect(pageSource).toContain(
+      'Сначала подключите HH — после входа появятся ваши резюме и настройки автооткликов.',
+    );
   });
 
   it('runs the queue without a daily cap or an artificial pause between vacancies', () => {

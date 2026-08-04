@@ -39,6 +39,7 @@ const api = {
       ipcRenderer.invoke('hh-assistant:request-login-code', email),
     confirmLoginCode: (code: string) =>
       ipcRenderer.invoke('hh-assistant:confirm-login-code', code),
+    getResumes: () => ipcRenderer.invoke('hh-assistant:get-resumes'),
     onState: (cb: (state: unknown) => void) => {
       const handler = (_e: unknown, state: unknown) => cb(state);
       ipcRenderer.on('hh-assistant:state', handler);
