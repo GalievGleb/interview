@@ -14,11 +14,26 @@ describe('personal progress page', () => {
     expect(sidebar).toContain("label: 'nav.progress'");
   });
 
-  it('shows separate technical and HR evidence tracks', () => {
+  it('shows separate technical and HR evidence without treating missing topics as gaps', () => {
     expect(page).toContain('profile.technical');
     expect(page).toContain('profile.hr');
-    expect(page).toContain("t('progress.technical')");
-    expect(page).toContain("t('progress.hr')");
+    expect(page).toContain('ТЕХНИЧЕСКАЯ КАРТИНА');
+    expect(page).toContain('HR И САМОПРЕЗЕНТАЦИЯ');
+    expect(page).toContain('Пока не проверялось');
+  });
+
+  it('asks for consent and scopes assessment to the selected specialization', () => {
+    expect(page).toContain('ДОБРОВОЛЬНАЯ НАСТРОЙКА');
+    expect(page).toContain('Смежные направления');
+    expect(page).toContain('учитываем только выбранные вами');
+    expect(page).toContain('skillcue.growth-profile.v1');
+    expect(page).toContain("'qa-python'");
+  });
+
+  it('reveals an exact technical score only with enough reliable sessions', () => {
+    expect(page).toContain('profile.technical.evidenceCount >= 3');
+    expect(page).toContain('profile.technical.confidence >= 0.55');
+    expect(page).toContain("reliableTechnicalScore ? `${profile?.technical.score}/100` : 'Предварительно'");
   });
 
   it('loads the aggregate built from persisted per-session AI analyses', () => {
