@@ -6,7 +6,7 @@
     2. Bump the version in apps/desktop/package.json (patch by default).
     3. Commit, tag vX.Y.Z, push main + tag.
     4. The tag triggers GitHub Actions (release.yml): build backend + installer
-       and publish to GalievGleb/ScillCue (the Download button gets the new build).
+       and publish to GalievGleb/SkillCue (the Download button gets the new build).
 
   Usage:
     powershell -ExecutionPolicy Bypass -File scripts\release.ps1            # patch: 0.1.5 -> 0.1.6
@@ -48,8 +48,8 @@ git add apps/desktop/package.json
 git commit -m "chore(release): $ver" | Out-Null
 git tag $ver
 git push origin main --tags
-Write-Host "Pushed. CI is building the installer and publishing to ScillCue." -ForegroundColor Green
-Write-Host "Releases: https://github.com/GalievGleb/ScillCue/releases"
+Write-Host "Pushed. CI is building the installer and publishing to SkillCue." -ForegroundColor Green
+Write-Host "Releases: https://github.com/GalievGleb/SkillCue/releases"
 
 # 4. Optionally wait for CI when gh is installed
 if ($Watch) {

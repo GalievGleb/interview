@@ -33,7 +33,7 @@ DEFAULT_CONFIG = {
     "bot_token": "ВСТАВЬ_ТОКЕН_ОТ_BOTFATHER",
     "admin_chat_id": 0,
     "channel_url": "",
-    "download_url": "https://github.com/GalievGleb/ScillCue/releases/latest/download/SkillCue-Setup.exe",
+    "download_url": "https://github.com/GalievGleb/SkillCue/releases/latest/download/SkillCue-Setup.exe",
     # Платёжная ссылка (Т-Банк «перевод по ссылке» / ЮKassa / Lava). Если задана —
     # показывается первой, СБП — как запасной способ.
     "pay_url": "",

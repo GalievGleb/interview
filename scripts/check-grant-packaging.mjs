@@ -7,8 +7,10 @@ const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 const landingRoot = path.join(projectRoot, 'landing');
 const grantRoot = path.join(projectRoot, 'docs', 'grants');
 const desktopPackagePath = path.join(projectRoot, 'apps', 'desktop', 'package.json');
+const leadBotPath = path.join(projectRoot, 'tools', 'leadbot', 'leadbot.py');
 
 const forbidden = [
+  { label: 'устаревшее написание ScillCue', pattern: /\bScillCue\b/giu },
   { label: 'обещание скрытности от записи или демонстрации экрана', pattern: /скрыт\w* от (?:записи|демонстрации) экрана/giu },
   { label: 'позиционирование как незаметный читинг', pattern: /незаметн\w*[^\n]{0,40}чит/giu },
   { label: 'англоязычное обещание читинга', pattern: /cheat on/giu },
@@ -57,6 +59,10 @@ const failures = [];
 const desktopPackage = JSON.parse(fs.readFileSync(desktopPackagePath, 'utf8'));
 if (desktopPackage.build?.publish?.repo !== 'SkillCue') {
   failures.push('apps/desktop/package.json: release repository must be named SkillCue');
+}
+const leadBotContent = fs.readFileSync(leadBotPath, 'utf8');
+if (!/GalievGleb\/SkillCue\/releases\/latest\/download\/SkillCue-Setup\.exe/u.test(leadBotContent)) {
+  failures.push('tools/leadbot/leadbot.py: download URL must target GalievGleb/SkillCue');
 }
 
 const publicFiles = [path.join(projectRoot, 'README.md'), ...listTextFiles(landingRoot), ...listTextFiles(grantRoot)]

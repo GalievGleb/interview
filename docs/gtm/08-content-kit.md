@@ -1,7 +1,7 @@
 # 08 — Контент-кит: готовые тексты для запуска
 
 Ссылки в постах: сайт — `https://skill-cue.ru`, прямое скачивание —
-`https://github.com/GalievGleb/ScillCue/releases/latest/download/SkillCue-Setup.exe`,
+`https://github.com/GalievGleb/SkillCue/releases/latest/download/SkillCue-Setup.exe`,
 бот с меткой источника — `t.me/SkillCue_support_bot?start=<метка>`.
 
 ## 1. Пост-закреп для своего Telegram-канала (готов, вставляй как есть)

@@ -4,21 +4,21 @@
 автообновление. Правила номеров версий — в `docs/VERSIONING.md`.
 
 Архитектура: код в приватном `GalievGleb/interview`, установщики/релизы — в
-публичном `GalievGleb/ScillCue` (`apps/desktop/package.json → build.publish`).
+публичном `GalievGleb/SkillCue` (`apps/desktop/package.json → build.publish`).
 
 ## Разовая настройка (один раз)
 
-1. **PAT для публикации в ScillCue.** Встроенный `GITHUB_TOKEN` в CI имеет права
-   только на `interview` — он НЕ сможет создать релиз в `ScillCue`. Создай
+1. **PAT для публикации в SkillCue.** Встроенный `GITHUB_TOKEN` в CI имеет права
+   только на `interview` — он НЕ сможет создать релиз в `SkillCue`. Создай
    персональный токен:
    - GitHub → Settings → Developer settings → Personal access tokens →
-     Fine-grained token, доступ к репозиторию `GalievGleb/ScillCue`, право
+     Fine-grained token, доступ к репозиторию `GalievGleb/SkillCue`, право
      **Contents: Read and write**.
    - В репозитории `interview`: Settings → Secrets and variables → Actions →
      New secret, имя **`SCILLCUE_RELEASE_TOKEN`**, значение — этот PAT.
    Без него job публикации упадёт с 403/404.
 
-2. **Репозиторий ScillCue** должен существовать (уже есть) и быть публичным,
+2. **Репозиторий SkillCue** должен существовать (уже есть) и быть публичным,
    чтобы покупатели могли скачивать без авторизации.
 
 3. **(после домена) Адрес гейтвея.** По умолчанию в сборку зашит
@@ -42,20 +42,20 @@ git push origin main --tags
 Пуш тега `v*` запускает `.github/workflows/release.yml`:
 1. PyInstaller собирает бэкенд + смоук `/health`.
 2. `electron-builder --publish always` собирает установщик и **публикует релиз в
-   `ScillCue`** (артефакты + `latest.yml` для автообновления).
+   `SkillCue`** (артефакты + `latest.yml` для автообновления).
 
 ## Проверка после релиза
 
-- Релиз появился на `https://github.com/GalievGleb/ScillCue/releases` с `.exe` и
+- Релиз появился на `https://github.com/GalievGleb/SkillCue/releases` с `.exe` и
   `latest.yml`.
-- Кнопка «Скачать» в боте и на лендинге (`…/ScillCue/releases/latest`) отдаёт файл.
+- Кнопка «Скачать» в боте и на лендинге (`…/SkillCue/releases/latest`) отдаёт файл.
 - У установленной прошлой версии через несколько минут всплывает предложение
-  обновиться (electron-updater читает `latest.yml` из ScillCue).
+  обновиться (electron-updater читает `latest.yml` из SkillCue).
 
 ## Если публикация упала
 
 - `403/404 при создании релиза` → нет/протух `SCILLCUE_RELEASE_TOKEN` или у PAT
-  нет прав Contents:write на ScillCue.
+  нет прав Contents:write на SkillCue.
 - `tag уже существует` → релиз с этим тегом уже был; подними версию.
 - Сборка бэкенда упала на hidden-imports → см. `apps/api-py/PACKAGING.md`.
 - `Cannot compute electron version` → должно быть `build.electronVersion` в
@@ -71,7 +71,7 @@ powershell -ExecutionPolicy Bypass -File scripts\release.ps1        # bump patch
 ```
 
 Скрипт поднимает версию в `apps/desktop/package.json`, коммитит, ставит тег
-`vX.Y.Z`, пушит — CI сам собирает и публикует установщик в `ScillCue`.
+`vX.Y.Z`, пушит — CI сам собирает и публикует установщик в `SkillCue`.
 Мониторинг (если есть gh): `gh run watch <id>` — токен берётся из git credential:
 `GH_TOKEN=$(printf 'protocol=https\nhost=github.com\n\n' | git credential fill | sed -n 's/^password=//p')`.
 Установщик называется стабильно `SkillCue-Setup.exe` (`nsis.artifactName`), релиз
@@ -88,7 +88,7 @@ powershell -ExecutionPolicy Bypass -File scripts\release.ps1        # bump patch
 
 ```nginx
 location = /downloads/SkillCue-Setup.exe {
-    return 302 https://github.com/GalievGleb/ScillCue/releases/latest/download/SkillCue-Setup.exe;
+    return 302 https://github.com/GalievGleb/SkillCue/releases/latest/download/SkillCue-Setup.exe;
 }
 ```
 

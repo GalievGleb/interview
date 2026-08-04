@@ -66,13 +66,13 @@ Release** с установщиком и `latest.yml`. Десктоп со вс�
 
 - `apps/desktop/package.json` version **==** git-тег (без `v` в package.json, с `v` в теге).
 - **Раздельные репозитории (осознанно):** код — приватный `GalievGleb/interview`,
-  релизы/установщики — публичный `GalievGleb/ScillCue`. Поэтому все три места
-  должны указывать на `ScillCue`:
-  - `apps/desktop/package.json → build.publish.repo = "ScillCue"` (сюда
+  релизы/установщики — публичный `GalievGleb/SkillCue`. Поэтому все три места
+  должны указывать на `SkillCue`:
+  - `apps/desktop/package.json → build.publish.repo = "SkillCue"` (сюда
     electron-builder публикует и отсюда electron-updater берёт обновления);
-  - `download_url` лидбота (`tools/leadbot/config.json`) → `…/ScillCue/releases/latest`;
-  - ссылки «Скачать» на лендинге → тот же `…/ScillCue/releases/latest`.
-  - CI (`release.yml`) должен получать `GH_TOKEN` с правом публикации в `ScillCue`.
+  - `download_url` лидбота (`tools/leadbot/config.json`) → `…/SkillCue/releases/latest`;
+  - ссылки «Скачать» на лендинге → тот же `…/SkillCue/releases/latest`.
+  - CI (`release.yml`) должен получать `GH_TOKEN` с правом публикации в `SkillCue`.
 
 ## 6. CHANGELOG.md
 
