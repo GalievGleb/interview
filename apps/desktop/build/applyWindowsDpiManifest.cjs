@@ -13,6 +13,11 @@ function loadExecuteAppBuilder() {
 module.exports = async function applyWindowsDpiManifest(context) {
   if (process.platform !== 'win32' || context.electronPlatformName !== 'win32') return;
 
+  // electron-builder signs/edits the executable after afterPack. Its local signed
+  // executable cache does not include custom manifest hooks in the cache key and
+  // could otherwise restore an older executable over the PMv2 manifest below.
+  process.env.ELECTRON_BUILDER_DISABLE_BUILD_CACHE = 'true';
+
   const executable = path.join(
     context.appOutDir,
     `${context.packager.appInfo.productFilename}.exe`,

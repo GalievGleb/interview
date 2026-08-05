@@ -29,7 +29,20 @@ describe('Windows mixed-DPI packaging', () => {
     expect(manifest).toContain(
       '<dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2,PerMonitor</dpiAwareness>',
     );
+    expect(manifest).toContain(
+      '<disableWindowFiltering xmlns="http://schemas.microsoft.com/SMI/2011/WindowsSettings">true</disableWindowFiltering>',
+    );
+    expect(manifest).toContain(
+      '<requestedExecutionLevel level="asInvoker" uiAccess="false"/>',
+    );
+    expect(manifest).toContain('name="Microsoft.Windows.Common-Controls"');
+    expect(manifest).toContain(
+      '<maxversiontested Id="10.0.18362.0"/>',
+    );
     expect(hook).toContain("'--application-manifest'");
     expect(hook).toContain("process.platform !== 'win32'");
+    expect(hook).toContain(
+      "process.env.ELECTRON_BUILDER_DISABLE_BUILD_CACHE = 'true';",
+    );
   });
 });
