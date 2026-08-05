@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from typing import TypedDict
 
 import httpx
 
@@ -18,12 +19,20 @@ MINI_MODEL = "gpt-4o-mini-transcribe"
 ANSWER_MODEL = "gpt-transcribe"
 
 
+class AnswerRequestData(TypedDict):
+    model: str
+    response_format: str
+    prompt: str
+    keywords: list[str]
+    languages: list[str]
+
+
 def build_answer_request_data(
     *,
     question: str,
     hints: list[str],
     language: str,
-) -> dict[str, object]:
+) -> AnswerRequestData:
     normalized_language = language.lower()
     languages = ["en"] if normalized_language.startswith("en") else ["ru", "en"]
     return {
@@ -221,7 +230,7 @@ class OpenAiAnswerTranscriber:
         self,
         audio: bytes,
         *,
-        request_data: dict[str, object],
+        request_data: AnswerRequestData,
         key: str,
     ) -> str:
         data = {
@@ -243,7 +252,7 @@ class OpenAiAnswerTranscriber:
         self,
         audio: bytes,
         *,
-        request_data: dict[str, object],
+        request_data: AnswerRequestData,
     ) -> str:
         settings = get_settings()
         if not settings.skillcue_gateway_url:

@@ -3857,12 +3857,14 @@ class Form:
         self.cancelButton = Button("Cancel")
 
     def create_mediator(self):
-        self.mediator = Mediator((
-            (self.nameText, self.update_ui),
-            (self.emailText, self.update_ui),
-            (self.okButton, self.clicked),
-            (self.cancelButton, self.clicked),
-        ))
+        self.mediator = Mediator(
+            (
+                (self.nameText, self.update_ui),
+                (self.emailText, self.update_ui),
+                (self.okButton, self.clicked),
+                (self.cancelButton, self.clicked),
+            )
+        )
         self.update_ui()
 
     def update_ui(self, widget=None):

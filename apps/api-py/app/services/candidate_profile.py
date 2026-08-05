@@ -72,11 +72,12 @@ def get_profile_block(db: Session) -> str:
     it's the user's own facts — so it is served with staleness noted in the log.
     """
     cached = _load_cached(db)
-    content = (cached or {}).get("content", "")
+    cached_data = cached or {}
+    content = cached_data.get("content", "")
     if not isinstance(content, str) or not content.strip():
         return PROFILE_PACK_FALLBACK
     resume, legend, vacancy = _source_texts(db)
-    if cached.get("hash") != _source_hash(resume, legend, vacancy):
+    if cached_data.get("hash") != _source_hash(resume, legend, vacancy):
         logger.info("Profile pack is stale (documents changed); serving cached pack anyway")
     return f"{PROFILE_PACK_HEADER}\n{content.strip()}"
 
