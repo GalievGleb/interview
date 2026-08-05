@@ -85,6 +85,67 @@ def test_complete_retries_on_transport_error(monkeypatch):
     assert client.calls == 2
 
 
+def test_direct_openai_gpt5_uses_native_reasoning_and_completion_fields(monkeypatch):
+    captured: dict = {}
+
+    class CapClient:
+        async def post(self, _url, headers=None, json=None, timeout=None):
+            captured["json"] = json
+            return _Resp(200, {"choices": [{"message": {"content": "ok"}}]})
+
+    monkeypatch.setattr(
+        provider_adapter, "_resolve", lambda _p: ("openai", "https://api.openai.test/v1", "k")
+    )
+    monkeypatch.setattr(provider_adapter, "get_client", lambda: CapClient())
+
+    out = asyncio.run(
+        provider_adapter.complete(
+            [{"role": "user", "content": "q"}],
+            provider="openai",
+            model="openai/gpt-5.6-sol",
+            max_tokens=6000,
+            reasoning={"effort": "high", "exclude": True},
+            response_format={"type": "json_object"},
+        )
+    )
+
+    assert out == "ok"
+    assert captured["json"]["model"] == "gpt-5.6-sol"
+    assert captured["json"]["reasoning_effort"] == "high"
+    assert captured["json"]["max_completion_tokens"] == 6000
+    assert "reasoning" not in captured["json"]
+    assert "max_tokens" not in captured["json"]
+    assert captured["json"]["response_format"] == {"type": "json_object"}
+
+
+def test_openrouter_keeps_unified_reasoning_shape(monkeypatch):
+    captured: dict = {}
+
+    class CapClient:
+        async def post(self, _url, headers=None, json=None, timeout=None):
+            captured["json"] = json
+            return _Resp(200, {"choices": [{"message": {"content": "ok"}}]})
+
+    monkeypatch.setattr(
+        provider_adapter, "_resolve", lambda _p: ("openrouter", "https://router.test/v1", "k")
+    )
+    monkeypatch.setattr(provider_adapter, "get_client", lambda: CapClient())
+
+    asyncio.run(
+        provider_adapter.complete(
+            [{"role": "user", "content": "q"}],
+            provider="openrouter",
+            model="openai/gpt-5.6-sol",
+            max_tokens=6000,
+            reasoning={"effort": "high", "exclude": True},
+        )
+    )
+
+    assert captured["json"]["reasoning"] == {"effort": "high", "exclude": True}
+    assert captured["json"]["max_tokens"] == 6000
+    assert "reasoning_effort" not in captured["json"]
+
+
 def test_complete_gives_up_after_max_attempts(monkeypatch):
     client = _Client([_Resp(503, text="busy")] * 5)
     _patch_common(monkeypatch, client)

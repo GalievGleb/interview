@@ -659,7 +659,10 @@ export const en: Record<I18nKey, string> = {
     '⚠ Local score — the AI analysis did not finish. Retry it; SkillCue will apply the plan model automatically.',
   'prep.smoke.answerEval': 'Answer score',
   'prep.smoke.soundsLike': 'Sounds like',
-  'prep.smoke.strongVersion': 'Stronger version of the answer',
+  'prep.smoke.strongVersion': 'Interview-ready answer',
+  'prep.smoke.answerLogic': 'Answer logic:',
+  'prep.smoke.whyAnswerWorks': 'Why this version is stronger',
+  'prep.smoke.deliveryTips': 'How to deliver it aloud',
   'prep.smoke.noFiction': 'No fiction:',
   'prep.smoke.noisePre':
     '🎙 The recording has speech-recognition noise (not a technical error):',

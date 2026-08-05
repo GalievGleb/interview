@@ -10,6 +10,11 @@ AUTO = "auto"
 # заблокирован в GATEWAY_BLOCKED_MODELS (защита от разорения на дорогих моделях),
 # поэтому дефолт должен быть из разрешённых, иначе разбор у покупателей упрётся в 403.
 VACANCY_DEFAULT_MODEL = "openai/gpt-4o"
+# Answer coaching is the quality-critical offline step: the user waits for one
+# deep review after finishing an answer, and the result must synthesize a
+# genuinely stronger, grounded answer. Keep it separate from vacancy analysis
+# so the expensive flagship model is not used for every preparation request.
+FEEDBACK_DEFAULT_MODEL = "openai/gpt-5.6-sol"
 
 MODE_SETTING: dict[str, str] = {
     "general": "default_copilot_model",
@@ -19,6 +24,7 @@ MODE_SETTING: dict[str, str] = {
     # Offline vacancy analysis/evaluation can spend more reasoning than live
     # answers, so vacancy review has its own explicit heavy-model setting.
     "vacancy": "vacancy_review_model",
+    "feedback": "vacancy_review_model",
 }
 
 # Паттерны id — проверяются по substring в lower(id). Без gemini-2.5/3 — thinking тормозит live.
@@ -77,6 +83,14 @@ VACANCY_PATTERNS = [
     "gpt-4.1-mini",
 ]
 
+# Quality-first ordering for per-answer coaching. A stale local model catalog
+# must not pin this route to an older flagship; the request path has its own
+# verified gpt-4o compatibility fallback when a provider rejects GPT-5.6 Sol.
+FEEDBACK_PATTERNS = [
+    "gpt-5.6-sol",
+    "gpt-5.6",
+]
+
 FALLBACK_IDS = [
     "openai/gpt-4o-mini",
     "google/gemini-2.0-flash-001",
@@ -125,6 +139,8 @@ def _pattern_pick(
 def pick_auto_model(mode: str, available: set[str]) -> str:
     """Выбор модели при Auto Select."""
     if not available:
+        if mode == "feedback":
+            return FEEDBACK_DEFAULT_MODEL
         if mode == "vacancy":
             return VACANCY_DEFAULT_MODEL
         return "openai/gpt-4o-mini"
@@ -133,6 +149,11 @@ def pick_auto_model(mode: str, available: set[str]) -> str:
         found = _pattern_pick(LIVE_PATTERNS, available, skip_reasoning=True)
         if found:
             return found
+    elif mode == "feedback":
+        found = _pattern_pick(FEEDBACK_PATTERNS, available)
+        if found:
+            return found
+        return FEEDBACK_DEFAULT_MODEL
     elif mode == "vacancy":
         found = _pattern_pick(VACANCY_PATTERNS, available)
         if found:

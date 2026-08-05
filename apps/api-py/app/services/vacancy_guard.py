@@ -681,6 +681,7 @@ def _source_corpus(
     candidate_answer: str,
     expected_signals: list[str],
     topic: str,
+    question: str = "",
     legend_text: str = "",
 ) -> str:
     return _norm(
@@ -691,6 +692,7 @@ def _source_corpus(
                 vacancy_text or "",
                 candidate_answer or "",
                 topic or "",
+                question or "",
                 " ".join(expected_signals or []),
             ]
         )
@@ -797,6 +799,7 @@ def harden_vacancy_evaluation(
         candidate_answer=candidate_answer,
         expected_signals=expected_signals,
         topic=topic,
+        question=question,
         legend_text=legend_text,
     )
 

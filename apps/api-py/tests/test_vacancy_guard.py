@@ -5,7 +5,8 @@ from app.services import provider_adapter
 
 def test_vacancy_evaluate_removes_unsupported_claims_and_reports_asr_noise(client, monkeypatch):
     async def fake_complete(
-        messages, provider=None, model=None, max_tokens=800, temperature=0.4, reasoning=None
+        messages, provider=None, model=None, max_tokens=800, temperature=0.4, reasoning=None,
+        response_format=None
     ):
         return json.dumps(
             {
@@ -84,9 +85,14 @@ def test_vacancy_evaluate_prompt_contains_strict_allowed_sources(client, monkeyp
     captured = {}
 
     async def fake_complete(
-        messages, provider=None, model=None, max_tokens=800, temperature=0.4, reasoning=None
+        messages, provider=None, model=None, max_tokens=800, temperature=0.4, reasoning=None,
+        response_format=None
     ):
         captured["prompt"] = messages[-1]["content"]
+        captured["model"] = model
+        captured["max_tokens"] = max_tokens
+        captured["reasoning"] = reasoning
+        captured["response_format"] = response_format
         return json.dumps(
             {
                 "score": 80,
@@ -110,6 +116,12 @@ def test_vacancy_evaluate_prompt_contains_strict_allowed_sources(client, monkeyp
                 "technicalCorrections": [],
                 "hallucinationGuard": [],
                 "betterStructure": [],
+                "answerStrategy": "Сначала дать прямой вывод, затем доказать его проверками.",
+                "whyThisAnswerWorks": [
+                    "Ответ сразу раскрывает подход к контрактам.",
+                    "Негативные проверки показывают практическую глубину.",
+                ],
+                "deliveryTips": ["Произнести вывод одной фразой без вводной воды."],
                 "suggestedBetterAnswer": "Я тестировал API через контракты и негативные проверки.",
                 "followUpQuestions": [],
                 "nextTrainingFocus": "",
@@ -140,13 +152,22 @@ def test_vacancy_evaluate_prompt_contains_strict_allowed_sources(client, monkeyp
     assert "facts from vacancy_text" in prompt
     assert "facts from candidate_answer" in prompt
     assert "INTERVIEW LEGEND" not in prompt
+    assert captured["model"].endswith("gpt-5.6-sol")
+    assert captured["max_tokens"] >= 6000
+    assert captured["reasoning"] == {"effort": "high", "exclude": True}
+    assert captured["response_format"] == {"type": "json_object"}
+    body = res.json()
+    assert body["answerStrategy"].startswith("Сначала дать прямой вывод")
+    assert len(body["whyThisAnswerWorks"]) == 2
+    assert body["deliveryTips"] == ["Произнести вывод одной фразой без вводной воды."]
 
 
 def test_vacancy_evaluate_preserves_raw_voice_answer_in_prompt(client, monkeypatch):
     captured = {}
 
     async def fake_complete(
-        messages, provider=None, model=None, max_tokens=800, temperature=0.4, reasoning=None
+        messages, provider=None, model=None, max_tokens=800, temperature=0.4, reasoning=None,
+        response_format=None
     ):
         captured["prompt"] = messages[-1]["content"]
         return json.dumps(
@@ -238,7 +259,8 @@ def test_vacancy_evaluate_rejects_empty_answer_before_calling_model(client, monk
 
 def test_vacancy_evaluate_hardens_semantic_matching_and_consistency(client, monkeypatch):
     async def fake_complete(
-        messages, provider=None, model=None, max_tokens=800, temperature=0.4, reasoning=None
+        messages, provider=None, model=None, max_tokens=800, temperature=0.4, reasoning=None,
+        response_format=None
     ):
         return json.dumps(
             {
@@ -320,7 +342,8 @@ def test_vacancy_evaluate_hardens_semantic_matching_and_consistency(client, monk
 
 def test_vacancy_evaluate_generic_technical_fallback_is_ready_answer(client, monkeypatch):
     async def fake_complete(
-        messages, provider=None, model=None, max_tokens=800, temperature=0.4, reasoning=None
+        messages, provider=None, model=None, max_tokens=800, temperature=0.4, reasoning=None,
+        response_format=None
     ):
         return json.dumps(
             {
@@ -383,7 +406,8 @@ def test_vacancy_evaluate_generic_technical_fallback_is_ready_answer(client, mon
 
 def test_vacancy_evaluate_hardens_behavioral_star_semantics(client, monkeypatch):
     async def fake_complete(
-        messages, provider=None, model=None, max_tokens=800, temperature=0.4, reasoning=None
+        messages, provider=None, model=None, max_tokens=800, temperature=0.4, reasoning=None,
+        response_format=None
     ):
         return json.dumps(
             {
@@ -480,7 +504,8 @@ def test_vacancy_evaluate_hardens_project_experience_question(client, monkeypatc
     """
 
     async def fake_complete(
-        messages, provider=None, model=None, max_tokens=800, temperature=0.4, reasoning=None
+        messages, provider=None, model=None, max_tokens=800, temperature=0.4, reasoning=None,
+        response_format=None
     ):
         return json.dumps(
             {

@@ -43,6 +43,20 @@ def test_pick_auto_vacancy_empty_cache_uses_strong_default():
     assert pick_auto_model("vacancy", set()) == "openai/gpt-4o"
 
 
+def test_pick_auto_feedback_prefers_gpt56_sol_for_quality():
+    available = {
+        "openai/gpt-4o",
+        "openai/gpt-5.4",
+        "openai/gpt-5.6-sol",
+    }
+
+    assert pick_auto_model("feedback", available) == "openai/gpt-5.6-sol"
+
+
+def test_pick_auto_feedback_empty_cache_uses_current_flagship():
+    assert pick_auto_model("feedback", set()) == "openai/gpt-5.6-sol"
+
+
 def test_resolve_vacancy_ignores_dedicated_setting_when_explicit():
     prefs = AiPreferencesModel(
         deep_reasoning_model="openai/gpt-4o-mini",

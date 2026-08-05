@@ -663,7 +663,10 @@ export const ru = {
     '⚠ Локальная оценка — AI-разбор не завершился. Повторите попытку: SkillCue применит модель по тарифному плану автоматически.',
   'prep.smoke.answerEval': 'Оценка ответа',
   'prep.smoke.soundsLike': 'Звучит как',
-  'prep.smoke.strongVersion': 'Сильная версия ответа',
+  'prep.smoke.strongVersion': 'Готовый сильный ответ',
+  'prep.smoke.answerLogic': 'Логика ответа:',
+  'prep.smoke.whyAnswerWorks': 'Почему эта версия сильнее',
+  'prep.smoke.deliveryTips': 'Как подать ответ голосом',
   'prep.smoke.noFiction': 'Без выдумок:',
   'prep.smoke.noisePre':
     '🎙 В записи есть шум распознавания речи (не техническая ошибка):',

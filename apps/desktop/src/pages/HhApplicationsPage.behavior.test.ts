@@ -26,10 +26,9 @@ describe('HH applications redesign', () => {
   });
 
   it('does not claim that a fresh, unchecked browser session is connected', () => {
-    expect(pageSource).toContain(
-      'const hhConnected = Boolean(state?.browserOpen && !state.loginRequired)',
-    );
-    expect(pageSource).toContain("hhConnected ? 'HH подключён' : 'Подключите HH'");
+    expect(pageSource).toContain('const connected = Boolean(state?.browserOpen && platformMatches && !state.loginRequired)');
+    expect(pageSource).toContain("const hhConnected = draft.platform === 'hh' && connected");
+    expect(pageSource).toContain("hhConnected ? 'HH подключён' : 'Подключите аккаунт HH'");
   });
 
   it('waits for the code entry screen before reporting that the code was sent', () => {
@@ -39,49 +38,63 @@ describe('HH applications redesign', () => {
     const applicantStepAt = requestSource.indexOf('account-type-card-APPLICANT');
     const emailMethodAt = requestSource.indexOf('credential-type-email');
     const emailInputAt = requestSource.indexOf('applicant-login-input-email');
-    const codeInputAt = requestSource.indexOf('const codeInput =');
-    const waitAt = requestSource.indexOf("await codeInput.waitFor({ state: 'visible'", codeInputAt);
+    const otpReadyAt = requestSource.indexOf('await waitForHhOtpReady(page)');
     const successAt = requestSource.indexOf("message: 'Код отправлен на почту.'");
     expect(applicantStepAt).toBeGreaterThan(-1);
     expect(emailMethodAt).toBeGreaterThan(-1);
     expect(emailInputAt).toBeGreaterThan(-1);
-    expect(codeInputAt).toBeGreaterThan(applicantStepAt);
-    expect(codeInputAt).toBeGreaterThan(emailMethodAt);
-    expect(waitAt).toBeGreaterThan(codeInputAt);
-    expect(successAt).toBeGreaterThan(waitAt);
+    expect(otpReadyAt).toBeGreaterThan(applicantStepAt);
+    expect(otpReadyAt).toBeGreaterThan(emailMethodAt);
+    expect(successAt).toBeGreaterThan(otpReadyAt);
+    expect(assistantSource).toContain('[data-qa="applicant-login-input-otp"]');
+    expect(assistantSource).toContain('input[data-qa="magritte-pincode-input-field"]');
+    expect(requestSource).not.toContain("codeInput.waitFor({ state: 'visible'");
   });
 
   it('opens the passwordless flow with a post-login resumes destination', () => {
     const requestAt = assistantSource.indexOf('async requestLoginCode');
     const confirmAt = assistantSource.indexOf('async confirmLoginCode', requestAt);
     const requestSource = assistantSource.slice(requestAt, confirmAt);
-    expect(requestSource).toContain(
+    expect(assistantSource).toContain(
       'https://hh.ru/account/login?backurl=%2Fapplicant%2Fresumes&role=applicant',
     );
+    expect(requestSource).toContain('openFreshHhLoginPage()');
+    expect(assistantSource).toContain('loginPage = await context.newPage()');
+    expect(assistantSource).toContain('await navigateToHhLogin(loginPage)');
+    expect(assistantSource).toContain('isBrokenHhLoginSourcePage(candidateUrl)');
   });
 
-  it('confirms login only after the authenticated applicant menu appears', () => {
+  it('accepts HHs hidden PIN input once it is attached and enabled', () => {
+    const helperAt = assistantSource.indexOf('async function waitForHhOtpReady');
+    const nextHelperAt = assistantSource.indexOf('async function firstVisibleText', helperAt);
+    const helperSource = assistantSource.slice(helperAt, nextHelperAt);
+    expect(helperSource).toContain('input.count()');
+    expect(helperSource).toContain('input.isEnabled()');
+    expect(helperSource).toContain('if (inputEnabled)');
+    expect(helperSource).not.toContain("input.waitFor({ state: 'visible'");
+  });
+
+  it('confirms login only after HH exposes its durable authenticated cookie', () => {
     const confirmAt = assistantSource.indexOf('async confirmLoginCode');
     const loginRequiredAt = assistantSource.indexOf('private async isLoginRequired', confirmAt);
     const confirmSource = assistantSource.slice(confirmAt, loginRequiredAt);
-    const applicantMenuAt = confirmSource.indexOf('const applicantMenu =');
-    const waitAt = confirmSource.indexOf(".waitFor({ state: 'visible'", applicantMenuAt);
+    const cookieAt = confirmSource.indexOf('await this.hasHhAuthCookie()');
     const successAt = confirmSource.indexOf("message: 'HH подключён.'");
-    expect(applicantMenuAt).toBeGreaterThan(-1);
-    expect(waitAt).toBeGreaterThan(applicantMenuAt);
-    expect(successAt).toBeGreaterThan(waitAt);
+    expect(assistantSource).toContain("const HH_AUTH_COOKIE_NAME = 'crypted_id'");
+    expect(cookieAt).toBeGreaterThan(-1);
+    expect(successAt).toBeGreaterThan(cookieAt);
   });
 
-  it('does not submit the one-time code twice and recovers HHs post-login 404', () => {
+  it('types into HHs virtual PIN without a second submit and recovers post-login 404', () => {
     const confirmAt = assistantSource.indexOf('async confirmLoginCode');
     const resumesAt = assistantSource.indexOf('async getApplicantResumes', confirmAt);
     const confirmSource = assistantSource.slice(confirmAt, resumesAt);
-    expect(confirmSource).toContain("if (page.url().includes('/account/login'))");
-    expect(confirmSource).toContain('button[type="submit"]:has-text("Войти")');
-    expect(confirmSource).not.toContain(
-      'button[data-qa="account-login-submit"], button[type="submit"],',
-    );
-    expect(confirmSource).toContain("if (page.url().includes('/404'))");
+    expect(confirmSource).toContain("inputDataQa === 'magritte-pincode-input-field'");
+    expect(confirmSource).toContain('(element as HTMLInputElement).focus()');
+    expect(confirmSource).toContain("page.keyboard.press('Backspace')");
+    expect(confirmSource).toContain('page.keyboard.type(normalized');
+    expect(confirmSource).not.toContain('button[type="submit"]');
+    expect(confirmSource).toContain("page.url().includes('/404') || page.url().includes('/account/login')");
     expect(confirmSource).toContain("page.goto('https://hh.ru/applicant/resumes'");
   });
 
@@ -90,20 +103,39 @@ describe('HH applications redesign', () => {
     expect(mainSource).toContain("ipcMain.handle('hh-assistant:get-resumes'");
     expect(preloadSource).toContain("ipcRenderer.invoke('hh-assistant:get-resumes')");
     expect(electronTypesSource).toContain('getResumes: () => Promise<Array<');
-    expect(pageSource).toContain('assistant.getResumes().then(setResumes)');
+    expect(pageSource).toContain('setResumes(await assistant.getResumes())');
     expect(pageSource).toContain('resumes.map((resume) => {');
     expect(pageSource).toContain('type="checkbox"');
     expect(pageSource).toContain('draft.resumeTitles.includes(resume.title)');
     expect(pageSource).not.toContain('placeholder="Часть названия резюме"');
   });
 
-  it('keeps search and automation settings hidden until HH is authenticated', () => {
-    const gateAt = pageSource.indexOf('{!hhConnected ? (');
+  it('does not disguise an HH loading failure as an empty resume list', () => {
+    expect(pageSource).not.toContain('.catch(() => setResumes([]))');
+    expect(pageSource).toContain('setResumeLoadError(');
+    expect(pageSource).toContain('Повторить');
+    expect(pageSource).toContain('Загружаю резюме из HH…');
+    expect(assistantSource).toContain('this.context.request.get(HH_APPLICANT_RESUMES_URL');
+    expect(assistantSource).toContain('await this.resetBrowserConnection()');
+  });
+
+  it('closes Chrome gracefully before the taskkill fallback so HH cookies persist', () => {
+    const closeAt = assistantSource.indexOf('async close(): Promise<void>');
+    const failAt = assistantSource.indexOf('private fail(', closeAt);
+    const closeSource = assistantSource.slice(closeAt, failAt);
+    expect(closeSource.indexOf('browser.close()')).toBeGreaterThan(-1);
+    expect(closeSource.indexOf('terminateBrowserProcessTree(browserProcess)')).toBeGreaterThan(
+      closeSource.indexOf('browser.close()'),
+    );
+  });
+
+  it('keeps search settings hidden until the selected platform is authenticated', () => {
+    const gateAt = pageSource.indexOf('{!connected ? (');
     const settingsAt = pageSource.indexOf('Что искать');
     expect(gateAt).toBeGreaterThan(-1);
     expect(settingsAt).toBeGreaterThan(gateAt);
     expect(pageSource).toContain(
-      'Сначала подключите HH — после входа появятся ваши резюме и настройки автооткликов.',
+      'Сначала откройте выбранную площадку и войдите в аккаунт.',
     );
   });
 
@@ -117,11 +149,81 @@ describe('HH applications redesign', () => {
     expect(runQueueSource).not.toContain('setTimeout');
   });
 
-  it('keeps the redesigned compact search, schedule, and recent-applications UI', () => {
-    expect(pageSource).toContain('1. Выберите резюме');
-    expect(pageSource).toContain('2. Что искать');
-    expect(pageSource).toContain('3. Когда запускать каждый день');
-    expect(pageSource).toContain('Последние отклики');
+  it('keeps the redesigned compact search, schedule, and found-vacancies UI', () => {
+    expect(pageSource).toContain('Что искать');
+    expect(pageSource).toContain('Ежедневно в');
+    expect(pageSource).toContain('Найденные вакансии');
+    expect(pageSource).toContain('overflow-y-auto');
+  });
+
+  it('saves settings, scans, and immediately starts the HH queue', () => {
+    const actionAt = pageSource.indexOf('const saveAutomation = async () =>');
+    const actionEndAt = pageSource.indexOf('const activeQueue', actionAt);
+    const actionSource = pageSource.slice(actionAt, actionEndAt);
+    const saveAt = actionSource.indexOf('assistant.saveConfig(');
+    const scanAt = actionSource.indexOf('assistant.scan(draft.platform)');
+    const applyAt = actionSource.indexOf('assistant.applyAll()');
+
+    expect(actionAt).toBeGreaterThan(-1);
+    expect(actionEndAt).toBeGreaterThan(actionAt);
+    expect(saveAt).toBeGreaterThan(-1);
+    expect(scanAt).toBeGreaterThan(saveAt);
+    expect(applyAt).toBeGreaterThan(scanAt);
+    expect(pageSource).toContain('Найти и запустить автоотклики');
+  });
+
+  it('keeps every found vacancy visible, including skips and their reasons', () => {
+    expect(pageSource).toContain("filter((item) => item.platform === draft.platform)");
+    expect(pageSource).not.toContain("item.status !== 'skipped'");
+    expect(pageSource).toContain('{item.reason &&');
+    expect(pageSource).toContain('max-h-[60vh]');
+    expect(pageSource).toContain('break-words');
+  });
+
+  it('exposes manual and background HR message checks in the responses tab', () => {
+    expect(pageSource).toContain('Ответы на сообщения HR');
+    expect(pageSource).toContain('chat.pollNow()');
+    expect(pageSource).toContain('chat.setEnabled(');
+    expect(pageSource).toContain('последнее сообщение пришло от работодателя');
+  });
+
+  it('keeps chat polling on a dedicated browser page', () => {
+    expect(assistantSource).toContain('async getChatPage()');
+    expect(mainSource).toContain('hhBrowserAssistant?.getChatPage()');
+    expect(mainSource).not.toContain('hhBrowserAssistant?.getPage() ?? null');
+  });
+
+  it('opens a fresh automation target instead of a frozen restored Chrome tab', () => {
+    expect(assistantSource).toContain('this.page = await context.newPage()');
+    expect(assistantSource).toContain('this.page = await existingContext.newPage()');
+    expect(assistantSource).not.toContain('this.page = context.pages()[0]');
+  });
+
+  it('scopes HH screening-question selectors to the real response flow', () => {
+    expect(assistantSource).toContain('hasVisibleResponseFlowBlocker(page)');
+    expect(assistantSource).toContain('element.closest(String(containerSelector))');
+    expect(assistantSource).not.toContain('await hasVisible(page, RESPONSE_QUESTION_SELECTOR)');
+    expect(assistantSource).toContain("case 'open_letter'");
+    expect(assistantSource).toContain('ADD_COVER_LETTER_SELECTOR');
+  });
+
+  it('states the supported platforms and explains the visible HH login window', () => {
+    expect(pageSource).toContain('HH.ru');
+    expect(pageSource).toContain('Avito Работа');
+    expect(pageSource).toContain('LinkedIn');
+    expect(pageSource).toContain("label: 'Avito Работа'");
+    expect(pageSource).toContain("label: 'LinkedIn'");
+    expect(pageSource).toContain('Откроется отдельное окно HH');
+    expect(pageSource).toContain('Почта, привязанная к HH');
+  });
+
+  it('advances through the hydrated HH account-type screen before waiting for email', () => {
+    const requestAt = assistantSource.indexOf('async requestLoginCode');
+    const confirmAt = assistantSource.indexOf('async confirmLoginCode', requestAt);
+    const requestSource = assistantSource.slice(requestAt, confirmAt);
+    expect(requestSource).toContain("applicantType.waitFor({ state: 'attached'");
+    expect(requestSource).toContain('accountSubmit.isEnabled()');
+    expect(requestSource).toContain('await accountSubmit.click()');
   });
 
   it('enables the daily schedule and immediately scans before applying', () => {
@@ -130,17 +232,17 @@ describe('HH applications redesign', () => {
     const actionSource = pageSource.slice(actionAt, actionEndAt);
     const saveAt = actionSource.indexOf('assistant.saveConfig(');
     const scheduleAt = actionSource.indexOf('assistant.setDailySchedule(true)');
-    const scanAt = actionSource.indexOf('assistant.scan()');
+    const scanAt = actionSource.indexOf('assistant.scan(draft.platform)');
     const applyAt = actionSource.indexOf('assistant.applyAll()');
 
     expect(actionAt).toBeGreaterThan(-1);
-    expect(actionSource).toContain('autoRunDaily: true');
+    expect(actionSource).toContain('autoRunDaily: isHh');
     expect(saveAt).toBeGreaterThan(-1);
     expect(scheduleAt).toBeGreaterThan(saveAt);
     expect(scanAt).toBeGreaterThan(scheduleAt);
     expect(applyAt).toBeGreaterThan(scanAt);
-    expect(pageSource).toContain('Включить автоотклики');
-    expect(pageSource).toContain('draft.resumeTitles.length === 0');
+    expect(pageSource).toContain('Найти и запустить автоотклики');
+    expect(pageSource).toContain("draft.platform === 'hh' && draft.resumeTitles.length === 0");
     expect(pageSource).not.toContain('Найти сейчас');
     expect(pageSource).not.toContain('Найти и откликнуться');
   });

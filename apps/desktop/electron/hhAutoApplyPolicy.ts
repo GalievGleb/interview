@@ -4,6 +4,7 @@ import type { HhAssistantConfig } from './hhAssistantPolicy';
 export type HhApplySituation =
   | 'response_button'
   | 'resume_select'
+  | 'letter_offer'
   | 'letter_form'
   | 'confirm'
   | 'success'
@@ -25,6 +26,7 @@ export interface HhApplyContext {
 export type HhApplyAction =
   | { action: 'click_response' }
   | { action: 'select_resume' }
+  | { action: 'open_letter' }
   | { action: 'fill_letter' }
   | { action: 'click_confirm' }
   | { action: 'mark_sent' }
@@ -61,6 +63,10 @@ export function decideNextAction(
     case 'resume_select':
       return ctx.resumeTitleContains && !ctx.resumeSelected
         ? { action: 'select_resume' }
+        : { action: 'click_confirm' };
+    case 'letter_offer':
+      return ctx.hasCoverLetter && !ctx.letterFilled
+        ? { action: 'open_letter' }
         : { action: 'click_confirm' };
     case 'letter_form':
       return ctx.hasCoverLetter && !ctx.letterFilled

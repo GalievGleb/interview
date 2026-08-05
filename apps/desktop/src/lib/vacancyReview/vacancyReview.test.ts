@@ -226,6 +226,43 @@ describe('evaluation + report', () => {
     }
   });
 
+  it('keeps the answer logic, rationale, and delivery coaching from AI feedback', async () => {
+    const analysis = analyzeVacancyMock({ vacancyText: QA_VACANCY, language: 'ru' });
+    const [question] = buildSmokePlan(analysis);
+    const spy = vi.spyOn(api, 'vacancyEvaluate').mockResolvedValueOnce({
+      score: 82,
+      clarityScore: 80,
+      technicalAccuracyScore: 84,
+      specificityScore: 76,
+      confidenceScore: 81,
+      feedback: 'Содержание верное; усили ответ причинно-следственной логикой.',
+      goodPoints: ['Есть практические инструменты'],
+      missingPoints: [],
+      suggestedBetterAnswer: 'Я начинаю с причины, затем показываю проверку и результат.',
+      answerStrategy: 'Тезис → диагностика → решение → проверяемый результат.',
+      whyThisAnswerWorks: ['Сразу отвечает на вопрос', 'Показывает ход инженерного решения'],
+      deliveryTips: ['Сделать короткую паузу после главного тезиса.'],
+      overclaimed: false,
+    });
+
+    try {
+      const evaluation = await evaluateAnswer(
+        question,
+        'Использовал Playwright, логи и Allure, чтобы разбирать падения.',
+        analysis,
+      );
+
+      expect(evaluation.answerStrategy).toContain('Тезис');
+      expect(evaluation.whyThisAnswerWorks).toHaveLength(2);
+      expect(evaluation.deliveryTips).toEqual([
+        'Сделать короткую паузу после главного тезиса.',
+      ]);
+      expect(evaluation.evaluationSource).toBe('ai');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('sends the raw recognized answer to evaluation with outer trim only', async () => {
     const analysis = analyzeVacancyMock({ vacancyText: QA_VACANCY, language: 'ru' });
     const [question] = buildSmokePlan(analysis);

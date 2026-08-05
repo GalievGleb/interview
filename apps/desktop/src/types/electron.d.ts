@@ -1,4 +1,5 @@
 export interface HhAssistantConfig {
+  platform: 'hh' | 'linkedin' | 'avito';
   query: string;
   area: string;
   experience: string;
@@ -18,11 +19,16 @@ export interface HhAssistantConfig {
   dailyLimit: number;
   autoRunDaily: boolean;
   autoRunHour: number;
+  linkedinLocation: string;
+  linkedinEasyApplyOnly: boolean;
+  avitoCity: string;
 }
 
 export type HhQueueStatus = 'new' | 'opened' | 'prepared' | 'sent' | 'skipped';
 
 export interface HhQueueItem {
+  key: string;
+  platform: 'hh' | 'linkedin' | 'avito';
   id: string;
   title: string;
   company: string;
@@ -101,8 +107,8 @@ export interface ElectronAPI {
   hhAssistant?: {
     getState: () => Promise<HhAssistantState>;
     saveConfig: (config: Partial<HhAssistantConfig>) => Promise<HhAssistantState>;
-    openBrowser: () => Promise<HhAssistantState>;
-    scan: () => Promise<HhAssistantState>;
+    openBrowser: (platform?: 'hh' | 'linkedin' | 'avito') => Promise<HhAssistantState>;
+    scan: (platform?: 'hh' | 'linkedin' | 'avito') => Promise<HhAssistantState>;
     openVacancy: (vacancyId: string) => Promise<HhAssistantState>;
     fillLetter: (vacancyId: string) => Promise<HhAssistantState>;
     mark: (

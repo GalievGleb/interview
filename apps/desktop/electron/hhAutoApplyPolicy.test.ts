@@ -33,6 +33,7 @@ describe('hhAutoApplyPolicy', () => {
 
     it('clicks through response flow', () => {
       expect(decideNextAction('response_button', ctx)).toEqual({ action: 'click_response' });
+      expect(decideNextAction('letter_offer', ctx)).toEqual({ action: 'open_letter' });
       expect(decideNextAction('letter_form', ctx)).toEqual({ action: 'fill_letter' });
       expect(decideNextAction('confirm', ctx)).toEqual({ action: 'click_confirm' });
     });
@@ -41,6 +42,10 @@ describe('hhAutoApplyPolicy', () => {
       const base = { ...ctx, hasCoverLetter: false, resumeTitleContains: '' };
       expect(decideNextAction('letter_form', base)).toEqual({ action: 'click_confirm' });
       expect(decideNextAction('letter_form', { ...ctx, letterFilled: true })).toEqual({
+        action: 'click_confirm',
+      });
+      expect(decideNextAction('letter_offer', base)).toEqual({ action: 'click_confirm' });
+      expect(decideNextAction('letter_offer', { ...ctx, letterFilled: true })).toEqual({
         action: 'click_confirm',
       });
     });

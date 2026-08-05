@@ -426,8 +426,8 @@ function registerIpc(): void {
     'hh-assistant:save-config',
     (_e, config: Partial<HhAssistantConfig>) => hhBrowserAssistant?.saveConfig(config),
   );
-  ipcMain.handle('hh-assistant:open-browser', () => hhBrowserAssistant?.openBrowser());
-  ipcMain.handle('hh-assistant:scan', () => hhBrowserAssistant?.scan());
+  ipcMain.handle('hh-assistant:open-browser', (_e, platform) => hhBrowserAssistant?.openBrowser(platform));
+  ipcMain.handle('hh-assistant:scan', (_e, platform) => hhBrowserAssistant?.scan(platform));
   ipcMain.handle('hh-assistant:apply-all', () => hhBrowserAssistant?.applyAll());
   ipcMain.handle('hh-assistant:apply-one', (_e, vacancyId: string) =>
     hhBrowserAssistant?.applyOne(vacancyId),
@@ -974,9 +974,9 @@ if (!hasSingleInstanceLock) {
     hhOAuthService = new HhOAuthService(app.getPath('userData'));
     hhChatBrowser = new HhChatBrowser(
       app.getPath('userData'),
-      // getPage: берём страницу из браузерного ассистента
+      // Фоновый чат работает в отдельной вкладке и не перехватывает поиск/отклик.
       async () => {
-        return hhBrowserAssistant?.getPage() ?? null;
+        return hhBrowserAssistant?.getChatPage() ?? null;
       },
       // llmCall: вызываем LLM через локальный бэкенд
       async (prompt: string) => {
@@ -1005,13 +1005,14 @@ if (!hasSingleInstanceLock) {
         const chunks: string[] = [];
         for (const line of text.split('\n')) {
           if (!line.startsWith('data: ')) continue;
+          let evt: { type?: string; text?: string; message?: string };
           try {
-            const evt = JSON.parse(line.slice(6));
-            if (evt.type === 'chunk') chunks.push(evt.text);
-            if (evt.type === 'error') throw new Error(evt.message);
+            evt = JSON.parse(line.slice(6)) as typeof evt;
           } catch {
-            // ignore
+            continue;
           }
+          if (evt.type === 'chunk' && evt.text) chunks.push(evt.text);
+          if (evt.type === 'error') throw new Error(evt.message || 'LLM stream error');
         }
         return chunks.join('').trim();
       },

@@ -1,4 +1,5 @@
 export interface HhAssistantConfig {
+  platform: 'hh' | 'linkedin' | 'avito';
   query: string;
   area: string;
   experience: string;
@@ -18,9 +19,14 @@ export interface HhAssistantConfig {
   dailyLimit: number;
   autoRunDaily: boolean;
   autoRunHour: number;
+  linkedinLocation: string;
+  linkedinEasyApplyOnly: boolean;
+  avitoCity: string;
 }
 
 export interface HhVacancy {
+  key?: string;
+  platform?: 'hh' | 'linkedin' | 'avito';
   id: string;
   title: string;
   company: string;
@@ -29,6 +35,7 @@ export interface HhVacancy {
 }
 
 export const DEFAULT_HH_ASSISTANT_CONFIG: HhAssistantConfig = {
+  platform: 'hh',
   query: '',
   area: '113',
   experience: '',
@@ -50,6 +57,9 @@ export const DEFAULT_HH_ASSISTANT_CONFIG: HhAssistantConfig = {
   dailyLimit: 50,
   autoRunDaily: false,
   autoRunHour: 10,
+  linkedinLocation: '',
+  linkedinEasyApplyOnly: true,
+  avitoCity: 'all',
 };
 
 function boundedInt(value: unknown, fallback: number, min: number, max: number): number {
@@ -79,6 +89,7 @@ export function normalizeHhAssistantConfig(
   const source = value ?? {};
   const salary = Number(source.salaryFrom);
   return {
+    platform: source.platform === 'linkedin' || source.platform === 'avito' ? source.platform : 'hh',
     query: String(source.query ?? '').trim().slice(0, 200),
     area: String(source.area ?? DEFAULT_HH_ASSISTANT_CONFIG.area).trim().slice(0, 20),
     experience: String(source.experience ?? '').trim().slice(0, 40),
@@ -106,6 +117,11 @@ export function normalizeHhAssistantConfig(
     dailyLimit: boundedInt(source.dailyLimit, 50, 1, 200),
     autoRunDaily: Boolean(source.autoRunDaily),
     autoRunHour: boundedInt(source.autoRunHour, 10, 0, 23),
+    linkedinLocation: String(source.linkedinLocation ?? '').trim().slice(0, 120),
+    linkedinEasyApplyOnly: source.linkedinEasyApplyOnly !== false,
+    avitoCity: /^[a-z0-9_-]{2,40}$/i.test(String(source.avitoCity ?? 'all'))
+      ? String(source.avitoCity ?? 'all').toLocaleLowerCase('en-US')
+      : 'all',
   };
 }
 

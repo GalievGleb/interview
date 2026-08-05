@@ -16,7 +16,7 @@ from pydantic import BaseModel
 from app.db.session import get_db
 from app.prompts.vacancy import (
     VACANCY_ANALYZE_PROMPT,
-    VACANCY_EVALUATE_PROMPT,
+    VACANCY_EVALUATE_PROMPT_V2,
     VACANCY_REPORT_PROMPT,
 )
 from app.services import model_router, provider_adapter
@@ -56,23 +56,32 @@ def _resolve(mode: str = "general") -> tuple[str, str]:
 # долго — вместо отката в ЛОКАЛЬНЫЙ разбор (клиент делал это на 502) сначала
 # повторяем запрос этой моделью, чтобы разбор/оценка оставались AI.
 FALLBACK_MODEL = "openai/gpt-4o-mini"
+FEEDBACK_FALLBACK_MODEL = "openai/gpt-4o"
 
 
 async def _complete_or_fallback(
-    messages: list[dict], provider: str, model: str, **kwargs
+    messages: list[dict],
+    provider: str,
+    model: str,
+    *,
+    fallback_model: str = FALLBACK_MODEL,
+    fallback_kwargs: dict | None = None,
+    **kwargs,
 ) -> tuple[str, str]:
     """(raw, model_used). На ошибке основной модели повторяет запрос быстрым
     fallback-ом — чтобы AI-разбор не падал в детерминированную эвристику."""
     try:
         return await provider_adapter.complete(messages, provider, model, **kwargs), model
     except Exception as exc:  # noqa: BLE001
-        if model == FALLBACK_MODEL:
+        if model == fallback_model:
             raise
         logger.warning(
-            "Vacancy model %s failed (%s) — retrying with %s", model, exc, FALLBACK_MODEL
+            "Vacancy model %s failed (%s) — retrying with %s", model, exc, fallback_model
         )
-        raw = await provider_adapter.complete(messages, provider, FALLBACK_MODEL, **kwargs)
-        return raw, FALLBACK_MODEL
+        raw = await provider_adapter.complete(
+            messages, provider, fallback_model, **(fallback_kwargs or kwargs)
+        )
+        return raw, fallback_model
 
 
 def _parse_json(raw: str) -> dict:
@@ -313,12 +322,12 @@ async def report(payload: ReportPayload, db=Depends(get_db)) -> dict:
 @router.post("/evaluate")
 async def evaluate(payload: EvaluatePayload, db=Depends(get_db)) -> dict:
     _ensure_vacancy_quota(db)
-    provider, model = _resolve("vacancy")
+    provider, model = _resolve("feedback")
     answer = (payload.answer or "").strip()
     if not answer:
         raise HTTPException(status_code=400, detail="Answer is empty")
     detected_noise = detect_asr_noise(answer)
-    prompt = VACANCY_EVALUATE_PROMPT.format(
+    prompt = VACANCY_EVALUATE_PROMPT_V2.format(
         topic=payload.topic or "(unspecified)",
         level=payload.level or "(unspecified)",
         signals=", ".join(payload.expectedSignals) or "(none)",
@@ -331,10 +340,10 @@ async def evaluate(payload: EvaluatePayload, db=Depends(get_db)) -> dict:
         has_resume="true" if payload.hasResume else "false",
         language="Russian" if payload.language == "ru" else "English",
     )
-    # Evaluate runs after every answer the candidate submits — unlike analyze
-    # (once per vacancy), it's actively waited on, so a thinking-capable model
-    # must not burn the response on hidden reasoning tokens (same fix as the
-    # live path's live_stream_options).
+    # This is the quality-first coaching step. Give GPT-5.6 Sol enough reasoning
+    # and completion budget to diagnose the answer and write a finished,
+    # grounded replacement. A proven gpt-4o route remains the compatibility
+    # fallback for provider/catalog failures.
     max_tokens, reasoning = vacancy_eval_options(model)
     try:
         raw, model = await _complete_or_fallback(
@@ -344,6 +353,14 @@ async def evaluate(payload: EvaluatePayload, db=Depends(get_db)) -> dict:
             max_tokens=max_tokens,
             temperature=0.2,
             reasoning=reasoning,
+            response_format={"type": "json_object"},
+            fallback_model=FEEDBACK_FALLBACK_MODEL,
+            fallback_kwargs={
+                "max_tokens": vacancy_eval_options(FEEDBACK_FALLBACK_MODEL)[0],
+                "temperature": 0.2,
+                "reasoning": vacancy_eval_options(FEEDBACK_FALLBACK_MODEL)[1],
+                "response_format": {"type": "json_object"},
+            },
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("Vacancy evaluate failed: %s", exc)
@@ -386,7 +403,7 @@ async def evaluate(payload: EvaluatePayload, db=Depends(get_db)) -> dict:
         "confidenceScore": _score("confidenceScore"),
         "levelEstimate": level if level in _QUESTION_LEVEL else "",
         "verdict": str(data.get("verdict", "")).strip()[:200],
-        "feedback": str(data.get("feedback", "")).strip()[:400],
+        "feedback": str(data.get("feedback", "")).strip()[:800],
         "normalizedAnswerSummary": str(data.get("normalizedAnswerSummary", "")).strip()[:900],
         "detectedNoiseOrAsrErrors": _as_list(data.get("detectedNoiseOrAsrErrors"), 6),
         "extractedValidPoints": _as_list(data.get("extractedValidPoints"), 8),
@@ -396,7 +413,10 @@ async def evaluate(payload: EvaluatePayload, db=Depends(get_db)) -> dict:
         "technicalCorrections": _as_list(data.get("technicalCorrections"), 6),
         "hallucinationGuard": _as_list(data.get("hallucinationGuard"), 6),
         "betterStructure": _as_list(data.get("betterStructure"), 8),
-        "suggestedBetterAnswer": str(data.get("suggestedBetterAnswer", "")).strip()[:1200],
+        "answerStrategy": str(data.get("answerStrategy", "")).strip()[:500],
+        "whyThisAnswerWorks": _as_list(data.get("whyThisAnswerWorks"), 5),
+        "deliveryTips": _as_list(data.get("deliveryTips"), 4),
+        "suggestedBetterAnswer": str(data.get("suggestedBetterAnswer", "")).strip()[:2600],
         "followUpQuestions": _as_list(data.get("followUpQuestions"), 4),
         "nextTrainingFocus": str(data.get("nextTrainingFocus", "")).strip()[:240],
         "overclaimed": bool(data.get("overclaimed", False)),

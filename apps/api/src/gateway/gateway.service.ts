@@ -43,14 +43,15 @@ const UPSTREAM_STYLE =
   process.env.GATEWAY_UPSTREAM_STYLE ||
   (OPENROUTER_BASE.includes('openrouter') ? 'openrouter' : 'openai');
 
-// Приводим модель к тому, что понимает активный апстрим. ProxyAPI отдаёт ТОЛЬКО
-// модели OpenAI, поэтому для openai-стиля сводим всё к двум: быстрая gpt-4o-mini
-// (live-подсказки) и качественная gpt-4o (разбор). Это и совпадает с задумкой
-// тарифов, и не даёт случайно уйти в дорогую модель на чужом ключе.
+// Приводим модель к тому, что понимает активный апстрим. ProxyAPI отдаёт модели
+// OpenAI с голыми ID. Сохраняем только явный quality-first GPT-5.6 Sol route;
+// остальные кросс-провайдерные ID по-прежнему сводим к gpt-4o/mini, чтобы не
+// расширять дорогую модельную поверхность лицензионного шлюза.
 function mapModelForUpstream(model: string): string {
   const raw = (model || '').trim();
   if (UPSTREAM_STYLE === 'openrouter') return raw || 'openai/gpt-4o-mini';
   const low = raw.toLowerCase().replace(/^openai\//, '');
+  if (low === 'gpt-5.6-sol' || low === 'gpt-5.6') return low;
   const FAST = ['mini', 'nano', 'haiku', 'flash', 'small', 'lite'];
   return FAST.some((k) => low.includes(k)) ? 'gpt-4o-mini' : 'gpt-4o';
 }
@@ -90,16 +91,22 @@ function envModels(name: string): string[] {
     .filter(Boolean);
 }
 
+function modelPolicyIds(model: string): string[] {
+  const raw = (model || '').trim().toLowerCase();
+  const bare = raw.replace(/^[^/]+\//, '');
+  return raw === bare ? [raw] : [raw, bare];
+}
+
 // Политика моделей: блоклист (GATEWAY_BLOCKED_MODELS) удобен для «запретить пару
 // дорогих», allowlist (GATEWAY_ALLOWED_MODELS) — для «разрешить только эти».
 // Блок имеет приоритет. Оба по префиксу. Пусто = без ограничения.
 function isModelAllowed(model: string): boolean {
-  const m = (model || '').toLowerCase();
-  const blocked = envModels('GATEWAY_BLOCKED_MODELS');
-  if (blocked.some((b) => m === b || m.startsWith(b))) return false;
-  const allow = envModels('GATEWAY_ALLOWED_MODELS');
+  const ids = modelPolicyIds(model);
+  const blocked = envModels('GATEWAY_BLOCKED_MODELS').flatMap(modelPolicyIds);
+  if (blocked.some((b) => ids.some((m) => m === b || m.startsWith(b)))) return false;
+  const allow = envModels('GATEWAY_ALLOWED_MODELS').flatMap(modelPolicyIds);
   if (allow.length === 0) return true;
-  return allow.some((a) => m === a || m.startsWith(a));
+  return allow.some((a) => ids.some((m) => m === a || m.startsWith(a)));
 }
 
 @Injectable()
@@ -356,6 +363,15 @@ export class GatewayService {
     const upstreamBody: Record<string, unknown> = { ...body };
     // ID модели — под активный апстрим (OpenRouter «openai/…» vs ProxyAPI «…»).
     upstreamBody.model = mapModelForUpstream(model);
+    if (UPSTREAM_STYLE === 'openai' && String(upstreamBody.model).startsWith('gpt-5')) {
+      const reasoning = upstreamBody.reasoning as { effort?: unknown } | undefined;
+      if (reasoning?.effort) upstreamBody.reasoning_effort = reasoning.effort;
+      delete upstreamBody.reasoning;
+      if (upstreamBody.max_tokens !== undefined) {
+        upstreamBody.max_completion_tokens = upstreamBody.max_tokens;
+        delete upstreamBody.max_tokens;
+      }
+    }
     if (upstreamBody.stream) {
       upstreamBody.stream_options = { include_usage: true, ...(body.stream_options as object) };
     }

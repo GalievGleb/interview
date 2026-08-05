@@ -1,8 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import type { Page } from 'playwright-core';
-
-// ─── Типы ───────────────────────────────────────────────────────────────────
+import type { Frame, Page } from 'playwright-core';
 
 export interface HhChatConfig {
   enabled: boolean;
@@ -39,78 +37,41 @@ export const DEFAULT_CHAT_CONFIG: HhChatConfig = {
     '- Если просят уточнить детали — дай конкретный ответ.',
     '- Если приглашают на собеседование — предложи время.',
     '- Если просят тестовое — согласись и уточни сроки.',
-    '- Если это отказ — поблагодари и спроси про другие вакансии.',
     '- Максимум 3-4 предложения.',
+    '- Не придумывай опыт, условия, даты, зарплату или контакты, которых нет в сообщении.',
     '- Не используй шаблонные фразы вроде «Буду ждать обратной связи».',
     '',
     'Контекст:',
     'Вакансия: {vacancy}',
     'Компания: {company}',
     '',
-    'Сообщение рекрутера:',
+    'Последнее сообщение рекрутера:',
     '{message}',
   ].join('\n'),
   onlyDiscussions: true,
-  minMessageLength: 15,
+  minMessageLength: 2,
   ignoredKeywords: 'отказ, не готовы, закрыли, другой кандидат, рассматриваем других',
 };
 
-// ─── Селекторы HH (страница переговоров) ────────────────────────────────────
+export const HH_NEGOTIATIONS_URL = 'https://hh.ru/applicant/negotiations';
 
-const NEGOTIATIONS_URL = 'https://hh.ru/negotiations';
-
-const NEGOTIATION_ITEM_SELECTOR = [
-  '[data-qa="negotiation-item"]',
-  '[data-qa="negotiations-item"]',
-  '.negotiations-item',
-].join(', ');
-
-const NEGOTIATION_LINK_SELECTOR = 'a[href*="/negotiation/"]';
-
-const UNREAD_INDICATOR_SELECTOR = [
-  '[data-qa="negotiation-item-new-messages"]',
-  '.negotiations-item--new',
-  '.bloko-icon_dot',
+const NEGOTIATION_ITEM_SELECTOR = '[data-qa="negotiations-item"]';
+const OPEN_CHAT_SELECTOR = '[data-qa="open_chat"]';
+const NEGOTIATION_VACANCY_SELECTOR = '[data-qa="negotiations-item-vacancy"]';
+const NEGOTIATION_COMPANY_SELECTOR = '[data-qa="negotiations-item-company"]';
+const DISCUSSION_STATUS_SELECTOR = '[data-qa*="negotiations-item-interview"]';
+const UNREAD_STATUS_SELECTOR = [
+  '[data-qa*="new-message"]',
+  '[data-qa*="unread"]',
   '[class*="unread"]',
-  '[class*="has-updates"]',
 ].join(', ');
 
-const CHAT_MESSAGES_SELECTOR = [
-  '[data-qa="chat-message"]',
-  '[data-qa="negotiation-message"]',
-  '.chat-message',
-  '.messages-item',
-].join(', ');
-
-const CHAT_INPUT_SELECTOR = [
-  '[data-qa="chat-message-input"]',
-  '[data-qa="negotiation-message-input"]',
-  'textarea[placeholder*="сообщение" i]',
-  'textarea[placeholder*="напишите" i]',
-  '.chat-input textarea',
-  '[role="textbox"]',
-].join(', ');
-
-const CHAT_SEND_SELECTOR = [
-  '[data-qa="chat-message-send"]',
-  '[data-qa="negotiation-message-send"]',
-  'button[type="submit"]',
-  'button:has(svg)',
-].join(', ');
-
-const NEGOTIATION_VACANCY_SELECTOR = [
-  '[data-qa="negotiation-vacancy-title"]',
-  '.negotiation-vacancy-name',
-  'a[href*="/vacancy/"]',
-].join(', ');
-
-const NEGOTIATION_COMPANY_SELECTOR = [
-  '[data-qa="negotiation-company-name"]',
-  '.negotiation-company-name',
-  '[data-qa="employer-name"]',
-].join(', ');
-
-// ─── Хранилище ──────────────────────────────────────────────────────────────
+const CHAT_FRAME_URL_PART = 'chatik.hh.ru/chat/';
+const CHAT_MESSAGE_SELECTOR = '[data-qa^="chatik-chat-message-"]';
+const CHAT_INPUT_SELECTOR = '[data-qa="chatik-new-message-text"]';
+const CHAT_SEND_SELECTOR = '[data-qa="chatik-do-send-message"]';
+const CHAT_VACANCY_SELECTOR = '[data-qa="chatik-header-vacancy-link-text"]';
+const OUTGOING_SELECTOR = '[class*="message_my"], [class*="chat-bubble_outgoing"], [class*="outgoing"]';
 
 interface PersistedChatState {
   config: HhChatConfig;
@@ -119,15 +80,34 @@ interface PersistedChatState {
   replyDate: string;
 }
 
+interface NegotiationSummary {
+  index: number;
+  key: string;
+  vacancyTitle: string;
+  companyName: string;
+  isDiscussion: boolean;
+  hasUnread: boolean;
+}
+
+interface ChatMessage {
+  id: string;
+  text: string;
+  isMine: boolean;
+}
+
 function chatStatePath(userDataDir: string): string {
   return path.join(userDataDir, 'hh-chat-browser.json');
 }
 
-// ─── Callback для получения страницы браузера ───────────────────────────────
+function compactText(value: string): string {
+  return value.replace(/\s+/g, ' ').trim();
+}
+
+export function isOutgoingChatClassName(value: string): boolean {
+  return /(?:message_my|chat-bubble_outgoing|(?:^|[_-])outgoing(?:[_-]|$))/i.test(value);
+}
 
 export type GetPageFn = () => Promise<Page | null>;
-
-// ─── Сервис ─────────────────────────────────────────────────────────────────
 
 export class HhChatBrowser {
   private readonly getPage: GetPageFn;
@@ -140,6 +120,8 @@ export class HhChatBrowser {
   private polling = false;
   private lastPollAt: string | null = null;
   private error: string | null = null;
+  private activeNegotiations = 0;
+  private unreadMessages = 0;
   private readonly userDataDir: string;
 
   constructor(
@@ -153,27 +135,24 @@ export class HhChatBrowser {
 
     const persisted = this.load();
     this.config = { ...DEFAULT_CHAT_CONFIG, ...persisted?.config };
-
-    const today = this.todayKey();
-    if (persisted?.replyDate === today) {
+    this.replyDate = this.todayKey();
+    if (persisted?.replyDate === this.replyDate) {
       this.repliesToday = persisted.repliesToday ?? 0;
-      this.replyDate = today;
     }
     if (persisted?.seenMessageIds) {
       this.seenMessageIds = new Set(persisted.seenMessageIds.slice(-500));
     }
   }
 
-  // ─── Публичные методы ──────────────────────────────────────────────────
-
   getState(): HhChatState {
+    this.rollDailyCounter();
     return {
       enabled: this.config.enabled,
       polling: this.polling,
       lastPollAt: this.lastPollAt,
       repliesToday: this.repliesToday,
-      activeNegotiations: 0,
-      unreadMessages: 0,
+      activeNegotiations: this.activeNegotiations,
+      unreadMessages: this.unreadMessages,
       config: { ...this.config },
       error: this.error,
     };
@@ -185,7 +164,14 @@ export class HhChatBrowser {
 
   saveConfig(partial: Partial<HhChatConfig>): HhChatConfig {
     const wasEnabled = this.config.enabled;
-    this.config = { ...this.config, ...partial };
+    this.config = {
+      ...this.config,
+      ...partial,
+      pollIntervalSec: Math.max(30, Math.round(partial.pollIntervalSec ?? this.config.pollIntervalSec)),
+      dailyReplyLimit: Math.max(1, Math.round(partial.dailyReplyLimit ?? this.config.dailyReplyLimit)),
+      replyDelaySec: Math.max(0, Math.round(partial.replyDelaySec ?? this.config.replyDelaySec)),
+      minMessageLength: Math.max(1, Math.round(partial.minMessageLength ?? this.config.minMessageLength)),
+    };
     this.persist();
 
     if (!wasEnabled && this.config.enabled) {
@@ -193,7 +179,6 @@ export class HhChatBrowser {
     } else if (wasEnabled && !this.config.enabled) {
       this.stopPolling();
     }
-
     return this.getConfig();
   }
 
@@ -224,10 +209,9 @@ export class HhChatBrowser {
     this.stopPolling();
   }
 
-  // ─── Приватные методы ─────────────────────────────────────────────────
-
   private scheduleNext(): void {
     this.pollTimer = setTimeout(() => {
+      this.pollTimer = null;
       void this.pollOnce().finally(() => {
         if (this.config.enabled) this.scheduleNext();
       });
@@ -238,229 +222,233 @@ export class HhChatBrowser {
     if (this.polling) return;
     this.polling = true;
     this.error = null;
+    this.unreadMessages = 0;
+    this.rollDailyCounter();
 
     try {
       const page = await this.getPage();
       if (!page || page.isClosed()) {
-        this.error = 'Браузер HH не открыт. Откройте браузер через «Открыть HH».';
-        return;
+        throw new Error('Браузер HH не открыт. Сначала подключите HH в разделе автооткликов.');
       }
 
-      // Переходим на страницу переговоров
-      const currentUrl = page.url();
-      if (!currentUrl.includes('/negotiations')) {
-        await page.goto(NEGOTIATIONS_URL, {
+      if (!this.isNegotiationsPage(page.url())) {
+        await page.goto(HH_NEGOTIATIONS_URL, {
           waitUntil: 'domcontentloaded',
           timeout: 30_000,
         });
       }
+      if (page.url().includes('/account/login')) {
+        throw new Error('Сессия HH истекла. Повторно подключите аккаунт HH.');
+      }
 
-      // Ждём загрузки списка
       await page
         .locator(NEGOTIATION_ITEM_SELECTOR)
         .first()
-        .waitFor({ timeout: 10_000 })
+        .waitFor({ state: 'attached', timeout: 10_000 })
         .catch(() => undefined);
 
-      // Ищем переговоры с непрочитанными сообщениями
       const negotiations = await this.scrapeNegotiations(page);
-      let replied = 0;
+      const eligible = negotiations.filter((item) => !this.config.onlyDiscussions || item.isDiscussion);
+      this.activeNegotiations = eligible.length;
+      const ordered = [...eligible].sort((left, right) => Number(right.hasUnread) - Number(left.hasUnread));
+      let shouldPersist = false;
 
-      for (const neg of negotiations) {
+      for (const negotiation of ordered) {
         if (this.repliesToday >= this.config.dailyReplyLimit) break;
-        if (!neg.hasUnread) continue;
+        const frame = await this.openNegotiation(page, negotiation);
+        const lastMessage = await this.scrapeLastMessage(frame);
+        if (!lastMessage || lastMessage.isMine) continue;
 
-        // Переходим в чат
-        await this.openNegotiation(page, neg.url);
-
-        // Читаем последнее сообщение от рекрутера
-        const lastMessage = await this.scrapeLastRecruiterMessage(page);
-        if (!lastMessage) continue;
-
-        const messageId = `${neg.id}:${lastMessage.text.slice(0, 60)}`;
+        this.unreadMessages += 1;
+        const messageId = `${negotiation.key}:${lastMessage.id}`;
         if (this.seenMessageIds.has(messageId)) continue;
-        if (this.shouldIgnore(lastMessage.text)) continue;
+        if (lastMessage.text.length < this.config.minMessageLength) continue;
+        if (this.shouldIgnore(lastMessage.text)) {
+          this.seenMessageIds.add(messageId);
+          shouldPersist = true;
+          continue;
+        }
 
-        // Генерируем ответ
-        const reply = await this.llmCall(
+        const reply = compactText(await this.llmCall(
           this.config.replyPrompt
-            .replaceAll('{vacancy}', neg.vacancyTitle)
-            .replaceAll('{company}', neg.companyName)
+            .replaceAll('{vacancy}', negotiation.vacancyTitle)
+            .replaceAll('{company}', negotiation.companyName)
             .replaceAll('{message}', lastMessage.text),
-        );
-
+        )).slice(0, 3_000);
         if (!reply) continue;
 
-        // Задержка (имитация человека)
         await this.delay(this.config.replyDelaySec * 1000);
-
-        // Отправляем ответ
-        await this.sendChatMessage(page, reply);
+        await this.sendChatMessage(frame, reply);
 
         this.seenMessageIds.add(messageId);
         this.repliesToday += 1;
-        replied += 1;
+        shouldPersist = true;
       }
 
       this.lastPollAt = new Date().toISOString();
-      if (replied > 0) {
-        this.persist();
-      }
-    } catch (err) {
-      this.error = err instanceof Error ? err.message : String(err);
+      if (shouldPersist) this.persist();
+    } catch (error) {
+      this.error = error instanceof Error ? error.message : String(error);
       console.warn('[hh-chat-browser] poll error:', this.error);
     } finally {
       this.polling = false;
     }
   }
 
-  /** Скрапим список переговоров с текущей страницы. */
-  private async scrapeNegotiations(
-    page: Page,
-  ): Promise<
-    Array<{
-      id: string;
-      url: string;
-      vacancyTitle: string;
-      companyName: string;
-      hasUnread: boolean;
-    }>
-  > {
-    const result: Array<{
-      id: string;
-      url: string;
-      vacancyTitle: string;
-      companyName: string;
-      hasUnread: boolean;
-    }> = [];
-
-    const items = page.locator(NEGOTIATION_ITEM_SELECTOR);
-    const count = Math.min(await items.count(), 20);
-
-    for (let i = 0; i < count; i++) {
-      const item = items.nth(i);
-      if (!(await item.isVisible().catch(() => false))) continue;
-
-      // Ссылка на переговоры
-      const link = item.locator(NEGOTIATION_LINK_SELECTOR).first();
-      const href = (await link.getAttribute('href').catch(() => null)) ?? '';
-      const url = href.startsWith('http') ? href : `https://hh.ru${href}`;
-      const idMatch = href.match(/(\d+)/);
-      const id = idMatch?.[1] ?? '';
-
-      if (!id || !url) continue;
-
-      // Название вакансии
-      const vacancyTitle = (
-        await item
-          .locator(NEGOTIATION_VACANCY_SELECTOR)
-          .first()
-          .innerText()
-          .catch(() => '')
-      ).trim();
-
-      // Компания
-      const companyName = (
-        await item
-          .locator(NEGOTIATION_COMPANY_SELECTOR)
-          .first()
-          .innerText()
-          .catch(() => '')
-      ).trim();
-
-      // Непрочитанные
-      const hasUnread = await item
-        .locator(UNREAD_INDICATOR_SELECTOR)
-        .first()
-        .isVisible()
-        .catch(() => false);
-
-      result.push({ id, url, vacancyTitle, companyName, hasUnread });
+  private isNegotiationsPage(rawUrl: string): boolean {
+    try {
+      const url = new URL(rawUrl);
+      return url.hostname.endsWith('hh.ru') && url.pathname === '/applicant/negotiations';
+    } catch {
+      return false;
     }
+  }
 
+  private async scrapeNegotiations(page: Page): Promise<NegotiationSummary[]> {
+    const result: NegotiationSummary[] = [];
+    const items = page.locator(NEGOTIATION_ITEM_SELECTOR);
+    const count = Math.min(await items.count(), 40);
+
+    for (let index = 0; index < count; index += 1) {
+      const item = items.nth(index);
+      if (!(await item.isVisible().catch(() => false))) continue;
+      const vacancyTitle = compactText(
+        await item.locator(NEGOTIATION_VACANCY_SELECTOR).first().innerText().catch(() => ''),
+      );
+      const companyName = compactText(
+        await item.locator(NEGOTIATION_COMPANY_SELECTOR).first().innerText().catch(() => ''),
+      );
+      const openChat = item.locator(OPEN_CHAT_SELECTOR).first();
+      if ((await openChat.count().catch(() => 0)) === 0) continue;
+      const isDiscussion = (await item.locator(DISCUSSION_STATUS_SELECTOR).count().catch(() => 0)) > 0;
+      const hasUnread = (await item.locator(UNREAD_STATUS_SELECTOR).count().catch(() => 0)) > 0;
+      result.push({
+        index,
+        key: `${vacancyTitle}\u0000${companyName}`,
+        vacancyTitle,
+        companyName,
+        isDiscussion,
+        hasUnread,
+      });
+    }
     return result;
   }
 
-  /** Перейти в конкретный чат. */
-  private async openNegotiation(page: Page, url: string): Promise<void> {
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
-    // Ждём загрузки сообщений
-    await page
-      .locator(CHAT_MESSAGES_SELECTOR)
-      .first()
-      .waitFor({ timeout: 10_000 })
-      .catch(() => undefined);
-  }
+  private async openNegotiation(page: Page, negotiation: NegotiationSummary): Promise<Frame> {
+    const item = page.locator(NEGOTIATION_ITEM_SELECTOR).nth(negotiation.index);
+    const button = item.locator(OPEN_CHAT_SELECTOR).first();
+    if ((await button.count().catch(() => 0)) === 0) {
+      throw new Error('HH изменил кнопку открытия чата.');
+    }
+    await button.click();
 
-  /** Найти последнее сообщение от рекрутера. */
-  private async scrapeLastRecruiterMessage(
-    page: Page,
-  ): Promise<{ text: string } | null> {
-    const messages = page.locator(CHAT_MESSAGES_SELECTOR);
-    const count = Math.min(await messages.count(), 50);
-
-    // Идём с конца
-    for (let i = count - 1; i >= 0; i--) {
-      const msg = messages.nth(i);
-      if (!(await msg.isVisible().catch(() => false))) continue;
-
-      // Определяем автора: сообщения соискателя обычно справа/другой класс
-      const isMine = await msg
-        .locator('[class*="my"], [class*="own"], [class*="applicant"], [class*="self"], [data-qa*="my-message"]')
-        .first()
-        .isVisible()
-        .catch(() => false);
-
-      if (isMine) continue;
-
-      const text = (await msg.innerText().catch(() => '')).trim();
-      if (text.length >= this.config.minMessageLength) {
-        return { text };
+    const deadline = Date.now() + 12_000;
+    while (Date.now() < deadline) {
+      const frames = page.frames().filter((frame) => frame.url().includes(CHAT_FRAME_URL_PART));
+      for (const frame of frames.reverse()) {
+        const header = compactText(
+          await frame.locator(CHAT_VACANCY_SELECTOR).first().innerText().catch(() => ''),
+        );
+        if (
+          !negotiation.vacancyTitle ||
+          !header ||
+          header.toLocaleLowerCase('ru').includes(negotiation.vacancyTitle.toLocaleLowerCase('ru')) ||
+          negotiation.vacancyTitle.toLocaleLowerCase('ru').includes(header.toLocaleLowerCase('ru'))
+        ) {
+          await frame
+            .locator(CHAT_MESSAGE_SELECTOR)
+            .first()
+            .waitFor({ state: 'attached', timeout: 5_000 })
+            .catch(() => undefined);
+          return frame;
+        }
       }
+      await this.delay(150);
     }
-
-    return null;
+    throw new Error('HH не открыл чат с работодателем.');
   }
 
-  /** Отправить сообщение в чат. */
-  private async sendChatMessage(page: Page, text: string): Promise<void> {
-    // Находим поле ввода
-    const input = page.locator(CHAT_INPUT_SELECTOR).first();
-    const inputCount = await input.count();
-    if (inputCount === 0) {
-      console.warn('[hh-chat-browser] Не найдено поле ввода чата');
-      return;
+  private async scrapeMessages(frame: Frame): Promise<ChatMessage[]> {
+    const messages = frame.locator(CHAT_MESSAGE_SELECTOR);
+    const count = Math.min(await messages.count(), 150);
+    const result: ChatMessage[] = [];
+    for (let index = 0; index < count; index += 1) {
+      const message = messages.nth(index);
+      const dataQa = (await message.getAttribute('data-qa').catch(() => '')) ?? '';
+      if (!/^chatik-chat-message-\d+$/.test(dataQa)) continue;
+      if (!(await message.isVisible().catch(() => false))) continue;
+      const textNode = message.locator(`[data-qa="${dataQa}-text"]`).first();
+      const text = compactText(
+        (await textNode.count().catch(() => 0)) > 0
+          ? await textNode.innerText().catch(() => '')
+          : await message.innerText().catch(() => ''),
+      );
+      if (!text) continue;
+      const ownClass = await message
+        .evaluate((element) => {
+          const classNames = [
+            typeof element.className === 'string' ? element.className : '',
+            ...Array.from(element.querySelectorAll('[class]'), (child) =>
+              typeof child.className === 'string' ? child.className : ''),
+          ];
+          return classNames.join(' ');
+        })
+        .catch(() => '');
+      const hasOutgoingDescendant =
+        (await message.locator(OUTGOING_SELECTOR).count().catch(() => 0)) > 0;
+      result.push({
+        id: dataQa,
+        text,
+        isMine: hasOutgoingDescendant || isOutgoingChatClassName(ownClass),
+      });
+    }
+    return result;
+  }
+
+  private async scrapeLastMessage(frame: Frame): Promise<ChatMessage | null> {
+    const messages = await this.scrapeMessages(frame);
+    return messages.at(-1) ?? null;
+  }
+
+  private async sendChatMessage(frame: Frame, text: string): Promise<void> {
+    const input = frame.locator(CHAT_INPUT_SELECTOR).first();
+    await input.waitFor({ state: 'visible', timeout: 8_000 });
+    const beforeIds = new Set((await this.scrapeMessages(frame)).filter((item) => item.isMine).map((item) => item.id));
+
+    await input.fill(text);
+    if (compactText(await input.inputValue()) !== compactText(text)) {
+      throw new Error('HH не принял текст ответа в поле чата.');
     }
 
-    await input.click().catch(() => undefined);
-    await input.fill('').catch(() => undefined); // очищаем
-    await input.type(text, { delay: 30 }).catch(() => {
-      // fallback: fill
-      void input.fill(text);
-    });
+    const sendButton = frame.locator(CHAT_SEND_SELECTOR).first();
+    await sendButton.waitFor({ state: 'visible', timeout: 5_000 });
+    await sendButton.click();
 
-    await this.delay(500);
-
-    // Находим кнопку отправки
-    const sendBtn = page.locator(CHAT_SEND_SELECTOR).first();
-    if ((await sendBtn.count()) > 0) {
-      await sendBtn.click().catch(() => undefined);
-    } else {
-      // Пробуем Enter
-      await page.keyboard.press('Enter');
+    const expected = compactText(text);
+    const deadline = Date.now() + 12_000;
+    while (Date.now() < deadline) {
+      const outgoing = (await this.scrapeMessages(frame)).filter(
+        (item) => item.isMine && !beforeIds.has(item.id),
+      );
+      if (outgoing.some((item) => compactText(item.text).includes(expected))) return;
+      await this.delay(200);
     }
-
-    await this.delay(1000);
+    throw new Error('HH не подтвердил отправку ответа работодателю.');
   }
 
   private shouldIgnore(text: string): boolean {
     const lower = text.toLocaleLowerCase('ru');
-    return this.config.ignoredKeywords
-      .split(',')
-      .some((kw) => {
-        const trimmed = kw.trim().toLocaleLowerCase('ru');
-        return trimmed && lower.includes(trimmed);
-      });
+    return this.config.ignoredKeywords.split(',').some((keyword) => {
+      const normalized = keyword.trim().toLocaleLowerCase('ru');
+      return Boolean(normalized && lower.includes(normalized));
+    });
+  }
+
+  private rollDailyCounter(): void {
+    const today = this.todayKey();
+    if (this.replyDate === today) return;
+    this.replyDate = today;
+    this.repliesToday = 0;
   }
 
   private delay(ms: number): Promise<void> {
@@ -468,13 +456,16 @@ export class HhChatBrowser {
   }
 
   private todayKey(): string {
-    return new Date().toISOString().slice(0, 10);
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
   }
 
   private load(): PersistedChatState | null {
     try {
-      const raw = fs.readFileSync(chatStatePath(this.userDataDir), 'utf8');
-      return JSON.parse(raw) as PersistedChatState;
+      return JSON.parse(fs.readFileSync(chatStatePath(this.userDataDir), 'utf8')) as PersistedChatState;
     } catch {
       return null;
     }
@@ -482,7 +473,7 @@ export class HhChatBrowser {
 
   private persist(): void {
     try {
-      const today = this.todayKey();
+      this.rollDailyCounter();
       fs.mkdirSync(path.dirname(chatStatePath(this.userDataDir)), { recursive: true });
       fs.writeFileSync(
         chatStatePath(this.userDataDir),
@@ -490,8 +481,8 @@ export class HhChatBrowser {
           {
             config: this.config,
             seenMessageIds: [...this.seenMessageIds].slice(-500),
-            repliesToday: this.replyDate === today ? this.repliesToday : 0,
-            replyDate: today,
+            repliesToday: this.repliesToday,
+            replyDate: this.replyDate,
           } satisfies PersistedChatState,
           null,
           2,

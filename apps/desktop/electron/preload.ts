@@ -19,8 +19,8 @@ const api = {
     getState: () => ipcRenderer.invoke('hh-assistant:get-state'),
     saveConfig: (config: unknown) =>
       ipcRenderer.invoke('hh-assistant:save-config', config),
-    openBrowser: () => ipcRenderer.invoke('hh-assistant:open-browser'),
-    scan: () => ipcRenderer.invoke('hh-assistant:scan'),
+    openBrowser: (platform?: 'hh' | 'linkedin' | 'avito') => ipcRenderer.invoke('hh-assistant:open-browser', platform),
+    scan: (platform?: 'hh' | 'linkedin' | 'avito') => ipcRenderer.invoke('hh-assistant:scan', platform),
     applyAll: () => ipcRenderer.invoke('hh-assistant:apply-all'),
     applyOne: (vacancyId: string) => ipcRenderer.invoke('hh-assistant:apply-one', vacancyId),
     stopApply: () => ipcRenderer.invoke('hh-assistant:stop-apply'),

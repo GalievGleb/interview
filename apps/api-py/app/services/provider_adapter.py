@@ -252,6 +252,13 @@ def _headers(provider: str, key: str) -> dict[str, str]:
     return headers
 
 
+def _model_for_provider(provider: str, model: str) -> str:
+    """OpenRouter uses provider/model IDs; direct OpenAI uses the bare slug."""
+    if provider == "openai" and model.lower().startswith("openai/"):
+        return model.split("/", 1)[1]
+    return model
+
+
 # Token usage последнего LLM-вызова в ЭТОМ асинхронном контексте (contextvar —
 # безопасно при параллельных запросах). Роутеры забирают через pop_last_usage()
 # сразу после вызова, чтобы записать реальные токены в ApiUsage.
@@ -356,24 +363,51 @@ def live_stream_options(model_id: str) -> tuple[int, dict | None]:
 
 
 def vacancy_eval_options(model_id: str) -> tuple[int, dict | None]:
-    """max_tokens и reasoning для vacancy evaluate — same thinking-model problem as
-    live, but the JSON schema is larger (semantic mapping, corrections, stronger
-    answer), so the token budget is bigger. Vacancy *analyze* is unaffected — it
-    runs once per vacancy and can stay unhurried."""
+    """Quality-first completion budget for one finished practice answer review.
+
+    GPT-5.6 Sol gets deliberate reasoning room: this route must both diagnose a
+    noisy answer and synthesize a grounded, logically complete replacement.
+    Other thinking models keep a smaller budget so catalog fallbacks remain
+    usable without changing the latency profile as dramatically.
+    """
+    if "gpt-5.6" in model_id.lower():
+        return 6000, {"effort": "high", "exclude": True}
     if is_thinking_model(model_id):
-        return 2200, {"effort": "minimal", "exclude": True}
-    return 1100, None
+        return 3600, {"effort": "medium", "exclude": True}
+    return 2200, None
+
+
+def _apply_reasoning_options(
+    payload: dict, *, provider: str, model: str, reasoning: dict | None
+) -> None:
+    """Translate the shared reasoning contract to the provider's API shape."""
+    if not reasoning:
+        return
+    if provider == "openai" and "gpt-5" in model.lower():
+        effort = reasoning.get("effort")
+        if effort:
+            payload["reasoning_effort"] = effort
+        return
+    payload["reasoning"] = reasoning
+
+
+def _apply_completion_limit(payload: dict, *, provider: str, model: str) -> None:
+    """Use the current Chat Completions token-limit field for direct GPT-5 calls."""
+    if provider == "openai" and "gpt-5" in model.lower():
+        payload["max_completion_tokens"] = payload.pop("max_tokens")
 
 
 async def test_provider(provider: str | None, model: str | None) -> dict:
     provider, base_url, key = _resolve(provider)
     settings = get_settings()
     model = model or settings.default_model
+    model = _model_for_provider(provider, model)
     payload = {
         "model": model,
         "messages": [{"role": "user", "content": "ping"}],
         "max_tokens": 5,
     }
+    _apply_completion_limit(payload, provider=provider, model=model)
     resp = await get_client().post(
         f"{base_url}/chat/completions",
         headers=_headers(provider, key),
@@ -470,6 +504,7 @@ async def stream_chat(
     provider, base_url, key = _resolve(provider)
     settings = get_settings()
     model = model or settings.default_model
+    model = _model_for_provider(provider, model)
     reasoning: dict | None = None
     if live_fast:
         max_tokens, reasoning = live_stream_options(model)
@@ -480,8 +515,8 @@ async def stream_chat(
         "max_tokens": max_tokens,
         "temperature": temperature,
     }
-    if reasoning:
-        payload["reasoning"] = reasoning
+    _apply_completion_limit(payload, provider=provider, model=model)
+    _apply_reasoning_options(payload, provider=provider, model=model, reasoning=reasoning)
     # Ask OpenRouter to prefer the highest-throughput upstream provider for the
     # lowest time-to-first-token (fast-answer mode only).
     if route_fast and provider == "openrouter":
@@ -516,6 +551,7 @@ async def complete(
     temperature: float = 0.4,
     *,
     reasoning: dict | None = None,
+    response_format: dict | None = None,
 ) -> str:
     """Неблокирующий полный ответ (для JSON-режима интервью).
 
@@ -526,14 +562,17 @@ async def complete(
     provider, base_url, key = _resolve(provider)
     settings = get_settings()
     model = model or settings.default_model
+    model = _model_for_provider(provider, model)
     payload = {
         "model": model,
         "messages": apply_prompt_cache(messages, model),
         "max_tokens": max_tokens,
         "temperature": temperature,
     }
-    if reasoning:
-        payload["reasoning"] = reasoning
+    _apply_completion_limit(payload, provider=provider, model=model)
+    _apply_reasoning_options(payload, provider=provider, model=model, reasoning=reasoning)
+    if response_format:
+        payload["response_format"] = response_format
     resp = await _post_with_retry(base_url, provider, key, payload)
     if resp.status_code >= 400:
         raise parse_provider_error(resp.status_code, resp.text, provider)

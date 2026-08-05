@@ -1214,6 +1214,49 @@ button.prep-priority-row:hover {
   font-size: 10.5px;
 }
 
+.prep-answer-strategy {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  border-left: 2px solid var(--prep-blue);
+  padding: 8px 10px;
+  background: color-mix(in srgb, var(--prep-blue) 8%, transparent);
+  color: var(--prep-ink-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.prep-answer-strategy strong {
+  flex: 0 0 auto;
+  color: var(--prep-blue);
+}
+
+.prep-answer-rationale {
+  margin-top: 14px;
+  border-top: 1px solid rgba(52, 199, 123, 0.2);
+  padding-top: 11px;
+}
+
+.prep-answer-rationale ul {
+  display: grid;
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.prep-answer-rationale li {
+  display: flex;
+  gap: 7px;
+  color: var(--prep-ink-muted);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.prep-answer-rationale li span {
+  flex: 0 0 auto;
+  color: var(--prep-green);
+  font-weight: 800;
+}
+
 .prep-training-focus {
   display: flex;
   align-items: flex-start;

@@ -126,6 +126,12 @@ export interface SmokeAnswerEvaluation {
   technicalCorrections?: string[];
   /** The structure the candidate should answer by (ordered steps). */
   betterStructure?: string[];
+  /** One-sentence logical plan behind the stronger answer. */
+  answerStrategy?: string;
+  /** Why the generated answer is stronger and interview-ready. */
+  whyThisAnswerWorks?: string[];
+  /** Concrete spoken-delivery improvements for the next attempt. */
+  deliveryTips?: string[];
   /** 2–4 questions an interviewer would drill in with. */
   followUpQuestions?: string[];
   /** What to train next after this answer. */

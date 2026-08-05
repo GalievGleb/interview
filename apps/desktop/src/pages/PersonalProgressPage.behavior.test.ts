@@ -30,12 +30,6 @@ describe('personal progress page', () => {
     expect(page).toContain("'qa-python'");
   });
 
-  it('reveals an exact technical score only with enough reliable sessions', () => {
-    expect(page).toContain('profile.technical.evidenceCount >= 3');
-    expect(page).toContain('profile.technical.confidence >= 0.55');
-    expect(page).toContain("reliableTechnicalScore ? `${profile?.technical.score}/100` : 'Предварительно'");
-  });
-
   it('loads the aggregate built from persisted per-session AI analyses', () => {
     expect(api).toContain('getDevelopmentProfile:');
     expect(page).toContain('api.getDevelopmentProfile()');

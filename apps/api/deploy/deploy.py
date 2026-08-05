@@ -144,8 +144,8 @@ def build_env() -> str:
         # Апстрим — ProxyAPI (OpenAI-совместимый, работает из РФ напрямую, в отличие
         # от OpenRouter, который Cloudflare гео-блочит с IP VPS: "Access denied by
         # security policy"). Ключ OPENROUTER_API_KEY выше — это ключ ProxyAPI (sk-...).
-        # openai-стиль → mapModelForUpstream сводит любую модель к gpt-4o/gpt-4o-mini,
-        # что заодно жёстко ограничивает цену. Сменить апстрим — env при запуске.
+        # openai-стиль сохраняет quality-first GPT-5 для разбора тренировочного
+        # ответа, а остальные кросс-провайдерные модели сводит к gpt-4o/mini.
         "GATEWAY_UPSTREAM_BASE=https://api.proxyapi.ru/openai/v1",
         "GATEWAY_UPSTREAM_STYLE=openai",
         # Блок-лист дорогих моделей: даже в рамках токен-лимита нельзя сливать
@@ -154,7 +154,7 @@ def build_env() -> str:
         # остаются. Заблокированные скрыты и из /v1/models (AUTO их не выберет).
         # Переопределяется env GATEWAY_BLOCKED_MODELS при запуске сервиса.
         "GATEWAY_BLOCKED_MODELS="
-        "openai/o1,openai/o3,openai/gpt-4.5,openai/gpt-5,"
+        "openai/o1,openai/o3,openai/gpt-4.5,openai/gpt-5.5-pro,openai/gpt-5.4-pro,"
         "anthropic/claude-3-opus,anthropic/claude-opus,google/gemini-2.5-pro",
         # Managed STT: all licensed clients use gpt-4o-mini-transcribe through
         # the HTTP gateway endpoint.

@@ -376,10 +376,32 @@ export default function SmokeInterviewView({
             </div>
           </div>
 
+          <p className="prep-sub">{evaluation.feedback}</p>
+
+          {evaluation.answerStrategy && evaluation.evaluationSource !== 'heuristic' && (
+            <div className="prep-answer-strategy">
+              <strong>{t('prep.smoke.answerLogic')}</strong>
+              <span>{evaluation.answerStrategy}</span>
+            </div>
+          )}
+
           {evaluation.suggestedBetterAnswer && evaluation.evaluationSource !== 'heuristic' && (
             <div className="prep-strong-answer">
               <p className="prep-eyebrow">{t('prep.smoke.strongVersion')}</p>
               <p className="mt-2 whitespace-pre-wrap">{evaluation.suggestedBetterAnswer}</p>
+              {evaluation.whyThisAnswerWorks && evaluation.whyThisAnswerWorks.length > 0 && (
+                <div className="prep-answer-rationale">
+                  <p className="prep-faint">{t('prep.smoke.whyAnswerWorks')}</p>
+                  <ul>
+                    {evaluation.whyThisAnswerWorks.map((reason) => (
+                      <li key={reason}>
+                        <span>✓</span>
+                        {reason}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               {evaluation.hallucinationGuard && evaluation.hallucinationGuard.length > 0 && (
                 <small>
                   {t('prep.smoke.noFiction')} {evaluation.hallucinationGuard.join(' · ')}
@@ -387,8 +409,6 @@ export default function SmokeInterviewView({
               )}
             </div>
           )}
-
-          <p className="prep-sub">{evaluation.feedback}</p>
 
           {evaluation.nextTrainingFocus && (
             <div className="prep-training-focus">
@@ -522,6 +542,14 @@ export default function SmokeInterviewView({
                     ))}
                   </ol>
                 </div>
+              )}
+              {evaluation.deliveryTips && evaluation.deliveryTips.length > 0 && (
+                <FeedbackList
+                  label={t('prep.smoke.deliveryTips')}
+                  items={evaluation.deliveryTips}
+                  color="var(--prep-blue)"
+                  mark="→"
+                />
               )}
             </div>
           </details>
