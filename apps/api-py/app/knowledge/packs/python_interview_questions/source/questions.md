@@ -87,7 +87,7 @@ lst.extend([5, 6])
 # Теперь lst = [1, 2, 3, 4, 5, 6]
 
 # insert(i, x): вставляет элемент x на позицию i
-lst.insert(0, 'start')
+lst.insert(0, "start")
 # Теперь lst = ['start', 1, 2, 3, 4, 5, 6]
 
 # remove(x): удаляет первое вхождение элемента x
@@ -448,7 +448,6 @@ foo()
 
 ```python
 class Iterable(metaclass=ABCMeta):
-
     __slots__ = ()
 
     @abstractmethod
@@ -470,9 +469,11 @@ class SomeIterable1(collections.abc.Iterable):
     def __iter__(self):
         pass
 
+
 class SomeIterable2:
     def __iter__(self):
         pass
+
 
 print(isinstance(SomeIterable1(), collections.abc.Iterable))
 # True
@@ -485,9 +486,11 @@ print(isinstance(SomeIterable2(), collections.abc.Iterable))
 ```python
 from string import ascii_letters
 
+
 class SomeIterable3:
     def __getitem__(self, key):
         return ascii_letters[key]
+
 
 for item in SomeIterable3():
     print(item)
@@ -507,12 +510,11 @@ for item in SomeIterable3():
 
 ```python
 class Iterator(Iterable):
-
     __slots__ = ()
 
     @abstractmethod
     def __next__(self):
-        'Return the next item from the iterator. When exhausted, raise StopIteration'
+        "Return the next item from the iterator. When exhausted, raise StopIteration"
         raise StopIteration
 
     def __iter__(self):
@@ -521,7 +523,7 @@ class Iterator(Iterable):
     @classmethod
     def __subclasshook__(cls, C):
         if cls is Iterator:
-            return _check_methods(C, '__iter__', '__next__')
+            return _check_methods(C, "__iter__", "__next__")
         return NotImplemented
 ```
 
@@ -590,7 +592,7 @@ class Iterator(Iterable):
 Ключ. Порядок следования ключей не гарантируется (в 3.6 гарантируется неофициально, в 3.7 гарантируется). Для маленьких словарей порядок будет тот же, что и в объявлении. Для больших порядок зависит от расположения элементов в памяти. Особый класс `OrderedDict` учитывает порядок добавления ключей.
 
 ```python
-for key in {'foo': 1, 'bar': 2}:
+for key in {"foo": 1, "bar": 2}:
     process_key(key)
 ```
 
@@ -719,7 +721,7 @@ class NowMixin(object):
 Нужно стараться выходить из контекстного менеджера как можно быстрее, чтобы освобождать контекст и ресурсы.
 
 ```python
-with open('file.txt') as f:
+with open("file.txt") as f:
     data = f.read()
 process_data(data)
 ```
@@ -729,10 +731,10 @@ process_data(data)
 ```python
 class Printable:
     def __enter__(self):
-        print('enter')
+        print("enter")
 
     def __exit__(self, type, value, traceback):
-        print('exit')
+        print("exit")
 ```
 
 Пример реализации своего контекстного менеджера с использованием встроенной библиотеки contextlib:
@@ -740,13 +742,14 @@ class Printable:
 ```python
 from contextlib import contextmanager
 
+
 @contextmanager
 def printable():
-    print('enter')
+    print("enter")
     try:
-      yield
+        yield
     finally:
-      print('exit')
+        print("exit")
 ```
 
 Контекстные менеджеры также можно использовать для временной замены параметров, переменных окружения, транзакций БД.
@@ -892,8 +895,8 @@ finally:
 try:
     1 / 0
 except ZeroDivisionError:
-  # some logic
-  raise
+    # some logic
+    raise
 ```
 
 ### Что такое сцепление исключений
@@ -988,22 +991,21 @@ except ZeroDivisionError:
 Применять декоратор можно к любому объекту. Чаще всего к функциям, методам и классам. Декорирование встречается настолько часто, что под него выделен особый оператор `@`.
 
 ```python
-def auth_only(view):
-    ...
+def auth_only(view): ...
+
 
 @auth_only
-def dashboard(request):
-    ...
+def dashboard(request): ...
 ```
 
 Если бы оператора декорирования не существовало, мы бы записали код выше так:
 
 ```python
-def auth_only(view):
-    ...
+def auth_only(view): ...
 
-def dashboard(request):
-    ...
+
+def dashboard(request): ...
+
 
 dashboard = auth_only(dashboard)
 ```
@@ -1025,6 +1027,7 @@ dashboard = auth_only(dashboard)
 ```python
 from functools import wraps
 
+
 def has_perm(perm):
     def decorator(view):
         @wraps(view)
@@ -1032,13 +1035,15 @@ def has_perm(perm):
             if perm in request.user.permissions:
                 return view(request)
             else:
-                return HTTPRedirect('/login')
+                return HTTPRedirect("/login")
+
         return wrapper
+
     return decorator
 
-@has_perm('view_user')
-def users(request):
-    ...
+
+@has_perm("view_user")
+def users(request): ...
 ```
 
 ### Зачем нужен wraps
@@ -1064,7 +1069,7 @@ def users(request):
 
 ```python
 class Foo(Bar):
-  pass
+    pass
 ```
 
 Питон делает следующее:
@@ -1089,8 +1094,8 @@ class Foo(Bar):
 
 ```python
 class Person(models.Model):
-  name = models.CharField(max_length=30)
-  age = models.IntegerField()
+    name = models.CharField(max_length=30)
+    age = models.IntegerField()
 ```
 
 Однако если вы выполните следующий код:
@@ -1344,9 +1349,10 @@ Python частично поддерживает парадигму функци
 
 ```python
 def greet(greeting, name):
-    print(greeting + ', ' + name)
+    print(greeting + ", " + name)
 
-greet('Hello', 'German')
+
+greet("Hello", "German")
 ```
 
 Небольшое улучшение позволит нам создать новую функцию для любого типа приветствия и передать этой новой функции имя:
@@ -1354,13 +1360,15 @@ greet('Hello', 'German')
 ```python
 def greet_curried(greeting):
     def greet(name):
-        print(greeting + ', ' + name)
+        print(greeting + ", " + name)
+
     return greet
 
-greet_hello = greet_curried('Hello')
 
-greet_hello('German')
-greet_hello('Ivan')
+greet_hello = greet_curried("Hello")
+
+greet_hello("German")
+greet_hello("Ivan")
 ```
 
 Или напрямую `greet_curried`
@@ -1470,15 +1478,17 @@ AsyncIO подойдет, если приложение большую част�
 import asyncio
 import aiohttp
 
-urls = ['http://www.google.com', 'http://www.yandex.ru', 'http://www.python.org']
+urls = ["http://www.google.com", "http://www.yandex.ru", "http://www.python.org"]
+
 
 async def call_url(url):
     async with aiohttp.ClientSession() as session:
-        print('Starting {}'.format(url))
+        print("Starting {}".format(url))
         async with session.get(url) as response:
             data = await response.text()
-            print('{}: {} bytes: {}'.format(url, len(data), data))
+            print("{}: {} bytes: {}".format(url, len(data), data))
             return data
+
 
 futures = [call_url(url) for url in urls]
 
@@ -1531,11 +1541,14 @@ Greenlet == Green thread == Зеленые треды == легковесные 
 ```python
 def singleton(class_):
     instances = {}
+
     def getinstance(*args, **kwargs):
         if class_ not in instances:
             instances[class_] = class_(*args, **kwargs)
         return instances[class_]
+
     return getinstance
+
 
 @singleton
 class MyClass(BaseClass):
@@ -1556,10 +1569,12 @@ class MyClass(BaseClass):
 ```python
 class Singleton(object):
     _instance = None
+
     def __new__(class_, *args, **kwargs):
         if not isinstance(class_._instance, class_):
             class_._instance = object.__new__(class_, *args, **kwargs)
         return class_._instance
+
 
 class MyClass(Singleton, BaseClass):
     pass
@@ -1578,16 +1593,19 @@ class MyClass(Singleton, BaseClass):
 ```python
 class Singleton(type):
     _instances = {}
+
     def __call__(cls, *args, **kwargs):
         if cls not in cls._instances:
             cls._instances[cls] = super(Singleton, cls).__call__(*args, **kwargs)
         return cls._instances[cls]
 
-#Python2
+
+# Python2
 class MyClass(BaseClass):
     __metaclass__ = Singleton
 
-#Python3
+
+# Python3
 class MyClass(BaseClass, metaclass=Singleton):
     pass
 ```
@@ -1759,7 +1777,7 @@ dir(foo(5))
 Foo().hello()
 
 # С рефлексией
-getattr(globals()['Foo'](), 'hello')()
+getattr(globals()["Foo"](), "hello")()
 ```
 
 # Django
@@ -1862,8 +1880,7 @@ Django во многом работает через метаклассы.
 
 ```python
 @six.add_metaclass(SerializerMetaclass)
-class Serializer(BaseSerializer):
-  ...
+class Serializer(BaseSerializer): ...
 ```
 
 SerializerMetaclass - это тот самый метакласс, который конструирует класс ModelForm.
@@ -2281,7 +2298,6 @@ import random
 
 
 class PetShop:
-
     """A pet shop"""
 
     def __init__(self, animal_factory=None):
@@ -2315,6 +2331,7 @@ class Cat:
 
 # Additional factories:
 
+
 # Create a random animal
 def random_animal():
     """Let's be dynamic!"""
@@ -2323,7 +2340,6 @@ def random_animal():
 
 # Show pets with various factories
 if __name__ == "__main__":
-
     # A Shop that sells only cats
     cat_shop = PetShop(Cat)
     cat_shop.show_pet()
@@ -2399,24 +2415,24 @@ class Building:
         raise NotImplementedError
 
     def __repr__(self):
-        return 'Floor: {0.floor} | Size: {0.size}'.format(self)
+        return "Floor: {0.floor} | Size: {0.size}".format(self)
 
 
 # Concrete Buildings
 class House(Building):
     def build_floor(self):
-        self.floor = 'One'
+        self.floor = "One"
 
     def build_size(self):
-        self.size = 'Big'
+        self.size = "Big"
 
 
 class Flat(Building):
     def build_floor(self):
-        self.floor = 'More than One'
+        self.floor = "More than One"
 
     def build_size(self):
-        self.size = 'Small'
+        self.size = "Small"
 
 
 # In some very complex cases, it might be desirable to pull out the building
@@ -2427,15 +2443,15 @@ class Flat(Building):
 
 class ComplexBuilding:
     def __repr__(self):
-        return 'Floor: {0.floor} | Size: {0.size}'.format(self)
+        return "Floor: {0.floor} | Size: {0.size}".format(self)
 
 
 class ComplexHouse(ComplexBuilding):
     def build_floor(self):
-        self.floor = 'One'
+        self.floor = "One"
 
     def build_size(self):
-        self.size = 'Big and fancy'
+        self.size = "Big and fancy"
 
 
 def construct_building(cls):
@@ -2462,6 +2478,7 @@ def main():
 
 if __name__ == "__main__":
     import doctest
+
     doctest.testmod()
 ```
 
@@ -2540,6 +2557,7 @@ def main():
 
 if __name__ == "__main__":
     import doctest
+
     doctest.testmod()
 ```
 
@@ -2551,21 +2569,27 @@ if __name__ == "__main__":
 
 ```python
 class Point:
-    __slots__ = ('x', 'y',)
+    __slots__ = (
+        "x",
+        "y",
+    )
 
     def __init__(self, x, y):
         self.x = x
         self.y = y
 
+
 # При таком классическом определении класса Point создать новую точку можно семью способами
+
 
 def make_object(cls, *args, **kwargs):
     return cls(*args, **kwargs)
 
+
 point1 = Point(1, 2)
-point2 = eval('{}({}, {})'.format('Point', 2, 4)) # Опасно
-point3 = getattr(sys.modules[__name__], 'Point')(3, 6)
-point4 = globals()['Point'](4, 8)
+point2 = eval("{}({}, {})".format("Point", 2, 4))  # Опасно
+point3 = getattr(sys.modules[__name__], "Point")(3, 6)
+point4 = globals()["Point"](4, 8)
 point5 = make_object(Point, 5, 10)
 point6 = copy.deepcopy(point5)
 point6.x = 6
@@ -2601,8 +2625,7 @@ Creates new object instances by cloning prototype.
 
 
 class Prototype:
-
-    value = 'default'
+    value = "default"
 
     def clone(self, **attrs):
         """Clone a prototype and update inner attributes dictionary"""
@@ -2644,8 +2667,9 @@ def main():
     """
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     import doctest
+
     doctest.testmod()
 ```
 
@@ -2729,7 +2753,7 @@ class Borg:
 
     def __init__(self):
         self.__dict__ = self.__shared_state
-        self.state = 'Init'
+        self.state = "Init"
 
     def __str__(self):
         return self.state
@@ -2772,6 +2796,7 @@ def main():
 
 if __name__ == "__main__":
     import doctest
+
     doctest.testmod()
 ```
 
@@ -2813,16 +2838,18 @@ def get(refresh=False):
             except ValueError as err:
                 print("error {}: {}".format(err, line))
     return get.rates
+
+
 get.rates = {}
 
 
 if __name__ == "__main__":
     import sys
+
     if sys.stdout.isatty():
         print(get())
     else:
         print("Loaded OK")
-
 ```
 
 Здесь мы создаем словарь rates в виде атрибута функции Rates.get() - это наше закрытое значение. Когда открытая функция get() вызывается в первый раз (а также при вызове с параметром refresh=True), мы загружаем список курсов; в противном случае просто возвращаем последние загруженные курсы.
@@ -2950,6 +2977,7 @@ def main():
 
 if __name__ == "__main__":
     import doctest
+
     doctest.testmod(optionflags=doctest.ELLIPSIS)
 ```
 
@@ -2972,13 +3000,13 @@ Decouples an abstraction from its implementation.
 # ConcreteImplementor 1/2
 class DrawingAPI1:
     def draw_circle(self, x, y, radius):
-        print('API1.circle at {}:{} radius {}'.format(x, y, radius))
+        print("API1.circle at {}:{} radius {}".format(x, y, radius))
 
 
 # ConcreteImplementor 2/2
 class DrawingAPI2:
     def draw_circle(self, x, y, radius):
-        print('API2.circle at {}:{} radius {}'.format(x, y, radius))
+        print("API2.circle at {}:{} radius {}".format(x, y, radius))
 
 
 # Refined Abstraction
@@ -3009,8 +3037,9 @@ def main():
     """
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     import doctest
+
     doctest.testmod()
 ```
 
@@ -3076,7 +3105,7 @@ class Ellipse(Graphic):
         print("Ellipse: {}".format(self.name))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     ellipse1 = Ellipse("1")
     ellipse2 = Ellipse("2")
     ellipse3 = Ellipse("3")
@@ -3166,7 +3195,7 @@ class ItalicWrapper(TextTag):
         return "<i>{}</i>".format(self._wrapped.render())
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     simple_hello = TextTag("hello, world!")
     special_hello = ItalicWrapper(BoldWrapper(simple_hello))
     print("before:", simple_hello.render())
@@ -3217,6 +3246,7 @@ class CPU:
     """
     Simple CPU representation.
     """
+
     def freeze(self):
         print("Freezing processor.")
 
@@ -3231,6 +3261,7 @@ class Memory:
     """
     Simple memory representation.
     """
+
     def load(self, position, data):
         print("Loading from {0} data: '{1}'.".format(position, data))
 
@@ -3239,6 +3270,7 @@ class SolidStateDrive:
     """
     Simple solid state drive representation.
     """
+
     def read(self, lba, size):
         return "Some data from sector {0} with size {1}".format(lba, size)
 
@@ -3247,6 +3279,7 @@ class ComputerFacade:
     """
     Represents a facade for various computer parts.
     """
+
     def __init__(self):
         self.cpu = CPU()
         self.memory = Memory()
@@ -3272,6 +3305,7 @@ def main():
 
 if __name__ == "__main__":
     import doctest
+
     doctest.testmod(optionflags=doctest.ELLIPSIS)
 ```
 
@@ -3282,7 +3316,7 @@ if __name__ == "__main__":
 В Python подход к реализации приспособленцев естественный - благодаря наличию ссылок на объекты. Например, если бы у нас был длинный список строк, в котором много дубликатов, то, сохраняя ссылки на объекты (то есть переменные), а не литеральные строки, мы бы могли существенно сэкономить память
 
 ```python
-red, green, blue = 'red', 'green', 'blue'
+red, green, blue = "red", "green", "blue"
 x = (red, green, blue, red, green, blue, green)
 ```
 
@@ -3363,6 +3397,7 @@ def main():
 
 if __name__ == "__main__":
     import doctest
+
     doctest.testmod()
 ```
 
@@ -3393,12 +3428,12 @@ class SalesManager:
 
 class Proxy:
     def __init__(self):
-        self.busy = 'No'
+        self.busy = "No"
         self.sales = None
 
     def talk(self):
         print("Proxy checking for Sales Manager availability")
-        if self.busy == 'No':
+        if self.busy == "No":
             self.sales = SalesManager()
             time.sleep(0.1)
             self.sales.talk()
@@ -3414,14 +3449,14 @@ class NoTalkProxy(Proxy):
         print("This Sales Manager will not talk to you", "whether he/she is busy or not")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     p = Proxy()
     p.talk()
-    p.busy = 'Yes'
+    p.busy = "Yes"
     p.talk()
     p = NoTalkProxy()
     p.talk()
-    p.busy = 'Yes'
+    p.busy = "Yes"
     p.talk()
 
 # OUTPUT #
@@ -3470,7 +3505,6 @@ import abc
 
 
 class Handler(metaclass=abc.ABCMeta):
-
     def __init__(self, successor=None):
         self.successor = successor
 
@@ -3558,6 +3592,7 @@ def main():
 
 if __name__ == "__main__":
     import doctest
+
     doctest.testmod(optionflags=doctest.ELLIPSIS)
 ```
 
@@ -3622,6 +3657,7 @@ def main():
 
 if __name__ == "__main__":
     import doctest
+
     doctest.testmod()
 ```
 
@@ -3695,21 +3731,17 @@ print interp.interpret('MCMLXXXVIII') == 1988  # True
 
 
 class Bag:
-
     def __init__(self, items=None):
         self.__bag = {}
         if items is not None:
             for item in items:
                 self.add(item)
 
-
     def clear(self):
         self.__bag.clear()
 
-
     def add(self, item):
         self.__bag[item] = self.__bag.get(item, 0) + 1
-
 
     def __delitem__(self, item):
         if self.__bag.get(item) is not None:
@@ -3719,26 +3751,19 @@ class Bag:
         else:
             raise KeyError(str(item))
 
-
     def count(self, item):
         return self.__bag.get(item, 0)
-
 
     def __len__(self):
         return sum(count for count in self.__bag.values())
 
-
     def __iter__(self):
-        return (item for item, count in self.__bag.items()
-                for _ in range(count))
-
+        return (item for item, count in self.__bag.items() for _ in range(count))
 
     items = __iter__
 
-
     def __contains__(self, item):
         return item in self.__bag
-
 ```
 
 #### Посредник (Mediator)
@@ -3792,8 +3817,9 @@ def main():
     """
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     import doctest
+
     doctest.testmod()
 ```
 
@@ -3820,11 +3846,9 @@ def main():
 
 
 class Form:
-
     def __init__(self):
         self.create_widgets()
         self.create_mediator()
-
 
     def create_widgets(self):
         self.nameText = Text()
@@ -3832,19 +3856,17 @@ class Form:
         self.okButton = Button("OK")
         self.cancelButton = Button("Cancel")
 
-
     def create_mediator(self):
-        self.mediator = Mediator(((self.nameText, self.update_ui),
-                (self.emailText, self.update_ui),
-                (self.okButton, self.clicked),
-                (self.cancelButton, self.clicked)))
+        self.mediator = Mediator((
+            (self.nameText, self.update_ui),
+            (self.emailText, self.update_ui),
+            (self.okButton, self.clicked),
+            (self.cancelButton, self.clicked),
+        ))
         self.update_ui()
 
-
     def update_ui(self, widget=None):
-        self.okButton.enabled = (bool(self.nameText.text) and
-                                 bool(self.emailText.text))
-
+        self.okButton.enabled = bool(self.nameText.text) and bool(self.emailText.text)
 
     def clicked(self, widget):
         if widget == self.okButton:
@@ -3854,13 +3876,11 @@ class Form:
 
 
 class Mediator:
-
     def __init__(self, widgetCallablePairs):
         self.callablesForWidget = collections.defaultdict(list)
         for widget, caller in widgetCallablePairs:
             self.callablesForWidget[widget].append(caller)
             widget.mediator = self
-
 
     def on_change(self, widget):
         callables = self.callablesForWidget.get(widget)
@@ -3868,15 +3888,12 @@ class Mediator:
             for caller in callables:
                 caller(widget)
         else:
-            raise AttributeError("No on_change() method registered for {}"
-                    .format(widget))
+            raise AttributeError("No on_change() method registered for {}".format(widget))
 
 
 class Mediated:
-
     def __init__(self):
         self.mediator = None
-
 
     def on_change(self):
         if self.mediator is not None:
@@ -3884,34 +3901,27 @@ class Mediated:
 
 
 class Button(Mediated):
-
     def __init__(self, text=""):
         super().__init__()
         self.enabled = True
         self.text = text
 
-
     def click(self):
         if self.enabled:
             self.on_change()
 
-
     def __str__(self):
-        return "Button({!r}) {}".format(self.text,
-                "enabled" if self.enabled else "disabled")
+        return "Button({!r}) {}".format(self.text, "enabled" if self.enabled else "disabled")
 
 
 class Text(Mediated):
-
     def __init__(self, text=""):
         super().__init__()
         self.__text = text
 
-
     @property
     def text(self):
         return self.__text
-
 
     @text.setter
     def text(self, text):
@@ -3919,27 +3929,25 @@ class Text(Mediated):
             self.__text = text
             self.on_change()
 
-
     def __str__(self):
         return "Text({!r})".format(self.text)
 
 
 def test_user_interaction_with(form):
-    form.okButton.click()           # Ignored because it is disabled
-    print(form.okButton.enabled)    # False
+    form.okButton.click()  # Ignored because it is disabled
+    print(form.okButton.enabled)  # False
     form.nameText.text = "Fred"
-    print(form.okButton.enabled)    # False
+    print(form.okButton.enabled)  # False
     form.emailText.text = "fred@bloggers.com"
-    print(form.okButton.enabled)    # True
-    form.okButton.click()           # OK
+    print(form.okButton.enabled)  # True
+    form.okButton.click()  # OK
     form.emailText.text = ""
-    print(form.okButton.enabled)    # False
-    form.cancelButton.click()       # Cancel
+    print(form.okButton.enabled)  # False
+    form.cancelButton.click()  # Cancel
 
 
 if __name__ == "__main__":
     main()
-
 ```
 
 #### Хранитель (Memento)
@@ -4019,14 +4027,14 @@ class NumObj:
         self.value = value
 
     def __repr__(self):
-        return '<%s: %r>' % (self.__class__.__name__, self.value)
+        return "<%s: %r>" % (self.__class__.__name__, self.value)
 
     def increment(self):
         self.value += 1
 
     @Transactional
     def do_stuff(self):
-        self.value = '1111'  # <- invalid value
+        self.value = "1111"  # <- invalid value
         self.increment()  # <- will fail and rollback
 
 
@@ -4080,6 +4088,7 @@ def main():
 
 if __name__ == "__main__":
     import doctest
+
     doctest.testmod(optionflags=doctest.ELLIPSIS)
 ```
 
@@ -4123,7 +4132,7 @@ class Subject:
 
 
 class Data(Subject):
-    def __init__(self, name=''):
+    def __init__(self, name=""):
         Subject.__init__(self)
         self.name = name
         self._data = 0
@@ -4140,12 +4149,12 @@ class Data(Subject):
 
 class HexViewer:
     def update(self, subject):
-        print('HexViewer: Subject {} has data 0x{:x}'.format(subject.name, subject.data))
+        print("HexViewer: Subject {} has data 0x{:x}".format(subject.name, subject.data))
 
 
 class DecimalViewer:
     def update(self, subject):
-        print('DecimalViewer: Subject %s has data %d' % (subject.name, subject.data))
+        print("DecimalViewer: Subject %s has data %d" % (subject.name, subject.data))
 
 
 def main():
@@ -4182,6 +4191,7 @@ def main():
 
 if __name__ == "__main__":
     import doctest
+
     doctest.testmod()
 ```
 
@@ -4202,7 +4212,6 @@ Implements state transitions by invoking methods from the pattern's superclass.
 
 
 class State:
-
     """Base state. This is to share functionality"""
 
     def scan(self):
@@ -4238,7 +4247,6 @@ class FmState(State):
 
 
 class Radio:
-
     """A radio. It has a scan button, and an AM/FM toggle switch."""
 
     def __init__(self):
@@ -4274,8 +4282,9 @@ def main():
     """
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     import doctest
+
     doctest.testmod()
 ```
 
@@ -4457,6 +4466,7 @@ def main():
 
 if __name__ == "__main__":
     import doctest
+
     doctest.testmod()
 ```
 
@@ -4579,6 +4589,7 @@ def main():
 
 if __name__ == "__main__":
     import doctest
+
     doctest.testmod()
 ```
 
@@ -4687,7 +4698,7 @@ class Visitor:
     def visit(self, node, *args, **kwargs):
         meth = None
         for cls in node.__class__.__mro__:
-            meth_name = 'visit_' + cls.__name__
+            meth_name = "visit_" + cls.__name__
             meth = getattr(self, meth_name, None)
             if meth:
                 break
@@ -4697,10 +4708,10 @@ class Visitor:
         return meth(node, *args, **kwargs)
 
     def generic_visit(self, node, *args, **kwargs):
-        print('generic_visit ' + node.__class__.__name__)
+        print("generic_visit " + node.__class__.__name__)
 
     def visit_B(self, node, *args, **kwargs):
-        print('visit_B ' + node.__class__.__name__)
+        print("visit_B " + node.__class__.__name__)
 
 
 def main():
@@ -4718,6 +4729,7 @@ def main():
 
 if __name__ == "__main__":
     import doctest
+
     doctest.testmod()
 ```
 
@@ -4829,12 +4841,14 @@ def fact(N, acc=1):
 ```python
 class recursion(object):
     "Can call other methods inside..."
+
     def __init__(self, func):
         self.func = func
 
     def __call__(self, *args, **kwargs):
         result = self.func(*args, **kwargs)
-        while callable(result): result = result()
+        while callable(result):
+            result = result()
         return result
 
     def call(self, *args, **kwargs):
@@ -4847,6 +4861,7 @@ def sum_natural(x, result=0):
         return result
     else:
         return sum_natural.call(x - 1, result + x)
+
 
 # Даже такой вызов не заканчивается исключением
 # RuntimeError: maximum recursion depth exceeded
@@ -4867,33 +4882,34 @@ O(log n): работает только с отсортированным мас
 
 ```python
 def binary_search(list, item):
-  # low and high keep track of which part of the list you'll search in.
-  low = 0
-  high = len(list) - 1
+    # low and high keep track of which part of the list you'll search in.
+    low = 0
+    high = len(list) - 1
 
-  # While you haven't narrowed it down to one element ...
-  while low <= high:
-    # ... check the middle element
-    mid = (low + high) // 2
-    guess = list[mid]
-    # Found the item.
-    if guess == item:
-      return mid
-    # The guess was too high.
-    if guess > item:
-      high = mid - 1
-    # The guess was too low.
-    else:
-      low = mid + 1
+    # While you haven't narrowed it down to one element ...
+    while low <= high:
+        # ... check the middle element
+        mid = (low + high) // 2
+        guess = list[mid]
+        # Found the item.
+        if guess == item:
+            return mid
+        # The guess was too high.
+        if guess > item:
+            high = mid - 1
+        # The guess was too low.
+        else:
+            low = mid + 1
 
-  # Item doesn't exist
-  return None
+    # Item doesn't exist
+    return None
+
 
 my_list = [1, 3, 5, 7, 9]
-print(binary_search(my_list, 3)) # => 1
+print(binary_search(my_list, 3))  # => 1
 
 # 'None' means nil in Python. We use to indicate that the item wasn't found.
-print(binary_search(my_list, -1)) # => None
+print(binary_search(my_list, -1))  # => None
 ```
 
 ## Рекурсивные алгоритмы
@@ -4923,17 +4939,18 @@ O(n * log n) (средний и лучший случай), O(n^2) в худше
 
 ```python
 def quicksort(array):
-  if len(array) < 2:
-    # base case, arrays with 0 or 1 element are already "sorted"
-    return array
-  else:
-    # recursive case
-    pivot = array[0]
-    # sub-array of all the elements less than the pivot
-    less = [i for i in array[1:] if i <= pivot]
-    # sub-array of all the elements greater than the pivot
-    greater = [i for i in array[1:] if i > pivot]
-    return quicksort(less) + [pivot] + quicksort(greater)
+    if len(array) < 2:
+        # base case, arrays with 0 or 1 element are already "sorted"
+        return array
+    else:
+        # recursive case
+        pivot = array[0]
+        # sub-array of all the elements less than the pivot
+        less = [i for i in array[1:] if i <= pivot]
+        # sub-array of all the elements greater than the pivot
+        greater = [i for i in array[1:] if i > pivot]
+        return quicksort(less) + [pivot] + quicksort(greater)
+
 
 print(quicksort([10, 5, 2, 3]))
 ```

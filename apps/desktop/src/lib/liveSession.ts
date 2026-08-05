@@ -6,6 +6,9 @@ import {
   SttSessionOptions,
 } from './sttOptions';
 
+const WEBSOCKET_CONNECTING = 0;
+const WEBSOCKET_OPEN = 1;
+
 /**
  * Захват, только что открытый в ws.onopen, «осиротел», если за время
  * асинхронного startCapture соединение остановили или пересоздали. Такой
@@ -16,11 +19,11 @@ export function captureIsStale(
   currentWs: WebSocket | null,
   myWs: WebSocket | null,
 ): boolean {
-  return stopped || !myWs || currentWs !== myWs || myWs.readyState !== WebSocket.OPEN;
+  return stopped || !myWs || currentWs !== myWs || myWs.readyState !== WEBSOCKET_OPEN;
 }
 
 export function sendFinalizeControl(ws: WebSocket | null, requestId: string): boolean {
-  if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+  if (!ws || ws.readyState !== WEBSOCKET_OPEN) return false;
   ws.send(JSON.stringify({ type: 'finalize', request_id: requestId }));
   return true;
 }
@@ -116,7 +119,10 @@ export async function startLiveSession(
       reconnectTimer = null;
     }
     stopCapture();
-    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+    if (
+      ws &&
+      (ws.readyState === WEBSOCKET_OPEN || ws.readyState === WEBSOCKET_CONNECTING)
+    ) {
       ws.close();
     }
     ws = null;
@@ -149,7 +155,7 @@ export async function startLiveSession(
         const cap = await startCapture(
           source,
           (buffer) => {
-            if (ws && ws.readyState === WebSocket.OPEN) ws.send(buffer);
+            if (ws && ws.readyState === WEBSOCKET_OPEN) ws.send(buffer);
             handlers.onAudioFrame?.(buffer);
           },
           { sampleRateMode: audioMode },
