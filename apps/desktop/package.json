@@ -53,6 +53,7 @@
     "appId": "com.interview.assistant",
     "productName": "SkillCue",
     "electronVersion": "33.4.11",
+    "afterPack": "build/applyWindowsDpiManifest.cjs",
     "directories": {
       "output": "release"
     },
