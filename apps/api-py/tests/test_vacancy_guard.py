@@ -5,8 +5,13 @@ from app.services import provider_adapter
 
 def test_vacancy_evaluate_removes_unsupported_claims_and_reports_asr_noise(client, monkeypatch):
     async def fake_complete(
-        messages, provider=None, model=None, max_tokens=800, temperature=0.4, reasoning=None,
-        response_format=None
+        messages,
+        provider=None,
+        model=None,
+        max_tokens=800,
+        temperature=0.4,
+        reasoning=None,
+        response_format=None,
     ):
         return json.dumps(
             {
@@ -85,8 +90,13 @@ def test_vacancy_evaluate_prompt_contains_strict_allowed_sources(client, monkeyp
     captured = {}
 
     async def fake_complete(
-        messages, provider=None, model=None, max_tokens=800, temperature=0.4, reasoning=None,
-        response_format=None
+        messages,
+        provider=None,
+        model=None,
+        max_tokens=800,
+        temperature=0.4,
+        reasoning=None,
+        response_format=None,
     ):
         captured["prompt"] = messages[-1]["content"]
         captured["model"] = model
@@ -166,8 +176,13 @@ def test_vacancy_evaluate_preserves_raw_voice_answer_in_prompt(client, monkeypat
     captured = {}
 
     async def fake_complete(
-        messages, provider=None, model=None, max_tokens=800, temperature=0.4, reasoning=None,
-        response_format=None
+        messages,
+        provider=None,
+        model=None,
+        max_tokens=800,
+        temperature=0.4,
+        reasoning=None,
+        response_format=None,
     ):
         captured["prompt"] = messages[-1]["content"]
         return json.dumps(
@@ -229,7 +244,10 @@ def test_vacancy_evaluate_preserves_raw_voice_answer_in_prompt(client, monkeypat
     assert "меня не записывает" in prompt
     assert "Раз, раз" in prompt
     assert "Ммммм" in prompt
-    assert any("записывает" in item or "Раз, раз" in item for item in res.json()["detectedNoiseOrAsrErrors"])
+    assert any(
+        "записывает" in item or "Раз, раз" in item
+        for item in res.json()["detectedNoiseOrAsrErrors"]
+    )
 
 
 def test_vacancy_evaluate_rejects_empty_answer_before_calling_model(client, monkeypatch):
@@ -259,8 +277,13 @@ def test_vacancy_evaluate_rejects_empty_answer_before_calling_model(client, monk
 
 def test_vacancy_evaluate_hardens_semantic_matching_and_consistency(client, monkeypatch):
     async def fake_complete(
-        messages, provider=None, model=None, max_tokens=800, temperature=0.4, reasoning=None,
-        response_format=None
+        messages,
+        provider=None,
+        model=None,
+        max_tokens=800,
+        temperature=0.4,
+        reasoning=None,
+        response_format=None,
     ):
         return json.dumps(
             {
@@ -342,8 +365,13 @@ def test_vacancy_evaluate_hardens_semantic_matching_and_consistency(client, monk
 
 def test_vacancy_evaluate_generic_technical_fallback_is_ready_answer(client, monkeypatch):
     async def fake_complete(
-        messages, provider=None, model=None, max_tokens=800, temperature=0.4, reasoning=None,
-        response_format=None
+        messages,
+        provider=None,
+        model=None,
+        max_tokens=800,
+        temperature=0.4,
+        reasoning=None,
+        response_format=None,
     ):
         return json.dumps(
             {
@@ -406,8 +434,13 @@ def test_vacancy_evaluate_generic_technical_fallback_is_ready_answer(client, mon
 
 def test_vacancy_evaluate_hardens_behavioral_star_semantics(client, monkeypatch):
     async def fake_complete(
-        messages, provider=None, model=None, max_tokens=800, temperature=0.4, reasoning=None,
-        response_format=None
+        messages,
+        provider=None,
+        model=None,
+        max_tokens=800,
+        temperature=0.4,
+        reasoning=None,
+        response_format=None,
     ):
         return json.dumps(
             {
@@ -504,8 +537,13 @@ def test_vacancy_evaluate_hardens_project_experience_question(client, monkeypatc
     """
 
     async def fake_complete(
-        messages, provider=None, model=None, max_tokens=800, temperature=0.4, reasoning=None,
-        response_format=None
+        messages,
+        provider=None,
+        model=None,
+        max_tokens=800,
+        temperature=0.4,
+        reasoning=None,
+        response_format=None,
     ):
         return json.dumps(
             {

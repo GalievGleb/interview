@@ -17,8 +17,7 @@ TTS_MODEL = "gpt-4o-mini-tts"
 TTS_VOICE = "marin"
 MAX_TTS_CHARS = 800
 RUSSIAN_SPEECH_INSTRUCTIONS = (
-    "Говори естественно, спокойно и доброжелательно, как живой интервьюер. "
-    "Без дикторской манеры."
+    "Говори естественно, спокойно и доброжелательно, как живой интервьюер. Без дикторской манеры."
 )
 ENGLISH_SPEECH_INSTRUCTIONS = (
     "Speak naturally, calmly, and warmly like a real interviewer, without an announcer voice."
@@ -43,9 +42,7 @@ def _direct_body(input_text: str, language: str) -> dict[str, str]:
         "input": normalize_tts_input(input_text),
         "response_format": "wav",
         "instructions": (
-            RUSSIAN_SPEECH_INSTRUCTIONS
-            if language == "ru"
-            else ENGLISH_SPEECH_INSTRUCTIONS
+            RUSSIAN_SPEECH_INSTRUCTIONS if language == "ru" else ENGLISH_SPEECH_INSTRUCTIONS
         ),
     }
 

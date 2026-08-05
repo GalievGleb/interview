@@ -435,7 +435,10 @@ async def chat(payload: ChatPayload, db: Session = Depends(get_db)):
     if context:
         messages.append({"role": "system", "content": f"User context (retrieved):\n{context}"})
     messages.append(
-        {"role": "user", "content": payload.message + _answer_language_block(payload.answer_language)}
+        {
+            "role": "user",
+            "content": payload.message + _answer_language_block(payload.answer_language),
+        }
     )
 
     async def event_stream():

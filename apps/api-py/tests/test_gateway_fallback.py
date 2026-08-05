@@ -25,9 +25,7 @@ def test_license_key_routes_via_gateway(monkeypatch):
     monkeypatch.setattr(provider_adapter.secrets, "get_secret", lambda name: "")
     settings = provider_adapter.get_settings()
     monkeypatch.setattr(settings, "skillcue_gateway_url", "https://gw.example/v1/")
-    monkeypatch.setattr(
-        provider_adapter, "_gateway_license_key", lambda: "SKILLCUE-abc.def"
-    )
+    monkeypatch.setattr(provider_adapter, "_gateway_license_key", lambda: "SKILLCUE-abc.def")
 
     provider, base_url, key = provider_adapter._resolve("openrouter")
     assert provider == "openrouter"

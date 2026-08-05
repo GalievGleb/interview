@@ -251,8 +251,7 @@ async def test_forced_finalize_accepts_a_short_explicit_question():
         for event in ws.sent
     )
     assert not any(
-        event.get("type") == "low_quality"
-        and event.get("force_request_id") == "force-short"
+        event.get("type") == "low_quality" and event.get("force_request_id") == "force-short"
         for event in ws.sent
     )
 

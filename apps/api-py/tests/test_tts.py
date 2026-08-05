@@ -34,8 +34,7 @@ def test_tts_endpoint_returns_wav(client, monkeypatch):
 def test_tts_endpoint_rejects_empty_or_oversized_text(client):
     assert client.post("/tts/speech", json={"input": "", "language": "ru"}).status_code == 422
     assert (
-        client.post("/tts/speech", json={"input": "x" * 801, "language": "ru"}).status_code
-        == 422
+        client.post("/tts/speech", json={"input": "x" * 801, "language": "ru"}).status_code == 422
     )
 
 

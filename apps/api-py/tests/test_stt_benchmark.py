@@ -29,7 +29,9 @@ class FakeMiniProvider(BaseTranscriptionProvider):
     def _active_model(self) -> str:
         return "gpt-4o-mini-transcribe"
 
-    async def _transcribe_file(self, audio: bytes, *, language: str | None, sample_rate: int) -> str:
+    async def _transcribe_file(
+        self, audio: bytes, *, language: str | None, sample_rate: int
+    ) -> str:
         return "Что такое REST API?"
 
 

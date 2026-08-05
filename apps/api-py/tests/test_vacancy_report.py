@@ -22,9 +22,7 @@ _PAYLOAD = {
             "missingPoints": ["stages", "artifacts"],
         },
     ],
-    "weakAnswers": [
-        {"question": "Как устроен ваш pipeline?", "missing": ["stages"], "score": 41}
-    ],
+    "weakAnswers": [{"question": "Как устроен ваш pipeline?", "missing": ["stages"], "score": 41}],
     "resumeText": "QA engineer, Python, pytest",
     "legendText": "",
     "vacancyText": "Ищем QA Automation (Python)",

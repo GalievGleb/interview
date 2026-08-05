@@ -234,9 +234,7 @@ async def stt_stream(ws: WebSocket) -> None:
 
     settings = get_settings()
     if not settings.stt_enabled:
-        await ws.send_json(
-            {"type": "error", "message": "Распознавание речи отключено"}
-        )
+        await ws.send_json({"type": "error", "message": "Распознавание речи отключено"})
         await ws.close()
         return
 

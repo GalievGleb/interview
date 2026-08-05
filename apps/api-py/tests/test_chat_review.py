@@ -254,9 +254,7 @@ def test_screen_assist_injects_answer_language_block(client, monkeypatch):
         json={"image": "data:image/jpeg;base64,QUJD", "answer_language": "ru"},
     )
     assert res.status_code == 200, res.text
-    text_part = next(
-        p for p in captured["messages"][-1]["content"] if p["type"] == "text"
-    )["text"]
+    text_part = next(p for p in captured["messages"][-1]["content"] if p["type"] == "text")["text"]
     assert "OUTPUT LANGUAGE" in text_part
     assert "Russian" in text_part
 

@@ -232,7 +232,12 @@ def test_gateway_errors_pass_through_with_own_message():
     import json
 
     quota_body = json.dumps(
-        {"error": {"message": "Месячный лимит токенов тарифа исчерпан.", "code": "token_quota_exceeded"}},
+        {
+            "error": {
+                "message": "Месячный лимит токенов тарифа исчерпан.",
+                "code": "token_quota_exceeded",
+            }
+        },
         ensure_ascii=False,
     )
     err = provider_adapter.parse_provider_error(402, quota_body)
@@ -240,7 +245,12 @@ def test_gateway_errors_pass_through_with_own_message():
     assert "лимит токенов" in err.message.lower()
 
     model_body = json.dumps(
-        {"error": {"message": "Модель «openai/gpt-5.5» недоступна на этом тарифе.", "code": "model_not_allowed"}},
+        {
+            "error": {
+                "message": "Модель «openai/gpt-5.5» недоступна на этом тарифе.",
+                "code": "model_not_allowed",
+            }
+        },
         ensure_ascii=False,
     )
     err = provider_adapter.parse_provider_error(403, model_body)
@@ -248,5 +258,7 @@ def test_gateway_errors_pass_through_with_own_message():
     assert "недоступна" in err.message.lower()
 
     # Чужой провайдерский 402 (не наш код) идёт по обычному маппингу.
-    generic = provider_adapter.parse_provider_error(402, '{"error":{"message":"insufficient credit"}}')
+    generic = provider_adapter.parse_provider_error(
+        402, '{"error":{"message":"insufficient credit"}}'
+    )
     assert generic.code == "insufficient_credits"

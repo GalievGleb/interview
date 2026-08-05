@@ -60,10 +60,7 @@ class OpenAiMiniTranscribeProvider(BaseTranscriptionProvider):
 
     def is_available(self) -> bool:
         settings = get_settings()
-        return bool(
-            secrets.get_secret("openai_api_key")
-            or settings.skillcue_gateway_url
-        )
+        return bool(secrets.get_secret("openai_api_key") or settings.skillcue_gateway_url)
 
     def _availability_reason(self) -> str:
         return "ready" if self.is_available() else "SkillCue cloud is unavailable"
@@ -184,9 +181,7 @@ class OpenAiMiniTranscribeProvider(BaseTranscriptionProvider):
     @staticmethod
     def _response_text(response: httpx.Response) -> str:
         if not 200 <= response.status_code < 300:
-            raise RuntimeError(
-                f"OpenAI Mini STT {response.status_code}: {response.text[:240]}"
-            )
+            raise RuntimeError(f"OpenAI Mini STT {response.status_code}: {response.text[:240]}")
         return str(response.json().get("text") or "").strip()
 
 
@@ -277,9 +272,7 @@ class OpenAiAnswerTranscriber:
     @staticmethod
     def _response_text(response: httpx.Response) -> str:
         if not 200 <= response.status_code < 300:
-            raise RuntimeError(
-                f"OpenAI answer STT {response.status_code}: {response.text[:240]}"
-            )
+            raise RuntimeError(f"OpenAI answer STT {response.status_code}: {response.text[:240]}")
         return str(response.json().get("text") or "").strip()
 
 

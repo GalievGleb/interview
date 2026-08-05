@@ -23,5 +23,5 @@ Publish SkillCue 0.0.24 with a verified HH find-and-apply flow, a current HH rec
 - [x] Production desktop build.
 - [x] One controlled real HH application confirmed as sent.
 - [x] Live recruiter-chat scan confirmed three active discussions and zero unanswered incoming messages.
-- [ ] Full repository checks after rebasing onto the latest `main`.
+- [x] Full repository checks after rebasing onto the latest `main`.
 - [ ] Publish tag and installer for 0.0.24.
