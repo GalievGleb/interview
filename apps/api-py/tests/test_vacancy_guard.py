@@ -1,5 +1,7 @@
+import asyncio
 import json
 
+from app.routers import vacancy as vacancy_router
 from app.services import provider_adapter
 
 
@@ -158,18 +160,40 @@ def test_vacancy_evaluate_prompt_contains_strict_allowed_sources(client, monkeyp
     )
     assert res.status_code == 200, res.text
     prompt = captured["prompt"]
-    assert "facts from resume_text" in prompt
-    assert "facts from vacancy_text" in prompt
-    assert "facts from candidate_answer" in prompt
+    assert "Resume and interview legend may support personal claims" in prompt
+    assert "Vacancy and expected signals describe requirements" in prompt
+    assert "Candidate answer:" in prompt
     assert "INTERVIEW LEGEND" not in prompt
-    assert captured["model"].endswith("gpt-5.6-sol")
-    assert captured["max_tokens"] >= 6000
-    assert captured["reasoning"] == {"effort": "high", "exclude": True}
+    assert captured["model"].endswith("gpt-4o-mini")
+    assert captured["max_tokens"] <= 1200
+    assert captured["reasoning"] is None
     assert captured["response_format"] == {"type": "json_object"}
     body = res.json()
     assert body["answerStrategy"].startswith("Сначала дать прямой вывод")
     assert len(body["whyThisAnswerWorks"]) == 2
     assert body["deliveryTips"] == ["Произнести вывод одной фразой без вводной воды."]
+
+
+def test_vacancy_evaluate_has_a_hard_interactive_deadline(client, monkeypatch):
+    async def slow_complete(*args, **kwargs):
+        await asyncio.sleep(0.05)
+        return "{}"
+
+    monkeypatch.setattr(provider_adapter, "complete", slow_complete)
+    monkeypatch.setattr(vacancy_router, "VACANCY_EVALUATE_DEADLINE_SECONDS", 0.01)
+
+    res = client.post(
+        "/vacancy/evaluate",
+        json={
+            "question": "How do you test an API?",
+            "answer": "I check contracts and negative cases.",
+            "expectedSignals": ["contracts", "negative tests"],
+            "language": "en",
+        },
+    )
+
+    assert res.status_code == 504
+    assert res.json()["detail"] == "Vacancy evaluation timed out"
 
 
 def test_vacancy_evaluate_preserves_raw_voice_answer_in_prompt(client, monkeypatch):

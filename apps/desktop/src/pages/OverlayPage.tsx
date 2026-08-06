@@ -182,7 +182,7 @@ function buildTranscript(ls: TranscriptLine[], me: string, other: string): strin
 
 export default function OverlayPage() {
   const { t, lang } = useI18n();
-  const { hasStt } = useApp();
+  const { hasStt, license, refreshLicense } = useApp();
   const {
     active,
     lines,
@@ -248,6 +248,7 @@ export default function OverlayPage() {
   const lastForceHotkeyRef = useRef<ForceHotkeyEvent | null>(null);
   const pointerControllerRef = useRef<OverlayPointerController | null>(null);
   const [menuPosition, setMenuPosition] = useState({ left: 8, top: 8 });
+  const liveBlocked = license?.live_allowed === false;
 
   // Прозрачный фон окна: панели «плавают» над рабочим столом.
   // Оверлей всегда тёмный, независимо от темы приложения.
@@ -319,6 +320,13 @@ export default function OverlayPage() {
     },
     [],
   );
+
+  // The backend is authoritative for trial/plan limits. If it rejects a live
+  // socket at the boundary, refresh the entitlement immediately instead of
+  // leaving the record button available until the 10-minute licence poll.
+  useEffect(() => {
+    if (!active && error) void refreshLicense();
+  }, [active, error, refreshLicense]);
 
   const transcriptContext = useCallback((): string => {
     const recent = lines.slice(-30).filter((l) => l.isFinal);
@@ -647,17 +655,31 @@ export default function OverlayPage() {
     await requestRecapAnalysis(recap.sessionId);
   }, [recap, requestRecapAnalysis, t]);
 
+  const startSession = () => {
+    if (liveBlocked) {
+      setNotice(t('overlay.rec.needLicense'));
+      void window.electronAPI?.overlay.openSettings?.('billing');
+      return;
+    }
+    closeRecap();
+    setUsageLog([]);
+    setNotice('');
+    void start(sources, sttOptions);
+  };
+
   const toggleSession = () => {
     if (active) stopSession();
-    else {
-      closeRecap();
-      setUsageLog([]);
-      void start(sources, sttOptions);
-    }
+    else startSession();
   };
 
   const resumeFromRecap = () => {
     closeRecap();
+    if (liveBlocked) {
+      setNotice(t('overlay.rec.needLicense'));
+      void window.electronAPI?.overlay.openSettings?.('billing');
+      return;
+    }
+    setNotice('');
     void start(sources, sttOptions);
   };
 
@@ -938,13 +960,21 @@ export default function OverlayPage() {
           type="button"
           className={`ovl-rec tip ${active ? 'ovl-rec--live' : ''}`}
           data-tip={
-            !hasStt && !active
+            active
+              ? t('overlay.rec.stopTip')
+              : liveBlocked
+                ? t('overlay.rec.needLicense')
+                : !hasStt
               ? t('overlay.rec.needStt')
-              : active
-                ? t('overlay.rec.stopTip')
                 : t('overlay.rec.startTip')
           }
-          aria-label={active ? t('overlay.rec.stopAria') : t('overlay.rec.startAria')}
+          aria-label={
+            active
+              ? t('overlay.rec.stopAria')
+              : liveBlocked
+                ? t('overlay.rec.needLicense')
+                : t('overlay.rec.startAria')
+          }
           disabled={!hasStt && !active}
           onClick={toggleSession}
         >
@@ -1511,6 +1541,11 @@ export default function OverlayPage() {
               </div>
 
               {notice && <p className="px-1.5 pt-1.5 text-[11.5px] text-amber-300">{notice}</p>}
+              {error && (
+                <p className="px-1.5 pt-1.5 text-[11.5px] text-red-300" role="alert">
+                  {error}
+                </p>
+              )}
             </div>
 
             {/* ---------- Транскрипт (по запросу) ---------- */}

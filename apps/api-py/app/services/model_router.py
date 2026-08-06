@@ -10,11 +10,9 @@ AUTO = "auto"
 # заблокирован в GATEWAY_BLOCKED_MODELS (защита от разорения на дорогих моделях),
 # поэтому дефолт должен быть из разрешённых, иначе разбор у покупателей упрётся в 403.
 VACANCY_DEFAULT_MODEL = "openai/gpt-4o"
-# Answer coaching is the quality-critical offline step: the user waits for one
-# deep review after finishing an answer, and the result must synthesize a
-# genuinely stronger, grounded answer. Keep it separate from vacancy analysis
-# so the expensive flagship model is not used for every preparation request.
-FEEDBACK_DEFAULT_MODEL = "openai/gpt-5.6-sol"
+# Per-answer coaching is interactive: keep it on the small low-latency model.
+# The detailed end-of-interview report still has its separate vacancy route.
+FEEDBACK_DEFAULT_MODEL = "openai/gpt-4o-mini"
 
 MODE_SETTING: dict[str, str] = {
     "general": "default_copilot_model",
@@ -83,12 +81,14 @@ VACANCY_PATTERNS = [
     "gpt-4.1-mini",
 ]
 
-# Quality-first ordering for per-answer coaching. A stale local model catalog
-# must not pin this route to an older flagship; the request path has its own
-# verified gpt-4o compatibility fallback when a provider rejects GPT-5.6 Sol.
+# Low-latency ordering for per-answer coaching. Avoid reasoning models here:
+# the UI promises a result (or its deterministic fallback) within a few seconds.
 FEEDBACK_PATTERNS = [
-    "gpt-5.6-sol",
-    "gpt-5.6",
+    "gpt-4o-mini",
+    "gpt-4.1-mini",
+    "gemini-2.0-flash-lite",
+    "gemini-2.0-flash",
+    "claude-3.5-haiku",
 ]
 
 FALLBACK_IDS = [

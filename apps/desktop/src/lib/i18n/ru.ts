@@ -11,6 +11,7 @@ export const ru = {
   'nav.home': 'Подготовка',
   'nav.prepare': 'Разбор вакансии',
   'nav.applications': 'Отклики',
+  'nav.calendar': 'Календарь',
   'nav.interview': 'Live-интервью',
   'nav.documents': 'Профиль и опыт',
   'nav.history': 'Сессии',
@@ -19,7 +20,6 @@ export const ru = {
   'nav.search': 'Поиск',
 
   // Сайдбар
-  'sidebar.tagline': 'Пульт интервью',
   'sidebar.quickActions': 'Быстрые действия',
   'sidebar.ready': 'SkillCue готов',
   'sidebar.unavailable': 'Сервис недоступен',
@@ -894,6 +894,7 @@ export const ru = {
   'overlay.stopSession': 'Остановить сессию',
   'overlay.rec.needModel': 'Скачайте речевую модель: Настройки → «Речь и звук»',
   'overlay.rec.needStt': 'Распознавание не настроено: Настройки → «Речь и звук»',
+  'overlay.rec.needLicense': 'Пробные live-минуты закончились — открыть тарифы',
   'overlay.rec.stopTip': 'Остановить запись → итоги сессии',
   'overlay.rec.startTip': 'Начать запись разговора (live-подсказки)',
   'overlay.rec.stopAria': 'Остановить запись',

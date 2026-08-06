@@ -90,6 +90,81 @@ export interface HhChatState {
   error: string | null;
 }
 
+export type InterviewType = 'hr' | 'technical' | 'other';
+export type InterviewStatus = 'proposed' | 'confirmed' | 'cancelled';
+
+export interface AvailabilityWindow {
+  id: string;
+  weekday: number;
+  startMinutes: number;
+  endMinutes: number;
+}
+
+export interface InterviewCalendarSettings {
+  availabilityConfigured: boolean;
+  availability: AvailabilityWindow[];
+  defaultDurationMin: number;
+  minimumNoticeMin: number;
+  timezone: string;
+}
+
+export interface InterviewCalendarEvent {
+  id: string;
+  negotiationKey?: string;
+  vacancyTitle: string;
+  companyName: string;
+  type: InterviewType;
+  status: InterviewStatus;
+  startAt: string;
+  endAt: string;
+  source: 'hh' | 'manual';
+  meetingUrl?: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface InterviewEventDraft {
+  id?: string;
+  negotiationKey?: string;
+  vacancyTitle: string;
+  companyName: string;
+  type: InterviewType;
+  status: InterviewStatus;
+  startAt: string;
+  endAt: string;
+  source: 'hh' | 'manual';
+  meetingUrl?: string;
+  notes?: string;
+}
+
+export interface InterviewSchedulingThread {
+  id: string;
+  negotiationKey: string;
+  vacancyTitle: string;
+  companyName: string;
+  type: InterviewType;
+  stage:
+    | 'needs_availability'
+    | 'needs_attention'
+    | 'awaiting_recruiter'
+    | 'awaiting_confirmation'
+    | 'confirmed'
+    | 'cancelled';
+  offeredSlots: string[];
+  selectedStartAt?: string;
+  recruiterMessage: string;
+  reason?: string;
+  hidden?: boolean;
+  updatedAt: string;
+}
+
+export interface InterviewCalendarState {
+  settings: InterviewCalendarSettings;
+  events: InterviewCalendarEvent[];
+  scheduling: InterviewSchedulingThread[];
+}
+
 export interface ElectronAPI {
   getApiUrl: () => Promise<string>;
   getApiToken?: () => Promise<string>;
@@ -142,6 +217,14 @@ export interface ElectronAPI {
     saveConfig: (config: Partial<HhChatConfig>) => Promise<HhChatConfig>;
     setEnabled: (enabled: boolean) => Promise<HhChatState>;
     pollNow: () => Promise<HhChatState>;
+  };
+  interviewCalendar?: {
+    getState: () => Promise<InterviewCalendarState>;
+    saveSettings: (settings: Partial<InterviewCalendarSettings>) => Promise<InterviewCalendarState>;
+    upsertEvent: (event: InterviewEventDraft) => Promise<InterviewCalendarState>;
+    removeEvent: (id: string) => Promise<InterviewCalendarState>;
+    dismissThread: (id: string) => Promise<InterviewCalendarState>;
+    onState: (cb: (state: InterviewCalendarState) => void) => () => void;
   };
   onBackendStatus?: (cb: (status: BackendStatus) => void) => () => void;
   overlay: {

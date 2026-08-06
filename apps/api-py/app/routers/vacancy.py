@@ -6,6 +6,7 @@ offline; here we add the real, grounded LLM path.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -16,12 +17,13 @@ from pydantic import BaseModel
 from app.db.session import get_db
 from app.prompts.vacancy import (
     VACANCY_ANALYZE_PROMPT,
-    VACANCY_EVALUATE_PROMPT_V2,
+    VACANCY_COVER_LETTER_PROMPT,
+    VACANCY_EVALUATE_FAST_PROMPT,
     VACANCY_REPORT_PROMPT,
+    VACANCY_SCREENING_ANSWERS_PROMPT,
 )
-from app.services import model_router, provider_adapter
+from app.services import model_router, provider_adapter, rag_service
 from app.services.preferences import load_preferences
-from app.services.provider_adapter import vacancy_eval_options
 from app.services.vacancy_guard import detect_asr_noise, harden_vacancy_evaluation
 
 logger = logging.getLogger("vacancy")
@@ -56,7 +58,13 @@ def _resolve(mode: str = "general") -> tuple[str, str]:
 # долго — вместо отката в ЛОКАЛЬНЫЙ разбор (клиент делал это на 502) сначала
 # повторяем запрос этой моделью, чтобы разбор/оценка оставались AI.
 FALLBACK_MODEL = "openai/gpt-4o-mini"
-FEEDBACK_FALLBACK_MODEL = "openai/gpt-4o"
+FEEDBACK_FALLBACK_MODEL = "openai/gpt-4o-mini"
+VACANCY_EVALUATE_DEADLINE_SECONDS = 4.5
+VACANCY_EVALUATE_MAX_TOKENS = 1200
+SCREENING_ANSWERS_DEADLINE_SECONDS = 4.5
+SCREENING_ANSWERS_MAX_TOKENS = 1600
+COVER_LETTER_DEADLINE_SECONDS = 9.0
+COVER_LETTER_MAX_TOKENS = 1200
 
 
 async def _complete_or_fallback(
@@ -168,6 +176,234 @@ class EvaluatePayload(BaseModel):
     legendText: str | None = None
     language: str = "ru"
     hasResume: bool = False
+
+
+class ScreeningQuestionPayload(BaseModel):
+    id: str
+    prompt: str
+    kind: str = "text"
+    options: list[str] = []
+    required: bool = False
+
+
+class ScreeningAnswersPayload(BaseModel):
+    vacancyTitle: str = ""
+    vacancyCompany: str = ""
+    vacancyDescription: str = ""
+    questions: list[ScreeningQuestionPayload] = []
+    language: str = "ru"
+
+
+class CoverLetterPayload(BaseModel):
+    vacancyTitle: str = ""
+    vacancyCompany: str = ""
+    vacancyDescription: str = ""
+    language: str = "ru"
+
+
+def _cover_letter_unavailable(reason: str) -> dict:
+    return {
+        "coverLetter": "",
+        "matches": [],
+        "canAutoFill": False,
+        "reason": reason[:300],
+    }
+
+
+@router.post("/cover-letter")
+async def cover_letter(payload: CoverLetterPayload, db=Depends(get_db)) -> dict:
+    """Write a vacancy-specific letter grounded in the saved résumé and legend."""
+    vacancy_description = re.sub(r"\s+", " ", payload.vacancyDescription).strip()[:8_000]
+    if len(vacancy_description) < 80:
+        return _cover_letter_unavailable(
+            "Не удалось прочитать полное описание вакансии — письмо оставлено для ручной проверки."
+        )
+
+    resume = rag_service.get_context_text(db, "resume")[:8_000].strip()
+    legend = rag_service.get_context_text(db, "legend")[:3_000].strip()
+    if len(resume) < 80:
+        return _cover_letter_unavailable(
+            "В профиле нет полного резюме, поэтому нельзя безопасно подтвердить опыт для письма."
+        )
+
+    _ensure_vacancy_quota(db)
+    provider, model = _resolve("vacancy")
+    prompt = VACANCY_COVER_LETTER_PROMPT.format(
+        vacancy_title=payload.vacancyTitle.strip()[:300] or "(unknown)",
+        vacancy_company=payload.vacancyCompany.strip()[:300] or "(unknown)",
+        vacancy_description=vacancy_description,
+        resume=resume,
+        legend=legend or "(none)",
+        language="Russian" if payload.language == "ru" else "English",
+    )
+    try:
+        raw, model = await asyncio.wait_for(
+            _complete_or_fallback(
+                [{"role": "user", "content": prompt}],
+                provider,
+                model,
+                max_tokens=COVER_LETTER_MAX_TOKENS,
+                temperature=0.35,
+                response_format={"type": "json_object"},
+                fallback_model=FALLBACK_MODEL,
+            ),
+            timeout=COVER_LETTER_DEADLINE_SECONDS,
+        )
+    except TimeoutError as exc:
+        logger.warning(
+            "Cover-letter generation exceeded %.1fs deadline",
+            COVER_LETTER_DEADLINE_SECONDS,
+        )
+        raise HTTPException(status_code=504, detail="Cover-letter generation timed out") from exc
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Cover-letter generation failed: %s", exc)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    data = _parse_json(raw)
+    letter = str(data.get("coverLetter", "")).replace("\r\n", "\n").strip()[:4_000]
+    matches = []
+    for item in data.get("matches", []) if isinstance(data.get("matches"), list) else []:
+        if not isinstance(item, dict):
+            continue
+        need = str(item.get("vacancyNeed", "")).strip()[:300]
+        evidence = str(item.get("resumeEvidence", "")).strip()[:500]
+        if need and evidence:
+            matches.append({"vacancyNeed": need, "resumeEvidence": evidence})
+        if len(matches) >= 5:
+            break
+
+    expected_greeting = (
+        letter.startswith("Здравствуйте!")
+        if payload.language == "ru"
+        else bool(re.match(r"^(?:Hello|Dear)\b", letter, re.IGNORECASE))
+    )
+    has_placeholder = bool(
+        re.search(r"\{[^{}]{1,80}\}|\[(?:встав|укаж|имя|назван|пример|метрик)[^\]]*\]", letter, re.I)
+    )
+    has_markdown_list = bool(re.search(r"^(?:\s*[-*]\s+|\s*\d+[.)]\s+)", letter, re.M))
+    can_auto_fill = (
+        bool(data.get("canAutoFill", False))
+        and 350 <= len(letter) <= 4_000
+        and len(matches) >= 2
+        and expected_greeting
+        and not has_placeholder
+        and not has_markdown_list
+    )
+    if not can_auto_fill:
+        reason = str(data.get("reason", "")).strip()[:300]
+        return _cover_letter_unavailable(
+            reason
+            or "Не удалось получить достаточно конкретное и подтверждённое письмо — автоотклик остановлен."
+        )
+    return {
+        "coverLetter": letter,
+        "matches": matches,
+        "canAutoFill": True,
+        "reason": "",
+        "model": model,
+    }
+
+
+@router.post("/screening-answers")
+async def screening_answers(payload: ScreeningAnswersPayload, db=Depends(get_db)) -> dict:
+    """Generate one grounded answer batch for an HH employer-question form."""
+    _ensure_vacancy_quota(db)
+    questions = payload.questions[:20]
+    if not questions:
+        raise HTTPException(status_code=400, detail="No screening questions provided")
+
+    normalized_questions = []
+    ids: set[str] = set()
+    for question in questions:
+        question_id = question.id.strip()[:100]
+        prompt = question.prompt.strip()[:1200]
+        if not question_id or not prompt or question_id in ids:
+            raise HTTPException(
+                status_code=400,
+                detail="Screening question ids and prompts must be unique",
+            )
+        ids.add(question_id)
+        normalized_questions.append(
+            {
+                "id": question_id,
+                "prompt": prompt,
+                "kind": question.kind
+                if question.kind in {"text", "single", "multiple", "select"}
+                else "text",
+                "options": _as_list(question.options, 30),
+                "required": bool(question.required),
+            }
+        )
+
+    resume = rag_service.get_context_text(db, "resume")[:5_000]
+    legend = rag_service.get_context_text(db, "legend")[:2_000]
+    provider, model = _resolve("feedback")
+    prompt = VACANCY_SCREENING_ANSWERS_PROMPT.format(
+        vacancy_title=payload.vacancyTitle.strip()[:300] or "(unknown)",
+        vacancy_company=payload.vacancyCompany.strip()[:300] or "(unknown)",
+        vacancy_description=payload.vacancyDescription.strip()[:3_500] or "(not provided)",
+        resume=resume or "(none — do not make personal experience claims)",
+        legend=legend or "(none)",
+        questions_json=json.dumps(normalized_questions, ensure_ascii=False),
+        language="Russian" if payload.language == "ru" else "English",
+    )
+    try:
+        raw, model = await asyncio.wait_for(
+            _complete_or_fallback(
+                [{"role": "user", "content": prompt}],
+                provider,
+                model,
+                max_tokens=SCREENING_ANSWERS_MAX_TOKENS,
+                temperature=0.1,
+                response_format={"type": "json_object"},
+                fallback_model=FEEDBACK_FALLBACK_MODEL,
+            ),
+            timeout=SCREENING_ANSWERS_DEADLINE_SECONDS,
+        )
+    except TimeoutError as exc:
+        logger.warning(
+            "Screening answer generation exceeded %.1fs deadline",
+            SCREENING_ANSWERS_DEADLINE_SECONDS,
+        )
+        raise HTTPException(status_code=504, detail="Screening answer generation timed out") from exc
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Screening answer generation failed: %s", exc)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    data = _parse_json(raw)
+    raw_answers = data.get("answers") if isinstance(data.get("answers"), list) else []
+    by_id = {
+        str(item.get("id", "")): item
+        for item in raw_answers
+        if isinstance(item, dict) and str(item.get("id", "")) in ids
+    }
+    answers = []
+    for question in normalized_questions:
+        item = by_id.get(question["id"], {})
+        valid_options = {option.casefold(): option for option in question["options"]}
+        selected = []
+        for option in _as_list(item.get("selectedOptions"), 30):
+            canonical = valid_options.get(option.casefold())
+            if canonical and canonical not in selected:
+                selected.append(canonical)
+        if question["kind"] in {"single", "select"}:
+            selected = selected[:1]
+        answer = str(item.get("answer", "")).strip()[:2_000]
+        can_auto_fill = bool(item.get("canAutoFill", False))
+        if question["kind"] == "text" and not answer:
+            can_auto_fill = False
+        if question["kind"] != "text" and not selected:
+            can_auto_fill = False
+        answers.append(
+            {
+                "id": question["id"],
+                "answer": answer,
+                "selectedOptions": selected,
+                "canAutoFill": can_auto_fill,
+                "reason": str(item.get("reason", "")).strip()[:300],
+            }
+        )
+    return {"answers": answers, "model": model}
 
 
 @router.post("/analyze")
@@ -327,41 +563,38 @@ async def evaluate(payload: EvaluatePayload, db=Depends(get_db)) -> dict:
     if not answer:
         raise HTTPException(status_code=400, detail="Answer is empty")
     detected_noise = detect_asr_noise(answer)
-    prompt = VACANCY_EVALUATE_PROMPT_V2.format(
+    prompt = VACANCY_EVALUATE_FAST_PROMPT.format(
         topic=payload.topic or "(unspecified)",
         level=payload.level or "(unspecified)",
         signals=", ".join(payload.expectedSignals) or "(none)",
         resume_evidence=", ".join(payload.relatedResumeEvidence) or "(none)",
-        resume=(payload.resumeText or "")[:4000] or "(none)",
-        vacancy=(payload.vacancyText or "")[:8000] or "(none)",
-        legend=(payload.legendText or "")[:2000] or "(none)",
+        resume=(payload.resumeText or "")[:2500] or "(none)",
+        vacancy=(payload.vacancyText or "")[:4000] or "(none)",
+        legend=(payload.legendText or "")[:1200] or "(none)",
         question=payload.question[:600],
-        answer=answer[:6000],
+        answer=answer[:3000],
         has_resume="true" if payload.hasResume else "false",
         language="Russian" if payload.language == "ru" else "English",
     )
-    # This is the quality-first coaching step. Give GPT-5.6 Sol enough reasoning
-    # and completion budget to diagnose the answer and write a finished,
-    # grounded replacement. A proven gpt-4o route remains the compatibility
-    # fallback for provider/catalog failures.
-    max_tokens, reasoning = vacancy_eval_options(model)
+    # This path runs after every answer, so latency is part of correctness. A
+    # hard server deadline lets the desktop switch to its local deterministic
+    # feedback instead of leaving the user staring at a spinner.
     try:
-        raw, model = await _complete_or_fallback(
-            [{"role": "user", "content": prompt}],
-            provider,
-            model,
-            max_tokens=max_tokens,
-            temperature=0.2,
-            reasoning=reasoning,
-            response_format={"type": "json_object"},
-            fallback_model=FEEDBACK_FALLBACK_MODEL,
-            fallback_kwargs={
-                "max_tokens": vacancy_eval_options(FEEDBACK_FALLBACK_MODEL)[0],
-                "temperature": 0.2,
-                "reasoning": vacancy_eval_options(FEEDBACK_FALLBACK_MODEL)[1],
-                "response_format": {"type": "json_object"},
-            },
+        raw, model = await asyncio.wait_for(
+            _complete_or_fallback(
+                [{"role": "user", "content": prompt}],
+                provider,
+                model,
+                max_tokens=VACANCY_EVALUATE_MAX_TOKENS,
+                temperature=0.1,
+                response_format={"type": "json_object"},
+                fallback_model=FEEDBACK_FALLBACK_MODEL,
+            ),
+            timeout=VACANCY_EVALUATE_DEADLINE_SECONDS,
         )
+    except TimeoutError as exc:
+        logger.warning("Vacancy evaluate exceeded %.1fs deadline", VACANCY_EVALUATE_DEADLINE_SECONDS)
+        raise HTTPException(status_code=504, detail="Vacancy evaluation timed out") from exc
     except Exception as exc:  # noqa: BLE001
         logger.warning("Vacancy evaluate failed: %s", exc)
         raise HTTPException(status_code=502, detail=str(exc)) from exc

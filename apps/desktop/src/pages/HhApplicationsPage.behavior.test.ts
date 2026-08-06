@@ -13,6 +13,14 @@ const electronTypesSource = fs.readFileSync(
   path.resolve(__dirname, '../types/electron.d.ts'),
   'utf8',
 );
+const calendarPageSource = fs.readFileSync(
+  path.resolve(__dirname, 'InterviewCalendarPage.tsx'),
+  'utf8',
+);
+const availabilityEditorSource = fs.readFileSync(
+  path.resolve(__dirname, '../components/interview/AvailabilityEditor.tsx'),
+  'utf8',
+);
 
 describe('HH applications redesign', () => {
   it('uses the passwordless email and one-time-code flow end to end', () => {
@@ -61,7 +69,7 @@ describe('HH applications redesign', () => {
     expect(requestSource).toContain('openFreshHhLoginPage()');
     expect(assistantSource).toContain('loginPage = await context.newPage()');
     expect(assistantSource).toContain('await navigateToHhLogin(loginPage)');
-    expect(assistantSource).toContain('isBrokenHhLoginSourcePage(candidateUrl)');
+    expect(assistantSource).toContain('closeExcessAutomationPages(new Set([loginPage]))');
   });
 
   it('accepts HHs hidden PIN input once it is attached and enabled', () => {
@@ -187,6 +195,18 @@ describe('HH applications redesign', () => {
     expect(pageSource).toContain('последнее сообщение пришло от работодателя');
   });
 
+  it('configures interview availability inline before enabling HR replies', () => {
+    expect(pageSource).toContain('Когда можно назначать созвоны');
+    expect(pageSource).toContain('setAvailabilityOpen(true)');
+    expect(pageSource).toContain('calendar.saveSettings(settings)');
+    expect(pageSource).toContain('chat.setEnabled(true)');
+    expect(pageSource).toContain('Сохранить и включить автоответы');
+    expect(availabilityEditorSource).toContain('Будни 10–18');
+    expect(availabilityEditorSource).toContain('Будни после 18');
+    expect(availabilityEditorSource).toContain('Только выходные');
+    expect(calendarPageSource).toContain("from '../components/interview/AvailabilityEditor'");
+  });
+
   it('keeps chat polling on a dedicated browser page', () => {
     expect(assistantSource).toContain('async getChatPage()');
     expect(mainSource).toContain('hhBrowserAssistant?.getChatPage()');
@@ -199,21 +219,40 @@ describe('HH applications redesign', () => {
     expect(assistantSource).not.toContain('this.page = context.pages()[0]');
   });
 
+  it('keeps automation headless and prevents parallel blank-tab leaks', () => {
+    const argsAt = assistantSource.indexOf('export function browserLaunchArguments');
+    const allocateAt = assistantSource.indexOf('async function allocateDebugPort', argsAt);
+    const argsSource = assistantSource.slice(argsAt, allocateAt);
+    const launchAt = assistantSource.indexOf('private async launchInstalledBrowser');
+    const cleanupAt = assistantSource.indexOf('private async closeExcessAutomationPages', launchAt);
+    const launchSource = assistantSource.slice(launchAt, cleanupAt);
+
+    expect(argsSource).toContain("args.push('--headless=new'");
+    expect(argsSource).toContain("mode === 'background'");
+    expect(launchSource).toContain('windowsHide: true');
+    expect(launchSource).not.toContain("'about:blank'");
+    expect(assistantSource).toContain('private ensureBrowserPromise: Promise<Page> | null');
+    expect(assistantSource).toContain('private chatPagePromise: Promise<Page | null> | null');
+    expect(assistantSource).toContain('closeExcessAutomationPages');
+    expect(assistantSource).toContain('await settleWithin(candidate.close(), 1_500)');
+  });
+
   it('scopes HH screening-question selectors to the real response flow', () => {
     expect(assistantSource).toContain('hasVisibleResponseFlowBlocker(page)');
     expect(assistantSource).toContain('element.closest(String(containerSelector))');
     expect(assistantSource).not.toContain('await hasVisible(page, RESPONSE_QUESTION_SELECTOR)');
     expect(assistantSource).toContain("case 'open_letter'");
     expect(assistantSource).toContain('ADD_COVER_LETTER_SELECTOR');
+    expect(mainSource).toContain('signal: AbortSignal.timeout(5_000)');
   });
 
-  it('states the supported platforms and explains the visible HH login window', () => {
+  it('states the supported platforms and explains background HH login', () => {
     expect(pageSource).toContain('HH.ru');
     expect(pageSource).toContain('Avito Работа');
     expect(pageSource).toContain('LinkedIn');
     expect(pageSource).toContain("label: 'Avito Работа'");
     expect(pageSource).toContain("label: 'LinkedIn'");
-    expect(pageSource).toContain('Откроется отдельное окно HH');
+    expect(pageSource).toContain('SkillCue подключит HH в фоне: отдельное окно не откроется');
     expect(pageSource).toContain('Почта, привязанная к HH');
   });
 

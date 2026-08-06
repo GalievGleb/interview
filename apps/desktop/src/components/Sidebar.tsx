@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
   BriefcaseBusiness,
+  CalendarDays,
   EyeOff,
   FileUser,
   History,
@@ -17,6 +18,8 @@ import {
 import { useI18n, type I18nKey } from '../lib/i18n';
 import { useApp } from '../context/AppContext';
 import { launchLive } from '../lib/launchLive';
+import type { InterviewCalendarState } from '../types/electron';
+import skillCueAppIcon from '../../assets/branding/skillcue-app-icon-512.png';
 
 const SIDEBAR_COLLAPSED_KEY = 'skillcue.sidebarCollapsed';
 const STEALTH_KEY = 'skillcue.overlayStealth';
@@ -30,6 +33,7 @@ const NAV_ITEMS: Array<{
 }> = [
   { to: '/home', label: 'nav.home', icon: BriefcaseBusiness },
   { to: '/applications', label: 'nav.applications', icon: Send },
+  { to: '/calendar', label: 'nav.calendar', icon: CalendarDays },
   { to: '/documents', label: 'nav.documents', icon: FileUser },
   { to: '/history', label: 'nav.history', icon: History },
   { to: '/progress', label: 'nav.progress', icon: TrendingUp },
@@ -66,6 +70,29 @@ export default function Sidebar() {
   const [hiddenTaskbar, setHiddenTaskbar] = useState(
     () => localStorage.getItem(SKIP_TASKBAR_KEY) === '1',
   );
+  const [calendarAttention, setCalendarAttention] = useState(0);
+
+  useEffect(() => {
+    const calendar = window.electronAPI?.interviewCalendar;
+    if (!calendar) return;
+    let active = true;
+    const apply = (state: InterviewCalendarState) => {
+      if (!active) return;
+      setCalendarAttention(
+        state.scheduling.filter(
+          (thread) =>
+            !thread.hidden &&
+            (thread.stage === 'needs_availability' || thread.stage === 'needs_attention'),
+        ).length,
+      );
+    };
+    void calendar.getState().then(apply);
+    const unsubscribe = calendar.onState(apply);
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, []);
 
   const toggleCollapsed = () => {
     const next = !collapsed;
@@ -76,11 +103,16 @@ export default function Sidebar() {
   return (
     <aside className={`skillcue-sidebar ${collapsed ? 'skillcue-sidebar--collapsed' : ''}`}>
       <div className="skillcue-sidebar__brand">
-        <div className="skillcue-logo" aria-hidden />
+        <img
+          src={skillCueAppIcon}
+          alt=""
+          className="skillcue-logo"
+          aria-hidden="true"
+          draggable={false}
+        />
         {!collapsed && (
           <div className="min-w-0 leading-tight">
             <p className="truncate text-sm font-semibold tracking-tight">SkillCue</p>
-            <p className="text-[11px] text-ink-faint">{t('sidebar.tagline')}</p>
           </div>
         )}
         <button
@@ -121,11 +153,19 @@ export default function Sidebar() {
               to={item.to}
               title={collapsed ? t(item.label) : undefined}
               className={({ isActive }) =>
-                `nav-pill ${isActive ? 'nav-pill-active' : 'nav-pill-idle'}`
+                `nav-pill relative ${isActive ? 'nav-pill-active' : 'nav-pill-idle'}`
               }
             >
               <NavIcon size={17} aria-hidden="true" />
               {!collapsed && <span className="min-w-0 flex-1 truncate">{t(item.label)}</span>}
+              {item.to === '/calendar' && calendarAttention > 0 && (
+                <span
+                  className={`${collapsed ? 'absolute right-1.5 top-1.5 h-2 w-2' : 'min-w-5 px-1.5 py-0.5 text-center text-[10px]'} rounded-full bg-amber-400 font-bold text-amber-950`}
+                  aria-label={`Требуют внимания: ${calendarAttention}`}
+                >
+                  {!collapsed && Math.min(calendarAttention, 9)}
+                </span>
+              )}
             </NavLink>
           );
         })}

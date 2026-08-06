@@ -9,6 +9,7 @@ export const en: Record<I18nKey, string> = {
   'nav.home': 'Preparation',
   'nav.prepare': 'Vacancy review',
   'nav.applications': 'Applications',
+  'nav.calendar': 'Calendar',
   'nav.interview': 'Live interview',
   'nav.documents': 'Profile & experience',
   'nav.history': 'Sessions',
@@ -17,7 +18,6 @@ export const en: Record<I18nKey, string> = {
   'nav.search': 'Search',
 
   // Sidebar
-  'sidebar.tagline': 'Interview console',
   'sidebar.quickActions': 'Quick actions',
   'sidebar.ready': 'SkillCue ready',
   'sidebar.unavailable': 'Service unavailable',
@@ -890,6 +890,7 @@ export const en: Record<I18nKey, string> = {
   'overlay.stopSession': 'Stop session',
   'overlay.rec.needModel': 'Download a speech model: Settings → "Speech & audio"',
   'overlay.rec.needStt': 'Speech recognition not set up: Settings → "Speech & audio"',
+  'overlay.rec.needLicense': 'Trial live minutes have ended — open plans',
   'overlay.rec.stopTip': 'Stop recording → session summary',
   'overlay.rec.startTip': 'Start recording the conversation (live hints)',
   'overlay.rec.stopAria': 'Stop recording',

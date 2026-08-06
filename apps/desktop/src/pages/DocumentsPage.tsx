@@ -103,103 +103,6 @@ function SourcePillar({ icon, variant, title, connectedTitle, count, onAdd }: Pi
   );
 }
 
-/**
- * Профиль кандидата — то, что ИИ «знает» о пользователе и чем live отвечает.
- * Пользователь видит содержимое, может поправить (правки не затираются фоновой
- * генерацией) или пересобрать заново из документов.
- */
-function ProfilePackCard({ reloadKey }: { reloadKey: number }) {
-  const { t } = useI18n();
-  const [content, setContent] = useState('');
-  const [status, setStatus] = useState<{ exists: boolean; stale: boolean; userEdited?: boolean } | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [note, setNote] = useState('');
-
-  const load = async () => {
-    try {
-      const r = await api.profilePackGet();
-      setContent(r.content);
-      setStatus({ exists: r.exists, stale: r.stale, userEdited: r.userEdited });
-    } catch {
-      /* backend недоступен — карточка покажет пустое состояние */
-    }
-  };
-
-  useEffect(() => {
-    void load();
-  }, [reloadKey]);
-
-  const save = async () => {
-    setBusy(true);
-    setNote('');
-    try {
-      await api.profilePackSave(content);
-      await load();
-      setNote(t('docs.profile.saved'));
-    } catch (e) {
-      setNote(e instanceof Error ? e.message : t('docs.profile.saveError'));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const rebuild = async () => {
-    setBusy(true);
-    setNote('');
-    try {
-      await api.profilePackRefresh();
-      await load();
-      setNote(t('docs.profile.rebuilt'));
-    } catch (e) {
-      setNote(e instanceof Error ? e.message : t('docs.profile.rebuildError'));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const chip = !status?.exists
-    ? { text: t('docs.profile.chip.none'), tone: '' }
-    : status.userEdited
-      ? { text: t('docs.profile.chip.edited'), tone: 'prep-tone-violet' }
-      : status.stale
-        ? { text: t('docs.profile.chip.stale'), tone: 'prep-tone-amber' }
-        : { text: t('docs.profile.chip.fresh'), tone: 'prep-tone-green' };
-
-  return (
-    <section className="prep-action-card mt-5">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <p className="prep-eyebrow">{t('docs.profile.eyebrow')}</p>
-          <h2 className="prep-h2 prep-card-title">{t('docs.profile.title')}</h2>
-        </div>
-        <span className={`prep-chip shrink-0 ${chip.tone}`}>{chip.text}</span>
-      </div>
-      <p className="prep-sub mt-2">{t('docs.profile.desc')}</p>
-      <textarea
-        className="prep-textarea mt-3"
-        rows={content ? 10 : 4}
-        placeholder={t('docs.profile.placeholder')}
-        value={content}
-        onChange={(e) => setContent(e.target.value)}
-      />
-      <div className="mt-3 flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          className="prep-btn prep-btn-sm"
-          disabled={busy || content.trim().length < 20}
-          onClick={() => void save()}
-        >
-          {busy ? t('docs.profile.saving') : t('docs.profile.saveEdits')}
-        </button>
-        <button type="button" className="prep-btn-ghost prep-btn-sm" disabled={busy} onClick={() => void rebuild()}>
-          {t('docs.profile.rebuild')}
-        </button>
-        {note && <span className="prep-faint">{note}</span>}
-      </div>
-    </section>
-  );
-}
-
 export default function DocumentsPage() {
   const { t } = useI18n();
   const [docs, setDocs] = useState<DocumentItem[]>([]);
@@ -399,8 +302,6 @@ export default function DocumentsPage() {
             </div>
           </div>
         </section>
-
-        <ProfilePackCard reloadKey={docs.length} />
 
         <section>
           <div className="prep-section-head">

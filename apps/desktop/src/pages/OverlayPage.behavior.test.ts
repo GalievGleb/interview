@@ -15,6 +15,17 @@ const cssSource = fs.readFileSync(
 );
 
 describe('overlay request behavior', () => {
+  it('blocks live before opening sockets when the licence has no live entitlement', () => {
+    expect(overlaySource).toContain("const liveBlocked = license?.live_allowed === false");
+    expect(overlaySource).toContain("setNotice(t('overlay.rec.needLicense'))");
+    expect(overlaySource).toContain("overlay.openSettings?.('billing')");
+  });
+
+  it('shows live startup failures instead of silently returning to the record button', () => {
+    expect(overlaySource).toMatch(/\{error && \([\s\S]*?role="alert"[\s\S]*?\{error\}/);
+    expect(overlaySource).toContain('if (!active && error) void refreshLicense();');
+  });
+
   it('routes typed requests without silently capturing the screen', () => {
     expect(overlaySource).toContain('resolveOverlayRequestRoute');
   });

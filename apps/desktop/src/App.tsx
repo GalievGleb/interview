@@ -15,6 +15,7 @@ const MeetingPage = lazy(() => import('./pages/MeetingPage'));
 const HistoryPage = lazy(() => import('./pages/HistoryPage'));
 const PersonalProgressPage = lazy(() => import('./pages/PersonalProgressPage'));
 const HhApplicationsPage = lazy(() => import('./pages/HhApplicationsPage'));
+const InterviewCalendarPage = lazy(() => import('./pages/InterviewCalendarPage'));
 const TestLabPage = lazy(() => import('./pages/TestLabPage'));
 const BenchmarkPage = lazy(() => import('./pages/BenchmarkPage'));
 const DiagnosticsPage = lazy(() => import('./pages/DiagnosticsPage'));
@@ -88,6 +89,7 @@ function NavigationBridge() {
       void import('./pages/HistoryPage');
       void import('./pages/PersonalProgressPage');
       void import('./pages/HhApplicationsPage');
+      void import('./pages/InterviewCalendarPage');
       void import('./pages/DocumentsPage');
       void import('./pages/SettingsPage');
       void import('./pages/MeetingPage');
@@ -122,6 +124,7 @@ export default function App() {
           <Route path="/history" element={<Gate><HistoryPage /></Gate>} />
           <Route path="/progress" element={<Gate><PersonalProgressPage /></Gate>} />
           <Route path="/applications" element={<Gate><HhApplicationsPage /></Gate>} />
+          <Route path="/calendar" element={<Gate><InterviewCalendarPage /></Gate>} />
           <Route path="/settings" element={<Gate><SettingsPage /></Gate>} />
           <Route path="/licenses" element={<Gate><LicensesPage /></Gate>} />
           <Route path="/test-lab" element={<Gate><TestLabPage /></Gate>} />

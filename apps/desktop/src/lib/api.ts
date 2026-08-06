@@ -105,10 +105,9 @@ const STREAM_IDLE_TIMEOUT_MS = 25_000;
 // детальный разбор с баллами). 15 с было слишком жёстко: медленная модель или
 // секунда лага провайдера роняли КАЖДУЮ оценку в локальный фолбэк. Это не live-
 // путь, пользователь готов подождать пару секунд ради настоящего разбора.
-// Quality-first GPT-5.6 feedback can spend deliberate reasoning time before it
-// returns the structured review and finished answer. Keep this below the long
-// batch-analysis timeout, but do not abort into the local heuristic too early.
-const VACANCY_EVALUATE_TIMEOUT_MS = 90_000;
+// The API uses a compact non-reasoning model with a 4.5s budget. This client
+// guard guarantees an immediate local fallback if transport cancellation stalls.
+const VACANCY_EVALUATE_TIMEOUT_MS = 5_000;
 
 export interface MockAnswerTranscriptionContext {
   question: string;

@@ -18,9 +18,12 @@ import crypto from 'crypto';
 import { spawn, type ChildProcess } from 'child_process';
 import { autoUpdater } from 'electron-updater';
 import { HhBrowserAssistant } from './hhBrowserAssistant';
+import type { HhCoverLetterResponse } from './hhCoverLetter';
+import type { HhScreeningAnswersResponse } from './hhScreeningQuestions';
 import type { HhAssistantConfig } from './hhAssistantPolicy';
 import { HhOAuthService } from './hhOAuthService';
 import { HhChatBrowser } from './hhChatBrowser';
+import { InterviewCalendarStore } from './interviewCalendar';
 import { isReservedOverlayShortcut } from './shortcutPolicy';
 import { createAutoUpdateCoordinator } from './autoUpdateCoordinator';
 import { createUpdaterStatusStore } from './updaterStatusStore';
@@ -49,11 +52,15 @@ const SKILLCUE_GATEWAY_URL = process.env.SKILLCUE_GATEWAY_URL ?? 'https://skill-
 // Активен только когда бэкенд запущён нами (env уходит в spawn).
 const API_TOKEN = crypto.randomBytes(24).toString('hex');
 
-// SkillCue mark (indigo rounded square) — used for the tray + window icon so
-// neither is blank. A full multi-res .ico for the installer is a separate asset.
-const BRAND_ICON = nativeImage.createFromDataURL(
-  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAWElEQVR42u3XsQkAIAwF0ewquL8TaGejBJSYBLyA9b3SL6Jcqa1bPDk5q+gV5nVcRXjFtwjv+IL4GxAVnwgAAAAAAAAAAIBwAH/CFIDwYZJimqUYpxHzfABg0BWrfAI5+AAAAABJRU5ErkJggg==',
+// Use the same SkillCue artwork for the window, taskbar and tray.
+// electron-builder includes this raw PNG in both development and packaged apps.
+const BRAND_ICON = nativeImage.createFromPath(
+  path.join(app.getAppPath(), 'assets', 'branding', 'skillcue-app-icon-512.png'),
 );
+
+if (process.platform === 'win32') {
+  app.setAppUserModelId('com.interview.assistant');
+}
 
 let mainWindow: BrowserWindow | null = null;
 let overlayWindow: BrowserWindow | null = null;
@@ -67,6 +74,7 @@ let forceAnswerShortcutRetryTimer: NodeJS.Timeout | null = null;
 let hhBrowserAssistant: HhBrowserAssistant | null = null;
 let hhOAuthService: HhOAuthService | null = null;
 let hhChatBrowser: HhChatBrowser | null = null;
+let interviewCalendar: InterviewCalendarStore | null = null;
 let closingHhBrowserForQuit = false;
 let quitting = false;
 // Ключ лицензии из ссылки skillcue://activate?key=… ждёт здесь, пока окно
@@ -375,6 +383,7 @@ function createOverlayWindow(): BrowserWindow {
     height: 780,
     frame: false,
     transparent: true,
+    icon: BRAND_ICON,
     alwaysOnTop: true,
     skipTaskbar: true,
     resizable: true,
@@ -518,6 +527,25 @@ function registerIpc(): void {
     hhChatBrowser?.setEnabled(enabled),
   );
   ipcMain.handle('hh-chat:poll-now', async () => hhChatBrowser?.pollNow());
+
+  // ─── Календарь собеседований ────────────────────────────────────────
+  ipcMain.handle('interview-calendar:get-state', () => interviewCalendar?.getState());
+  ipcMain.handle(
+    'interview-calendar:save-settings',
+    (_e, settings: Parameters<InterviewCalendarStore['saveSettings']>[0]) =>
+      interviewCalendar?.saveSettings(settings),
+  );
+  ipcMain.handle(
+    'interview-calendar:upsert-event',
+    (_e, event: Parameters<InterviewCalendarStore['upsertEvent']>[0]) =>
+      interviewCalendar?.upsertEvent(event),
+  );
+  ipcMain.handle('interview-calendar:remove-event', (_e, id: string) =>
+    interviewCalendar?.removeEvent(id),
+  );
+  ipcMain.handle('interview-calendar:dismiss-thread', (_e, id: string) =>
+    interviewCalendar?.dismissThread(id),
+  );
 
   ipcMain.handle('keybinds:get', () => ({
     toggleOverlay: toggleOverlayShortcut,
@@ -965,13 +993,49 @@ if (!hasSingleInstanceLock) {
     void ensureBackend();
     setupContentSecurityPolicy();
     setupDisplayMedia();
-    hhBrowserAssistant = new HhBrowserAssistant(app.getPath('userData'), (state) => {
-      sendToWindows('hh-assistant:state', state);
-    });
+    hhBrowserAssistant = new HhBrowserAssistant(
+      app.getPath('userData'),
+      (state) => {
+        sendToWindows('hh-assistant:state', state);
+      },
+      async (request) => {
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (API_TOKEN) headers['X-SkillCue-Token'] = API_TOKEN;
+        const response = await fetch(`${API_URL}/vacancy/screening-answers`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(request),
+          signal: AbortSignal.timeout(5_000),
+        });
+        if (!response.ok) {
+          const payload = await response.json().catch(() => null) as { detail?: string } | null;
+          throw new Error(payload?.detail || `Не удалось подготовить ответы: HTTP ${response.status}`);
+        }
+        return await response.json() as HhScreeningAnswersResponse;
+      },
+      async (request) => {
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (API_TOKEN) headers['X-SkillCue-Token'] = API_TOKEN;
+        const response = await fetch(`${API_URL}/vacancy/cover-letter`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(request),
+          signal: AbortSignal.timeout(12_000),
+        });
+        if (!response.ok) {
+          const payload = await response.json().catch(() => null) as { detail?: string } | null;
+          throw new Error(payload?.detail || `Не удалось подготовить письмо: HTTP ${response.status}`);
+        }
+        return await response.json() as HhCoverLetterResponse;
+      },
+    );
     hhBrowserAssistant.restoreSchedule();
 
-    // Инициализируем HH OAuth и Chat-ассистент (браузерный)
+    // Инициализируем HH OAuth, календарь и Chat-ассистент (браузерный).
     hhOAuthService = new HhOAuthService(app.getPath('userData'));
+    interviewCalendar = new InterviewCalendarStore(app.getPath('userData'), (state) => {
+      sendToWindows('interview-calendar:state', state);
+    });
     hhChatBrowser = new HhChatBrowser(
       app.getPath('userData'),
       // Фоновый чат работает в отдельной вкладке и не перехватывает поиск/отклик.
@@ -1016,6 +1080,7 @@ if (!hasSingleInstanceLock) {
         }
         return chunks.join('').trim();
       },
+      interviewCalendar,
     );
 
     // Запускаем браузерный чат, если был включён

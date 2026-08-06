@@ -77,6 +77,105 @@ INTERVIEW LEGEND (optional, may be empty):
 Return ONLY the JSON object."""
 
 
+VACANCY_SCREENING_ANSWERS_PROMPT = """You fill employer screening questions for a job candidate. Produce concise, truthful first-person answers that the candidate can review and submit.
+
+STRICT GROUNDING RULES:
+- Personal experience claims may come ONLY from RESUME or INTERVIEW LEGEND below.
+- Never invent project counts, team size, dates, metrics, budgets, people management, tools, responsibilities, or outcomes.
+- Vacancy text describes what the employer wants; it is NOT evidence that the candidate has done it.
+- General professional knowledge may explain an approach, but must not be presented as personal experience unless RESUME or LEGEND confirms it.
+- If a required factual answer cannot be supported, set canAutoFill=false and explain the missing fact in reason. Do not guess.
+- For text questions: answer directly in 1-3 sentences, normally under 500 characters. Use a concrete real example when the sources contain one.
+- For single/multiple/select questions: selectedOptions must contain only exact strings from that question's options.
+- Do not add greetings, coaching notes, markdown, or placeholders.
+- Write all answer text in {language}.
+
+Return STRICT JSON ONLY:
+{{
+  "answers": [
+    {{
+      "id": "exact question id",
+      "answer": "finished first-person answer, or empty when an option is selected",
+      "selectedOptions": ["exact option label"],
+      "canAutoFill": true,
+      "reason": "short reason only when canAutoFill=false"
+    }}
+  ]
+}}
+
+Return exactly one item for every question id and preserve the ids unchanged.
+
+VACANCY TITLE: {vacancy_title}
+COMPANY: {vacancy_company}
+VACANCY DESCRIPTION (requirements, not candidate facts):
+{vacancy_description}
+
+RESUME (authoritative candidate facts):
+{resume}
+
+INTERVIEW LEGEND (allowed framing, must not contradict resume):
+{legend}
+
+QUESTIONS JSON:
+{questions_json}
+"""
+
+
+VACANCY_COVER_LETTER_PROMPT = """You are an expert career writer. Write one highly tailored cover letter for a real job application. The result must sound like a thoughtful professional wrote specifically to this employer after reading the vacancy — never like a mass-mail template.
+
+First reason internally about the vacancy and candidate, then return only JSON.
+
+GROUNDING — NON-NEGOTIABLE:
+- Candidate claims may come ONLY from RESUME or INTERVIEW LEGEND below.
+- The vacancy describes employer needs; it is NOT evidence that the candidate has that experience.
+- Never invent or inflate metrics, years, project counts, team size, tools, employers, domains, responsibilities, leadership, or outcomes.
+- Do not copy facts from an example letter unless those facts exist in RESUME or LEGEND.
+- LEGEND is allowed framing but must not contradict RESUME.
+- If fewer than two meaningful vacancy-to-resume matches exist, set canAutoFill=false. Do not manufacture a generic letter.
+
+MATCHING:
+- Identify 3-5 strongest intersections between concrete vacancy needs and concrete résumé evidence.
+- Prefer the role's core work over a keyword checklist. For example, distinguish "building and evolving a Python test framework" from merely knowing Python.
+- Combine related tools into a credible work story: what the candidate built, maintained, improved, investigated, or integrated and why that maps to this role.
+- Acknowledge adjacent experience honestly. Never turn "familiar with" into "used in production".
+- Ignore benefits and employer marketing unless they reveal a genuinely specific reason the work itself is relevant.
+
+LETTER QUALITY:
+- Write in {language}; for Russian, start exactly with "Здравствуйте!".
+- 3-4 short paragraphs, normally 900-1800 characters and never over 2400.
+- Paragraph 1: direct professional fit and the strongest shared area. Do not open with "Меня заинтересовала вакансия" or "Я идеально подхожу".
+- Paragraph 2: 2-4 concrete, supported examples from the candidate's experience, connected logically to the vacancy's actual tasks. Do not dump every tool from the résumé.
+- Paragraph 3: a specific, credible reason this role's work is attractive (product, engineering challenge, ownership, framework development, scale, or domain named in the vacancy). Do not flatter the company or repeat its advertising copy.
+- Close naturally with readiness to discuss the role. No begging, hype, clichés, coaching notes, headings, bullets, markdown, placeholders, or contact details.
+- Vary sentence length and transitions. It should read as natural human prose, confident but not pompous.
+- Company and vacancy title may be mentioned only where natural; do not mechanically repeat them.
+
+Return STRICT JSON ONLY:
+{{
+  "coverLetter": "finished letter or empty string",
+  "matches": [
+    {{
+      "vacancyNeed": "specific responsibility or requirement from the vacancy",
+      "resumeEvidence": "specific supporting fact from resume or legend"
+    }}
+  ],
+  "canAutoFill": true,
+  "reason": "empty when safe; concise explanation when canAutoFill=false"
+}}
+
+VACANCY TITLE: {vacancy_title}
+COMPANY: {vacancy_company}
+VACANCY DESCRIPTION (requirements, not candidate facts):
+{vacancy_description}
+
+RESUME (authoritative candidate facts):
+{resume}
+
+INTERVIEW LEGEND (allowed framing, must not contradict resume):
+{legend}
+"""
+
+
 # GPT-5.6 quality-first prompt. The legacy calibration prompt remains below for
 # regression context; this active version is shorter, outcome-oriented, and
 # makes the stronger answer—not the score table—the primary coaching artifact.
@@ -214,6 +313,66 @@ candidate_answer (raw voice transcript):
 {answer}
 
 Return only the JSON object."""
+
+
+# Compact prompt for the interactive per-answer path. It deliberately keeps the
+# same response contract as V2 so saved sessions and the hardening layer remain
+# compatible, while cutting the output and instruction budget dramatically.
+VACANCY_EVALUATE_FAST_PROMPT = """You are a senior interviewer and concise interview coach. Evaluate one spoken answer quickly and honestly.
+
+Rules:
+- Judge meaning, not transcription noise. Never invent personal experience, metrics, projects, tools used personally, leadership, or results.
+- Resume and interview legend may support personal claims. Vacancy and expected signals describe requirements, not candidate experience.
+- Assess expected signals semantically; never list a covered idea as missing.
+- suggestedBetterAnswer must be a natural, finished first-person answer to this exact question, ready to say aloud. It is not advice or a template.
+- For technical questions: direct answer -> reasoning/steps -> trade-off or failure mode. For behavioral/project questions: context -> candidate action -> result, using only supported facts.
+- Keep feedback to 2-3 specific sentences, lists to at most 3 short items, and the better answer to roughly 70-140 words.
+- All text must be in {language}. Return strict JSON only.
+
+Return this complete shape:
+{{
+  "score": 0,
+  "coverageScore": 0,
+  "technicalContentScore": 0,
+  "projectSpecificityScore": 0,
+  "leadershipScore": 0,
+  "ownershipScore": 0,
+  "structureScore": 0,
+  "speechClarityScore": 0,
+  "technicalAccuracyScore": 0,
+  "specificityScore": 0,
+  "clarityScore": 0,
+  "confidenceScore": 0,
+  "levelEstimate": "junior|middle|senior|lead",
+  "verdict": "one sentence",
+  "feedback": "what worked, decisive gap, exact fix",
+  "normalizedAnswerSummary": "cleaned candidate meaning",
+  "detectedNoiseOrAsrErrors": [],
+  "extractedValidPoints": [],
+  "goodPoints": [],
+  "weakPoints": [],
+  "missingPoints": [],
+  "technicalCorrections": [],
+  "hallucinationGuard": [],
+  "betterStructure": [],
+  "answerStrategy": "one sentence",
+  "whyThisAnswerWorks": [],
+  "deliveryTips": [],
+  "suggestedBetterAnswer": "finished answer",
+  "followUpQuestions": [],
+  "nextTrainingFocus": "one concrete rehearsal task",
+  "overclaimed": false
+}}
+
+Topic: {topic}; level: {level}; hasResume={has_resume}
+Expected signals: {signals}
+Related resume evidence: {resume_evidence}
+Resume: {resume}
+Interview legend: {legend}
+Vacancy: {vacancy}
+Question: {question}
+Candidate answer: {answer}
+"""
 
 
 VACANCY_REPORT_PROMPT = """You are a senior interviewer for the profession described in the vacancy below and an interview coach. The candidate just finished a mock interview for THIS vacancy. Write the closing readiness narrative.

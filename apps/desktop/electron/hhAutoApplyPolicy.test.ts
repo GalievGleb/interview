@@ -14,6 +14,7 @@ describe('hhAutoApplyPolicy', () => {
       resumeTitleContains: 'QA',
       resumeSelected: false,
       letterFilled: false,
+      questionsFilled: false,
     };
 
     it('marks sent on success and already_applied', () => {
@@ -26,8 +27,14 @@ describe('hhAutoApplyPolicy', () => {
       expect(decideNextAction('login', ctx).action).toBe('wait_user');
     });
 
-    it('skips on employer_questions and unknown', () => {
-      expect(decideNextAction('employer_questions', ctx).action).toBe('skip');
+    it('fills employer questions before continuing to confirmation', () => {
+      expect(decideNextAction('employer_questions', ctx)).toEqual({ action: 'fill_questions' });
+      expect(decideNextAction('employer_questions', { ...ctx, questionsFilled: true })).toEqual({
+        action: 'click_confirm',
+      });
+    });
+
+    it('skips on unknown', () => {
       expect(decideNextAction('unknown', ctx).action).toBe('skip');
     });
 

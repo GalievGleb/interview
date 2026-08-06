@@ -6,6 +6,7 @@ import UpdateToast from './UpdateToast';
 import { useApp } from '../context/AppContext';
 import { useI18n, type I18nKey } from '../lib/i18n';
 import { getBackendBannerKind } from './layout/backendBanner';
+import { formatLiveElapsed } from '../lib/liveElapsed';
 
 const WIDE_ROUTES = new Set(['/meeting']);
 const PREP_ROUTES = new Set(['/home', '/prepare', '/documents', '/history']);
@@ -14,6 +15,7 @@ const ROUTE_TITLE_KEYS: Record<string, I18nKey> = {
   '/home': 'nav.home',
   '/prepare': 'nav.prepare',
   '/applications': 'nav.applications',
+  '/calendar': 'nav.calendar',
   '/documents': 'nav.documents',
   '/history': 'nav.history',
   '/settings': 'nav.settings',
@@ -21,14 +23,6 @@ const ROUTE_TITLE_KEYS: Record<string, I18nKey> = {
   '/benchmark': 'cmd.benchmark',
   '/diagnostics': 'cmd.diagnostics',
 };
-
-function elapsed(ms: number): string {
-  const seconds = Math.floor(ms / 1000);
-  const hh = String(Math.floor(seconds / 3600)).padStart(2, '0');
-  const mm = String(Math.floor((seconds % 3600) / 60)).padStart(2, '0');
-  const ss = String(seconds % 60).padStart(2, '0');
-  return `${hh}:${mm}:${ss}`;
-}
 
 function TitleBar({ pathname }: { pathname: string }) {
   const { t } = useI18n();
@@ -38,8 +32,12 @@ function TitleBar({ pathname }: { pathname: string }) {
 
   useEffect(() => {
     const onStart = () => {
+      const startedAt = Date.now();
       setLive(true);
-      setLiveStart((previous) => previous ?? Date.now());
+      setLiveStart((previous) => previous ?? startedAt);
+      // `now` may still contain the time at which the main window mounted.
+      // Refresh it in the same event so the first live frame cannot go negative.
+      setNow(startedAt);
     };
     const onStop = () => {
       setLive(false);
@@ -55,6 +53,7 @@ function TitleBar({ pathname }: { pathname: string }) {
 
   useEffect(() => {
     if (!live) return;
+    setNow(Date.now());
     const id = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(id);
   }, [live]);
@@ -68,7 +67,9 @@ function TitleBar({ pathname }: { pathname: string }) {
         <div className="ml-auto flex items-center gap-2 text-[12px] text-ink-muted">
           <span className="sc-dot sc-dot--live" />
           <span>{t('shell.liveSession')}</span>
-          {liveStart != null && <span className="sc-mono">{elapsed(now - liveStart)}</span>}
+          {liveStart != null && (
+            <span className="sc-mono">{formatLiveElapsed(now - liveStart)}</span>
+          )}
         </div>
       )}
     </header>

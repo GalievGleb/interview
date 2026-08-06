@@ -1,6 +1,15 @@
 import fs from 'fs';
 import path from 'path';
 import type { Frame, Page } from 'playwright-core';
+import {
+  analyzeInterviewMessage,
+  chooseThreadSlot,
+  findNextInterviewSlots,
+  formatInterviewSlotRu,
+  isInterviewSlotAvailable,
+  type InterviewCalendarStore,
+  type InterviewType,
+} from './interviewCalendar';
 
 export interface HhChatConfig {
   enabled: boolean;
@@ -35,7 +44,7 @@ export const DEFAULT_CHAT_CONFIG: HhChatConfig = {
     '- Отвечай от первого лица (я, мне).',
     '- Будь заинтересован, но не навязчив.',
     '- Если просят уточнить детали — дай конкретный ответ.',
-    '- Если приглашают на собеседование — предложи время.',
+    '- Время собеседований согласует календарь SkillCue. Сам не придумывай даты и время.',
     '- Если просят тестовое — согласись и уточни сроки.',
     '- Максимум 3-4 предложения.',
     '- Не придумывай опыт, условия, даты, зарплату или контакты, которых нет в сообщении.',
@@ -128,6 +137,7 @@ export class HhChatBrowser {
     userDataDir: string,
     getPage: GetPageFn,
     llmCall: (prompt: string) => Promise<string>,
+    private readonly interviewCalendar?: InterviewCalendarStore,
   ) {
     this.userDataDir = userDataDir;
     this.getPage = getPage;
@@ -254,7 +264,6 @@ export class HhChatBrowser {
       let shouldPersist = false;
 
       for (const negotiation of ordered) {
-        if (this.repliesToday >= this.config.dailyReplyLimit) break;
         const frame = await this.openNegotiation(page, negotiation);
         const lastMessage = await this.scrapeLastMessage(frame);
         if (!lastMessage || lastMessage.isMine) continue;
@@ -263,11 +272,32 @@ export class HhChatBrowser {
         const messageId = `${negotiation.key}:${lastMessage.id}`;
         if (this.seenMessageIds.has(messageId)) continue;
         if (lastMessage.text.length < this.config.minMessageLength) continue;
+        const scheduling = this.handleSchedulingMessage(
+          negotiation,
+          lastMessage.text,
+          this.repliesToday < this.config.dailyReplyLimit,
+        );
+        if (scheduling.handled) {
+          if (!scheduling.reply) {
+            if (scheduling.consume) {
+              this.seenMessageIds.add(messageId);
+              shouldPersist = true;
+            }
+            continue;
+          }
+          await this.delay(this.config.replyDelaySec * 1000);
+          await this.sendChatMessage(frame, scheduling.reply);
+          this.seenMessageIds.add(messageId);
+          this.recordReply();
+          shouldPersist = true;
+          continue;
+        }
         if (this.shouldIgnore(lastMessage.text)) {
           this.seenMessageIds.add(messageId);
           shouldPersist = true;
           continue;
         }
+        if (this.repliesToday >= this.config.dailyReplyLimit) continue;
 
         const reply = compactText(await this.llmCall(
           this.config.replyPrompt
@@ -293,6 +323,173 @@ export class HhChatBrowser {
     } finally {
       this.polling = false;
     }
+  }
+
+  private handleSchedulingMessage(
+    negotiation: NegotiationSummary,
+    message: string,
+    canReply: boolean,
+  ): { handled: boolean; reply?: string; consume?: boolean } {
+    if (!this.interviewCalendar) return { handled: false };
+    const now = new Date();
+    const analysis = analyzeInterviewMessage(message, now);
+    const previous = this.interviewCalendar.getThread(negotiation.key);
+    if (!analysis.isSchedulingMessage) return { handled: false };
+
+    const type: InterviewType =
+      analysis.type !== 'other' ? analysis.type : previous?.type ?? 'other';
+    const threadBase = {
+      negotiationKey: negotiation.key,
+      vacancyTitle: negotiation.vacancyTitle,
+      companyName: negotiation.companyName,
+      type,
+      recruiterMessage: message,
+    };
+
+    if (analysis.isCancellation) {
+      this.interviewCalendar.cancelNegotiation(negotiation.key);
+      this.interviewCalendar.upsertThread({
+        ...threadBase,
+        stage: 'cancelled',
+        offeredSlots: [],
+        reason: 'Работодатель отменил встречу. Событие сохранено в истории как отменённое.',
+      });
+      return canReply
+        ? { handled: true, reply: 'Спасибо, понял. Если появится новая дата, буду рад согласовать её.' }
+        : { handled: true, consume: true };
+    }
+
+    const settings = this.interviewCalendar.getSettings();
+    const calendarState = this.interviewCalendar.getState();
+    const existingEventId = calendarState.events.find(
+      (event) => event.negotiationKey === negotiation.key && event.status !== 'cancelled',
+    )?.id;
+    let selected = analysis.slots[0] ?? null;
+    if (analysis.isConfirmation && previous) {
+      selected = analysis.slots[0] ??
+        chooseThreadSlot(message, previous.offeredSlots) ??
+        (previous.selectedStartAt ? new Date(previous.selectedStartAt) : null);
+    }
+
+    if (
+      analysis.isConfirmation &&
+      selected &&
+      (previous?.selectedStartAt === selected.toISOString() ||
+        isInterviewSlotAvailable(selected, settings, calendarState.events, settings.defaultDurationMin, now, existingEventId))
+    ) {
+      this.interviewCalendar.scheduleFromNegotiation({
+        ...threadBase,
+        start: selected,
+        status: 'confirmed',
+        meetingUrl: analysis.meetingUrl,
+        notes: message,
+      });
+      this.interviewCalendar.upsertThread({
+        ...threadBase,
+        stage: 'confirmed',
+        offeredSlots: previous?.offeredSlots ?? [selected.toISOString()],
+        selectedStartAt: selected.toISOString(),
+      });
+      return canReply ? {
+        handled: true,
+        reply: `Спасибо, подтверждаю. Буду на связи ${formatInterviewSlotRu(selected)}.`,
+      } : { handled: true, consume: true };
+    }
+
+    if (!settings.availabilityConfigured || settings.availability.length === 0) {
+      this.interviewCalendar.upsertThread({
+        ...threadBase,
+        stage: 'needs_availability',
+        offeredSlots: analysis.slots.map((slot) => slot.toISOString()),
+        reason: 'Заполните удобное время в календаре — до этого бот не будет предлагать даты от вашего имени.',
+      });
+      // Не помечаем сообщение обработанным: после сохранения доступности
+      // следующий опрос сам вернётся к нему и продолжит согласование.
+      return { handled: true };
+    }
+
+    if (analysis.isConfirmation && !selected) {
+      this.interviewCalendar.upsertThread({
+        ...threadBase,
+        stage: 'needs_attention',
+        offeredSlots: previous?.offeredSlots ?? [],
+        reason: 'Работодатель подтвердил встречу без понятной даты или времени. Бот запросил уточнение.',
+      });
+      return canReply ? {
+        handled: true,
+        reply: 'Спасибо! Уточните, пожалуйста, дату и время созвона, чтобы я точно добавил встречу в календарь.',
+      } : { handled: true };
+    }
+
+    if (!canReply) {
+      this.interviewCalendar.upsertThread({
+        ...threadBase,
+        stage: 'needs_attention',
+        offeredSlots: analysis.slots.map((slot) => slot.toISOString()),
+        reason: 'Достигнут дневной лимит автоответов. Сообщение останется необработанным до следующего запуска.',
+      });
+      return { handled: true };
+    }
+
+    const availableRecruiterSlot = analysis.slots.find((slot) =>
+      isInterviewSlotAvailable(
+        slot,
+        settings,
+        calendarState.events,
+        settings.defaultDurationMin,
+        now,
+        existingEventId,
+      ),
+    );
+    if (availableRecruiterSlot) {
+      this.interviewCalendar.scheduleFromNegotiation({
+        ...threadBase,
+        start: availableRecruiterSlot,
+        status: 'proposed',
+        meetingUrl: analysis.meetingUrl,
+        notes: message,
+      });
+      this.interviewCalendar.upsertThread({
+        ...threadBase,
+        stage: 'awaiting_confirmation',
+        offeredSlots: analysis.slots.map((slot) => slot.toISOString()),
+        selectedStartAt: availableRecruiterSlot.toISOString(),
+        reason: 'Время подходит. Бот принял слот и ждёт подтверждения работодателя.',
+      });
+      return {
+        handled: true,
+        reply: `Спасибо! Мне подходит ${formatInterviewSlotRu(availableRecruiterSlot)}. Подтверждаю созвон.`,
+      };
+    }
+
+    const alternatives = findNextInterviewSlots(settings, calendarState.events, now, 3);
+    if (alternatives.length === 0) {
+      this.interviewCalendar.upsertThread({
+        ...threadBase,
+        stage: 'needs_attention',
+        offeredSlots: analysis.slots.map((slot) => slot.toISOString()),
+        reason: 'В ближайшие четыре недели нет свободного интервала. Освободите время или ответьте HR вручную.',
+      });
+      return { handled: true };
+    }
+
+    const offeredSlots = alternatives.map((slot) => slot.toISOString());
+    const proposedByRecruiter = analysis.slots.length > 0;
+    this.interviewCalendar.upsertThread({
+      ...threadBase,
+      stage: 'awaiting_recruiter',
+      offeredSlots,
+      reason: proposedByRecruiter
+        ? 'Варианты HR не совпали с вашей доступностью. Бот предложил ближайшие свободные слоты.'
+        : 'Бот предложил работодателю ближайшие свободные слоты.',
+    });
+    const options = alternatives.map((slot) => formatInterviewSlotRu(slot)).join('; ');
+    return {
+      handled: true,
+      reply: proposedByRecruiter
+        ? `К сожалению, предложенное время не подойдёт. Могу созвониться: ${options}. Подойдёт ли один из вариантов?`
+        : `Спасибо за приглашение! Мне удобно: ${options}. Подойдёт ли один из вариантов?`,
+    };
   }
 
   private isNegotiationsPage(rawUrl: string): boolean {
@@ -449,6 +646,10 @@ export class HhChatBrowser {
     if (this.replyDate === today) return;
     this.replyDate = today;
     this.repliesToday = 0;
+  }
+
+  private recordReply(): void {
+    this.repliesToday += 1;
   }
 
   private delay(ms: number): Promise<void> {

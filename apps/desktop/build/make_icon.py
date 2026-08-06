@@ -348,29 +348,9 @@ def _installer_sidebar(uninstall: bool = False) -> bytes:
 
 
 def main() -> None:
-    pngs = [(size, _png(size)) for size in SIZES]
     output = Path(__file__).parent / "icon.ico"
-    entries = bytearray()
-    data = bytearray()
-    offset = 6 + 16 * len(pngs)
-    for size, png in pngs:
-        width_and_height = 0 if size >= 256 else size
-        entries += struct.pack(
-            "<BBBBHHII",
-            width_and_height,
-            width_and_height,
-            0,
-            0,
-            1,
-            32,
-            len(png),
-            offset,
-        )
-        data += png
-        offset += len(png)
-    output.write_bytes(
-        struct.pack("<HHH", 0, 1, len(pngs)) + bytes(entries) + bytes(data)
-    )
+    icon_source = output.parent.parent / "assets" / "branding" / "skillcue-app-icon.ico"
+    output.write_bytes(icon_source.read_bytes())
 
     assets = {
         "installerHeader.bmp": _installer_header(),
@@ -381,7 +361,7 @@ def main() -> None:
         (output.parent / name).write_bytes(content)
 
     written = ", ".join([output.name, *assets])
-    print(f"wrote {written} ({len(pngs)} icon sizes)")
+    print(f"wrote {written} (SkillCue flag application icon)")
 
 
 if __name__ == "__main__":

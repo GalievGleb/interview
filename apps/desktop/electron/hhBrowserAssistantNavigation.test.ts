@@ -1,10 +1,25 @@
 import { describe, expect, it } from 'vitest';
 import {
+  browserLaunchArguments,
   isBrokenHhLoginSourcePage,
   isRecoverableHhLoginNavigationAbort,
 } from './hhBrowserAssistant';
 
 describe('HH login navigation recovery', () => {
+  it('launches background automation headlessly without an extra blank target', () => {
+    const args = browserLaunchArguments('C:\\tmp\\skillcue-browser', 43210, 'background');
+    expect(args).toContain('--headless=new');
+    expect(args).not.toContain('--start-maximized');
+    expect(args).not.toContain('about:blank');
+  });
+
+  it('only exposes Chrome for an explicit interactive action', () => {
+    const args = browserLaunchArguments('C:\\tmp\\skillcue-browser', 43210, 'interactive');
+    expect(args).toContain('--start-maximized');
+    expect(args).not.toContain('--headless=new');
+    expect(args).not.toContain('about:blank');
+  });
+
   it('accepts ERR_ABORTED when the expected HH login page is already open', () => {
     expect(
       isRecoverableHhLoginNavigationAbort(

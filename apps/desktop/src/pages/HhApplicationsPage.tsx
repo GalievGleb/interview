@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Check, ChevronDown, Clock3, ExternalLink, FileText, Loader2, Mail, MessageCircle, RefreshCw, Search, Send } from 'lucide-react';
-import type { HhAssistantConfig, HhAssistantState, HhChatState, HhQueueItem } from '../types/electron';
+import { useNavigate } from 'react-router-dom';
+import { CalendarDays, Check, ChevronDown, Clock3, ExternalLink, FileText, Loader2, Mail, MessageCircle, RefreshCw, Search, Send } from 'lucide-react';
+import AvailabilityEditor, { formatAvailabilitySummary } from '../components/interview/AvailabilityEditor';
+import type { HhAssistantConfig, HhAssistantState, HhChatState, HhQueueItem, InterviewCalendarSettings, InterviewCalendarState } from '../types/electron';
 
 const EMPTY_CONFIG: HhAssistantConfig = {
   platform: 'hh',
@@ -35,6 +37,8 @@ const queueStatus = (item: HhQueueItem) => {
 export default function HhApplicationsPage() {
   const assistant = window.electronAPI?.hhAssistant;
   const chat = window.electronAPI?.hhChat;
+  const calendar = window.electronAPI?.interviewCalendar;
+  const navigate = useNavigate();
   const [state, setState] = useState<HhAssistantState | null>(null);
   const [draft, setDraft] = useState(EMPTY_CONFIG);
   const [excludedKeywords, setExcludedKeywords] = useState('');
@@ -50,6 +54,8 @@ export default function HhApplicationsPage() {
   const [chatState, setChatState] = useState<HhChatState | null>(null);
   const [chatBusy, setChatBusy] = useState(false);
   const [chatError, setChatError] = useState('');
+  const [calendarState, setCalendarState] = useState<InterviewCalendarState | null>(null);
+  const [availabilityOpen, setAvailabilityOpen] = useState(false);
 
   useEffect(() => {
     if (!assistant) return;
@@ -73,6 +79,14 @@ export default function HhApplicationsPage() {
     const timer = window.setInterval(refresh, 10_000);
     return () => { active = false; window.clearInterval(timer); };
   }, [chat]);
+
+  useEffect(() => {
+    if (!calendar) return;
+    let active = true;
+    void calendar.getState().then((next) => { if (active) setCalendarState(next); });
+    const unsubscribe = calendar.onState((next) => { if (active) setCalendarState(next); });
+    return () => { active = false; unsubscribe(); };
+  }, [calendar]);
 
   const config = (): HhAssistantConfig => ({
     ...draft, excludedKeywords: splitList(excludedKeywords),
@@ -156,12 +170,35 @@ export default function HhApplicationsPage() {
 
   const toggleChat = async () => {
     if (!chat) return;
+    if (!chatState?.enabled && !calendarState?.settings.availabilityConfigured) {
+      setChatError('Укажите удобные дни и часы — после сохранения автоответы включатся автоматически.');
+      setAvailabilityOpen(true);
+      return;
+    }
     setChatBusy(true);
     setChatError('');
     try {
       setChatState(await chat.setEnabled(!chatState?.enabled));
     } catch (error) {
       setChatError(error instanceof Error ? error.message : 'Не удалось изменить режим ответов HR.');
+    } finally {
+      setChatBusy(false);
+    }
+  };
+
+  const saveAvailabilityAndEnableChat = async (settings: Partial<InterviewCalendarSettings>) => {
+    if (!calendar || !chat) throw new Error('Календарь или ответы HR недоступны.');
+    setChatBusy(true);
+    setChatError('');
+    try {
+      const next = await calendar.saveSettings(settings);
+      setCalendarState(next);
+      if (!chatState?.enabled) setChatState(await chat.setEnabled(true));
+      setAvailabilityOpen(false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Не удалось сохранить удобное время.';
+      setChatError(message);
+      throw error;
     } finally {
       setChatBusy(false);
     }
@@ -214,7 +251,7 @@ export default function HhApplicationsPage() {
             <button className="btn-ghost" onClick={() => { setCodeRequested(false); setCode(''); }}>Изменить почту</button>
           </>}
         </div>}
-        {!hhConnected && <p className="mt-3 text-xs text-ink-faint">Откроется отдельное окно HH — это нужно один раз, чтобы сайт подтвердил вход. SkillCue не запрашивает пароль и сохраняет сессию только на этом устройстве.</p>}
+        {!hhConnected && <p className="mt-3 text-xs text-ink-faint">SkillCue подключит HH в фоне: отдельное окно не откроется. Мы не запрашиваем пароль и сохраняем сессию только на этом устройстве.</p>}
         {authMessage && <p className="mt-2 text-xs text-ink-muted">{authMessage}</p>}
       </section> : <section className="panel-card shrink-0 p-5">
         <div className="flex flex-wrap items-center justify-between gap-4">
@@ -266,7 +303,7 @@ export default function HhApplicationsPage() {
 
       <section className="panel-card shrink-0 p-5">
         <div className="flex flex-wrap items-center justify-between gap-4">
-          <span><b className="block text-sm text-ink">3. Запустить поиск</b><span className="text-xs text-ink-faint">Найденное попадёт в отдельную очередь выбранной площадки</span></span>
+          <span><b className="block text-sm text-ink">3. Запустить поиск</b><span className="text-xs text-ink-faint">{draft.platform === 'hh' ? 'Перед каждым откликом AI сопоставит резюме с вакансией и напишет отдельное письмо' : 'Найденное попадёт в отдельную очередь выбранной площадки'}</span></span>
           {draft.platform === 'hh' && <label className="flex items-center gap-2 text-sm text-ink-muted"><Clock3 size={16} />Ежедневно в <select className="field w-24" value={draft.autoRunHour} onChange={(e) => setDraft({ ...draft, autoRunHour: Number(e.target.value) })}>{Array.from({ length: 24 }, (_, hour) => <option key={hour} value={hour}>{String(hour).padStart(2, '0')}:00</option>)}</select></label>}
           <button className="btn-primary" disabled={busy !== '' || !draft.query.trim() || (draft.platform === 'hh' && draft.resumeTitles.length === 0)} onClick={() => void saveAutomation()}>{busy === 'save' ? <Loader2 className="animate-spin" size={16} /> : <Search size={16} />}{draft.platform === 'hh' ? 'Найти и запустить автоотклики' : 'Найти вакансии'}</button>
         </div>
@@ -286,7 +323,38 @@ export default function HhApplicationsPage() {
       {draft.platform === 'hh' && chat && <section className="panel-card shrink-0 p-5">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3"><div className="grid h-10 w-10 place-items-center rounded-full bg-sky-500/10 text-sky-200"><MessageCircle size={19} /></div><div><h2 className="panel-title">Ответы на сообщения HR</h2><p className="text-xs text-ink-faint">Проверяет активные диалоги и отвечает только если последнее сообщение пришло от работодателя</p></div></div>
-          <div className="flex flex-wrap gap-2"><button type="button" className="btn-ghost" disabled={chatBusy || chatState?.polling} onClick={() => void pollChat()}>{chatBusy || chatState?.polling ? <Loader2 className="animate-spin" size={14} /> : <RefreshCw size={14} />}Проверить сейчас</button><button type="button" className="btn-primary" disabled={chatBusy} onClick={() => void toggleChat()}>{chatState?.enabled ? 'Выключить автоответы' : 'Включить автоответы'}</button></div>
+          <div className="flex flex-wrap gap-2"><button type="button" className="btn-ghost" onClick={() => navigate('/calendar')}><CalendarDays size={14} />Календарь</button><button type="button" className="btn-ghost" disabled={chatBusy || chatState?.polling} onClick={() => void pollChat()}>{chatBusy || chatState?.polling ? <Loader2 className="animate-spin" size={14} /> : <RefreshCw size={14} />}Проверить сейчас</button><button type="button" className="btn-primary" disabled={chatBusy} onClick={() => void toggleChat()}>{chatState?.enabled ? 'Выключить автоответы' : 'Включить автоответы'}</button></div>
+        </div>
+        <div className={`mt-4 rounded-xl border p-4 ${calendarState?.settings.availabilityConfigured ? 'border-emerald-500/20 bg-emerald-500/[0.04]' : 'border-amber-400/25 bg-amber-400/[0.06]'}`}>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="flex min-w-0 items-start gap-3">
+              <CalendarDays className={calendarState?.settings.availabilityConfigured ? 'text-emerald-300' : 'text-amber-200'} size={18} />
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-ink">Когда можно назначать созвоны</p>
+                <p className="mt-1 text-xs text-ink-muted">
+                  {calendarState
+                    ? formatAvailabilitySummary(calendarState.settings)
+                    : 'Загружаю доступность…'}
+                </p>
+              </div>
+            </div>
+            {calendarState?.settings.availabilityConfigured && (
+              <button type="button" className="btn-ghost btn-sm" onClick={() => setAvailabilityOpen((open) => !open)}>
+                {availabilityOpen ? 'Свернуть' : 'Изменить'}
+              </button>
+            )}
+          </div>
+          {calendarState && (availabilityOpen || !calendarState.settings.availabilityConfigured) && (
+            <div className="mt-4 border-t border-surface-border pt-4">
+              <p className="mb-3 text-xs text-ink-muted">Бот примет подходящий вариант HR, а при несовпадении предложит три ближайших свободных слота.</p>
+              <AvailabilityEditor
+                compact
+                settings={calendarState.settings}
+                onSave={saveAvailabilityAndEnableChat}
+                submitLabel={chatState?.enabled ? 'Сохранить' : 'Сохранить и включить автоответы'}
+              />
+            </div>
+          )}
         </div>
         <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-xs text-ink-muted"><span>Активных диалогов: {chatState?.activeNegotiations ?? 0}</span><span>Входящих к ответу: {chatState?.unreadMessages ?? 0}</span><span>Ответов сегодня: {chatState?.repliesToday ?? 0}</span>{chatState?.lastPollAt && <span>Проверено: {new Date(chatState.lastPollAt).toLocaleTimeString()}</span>}</div>
         {(chatError || chatState?.error) && <p className="mt-3 rounded-lg border border-amber-500/25 bg-amber-500/5 p-3 text-xs text-amber-200">{chatError || chatState?.error}</p>}

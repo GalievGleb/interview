@@ -21,6 +21,8 @@ export interface HhApplyContext {
   resumeSelected: boolean;
   /** IO-слой отмечает, что письмо уже вставлено в этой попытке. */
   letterFilled: boolean;
+  /** IO-слой отмечает, что обязательные вопросы работодателя заполнены. */
+  questionsFilled: boolean;
 }
 
 export type HhApplyAction =
@@ -28,6 +30,7 @@ export type HhApplyAction =
   | { action: 'select_resume' }
   | { action: 'open_letter' }
   | { action: 'fill_letter' }
+  | { action: 'fill_questions' }
   | { action: 'click_confirm' }
   | { action: 'mark_sent' }
   | { action: 'skip'; reason: string }
@@ -49,10 +52,9 @@ export function decideNextAction(
         reason: 'HH запросил проверку. Завершите её в открытом браузере и продолжите.',
       };
     case 'employer_questions':
-      return {
-        action: 'skip',
-        reason: 'Вакансия требует ответы на вопросы или тест работодателя.',
-      };
+      return ctx.questionsFilled
+        ? { action: 'click_confirm' }
+        : { action: 'fill_questions' };
     case 'login':
       return {
         action: 'wait_user',

@@ -68,6 +68,22 @@ const api = {
       ipcRenderer.invoke('hh-chat:set-enabled', enabled),
     pollNow: () => ipcRenderer.invoke('hh-chat:poll-now'),
   },
+  interviewCalendar: {
+    getState: () => ipcRenderer.invoke('interview-calendar:get-state'),
+    saveSettings: (settings: unknown) =>
+      ipcRenderer.invoke('interview-calendar:save-settings', settings),
+    upsertEvent: (event: unknown) =>
+      ipcRenderer.invoke('interview-calendar:upsert-event', event),
+    removeEvent: (id: string) =>
+      ipcRenderer.invoke('interview-calendar:remove-event', id),
+    dismissThread: (id: string) =>
+      ipcRenderer.invoke('interview-calendar:dismiss-thread', id),
+    onState: (cb: (state: unknown) => void) => {
+      const handler = (_e: unknown, state: unknown) => cb(state);
+      ipcRenderer.on('interview-calendar:state', handler);
+      return () => ipcRenderer.removeListener('interview-calendar:state', handler);
+    },
+  },
   onBackendStatus: (cb: (status: unknown) => void) => {
     const handler = (_e: unknown, status: unknown) => cb(status);
     ipcRenderer.on('backend:status', handler);

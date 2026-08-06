@@ -44,6 +44,28 @@ export default function OverlayTooltipLayer({
   }, [active, positionTooltip]);
 
   useEffect(() => {
+    const trigger = active?.trigger;
+    if (!trigger) return;
+
+    const syncText = () => {
+      const text = trigger.dataset.tip?.trim();
+      setActive((current) => {
+        if (current?.trigger !== trigger) return current;
+        if (!text) return null;
+        return current.text === text ? current : { ...current, text };
+      });
+    };
+
+    // A control can change meaning without the pointer leaving it (for example,
+    // Start recording -> Stop recording). Keep the visible tooltip in sync with
+    // the trigger's current data-tip instead of showing the hover-time snapshot.
+    syncText();
+    const observer = new MutationObserver(syncText);
+    observer.observe(trigger, { attributes: true, attributeFilter: ['data-tip'] });
+    return () => observer.disconnect();
+  }, [active?.trigger]);
+
+  useEffect(() => {
     const root = rootRef.current;
     if (!root) return;
 

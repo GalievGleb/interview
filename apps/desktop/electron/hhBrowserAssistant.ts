@@ -10,7 +10,6 @@ import {
   type HhVacancy,
   normalizeHhAssistantConfig,
   normalizeHhVacancyUrl,
-  renderCoverLetter,
   shouldExcludeVacancy,
 } from './hhAssistantPolicy';
 import {
@@ -20,6 +19,17 @@ import {
   type HhApplyContext,
   type HhApplySituation,
 } from './hhAutoApplyPolicy';
+import {
+  collectHhScreeningFields,
+  fillHhScreeningFields,
+  type HhScreeningAnswersRequest,
+  type HhScreeningAnswersResponse,
+} from './hhScreeningQuestions';
+import {
+  validateGeneratedHhCoverLetter,
+  type HhCoverLetterRequest,
+  type HhCoverLetterResponse,
+} from './hhCoverLetter';
 
 export type HhQueueStatus = 'new' | 'opened' | 'prepared' | 'sent' | 'skipped';
 export type HhAssistantPhase =
@@ -67,7 +77,14 @@ interface PersistedState {
 }
 
 type EmitState = (state: HhAssistantState) => void;
+type GenerateHhScreeningAnswers = (
+  request: HhScreeningAnswersRequest,
+) => Promise<HhScreeningAnswersResponse>;
+type GenerateHhCoverLetter = (
+  request: HhCoverLetterRequest,
+) => Promise<HhCoverLetterResponse>;
 type JobPlatform = 'hh' | 'linkedin' | 'avito';
+export type BrowserRunMode = 'background' | 'interactive';
 
 const PLATFORM_INFO: Record<JobPlatform, {
   label: string;
@@ -147,6 +164,10 @@ const RESPONSE_BUTTON_SELECTOR = [
 const RESPONSE_SUBMIT_SELECTOR = [
   '[data-qa="vacancy-response-submit-popup"]',
   '[data-qa="vacancy-response-letter-submit"]',
+  '[data-qa="vacancy-response-submit"]',
+  '[data-qa*="vacancy-response"][data-qa*="submit"]',
+  '[data-qa*="response-question"][data-qa*="submit"]',
+  'form:has(textarea) button[type="submit"]',
 ].join(', ');
 const RESUME_ITEM_SELECTOR = [
   '[data-qa="resume-title"]',
@@ -464,13 +485,47 @@ function installedBrowserCandidates(): Array<{ label: string; executable: string
   return candidates.filter((candidate, index, all) => fs.existsSync(candidate.executable) && all.findIndex((item) => item.executable.toLowerCase() === candidate.executable.toLowerCase()) === index);
 }
 
-function profileDebugPort(profileDir: string): number | null {
+interface ProfileDebugInfo {
+  port: number;
+  mode: BrowserRunMode | null;
+}
+
+function profileDebugInfo(profileDir: string): ProfileDebugInfo | null {
   try {
     const customPath = path.join(profileDir, 'SkillCueDebugPort');
     const portFile = fs.existsSync(customPath) ? customPath : path.join(profileDir, 'DevToolsActivePort');
-    const port = Number(fs.readFileSync(portFile, 'utf8').split(/\r?\n/, 1)[0]);
-    return Number.isInteger(port) && port > 0 && port < 65536 ? port : null;
+    const lines = fs.readFileSync(portFile, 'utf8').split(/\r?\n/);
+    const port = Number(lines[0]);
+    if (!Number.isInteger(port) || port <= 0 || port >= 65536) return null;
+    const mode = lines[1] === 'background' || lines[1] === 'interactive' ? lines[1] : null;
+    return { port, mode };
   } catch { return null; }
+}
+
+export function browserLaunchArguments(
+  profileDir: string,
+  debugPort: number,
+  mode: BrowserRunMode,
+): string[] {
+  const args = [
+    '--remote-debugging-address=127.0.0.1',
+    `--remote-debugging-port=${debugPort}`,
+    `--user-data-dir=${profileDir}`,
+    '--remote-allow-origins=*',
+    '--disable-blink-features=AutomationControlled',
+    '--no-first-run',
+    '--no-default-browser-check',
+    '--disable-session-crashed-bubble',
+    '--hide-crash-restore-bubble',
+  ];
+  if (mode === 'background') {
+    args.push('--headless=new', '--window-size=1365,900', '--disable-gpu');
+  } else {
+    args.push('--start-maximized');
+  }
+  // Chrome creates one initial target itself. Do not append about:blank: doing
+  // so adds another restorable tab on every application start.
+  return args;
 }
 
 async function allocateDebugPort(): Promise<number> {
@@ -682,6 +737,9 @@ export class HhBrowserAssistant {
   private context: BrowserContext | null = null;
   private page: Page | null = null;
   private chatPage: Page | null = null;
+  private browserMode: BrowserRunMode | null = null;
+  private ensureBrowserPromise: Promise<Page> | null = null;
+  private chatPagePromise: Promise<Page | null> | null = null;
   private readonly profileDir: string;
   private readonly statePath: string;
   private readonly emitState: EmitState;
@@ -691,7 +749,12 @@ export class HhBrowserAssistant {
   private scheduleTimer: NodeJS.Timeout | null = null;
   private scheduleRunning = false;
 
-  constructor(userDataDir: string, emitState: EmitState) {
+  constructor(
+    userDataDir: string,
+    emitState: EmitState,
+    private readonly generateScreeningAnswers?: GenerateHhScreeningAnswers,
+    private readonly generateCoverLetter?: GenerateHhCoverLetter,
+  ) {
     this.profileDir = path.join(userDataDir, 'job-browser-profile-v2');
     this.statePath = path.join(userDataDir, 'hh-browser-assistant.json');
     this.emitState = emitState;
@@ -720,7 +783,7 @@ export class HhBrowserAssistant {
   async getPage(): Promise<Page | null> {
     if (this.page && !this.page.isClosed()) return this.page;
     try {
-      return await this.ensureBrowser();
+      return await this.ensureBrowser('background');
     } catch {
       return null;
     }
@@ -732,18 +795,29 @@ export class HhBrowserAssistant {
    * response modal.
    */
   async getChatPage(): Promise<Page | null> {
+    if (this.chatPage && !this.chatPage.isClosed()) return this.chatPage;
+    if (this.chatPagePromise) return this.chatPagePromise;
+    const task = (async (): Promise<Page | null> => {
+      try {
+        await this.ensureBrowser('background');
+        if (!this.context) return null;
+        if (this.chatPage && !this.chatPage.isClosed()) return this.chatPage;
+        const chatPage = await this.context.newPage();
+        this.chatPage = chatPage;
+        chatPage.once('close', () => {
+          if (this.chatPage === chatPage) this.chatPage = null;
+        });
+        await this.closeExcessAutomationPages(new Set([this.page, chatPage].filter(Boolean) as Page[]));
+        return chatPage;
+      } catch {
+        return null;
+      }
+    })();
+    this.chatPagePromise = task;
     try {
-      await this.ensureBrowser();
-      if (!this.context) return null;
-      if (this.chatPage && !this.chatPage.isClosed()) return this.chatPage;
-      const chatPage = await this.context.newPage();
-      this.chatPage = chatPage;
-      chatPage.once('close', () => {
-        if (this.chatPage === chatPage) this.chatPage = null;
-      });
-      return chatPage;
-    } catch {
-      return null;
+      return await task;
+    } finally {
+      if (this.chatPagePromise === task) this.chatPagePromise = null;
     }
   }
 
@@ -995,6 +1069,8 @@ export class HhBrowserAssistant {
     this.context = null;
     this.page = null;
     this.chatPage = null;
+    this.browserMode = null;
+    this.chatPagePromise = null;
     fs.rmSync(path.join(this.profileDir, 'SkillCueDebugPort'), { force: true });
     // Give Chrome a chance to flush session cookies before using taskkill as a
     // fallback. Killing first made a successful HH login disappear on restart.
@@ -1003,17 +1079,24 @@ export class HhBrowserAssistant {
     await terminateBrowserProcessTree(browserProcess);
   }
 
-  private async launchInstalledBrowser(): Promise<BrowserContext> {
+  private async launchInstalledBrowser(mode: BrowserRunMode): Promise<BrowserContext> {
     fs.mkdirSync(this.profileDir, { recursive: true });
     const errors: string[] = [];
-    const activePort = profileDebugPort(this.profileDir);
-    if (activePort) {
+    const activeBrowser = profileDebugInfo(this.profileDir);
+    if (activeBrowser) {
       try {
-        const browser = await chromium.connectOverCDP(`http://127.0.0.1:${activePort}`, { timeout: 2500 });
+        const browser = await chromium.connectOverCDP(`http://127.0.0.1:${activeBrowser.port}`, { timeout: 2500 });
         const context = browser.contexts()[0];
         if (!context) throw new Error('браузер не вернул основной профиль');
+        const activeMode = activeBrowser.mode ?? 'interactive';
+        if (activeMode !== mode) {
+          await settleWithin(browser.close(), 4_000);
+          fs.rmSync(path.join(this.profileDir, 'SkillCueDebugPort'), { force: true });
+          throw new Error(`перезапуск из режима ${activeMode} в ${mode}`);
+        }
         await this.injectStealthScript(context);
         this.browser = browser;
+        this.browserMode = mode;
         return context;
       } catch (error) {
         errors.push(`existing browser: ${error instanceof Error ? error.message : String(error)}`);
@@ -1027,11 +1110,11 @@ export class HhBrowserAssistant {
         fs.rmSync(debugPortPath, { force: true });
         fs.rmSync(skillCuePortPath, { force: true });
         const debugPort = await allocateDebugPort();
-        child = spawn(candidate.executable, [
-          '--remote-debugging-address=127.0.0.1', `--remote-debugging-port=${debugPort}`, `--user-data-dir=${this.profileDir}`,
-          '--remote-allow-origins=*', '--disable-blink-features=AutomationControlled',
-          '--no-first-run', '--no-default-browser-check', '--start-maximized', 'about:blank',
-        ], { detached: false, stdio: 'ignore', windowsHide: false });
+        child = spawn(
+          candidate.executable,
+          browserLaunchArguments(this.profileDir, debugPort, mode),
+          { detached: false, stdio: 'ignore', windowsHide: true },
+        );
         child.unref();
         const deadline = Date.now() + 20_000;
         let browser: Browser | null = null;
@@ -1046,7 +1129,8 @@ export class HhBrowserAssistant {
         await this.injectStealthScript(context);
         this.browser = browser;
         this.browserProcess = child;
-        fs.writeFileSync(skillCuePortPath, String(debugPort), 'utf8');
+        this.browserMode = mode;
+        fs.writeFileSync(skillCuePortPath, `${debugPort}\n${mode}`, 'utf8');
         return context;
       } catch (error) {
         if (child?.exitCode === null) child.kill();
@@ -1056,7 +1140,42 @@ export class HhBrowserAssistant {
     throw new Error(`Не удалось открыть обычный Chrome или Edge. ${errors.join(' | ')}`);
   }
 
-  private async ensureBrowser(): Promise<Page> {
+  /**
+   * The profile belongs exclusively to SkillCue. Chrome may restore targets
+   * from a previous forced shutdown, so keeping only the pages owned by the
+   * current run prevents both stale HH tabs and accumulated about:blank tabs.
+   */
+  private async closeExcessAutomationPages(keep: Set<Page>): Promise<void> {
+    if (!this.context) return;
+    for (const candidate of this.context.pages()) {
+      if (keep.has(candidate) || candidate.isClosed()) continue;
+      await settleWithin(candidate.close(), 1_500);
+    }
+  }
+
+  private browserModeSatisfies(requestedMode: BrowserRunMode): boolean {
+    return this.browserMode === requestedMode || (
+      requestedMode === 'background' && this.browserMode === 'interactive'
+    );
+  }
+
+  private async ensureBrowser(mode: BrowserRunMode = 'background'): Promise<Page> {
+    if (this.context && this.browserModeSatisfies(mode) && this.page && !this.page.isClosed()) return this.page;
+    if (this.ensureBrowserPromise) {
+      const pendingPage = await this.ensureBrowserPromise;
+      if (this.browserModeSatisfies(mode) && !pendingPage.isClosed()) return pendingPage;
+    }
+    const pending = this.ensureBrowserUnlocked(mode);
+    this.ensureBrowserPromise = pending;
+    try {
+      return await pending;
+    } finally {
+      if (this.ensureBrowserPromise === pending) this.ensureBrowserPromise = null;
+    }
+  }
+
+  private async ensureBrowserUnlocked(mode: BrowserRunMode): Promise<Page> {
+    if (this.context && !this.browserModeSatisfies(mode)) await this.resetBrowserConnection();
     if (this.context && this.page && !this.page.isClosed()) return this.page;
     if (this.context) {
       const existingContext = this.context;
@@ -1064,13 +1183,14 @@ export class HhBrowserAssistant {
         // Restored Chrome tabs can look healthy in /json yet never answer CDP
         // commands. A fresh target is cheap and avoids inheriting that renderer.
         this.page = await existingContext.newPage();
+        await this.closeExcessAutomationPages(new Set([this.page, ...(this.chatPage && !this.chatPage.isClosed() ? [this.chatPage] : [])]));
         return this.page;
       } catch {
         if (this.context === existingContext) this.context = null;
         this.page = null;
       }
     }
-    const context = await this.launchInstalledBrowser();
+    const context = await this.launchInstalledBrowser(mode);
     this.context = context;
     const browser = this.browser;
     const handleBrowserClosed = () => {
@@ -1081,6 +1201,9 @@ export class HhBrowserAssistant {
       this.context = null;
       this.page = null;
       this.chatPage = null;
+      this.browserMode = null;
+      this.ensureBrowserPromise = null;
+      this.chatPagePromise = null;
       this.update({
         phase: 'idle',
         browserOpen: false,
@@ -1093,6 +1216,7 @@ export class HhBrowserAssistant {
     // Do not reuse Chrome's session-restored tab here. In practice HH can
     // restore it in a renderer that is visible but unresponsive to automation.
     this.page = await context.newPage();
+    await this.closeExcessAutomationPages(new Set([this.page]));
     await this.injectStealthScript(context);
     this.update({ browserOpen: true, phase: 'browser_open' });
     return this.page;
@@ -1101,7 +1225,7 @@ export class HhBrowserAssistant {
   private async openFreshHhLoginPage(): Promise<Page> {
     let lastError: unknown;
     for (let attempt = 0; attempt < 2; attempt += 1) {
-      const previousPage = await this.ensureBrowser();
+      await this.ensureBrowser('background');
       const context = this.context;
       if (!context) throw new Error('Не удалось получить контекст браузера HH.');
       let loginPage: Page | null = null;
@@ -1116,18 +1240,7 @@ export class HhBrowserAssistant {
           throw new Error('HH не открыл страницу входа. Повторите попытку.');
         }
         this.page = loginPage;
-        await loginPage.bringToFront();
-
-        for (const candidate of context.pages()) {
-          if (candidate === loginPage || candidate.isClosed()) continue;
-          const candidateUrl = candidate.url();
-          const staleLoginPage =
-            candidate === previousPage ||
-            candidateUrl === 'about:blank' ||
-            candidateUrl.includes('/account/login') ||
-            isBrokenHhLoginSourcePage(candidateUrl);
-          if (staleLoginPage) await settleWithin(candidate.close(), 1_500);
-        }
+        await this.closeExcessAutomationPages(new Set([loginPage]));
         return loginPage;
       } catch (error) {
         lastError = error;
@@ -1147,7 +1260,7 @@ export class HhBrowserAssistant {
     const platform = normalizePlatform(platformValue ?? this.state.config.platform);
     const info = PLATFORM_INFO[platform];
     try {
-      const page = await this.ensureBrowser();
+      const page = await this.ensureBrowser('interactive');
       if (!isPlatformPage(platform, page.url())) {
         await page.goto(info.homeUrl, { waitUntil: 'domcontentloaded' });
       }
@@ -1180,7 +1293,7 @@ export class HhBrowserAssistant {
     password: string,
   ): Promise<{ ok: boolean; message: string }> {
     try {
-      const page = await this.ensureBrowser();
+      const page = await this.ensureBrowser('background');
 
       // Переходим на страницу входа
       await page.goto('https://hh.ru/account/login?backurl=%2Fapplicant%2Fresumes&role=applicant', {
@@ -1384,7 +1497,7 @@ export class HhBrowserAssistant {
 
   async confirmLoginCode(code: string): Promise<{ ok: boolean; message: string }> {
     try {
-      const page = await this.ensureBrowser();
+      const page = await this.ensureBrowser('background');
       const normalized = code.replace(/\s/g, '');
       if (!/^\d{4,8}$/.test(normalized)) {
         return { ok: false, message: 'Введите код из письма: от 4 до 8 цифр.' };
@@ -1472,7 +1585,7 @@ export class HhBrowserAssistant {
   }
 
   async getApplicantResumes(): Promise<HhApplicantResume[]> {
-    let page = await this.ensureBrowser();
+    let page = await this.ensureBrowser('background');
     let lastError: unknown;
 
     for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -1499,7 +1612,7 @@ export class HhBrowserAssistant {
           return sessionResult.resumes;
         }
       } catch (error) {
-        lastError = error;
+        console.warn('[hh-assistant] session resume lookup failed, trying the page:', error);
       }
 
       try {
@@ -1542,7 +1655,7 @@ export class HhBrowserAssistant {
           message: 'HH не ответил. Перезапускаю окно и повторяю загрузку резюме…',
         });
         await this.resetBrowserConnection();
-        page = await this.ensureBrowser();
+        page = await this.ensureBrowser('background');
       }
     }
 
@@ -1625,7 +1738,7 @@ export class HhBrowserAssistant {
     }
 
     try {
-      const page = await this.ensureBrowser();
+      const page = await this.ensureBrowser('background');
       this.state.config = normalizeHhAssistantConfig({ ...this.state.config, platform });
       this.update({
         phase: 'scanning',
@@ -1719,9 +1832,10 @@ export class HhBrowserAssistant {
       return this.getState();
     }
     try {
-      const page = await this.ensureBrowser();
+      const page = await this.ensureBrowser('interactive');
       await page.goto(vacancy.url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
       await page.bringToFront();
+      await this.captureVacancyDescription(page, vacancy);
       const blocker = await this.detectManualBlocker(page);
       this.patchQueue(vacancy.key, { status: 'opened' });
       this.update({
@@ -1745,7 +1859,7 @@ export class HhBrowserAssistant {
       return this.getState();
     }
     try {
-      const page = await this.ensureBrowser();
+      const page = await this.ensureBrowser('interactive');
       if (vacancy.platform !== 'hh') {
         await page.goto(vacancy.url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
         await page.bringToFront();
@@ -1770,7 +1884,17 @@ export class HhBrowserAssistant {
         });
         return this.getState();
       }
-      await textarea.fill(renderCoverLetter(this.state.config.coverLetterTemplate, vacancy));
+      const generated = await this.prepareCoverLetter(page, vacancy);
+      if (!generated.ok) {
+        this.patchQueue(vacancy.key, { status: 'opened', reason: generated.reason });
+        this.update({
+          phase: 'manual_required',
+          currentVacancyId: vacancyId,
+          message: generated.reason,
+        });
+        return this.getState();
+      }
+      await textarea.fill(generated.letter);
       await page.bringToFront();
       this.patchQueue(vacancy.key, { status: 'prepared' });
       this.update({
@@ -1792,6 +1916,7 @@ export class HhBrowserAssistant {
       resumeTitleContains: (this.state.config.resumeTitles[0] ?? this.state.config.resumeTitleContains).trim(),
       resumeSelected: false,
       letterFilled: false,
+      questionsFilled: false,
     };
   }
 
@@ -1943,22 +2068,136 @@ export class HhBrowserAssistant {
     return false;
   }
 
+  private async fillEmployerQuestions(
+    page: Page,
+    vacancy: HhQueueItem,
+  ): Promise<{ ok: boolean; reason: string }> {
+    const fields = await collectHhScreeningFields(page);
+    if (fields.length === 0) {
+      return {
+        ok: false,
+        reason: 'HH открыл внешний тест или форму без распознаваемых полей. Заполните её вручную.',
+      };
+    }
+    if (!this.generateScreeningAnswers) {
+      return {
+        ok: false,
+        reason: 'Генератор ответов недоступен. Заполните вопросы работодателя вручную.',
+      };
+    }
+
+    this.update({
+      phase: 'applying',
+      message: `Готовлю ответы на вопросы работодателя: ${fields.length}…`,
+    });
+    const generated = await this.generateScreeningAnswers({
+      vacancyTitle: vacancy.title,
+      vacancyCompany: vacancy.company,
+      vacancyDescription: vacancy.description ?? '',
+      questions: fields.map((field) => field.question),
+      language: 'ru',
+    });
+    const result = await fillHhScreeningFields(page, fields, generated.answers);
+    if (result.unresolved.length > 0) {
+      return {
+        ok: false,
+        reason: `Не заполняю ответы без подтверждённых данных: ${result.unresolved[0].slice(0, 180)}`,
+      };
+    }
+    return {
+      ok: result.filled === fields.length,
+      reason: `Ответы работодателю заполнены: ${result.filled}.`,
+    };
+  }
+
+  private async captureVacancyDescription(
+    page: Page,
+    vacancy: HhQueueItem,
+  ): Promise<string> {
+    const stored = String(vacancy.description ?? '').replace(/\s+/g, ' ').trim();
+    if (stored.length >= 80) return stored.slice(0, 12_000);
+
+    await page
+      .locator(PLATFORM_INFO[vacancy.platform].descriptions.join(', '))
+      .first()
+      .waitFor({ state: 'visible', timeout: 5_000 })
+      .catch(() => undefined);
+    const description = (
+      await firstText(page, PLATFORM_INFO[vacancy.platform].descriptions)
+    ).slice(0, 12_000);
+    if (description.length >= 80) {
+      vacancy.description = description;
+      this.patchQueue(vacancy.key, { description });
+      return description;
+    }
+    return stored;
+  }
+
+  private async prepareCoverLetter(
+    page: Page,
+    vacancy: HhQueueItem,
+  ): Promise<{ ok: true; letter: string } | { ok: false; reason: string }> {
+    if (!this.generateCoverLetter) {
+      return {
+        ok: false,
+        reason: 'AI-генератор сопроводительного письма недоступен. Отклик не отправлен.',
+      };
+    }
+    const vacancyDescription = await this.captureVacancyDescription(page, vacancy);
+    if (vacancyDescription.length < 80) {
+      return {
+        ok: false,
+        reason: 'Не удалось прочитать описание вакансии. Слабое шаблонное письмо не отправляю.',
+      };
+    }
+
+    this.update({
+      phase: 'applying',
+      currentVacancyId: vacancy.key,
+      message: `Сопоставляю резюме с вакансией «${vacancy.title}» и готовлю письмо…`,
+    });
+    let response: HhCoverLetterResponse;
+    try {
+      response = await this.generateCoverLetter({
+        vacancyTitle: vacancy.title,
+        vacancyCompany: vacancy.company,
+        vacancyDescription,
+        language: 'ru',
+      });
+    } catch (error) {
+      return {
+        ok: false,
+        reason: `Не удалось подготовить персональное письмо: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+    const validated = validateGeneratedHhCoverLetter(response);
+    if (!validated) {
+      return {
+        ok: false,
+        reason:
+          response.reason?.trim()
+          || 'Не найдено достаточно подтверждённых совпадений с вакансией. Слабое письмо не отправляю.',
+      };
+    }
+    return { ok: true, letter: validated.letter };
+  }
+
   private async applyToVacancy(
     vacancy: HhQueueItem,
   ): Promise<{ sent: boolean; blocked: boolean; reason: string }> {
-    const page = await this.ensureBrowser();
+    const page = await this.ensureBrowser('background');
     if (hhVacancyId(page.url()) !== vacancy.id) {
       await page.goto(vacancy.url, {
         waitUntil: 'domcontentloaded',
         timeout: 30_000,
       });
     }
-    const config = this.state.config;
+    await this.captureVacancyDescription(page, vacancy);
     const baseCtx: HhApplyContext = {
       ...this.buildApplyContext(),
     };
 
-    for (let step = 0; step < 8; step += 1) {
+    for (let step = 0; step < 12; step += 1) {
       const situation = await this.detectApplySituation(page, baseCtx);
       const decided = decideNextAction(situation, baseCtx);
       switch (decided.action) {
@@ -2018,12 +2257,46 @@ export class HhBrowserAssistant {
         }
         case 'fill_letter': {
           const textarea = page.locator(LETTER_SELECTOR).first();
-          const letter = renderCoverLetter(config.coverLetterTemplate, vacancy);
-          await textarea.fill(letter);
-          if ((await textarea.inputValue()).trim() !== letter.trim()) {
+          const generated = await this.prepareCoverLetter(page, vacancy);
+          if (!generated.ok) {
+            this.patchQueue(vacancy.id, { status: 'opened', reason: generated.reason });
+            this.update({
+              phase: 'manual_required',
+              browserOpen: true,
+              currentVacancyId: vacancy.id,
+              message: generated.reason,
+            });
+            return { sent: false, blocked: true, reason: generated.reason };
+          }
+          await textarea.fill(generated.letter);
+          if ((await textarea.inputValue()).trim() !== generated.letter.trim()) {
             throw new Error('HH не принял текст сопроводительного письма.');
           }
           baseCtx.letterFilled = true;
+          break;
+        }
+        case 'fill_questions': {
+          let result: { ok: boolean; reason: string };
+          try {
+            result = await this.fillEmployerQuestions(page, vacancy);
+          } catch (error) {
+            result = {
+              ok: false,
+              reason: `Не удалось подготовить ответы работодателю: ${error instanceof Error ? error.message : String(error)}`,
+            };
+          }
+          if (!result.ok) {
+            this.patchQueue(vacancy.id, { status: 'prepared', reason: result.reason });
+            this.update({
+              phase: 'manual_required',
+              browserOpen: true,
+              currentVacancyId: vacancy.id,
+              message: result.reason,
+            });
+            return { sent: false, blocked: true, reason: result.reason };
+          }
+          baseCtx.questionsFilled = true;
+          this.patchQueue(vacancy.id, { status: 'prepared', reason: result.reason });
           break;
         }
         case 'click_confirm': {
@@ -2222,6 +2495,9 @@ export class HhBrowserAssistant {
     this.context = null;
     this.page = null;
     this.chatPage = null;
+    this.browserMode = null;
+    this.ensureBrowserPromise = null;
+    this.chatPagePromise = null;
     fs.rmSync(path.join(this.profileDir, 'SkillCueDebugPort'), { force: true });
     if (browser) await settleWithin(browser.close(), 4_000);
     if (context) await settleWithin(context.close(), 1_000);
