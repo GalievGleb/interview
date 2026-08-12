@@ -19,10 +19,13 @@ const electronTypesSource = fs.readFileSync(path.resolve(__dirname, '../types/el
 
 describe('HR profile question flow', () => {
   it('keeps the vacancy page compact and opens a dedicated profile route', () => {
-    expect(applicationsSource).toContain('вопрос профиля ждёт');
+    expect(applicationsSource).toContain("'отклик ждёт', 'отклика ждут', 'откликов ждут'");
     expect(applicationsSource).toContain("navigate('/applications/hr-profile')");
-    expect(applicationsSource).toContain('Поиск и остальные отклики продолжаются автоматически');
-    expect(applicationsSource).toContain('Ответить на следующий');
+    expect(applicationsSource).toContain('Поиск и другие отклики продолжаются.');
+    expect(applicationsSource).toContain('Открыть все вопросы');
+    expect(applicationsSource).toContain("overview.tone === 'active' ? 'btn-danger' : 'btn-primary'");
+    expect(applicationsSource).toContain("overview.tone !== 'active' && <ArrowRight");
+    expect(applicationsSource).not.toContain("className={`${activeRun ? 'btn-danger' : 'btn-primary'}");
     expect(applicationsSource).not.toContain('Ответить один раз</');
     expect(appSource).toContain('path="/applications/hr-profile"');
     expect(appSource).toContain("import('./pages/HhHrProfilePage')");
@@ -30,8 +33,9 @@ describe('HR profile question flow', () => {
 
   it('shows one question at a time and persists unfinished drafts locally', () => {
     expect(profileSource).toContain('Вопрос {questionIndex + 1} из {questions.length}');
-    expect(profileSource).toContain('skillcue.hhHrProfileDrafts.v1');
-    expect(profileSource).toContain('localStorage.setItem(DRAFTS_KEY');
+    expect(profileSource).toContain('HH_SCREENING_DRAFTS_STORAGE_KEY');
+    expect(profileSource).toContain('localStorage.setItem(HH_SCREENING_DRAFTS_STORAGE_KEY');
+    expect(profileSource).toContain('countUnansweredHhScreeningQuestions(screeningSummary, drafts)');
     expect(profileSource).toContain('Сохранить ответ и перейти к вопросу');
     expect(profileSource).toContain('ответов и продолжить отклик');
     expect(profileSource).not.toContain('autoFocus');
@@ -45,6 +49,8 @@ describe('HR profile question flow', () => {
     expect(profileSource).toContain('disabled={activeVacancySubmitting}');
     expect(profileSource).not.toContain("const [busy, setBusy] = useState('')");
     expect(profileSource).toContain('Короткие ответы «Да» и «Нет» тоже можно сохранять.');
+    expect(profileSource).toContain('const nextVacancies = summarizePendingHhScreening(next.queue).vacancies');
+    expect(profileSource).toContain('Ответы отправлены. Открыта следующая вакансия:');
   });
 
   it('saves confirmed answers as reusable candidate knowledge', () => {

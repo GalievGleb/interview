@@ -15,10 +15,13 @@ import {
   Trash2,
 } from 'lucide-react';
 import {
+  countUnansweredHhScreeningQuestions,
   hhScreeningRelocationScope,
   hhScreeningSemanticKey,
+  HH_SCREENING_DRAFTS_STORAGE_KEY,
   isHhAiQuotaMessage,
   isHhScreeningAnswerComplete,
+  readHhScreeningDrafts,
   summarizePendingHhScreening,
   uniqueHhScreeningQuestions,
 } from '../lib/hhScreening';
@@ -35,30 +38,8 @@ interface ScreeningDraft {
   selectedOptions: string[];
 }
 
-const DRAFTS_KEY = 'skillcue.hhHrProfileDrafts.v1';
-
 function draftKey(vacancyKey: string, questionId: string): string {
   return `${vacancyKey}::${questionId}`;
-}
-
-function readDrafts(): Record<string, ScreeningDraft> {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(DRAFTS_KEY) ?? '{}') as Record<string, unknown>;
-    const result: Record<string, ScreeningDraft> = {};
-    for (const [key, raw] of Object.entries(parsed)) {
-      if (!raw || typeof raw !== 'object') continue;
-      const value = raw as Record<string, unknown>;
-      result[key] = {
-        answer: String(value.answer ?? '').slice(0, 2_000),
-        selectedOptions: Array.isArray(value.selectedOptions)
-          ? value.selectedOptions.map(String).slice(0, 30)
-          : [],
-      };
-    }
-    return result;
-  } catch {
-    return {};
-  }
 }
 
 function isComplete(question: HhScreeningQuestion, value: ScreeningDraft | undefined): boolean {
@@ -94,7 +75,7 @@ export default function HhHrProfilePage() {
   const assistant = window.electronAPI?.hhAssistant;
   const navigate = useNavigate();
   const [state, setState] = useState<HhAssistantState | null>(null);
-  const [drafts, setDrafts] = useState<Record<string, ScreeningDraft>>(readDrafts);
+  const [drafts, setDrafts] = useState<Record<string, ScreeningDraft>>(readHhScreeningDrafts);
   const [activeVacancyKey, setActiveVacancyKey] = useState('');
   const [questionIndex, setQuestionIndex] = useState(0);
   const [remember, setRemember] = useState(true);
@@ -102,6 +83,7 @@ export default function HhHrProfilePage() {
   const [suggestingDraftKey, setSuggestingDraftKey] = useState('');
   const [forgettingFactId, setForgettingFactId] = useState('');
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [loading, setLoading] = useState(true);
   const [reloadKey, setReloadKey] = useState(0);
   const [generatedSuggestions, setGeneratedSuggestions] = useState<Record<string, HhScreeningDraftSuggestion>>({});
@@ -136,7 +118,7 @@ export default function HhHrProfilePage() {
     [state?.queue],
   );
   const pendingVacancies = screeningSummary.vacancies;
-  const totalQuestions = screeningSummary.uniqueCount;
+  const totalQuestions = countUnansweredHhScreeningQuestions(screeningSummary, drafts);
   const activeVacancy = pendingVacancies.find((item) => item.key === activeVacancyKey)
     ?? pendingVacancies[0]
     ?? null;
@@ -193,7 +175,7 @@ export default function HhHrProfilePage() {
   }, [pendingVacancies]);
 
   useEffect(() => {
-    localStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts));
+    localStorage.setItem(HH_SCREENING_DRAFTS_STORAGE_KEY, JSON.stringify(drafts));
   }, [drafts]);
 
   const selectVacancy = (vacancy: HhQueueItem) => {
@@ -205,6 +187,7 @@ export default function HhHrProfilePage() {
     );
     setQuestionIndex(firstMissing >= 0 ? firstMissing : 0);
     setError('');
+    setNotice('');
   };
 
   const updateText = (answer: string) => {
@@ -325,13 +308,22 @@ export default function HhHrProfilePage() {
           };
         }),
       );
+      const nextVacancies = summarizePendingHhScreening(next.queue).vacancies;
+      const nextVacancy = nextVacancies.find((item) => item.key !== vacancyKey) ?? null;
       setState(next);
       setDrafts((current) => {
         const nextDrafts = { ...current };
         for (const question of rawQuestions) delete nextDrafts[draftKey(activeVacancy.key, question.id)];
         return nextDrafts;
       });
+      setActiveVacancyKey(nextVacancy?.key ?? '');
       setQuestionIndex(0);
+      setNotice(nextVacancy
+        ? `Ответы отправлены. Открыта следующая вакансия: ${nextVacancy.title}.`
+        : 'Ответы отправлены. Вопросов, требующих вашего решения, больше нет.');
+      window.setTimeout(() => {
+        document.getElementById('hr-profile-current-question')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 0);
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : 'Не удалось сохранить ответы и продолжить отклик.');
     } finally {
@@ -370,20 +362,17 @@ export default function HhHrProfilePage() {
         <ArrowLeft size={14} />К откликам
       </button>
 
-      <header className="hr-profile-hero panel-card overflow-hidden p-5 sm:p-6">
+      <header className="hr-profile-hero panel-card overflow-hidden p-4 sm:p-5">
         <div className="flex flex-wrap items-center gap-4">
-          <div className="hr-knowledge-orb grid h-14 w-14 shrink-0 place-items-center rounded-2xl text-violet-100">
-            <BrainCircuit size={27} />
+          <div className="hr-knowledge-orb grid h-11 w-11 shrink-0 place-items-center rounded-xl text-violet-100">
+            <BrainCircuit size={22} />
           </div>
           <div className="min-w-[240px] flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-xl font-semibold text-ink">Профиль для HR</h1>
-              <span className="rounded-full bg-emerald-400/10 px-2.5 py-1 text-[11px] font-medium text-emerald-300">
-                учится на ваших ответах
-              </span>
+              <h1 className="text-xl font-semibold text-ink">Вопросы работодателей</h1>
             </div>
             <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-ink-muted">
-              SkillCue сам использует резюме и известные факты. Здесь появляются только новые сведения о вас — ответьте один раз, и похожие вопросы дальше заполнятся автоматически.
+              {pendingVacancies.length} {pluralRu(pendingVacancies.length, 'отклик ждёт', 'отклика ждут', 'откликов ждут')} ответа. После отправки сразу откроется следующая вакансия.
             </p>
           </div>
           <div className="flex gap-2">
@@ -397,7 +386,7 @@ export default function HhHrProfilePage() {
             </div>
           </div>
         </div>
-        <div className="mt-4 flex items-center gap-2 rounded-xl border border-emerald-400/15 bg-emerald-400/[0.035] px-3.5 py-2.5 text-xs text-emerald-200">
+        <div className="mt-3 flex items-center gap-2 rounded-xl border border-emerald-400/15 bg-emerald-400/[0.035] px-3.5 py-2.5 text-xs text-emerald-200">
           <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,.7)]" />
           Эти вопросы не останавливают поиск и обработку остальных вакансий.
         </div>
@@ -410,6 +399,7 @@ export default function HhHrProfilePage() {
       </header>
 
       {error && <div className="flex items-start gap-2 rounded-xl border border-red-500/25 bg-red-500/[0.05] px-4 py-3 text-sm text-red-300" role="alert"><AlertTriangle className="mt-0.5 shrink-0" size={16} /><span>{error}</span></div>}
+      {notice && <div className="flex items-start gap-2 rounded-xl border border-emerald-500/25 bg-emerald-500/[0.05] px-4 py-3 text-sm text-emerald-200" role="status"><Check className="mt-0.5 shrink-0" size={16} /><span>{notice}</span></div>}
 
       {pendingVacancies.length === 0 ? (
         <section className="panel-card p-8 text-center">

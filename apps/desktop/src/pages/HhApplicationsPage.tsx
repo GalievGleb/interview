@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AlertTriangle, ArrowRight, CalendarDays, Check, ChevronDown, Clock3, ExternalLink, FileText, Link2, Loader2, Mail, MessageCircle, RefreshCw, Search, Send, Settings2, Square, Trash2 } from 'lucide-react';
 import AvailabilityEditor, { formatAvailabilitySummary } from '../components/interview/AvailabilityEditor';
-import { summarizePendingHhScreening } from '../lib/hhScreening';
+import { countUnansweredHhScreeningQuestions, readHhScreeningDrafts, summarizePendingHhScreening } from '../lib/hhScreening';
+import { pluralRu } from '../lib/pluralRu';
 import type { HhAssistantConfig, HhAssistantState, HhChatState, HhQueueItem, InterviewCalendarSettings, InterviewCalendarState } from '../types/electron';
 
 const EMPTY_CONFIG: HhAssistantConfig = {
@@ -279,7 +280,8 @@ export default function HhApplicationsPage() {
     ? Math.round((state.applyProgress.done / state.applyProgress.total) * 100)
     : null;
   const screeningSummary = useMemo(() => summarizePendingHhScreening(activeQueue), [activeQueue]);
-  const pendingScreeningQuestions = screeningSummary.uniqueCount;
+  const screeningDrafts = useMemo(() => readHhScreeningDrafts(), []);
+  const pendingScreeningQuestions = countUnansweredHhScreeningQuestions(screeningSummary, screeningDrafts);
   const platformMatches = state?.config.platform === draft.platform;
   const connected = Boolean(state?.browserOpen && platformMatches && !state.loginRequired);
   const hhConnected = draft.platform === 'hh' && connected;
@@ -662,9 +664,10 @@ export default function HhApplicationsPage() {
   const pendingHrDecisions = hhConnected ? chatState?.pendingDecisions.length ?? 0 : 0;
   const rawChatPanelError = chatError || chatState?.error || '';
   const chatPanelError = rawChatPanelError.includes('Браузер HH не открыт') ? '' : rawChatPanelError;
-  // Счётчик показывает типы незавершённых действий, а не десятки однотипных
-  // вопросов. Так он остаётся полезным сигналом и не превращается в тревожный шум.
-  const userActionCount = Number(pendingScreeningQuestions > 0) + Number(pendingHrDecisions > 0);
+  // Счётчик показывает реальные карточки, где человек должен принять решение:
+  // одну на вакансию с вопросами плюс отдельные входящие решения HR.
+  const pendingScreeningVacancyCount = screeningSummary.vacancies.length;
+  const userActionCount = pendingScreeningVacancyCount + pendingHrDecisions;
   const todaySent = sentToday(activeQueue);
   const activeVacancyCount = activeQueue.filter((item) =>
     item.status === 'new' || item.status === 'opened' || item.status === 'prepared' || item.status === 'needs_input').length;
@@ -729,13 +732,17 @@ export default function HhApplicationsPage() {
         action: focusHrDecisions,
         tone: 'attention',
       }
-    : pendingScreeningQuestions > 0
+    : pendingScreeningVacancyCount > 0
       ? {
-          title: `${pendingScreeningQuestions} ${pendingScreeningQuestions === 1 ? 'вопрос профиля ждёт' : 'вопросов профиля ждут'} ответа`,
-          detail: screeningSummary.quotaLimitedCount > 0
-            ? `Для ${screeningSummary.quotaLimitedCount} вопросов онлайн-ИИ достиг лимита; резюме и сохранённые факты продолжают работать.`
-            : 'Ответьте на следующий неизвестный факт. Поиск и остальные отклики продолжаются автоматически.',
-          label: 'Ответить на следующий',
+          title: pendingScreeningQuestions > 0
+            ? `${pendingScreeningVacancyCount} ${pluralRu(pendingScreeningVacancyCount, 'отклик ждёт', 'отклика ждут', 'откликов ждут')} ваших ответов`
+            : 'Ответы сохранены и готовы к отправке',
+          detail: pendingScreeningQuestions === 0
+            ? 'Откройте вопросы, проверьте ответы и продолжите отклики.'
+            : screeningSummary.quotaLimitedCount > 0
+            ? `${pendingScreeningQuestions} ${pluralRu(pendingScreeningQuestions, 'вопрос работодателя', 'вопроса работодателей', 'вопросов работодателей')}. Для ${screeningSummary.quotaLimitedCount} из них онлайн-ИИ достиг лимита.`
+            : `${pendingScreeningQuestions} ${pluralRu(pendingScreeningQuestions, 'вопрос работодателя', 'вопроса работодателей', 'вопросов работодателей')}. Поиск и другие отклики продолжаются.`,
+          label: 'Открыть все вопросы',
           action: () => navigate('/applications/hr-profile'),
           tone: 'attention',
         }
@@ -807,10 +814,10 @@ export default function HhApplicationsPage() {
             <span><small>Нужно от вас</small><strong className={userActionCount ? 'text-violet-200' : ''}>{userActionCount}</strong></span>
             <span><small>Ответов отправлено</small><strong>{chatState?.repliesToday ?? 0}</strong></span>
           </div>
-          <button type="button" className={`${activeRun ? 'btn-danger' : 'btn-primary'} shrink-0`} disabled={stoppingRun} onClick={overview.action}>
-            {activeRun ? stoppingRun ? <Loader2 className="animate-spin" size={15} /> : <Square size={14} /> : null}
+          <button type="button" className={`${overview.tone === 'active' ? 'btn-danger' : 'btn-primary'} shrink-0`} disabled={overview.tone === 'active' && stoppingRun} onClick={overview.action}>
+            {overview.tone === 'active' ? stoppingRun ? <Loader2 className="animate-spin" size={15} /> : <Square size={14} /> : null}
             {overview.label}
-            {!activeRun && <ArrowRight size={15} />}
+            {overview.tone !== 'active' && <ArrowRight size={15} />}
           </button>
         </div>
         {activeRun && <div className="hh-run-progress mt-4" role="progressbar" aria-label="Прогресс поиска и откликов" aria-valuenow={applyPercent ?? undefined}><span className={applyPercent == null ? 'is-indeterminate' : ''} style={applyPercent == null ? undefined : { width: `${applyPercent}%` }} /></div>}

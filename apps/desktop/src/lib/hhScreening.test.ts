@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  countUnansweredHhScreeningQuestions,
   isHhAiQuotaMessage,
   isHhScreeningAnswerComplete,
   hhScreeningSemanticKey,
+  readHhScreeningDrafts,
   summarizePendingHhScreening,
 } from './hhScreening';
 import type { HhQueueItem } from '../types/electron';
@@ -23,6 +25,20 @@ function vacancy(id: string, prompt: string, assistantReason?: string): HhQueueI
 }
 
 describe('HH pending screening summary', () => {
+  it('subtracts locally answered drafts from the visible remaining count', () => {
+    const summary = summarizePendingHhScreening([
+      vacancy('one', 'Готовы работать удалённо?'),
+      vacancy('two', 'Назовите зарплатные ожидания'),
+    ]);
+    const drafts = readHhScreeningDrafts({
+      getItem: () => JSON.stringify({
+        'hh:one::q-one': { answer: 'Да', selectedOptions: [] },
+      }),
+    });
+
+    expect(countUnansweredHhScreeningQuestions(summary, drafts)).toBe(1);
+  });
+
   it('accepts short yes/no text as a complete employer answer', () => {
     const textQuestion = { kind: 'text' as const };
     expect(isHhScreeningAnswerComplete(textQuestion, 'Нет', [])).toBe(true);

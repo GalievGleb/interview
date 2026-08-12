@@ -622,7 +622,8 @@ describe('HH applications redesign', () => {
   });
 
   it('keeps the work view actionable instead of turning counts into visual noise', () => {
-    expect(pageSource).toContain('Number(pendingScreeningQuestions > 0) + Number(pendingHrDecisions > 0)');
+    expect(pageSource).toContain('pendingScreeningVacancyCount + pendingHrDecisions');
+    expect(pageSource).toContain('countUnansweredHhScreeningQuestions(screeningSummary, screeningDrafts)');
     expect(pageSource).toContain("queueView === 'active' && draft.platform === 'hh'");
     expect(pageSource).toContain('Очередь в работе пуста');
     expect(pageSource).toContain('Проверить сообщения');

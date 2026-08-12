@@ -31,7 +31,7 @@ import {
   getHomeApplicationFlow,
   isSameLocalDay,
 } from '../lib/homeRadar';
-import { summarizePendingHhScreening } from '../lib/hhScreening';
+import { countUnansweredHhScreeningQuestions, readHhScreeningDrafts, summarizePendingHhScreening } from '../lib/hhScreening';
 import { findMatchingQueueItem } from '../lib/interviewBrief';
 import { isUpcomingInterview } from '../lib/interviewTiming';
 import {
@@ -221,7 +221,8 @@ export default function HomePage() {
     [assistantState?.queue],
   );
   const pendingScreeningVacancies = screeningSummary.vacancies;
-  const pendingScreeningQuestions = screeningSummary.uniqueCount;
+  const screeningDrafts = useMemo(() => readHhScreeningDrafts(), []);
+  const pendingScreeningQuestions = countUnansweredHhScreeningQuestions(screeningSummary, screeningDrafts);
   const pendingHrDecisions = chatState?.pendingDecisions.length ?? 0;
   const sentTodayCount = (assistantState?.queue ?? []).filter(
     (item) => item.status === 'sent' && item.sentAt && isSameLocalDay(item.sentAt, now),
@@ -366,11 +367,15 @@ export default function HomePage() {
       onClick: () => navigate('/applications?focus=hr-decisions'),
     });
   }
-  if (pendingScreeningQuestions > 0) {
+  if (pendingScreeningVacancies.length > 0) {
     attentionItems.push({
       key: 'screening',
-      title: `${pendingScreeningQuestions} ${pluralRu(pendingScreeningQuestions, 'вопрос', 'вопроса', 'вопросов')} профиля`,
-      detail: `${pendingScreeningVacancies.length} ${pluralRu(pendingScreeningVacancies.length, 'вакансия ждёт', 'вакансии ждут', 'вакансий ждут')} уточнений; поиск не остановлен`,
+      title: pendingScreeningQuestions > 0
+        ? `${pendingScreeningVacancies.length} ${pluralRu(pendingScreeningVacancies.length, 'отклик ждёт', 'отклика ждут', 'откликов ждут')} ответа`
+        : 'Ответы готовы к отправке',
+      detail: pendingScreeningQuestions > 0
+        ? `${pendingScreeningQuestions} ${pluralRu(pendingScreeningQuestions, 'вопрос работодателя', 'вопроса работодателей', 'вопросов работодателей')}; поиск продолжается`
+        : 'Проверьте сохранённые ответы и продолжите отклики',
       onClick: () => navigate('/applications/hr-profile'),
     });
   }

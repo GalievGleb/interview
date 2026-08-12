@@ -1,5 +1,35 @@
 import type { HhQueueItem, HhScreeningQuestion } from '../types/electron';
 
+export const HH_SCREENING_DRAFTS_STORAGE_KEY = 'skillcue.hhHrProfileDrafts.v1';
+
+export interface HhScreeningLocalDraft {
+  answer: string;
+  selectedOptions: string[];
+}
+
+export function readHhScreeningDrafts(
+  storage: Pick<Storage, 'getItem'> | undefined = typeof localStorage === 'undefined' ? undefined : localStorage,
+): Record<string, HhScreeningLocalDraft> {
+  if (!storage) return {};
+  try {
+    const parsed = JSON.parse(storage.getItem(HH_SCREENING_DRAFTS_STORAGE_KEY) ?? '{}') as Record<string, unknown>;
+    const result: Record<string, HhScreeningLocalDraft> = {};
+    for (const [key, raw] of Object.entries(parsed)) {
+      if (!raw || typeof raw !== 'object') continue;
+      const value = raw as Record<string, unknown>;
+      result[key] = {
+        answer: String(value.answer ?? '').slice(0, 2_000),
+        selectedOptions: Array.isArray(value.selectedOptions)
+          ? value.selectedOptions.map(String).slice(0, 30)
+          : [],
+      };
+    }
+    return result;
+  } catch {
+    return {};
+  }
+}
+
 export function hhScreeningPromptKey(value: string): string {
   return value
     .normalize('NFKC')
@@ -91,4 +121,22 @@ export function summarizePendingHhScreening(queue: HhQueueItem[]): HhPendingScre
     missingFactCount: uniqueQuestions.length - quotaLimitedCount,
     uniqueQuestions,
   };
+}
+
+export function countUnansweredHhScreeningQuestions(
+  summary: HhPendingScreeningSummary,
+  drafts: Record<string, HhScreeningLocalDraft>,
+): number {
+  const answeredMeanings = new Set<string>();
+  for (const vacancy of summary.vacancies) {
+    for (const question of vacancy.pendingQuestions ?? []) {
+      const draft = drafts[`${vacancy.key}::${question.id}`];
+      if (isHhScreeningAnswerComplete(question, draft?.answer, draft?.selectedOptions)) {
+        answeredMeanings.add(hhScreeningSemanticKey(question.prompt) || question.id);
+      }
+    }
+  }
+  return summary.uniqueQuestions.filter(
+    (question) => !answeredMeanings.has(hhScreeningSemanticKey(question.prompt) || question.id),
+  ).length;
 }
