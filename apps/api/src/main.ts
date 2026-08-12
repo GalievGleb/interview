@@ -2,14 +2,13 @@ import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
-import express from 'express';
+import { configureHttpBodyParsing } from './gateway/http-body-parser';
 
 async function bootstrap() {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule, { rawBody: true });
-  app.use(
-    '/gateway/stt/transcribe',
-    express.raw({ type: ['audio/wav', 'application/octet-stream'], limit: '15mb' }),
-  );
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    bodyParser: false,
+  });
+  configureHttpBodyParsing(app);
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

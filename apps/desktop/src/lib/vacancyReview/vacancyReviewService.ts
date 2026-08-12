@@ -33,7 +33,7 @@ const uid = () =>
     : `id-${Math.random().toString(36).slice(2)}`;
 
 /** Trim grounding text before we denormalize it onto the analysis/session. */
-const RESUME_CAP = 4000;
+const RESUME_CAP = 8000;
 const LEGEND_CAP = 2000;
 
 const QUESTION_LEVEL: QuestionLevel[] = ['junior', 'middle', 'senior', 'lead'];
@@ -114,6 +114,7 @@ function asImportance(v: string): TopicImportance {
  * model is unavailable — so the feature always works.
  */
 export async function analyzeVacancy(input: VacancyReviewInput): Promise<VacancyAnalysis> {
+  const hasResume = Boolean(input.resumeText?.trim());
   try {
     const r = await api.vacancyAnalyze({
       vacancyText: input.vacancyText,
@@ -146,15 +147,21 @@ export async function analyzeVacancy(input: VacancyReviewInput): Promise<Vacancy
             )
               ? (c.expectedLevel as CompetencyLevel)
               : 'practical',
-            resumeMatch: (['strong', 'partial', 'gap'] as string[]).includes(c.resumeMatch)
-              ? (c.resumeMatch as ResumeMatch)
-              : 'gap',
-            note: c.note ?? '',
+            resumeMatch: !hasResume
+              ? 'unknown'
+              : (['strong', 'partial', 'gap'] as string[]).includes(c.resumeMatch)
+                ? (c.resumeMatch as ResumeMatch)
+                : 'gap',
+            note: !hasResume
+              ? 'Не оценено: подключите резюме, чтобы сопоставить требование с опытом.'
+              : c.note ?? '',
           }))
         : undefined;
       return {
         id: uid(),
         vacancyText: input.vacancyText,
+        vacancyUrl: input.vacancyUrl,
+        vacancyCompany: input.vacancyCompany,
         targetRole: r.targetRole || detectRole(input.vacancyText, input.targetRole),
         seniorityLevel: (
           ['intern', 'junior', 'middle', 'senior', 'lead', 'unknown'] as const
@@ -168,8 +175,9 @@ export async function analyzeVacancy(input: VacancyReviewInput): Promise<Vacancy
         interviewTopics: topics,
         projectQuestions: r.projectQuestions ?? [],
         riskAreas: r.riskAreas ?? [],
-        hasResume: Boolean(input.resumeText),
+        hasResume,
         hasLegend: Boolean(input.legendText),
+        resumeSource: hasResume ? input.resumeSource : undefined,
         analysisSource: 'ai',
         resumeText: input.resumeText?.slice(0, RESUME_CAP),
         legendText: input.legendText?.slice(0, LEGEND_CAP),
@@ -217,7 +225,9 @@ export function analyzeVacancyMock(input: VacancyReviewInput): VacancyAnalysis {
     expectedLevel: expectedLevelFor(t.importance, level),
     resumeMatch: resumeMatchFor(t.title, resume, Boolean(input.resumeText)),
     note:
-      resumeMatchFor(t.title, resume, Boolean(input.resumeText)) === 'gap'
+      resumeMatchFor(t.title, resume, Boolean(input.resumeText)) === 'unknown'
+        ? 'Не оценено: подключите резюме, чтобы сопоставить требование с опытом.'
+        : resumeMatchFor(t.title, resume, Boolean(input.resumeText)) === 'gap'
         ? 'Нет явного подтверждения в резюме — проверить глубже.'
         : 'Есть релевантный опыт — можно копать в детали.',
   }));
@@ -246,6 +256,8 @@ export function analyzeVacancyMock(input: VacancyReviewInput): VacancyAnalysis {
   return {
     id: uid(),
     vacancyText: input.vacancyText,
+    vacancyUrl: input.vacancyUrl,
+    vacancyCompany: input.vacancyCompany,
     targetRole,
     seniorityLevel,
     language: input.language,
@@ -257,6 +269,7 @@ export function analyzeVacancyMock(input: VacancyReviewInput): VacancyAnalysis {
     riskAreas,
     hasResume: Boolean(input.resumeText),
     hasLegend: Boolean(input.legendText),
+    resumeSource: input.resumeText ? input.resumeSource : undefined,
     analysisSource: 'heuristic',
     resumeText: input.resumeText?.slice(0, RESUME_CAP),
     legendText: input.legendText?.slice(0, LEGEND_CAP),
@@ -266,7 +279,7 @@ export function analyzeVacancyMock(input: VacancyReviewInput): VacancyAnalysis {
 
 /** Heuristic résumé coverage for a topic (mock only). */
 function resumeMatchFor(title: string, resumeLower: string, hasResume: boolean): ResumeMatch {
-  if (!hasResume) return 'gap';
+  if (!hasResume) return 'unknown';
   const words = title
     .toLowerCase()
     .split(/[^a-zа-яё0-9+]+/i)

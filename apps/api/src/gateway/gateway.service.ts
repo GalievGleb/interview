@@ -56,6 +56,15 @@ function mapModelForUpstream(model: string): string {
   return FAST.some((k) => low.includes(k)) ? 'gpt-4o-mini' : 'gpt-4o';
 }
 
+/** Remove OpenRouter-only options before forwarding to an OpenAI-compatible API. */
+export function sanitizeOpenAiUpstreamBody(
+  body: Record<string, unknown>,
+): Record<string, unknown> {
+  const sanitized = { ...body };
+  delete sanitized.provider;
+  return sanitized;
+}
+
 const MODELS_CACHE_KEY = 'gw:models';
 const MODELS_CACHE_TTL_S = 600;
 // Ключ расхода живёт ~45 дней: текущий месяц + запас на чтение статистики.
@@ -360,16 +369,19 @@ export class GatewayService {
       );
     }
 
-    const upstreamBody: Record<string, unknown> = { ...body };
+    let upstreamBody: Record<string, unknown> = { ...body };
     // ID модели — под активный апстрим (OpenRouter «openai/…» vs ProxyAPI «…»).
     upstreamBody.model = mapModelForUpstream(model);
-    if (UPSTREAM_STYLE === 'openai' && String(upstreamBody.model).startsWith('gpt-5')) {
-      const reasoning = upstreamBody.reasoning as { effort?: unknown } | undefined;
-      if (reasoning?.effort) upstreamBody.reasoning_effort = reasoning.effort;
-      delete upstreamBody.reasoning;
-      if (upstreamBody.max_tokens !== undefined) {
-        upstreamBody.max_completion_tokens = upstreamBody.max_tokens;
-        delete upstreamBody.max_tokens;
+    if (UPSTREAM_STYLE === 'openai') {
+      upstreamBody = sanitizeOpenAiUpstreamBody(upstreamBody);
+      if (String(upstreamBody.model).startsWith('gpt-5')) {
+        const reasoning = upstreamBody.reasoning as { effort?: unknown } | undefined;
+        if (reasoning?.effort) upstreamBody.reasoning_effort = reasoning.effort;
+        delete upstreamBody.reasoning;
+        if (upstreamBody.max_tokens !== undefined) {
+          upstreamBody.max_completion_tokens = upstreamBody.max_tokens;
+          delete upstreamBody.max_tokens;
+        }
       }
     }
     if (upstreamBody.stream) {

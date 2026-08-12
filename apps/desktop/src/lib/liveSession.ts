@@ -28,6 +28,24 @@ export function sendFinalizeControl(ws: WebSocket | null, requestId: string): bo
   return true;
 }
 
+const RECOVERABLE_STT_ERROR =
+  'Не удалось распознать этот фрагмент. Продолжаю слушать — повторите фразу.';
+
+/** Old backends used a fatal `error` frame for a transient provider outage. */
+export function recoverableSttErrorMessage(message: unknown): string | null {
+  const value = String(message ?? '').trim();
+  if (!value) return null;
+  const normalized = value.toLowerCase();
+  if (
+    /openai mini stt (429|5\d\d)/i.test(value) ||
+    normalized.includes('internal server error') ||
+    normalized.includes('сервис распознавания временно недоступен')
+  ) {
+    return RECOVERABLE_STT_ERROR;
+  }
+  return null;
+}
+
 /** Server-measured timing breakdown for one utterance (ms). */
 export interface SttTimings {
   speechMs?: number;
@@ -61,6 +79,8 @@ export interface LiveHandlers {
     sampleRate: number;
   }) => void;
   onError: (message: string) => void;
+  /** One utterance failed upstream, but capture and the socket remain active. */
+  onRecoverableError?: (message: string) => void;
   onClose?: () => void;
   /** Tee of each raw PCM16 frame sent to the server (for the debug recorder). */
   onAudioFrame?: (buffer: ArrayBuffer) => void;
@@ -209,9 +229,15 @@ export async function startLiveSession(
             model: evt.model ?? 'gpt-4o-mini-transcribe',
             sampleRate: evt.sample_rate ?? sampleRate,
           });
+        } else if (evt.type === 'transcription_error') {
+          handlers.onRecoverableError?.(evt.message || RECOVERABLE_STT_ERROR);
         } else if (evt.type === 'error') {
-          handlers.onError(evt.message);
-          cleanup();
+          const recoverable = recoverableSttErrorMessage(evt.message);
+          if (recoverable) handlers.onRecoverableError?.(recoverable);
+          else {
+            handlers.onError(evt.message);
+            cleanup();
+          }
         }
       } catch {
         // ignore non-JSON

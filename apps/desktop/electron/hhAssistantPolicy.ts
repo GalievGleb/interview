@@ -1,6 +1,8 @@
 export interface HhAssistantConfig {
   platform: 'hh' | 'linkedin' | 'avito';
   query: string;
+  includeRelatedQueries: boolean;
+  additionalQueries: string[];
   area: string;
   experience: string;
   employment: string;
@@ -34,19 +36,70 @@ export interface HhVacancy {
   url: string;
 }
 
+function resumeRoleTokens(value: string): Set<string> {
+  const normalized = value
+    .toLocaleLowerCase('ru')
+    .replace(/full[\s-]?stack|фулл[\s-]?ст[еэ]к/g, ' fullstack ')
+    .replace(/c\s*#|csharp|\.net|dotnet/g, ' csharp ')
+    .replace(/(?:^|\W)(?:aqa|sdet)(?:\W|$)|quality assurance|тестиров\w*|автотест\w*/g, ' qa ')
+    .replace(/автоматизац\w*/g, ' automation ')
+    .replace(/разработ\w*|программист\w*|software engineer/g, ' developer ')
+    .replace(/игр\w*|gamedev/g, ' game ');
+  return new Set(
+    normalized
+      .split(/[^a-zа-я0-9+#.]+/i)
+      .filter((token) => token.length > 1),
+  );
+}
+
+/**
+ * Ranks every HH résumé for one vacancy. The configured résumé is only a
+ * tie-breaker: a Fullstack vacancy can therefore use a Fullstack résumé even
+ * when the user's default search direction is QA.
+ */
+export function rankHhResumeTitlesForVacancy(
+  vacancyTitle: string,
+  resumeTitles: string[],
+  defaultTitles: string[] = [],
+): string[] {
+  const vacancyTokens = resumeRoleTokens(vacancyTitle);
+  const defaults = new Set(defaultTitles.map((title) => title.toLocaleLowerCase('ru').trim()));
+  const vacancyIsQa = vacancyTokens.has('qa');
+  const vacancyIsDeveloper = vacancyTokens.has('developer') || vacancyTokens.has('game');
+  return resumeTitles
+    .map((title, index) => {
+      const resumeTokens = resumeRoleTokens(title);
+      let score = defaults.has(title.toLocaleLowerCase('ru').trim()) ? 1 : 0;
+      for (const token of resumeTokens) {
+        if (vacancyTokens.has(token)) score += ['qa', 'developer', 'game', 'fullstack'].includes(token) ? 12 : 5;
+      }
+      const resumeIsQa = resumeTokens.has('qa');
+      const resumeIsDeveloper = resumeTokens.has('developer') || resumeTokens.has('game') || resumeTokens.has('fullstack');
+      if (vacancyIsQa && resumeIsQa) score += 20;
+      if (vacancyIsDeveloper && resumeIsDeveloper) score += 20;
+      if (vacancyIsQa && resumeIsDeveloper && !resumeIsQa) score -= 12;
+      if (vacancyIsDeveloper && resumeIsQa && !resumeIsDeveloper) score -= 12;
+      return { title, index, score };
+    })
+    .sort((left, right) => right.score - left.score || left.index - right.index)
+    .map(({ title }) => title);
+}
+
 export const DEFAULT_HH_ASSISTANT_CONFIG: HhAssistantConfig = {
   platform: 'hh',
   query: '',
-  area: '113',
+  includeRelatedQueries: true,
+  additionalQueries: [],
+  area: '',
   experience: '',
-  employment: 'full',
-  schedule: '',
+  employment: '',
+  schedule: 'remote',
   salaryFrom: null,
   onlyWithSalary: false,
   excludedKeywords: [],
   excludedEmployers: [],
-  maxQueueSize: 30,
-  maxPages: 2,
+  maxQueueSize: 500,
+  maxPages: 20,
   coverLetterTemplate:
     'Здравствуйте! Меня заинтересовала вакансия «{vacancy}» в {company}. ' +
     'Буду рад обсудить мой релевантный опыт и задачи команды на интервью.',
@@ -54,7 +107,7 @@ export const DEFAULT_HH_ASSISTANT_CONFIG: HhAssistantConfig = {
   resumeTitleContains: '',
   resumeTitles: [],
   delayBetweenSec: 20,
-  dailyLimit: 50,
+  dailyLimit: 20,
   autoRunDaily: false,
   autoRunHour: 10,
   linkedinLocation: '',
@@ -91,12 +144,16 @@ export function normalizeHhAssistantConfig(
   return {
     platform: source.platform === 'linkedin' || source.platform === 'avito' ? source.platform : 'hh',
     query: String(source.query ?? '').trim().slice(0, 200),
+    includeRelatedQueries: source.includeRelatedQueries !== false,
+    additionalQueries: cleanList(source.additionalQueries).slice(0, 8),
     area: String(source.area ?? DEFAULT_HH_ASSISTANT_CONFIG.area).trim().slice(0, 20),
     experience: String(source.experience ?? '').trim().slice(0, 40),
     employment: String(
       source.employment ?? DEFAULT_HH_ASSISTANT_CONFIG.employment,
     ).trim().slice(0, 40),
-    schedule: String(source.schedule ?? '').trim().slice(0, 40),
+    schedule: String(
+      source.schedule ?? DEFAULT_HH_ASSISTANT_CONFIG.schedule,
+    ).trim().slice(0, 40),
     salaryFrom:
       Number.isFinite(salary) && salary > 0
         ? boundedInt(salary, 0, 1, 10_000_000)
@@ -104,18 +161,22 @@ export function normalizeHhAssistantConfig(
     onlyWithSalary: Boolean(source.onlyWithSalary),
     excludedKeywords: cleanList(source.excludedKeywords),
     excludedEmployers: cleanList(source.excludedEmployers),
-    maxQueueSize: boundedInt(source.maxQueueSize, 30, 5, 100),
-    maxPages: boundedInt(source.maxPages, 2, 1, 5),
+    maxQueueSize: boundedInt(source.maxQueueSize, 500, 20, 500),
+    maxPages: boundedInt(source.maxPages, 20, 1, 20),
     coverLetterTemplate:
       String(
         source.coverLetterTemplate ?? DEFAULT_HH_ASSISTANT_CONFIG.coverLetterTemplate,
       ).trim().slice(0, 4000) || DEFAULT_HH_ASSISTANT_CONFIG.coverLetterTemplate,
-    autoSend: source.autoSend !== undefined ? Boolean(source.autoSend) : true,
+    autoSend: source.autoSend !== undefined
+      ? Boolean(source.autoSend)
+      : DEFAULT_HH_ASSISTANT_CONFIG.autoSend,
     resumeTitleContains: String(source.resumeTitleContains ?? '').trim().slice(0, 200),
     resumeTitles: cleanList(source.resumeTitles),
     delayBetweenSec: boundedInt(source.delayBetweenSec, 20, 5, 120),
-    dailyLimit: boundedInt(source.dailyLimit, 50, 1, 200),
-    autoRunDaily: Boolean(source.autoRunDaily),
+    dailyLimit: boundedInt(source.dailyLimit, DEFAULT_HH_ASSISTANT_CONFIG.dailyLimit, 1, 200),
+    autoRunDaily: source.autoRunDaily !== undefined
+      ? Boolean(source.autoRunDaily)
+      : DEFAULT_HH_ASSISTANT_CONFIG.autoRunDaily,
     autoRunHour: boundedInt(source.autoRunHour, 10, 0, 23),
     linkedinLocation: String(source.linkedinLocation ?? '').trim().slice(0, 120),
     linkedinEasyApplyOnly: source.linkedinEasyApplyOnly !== false,
@@ -125,9 +186,149 @@ export function normalizeHhAssistantConfig(
   };
 }
 
+function rememberSearchQuery(target: string[], seen: Set<string>, value: string): void {
+  const query = value.replace(/\s+/g, ' ').trim().slice(0, 200);
+  const key = query.toLocaleLowerCase('ru');
+  if (!query || seen.has(key) || target.length >= 20) return;
+  seen.add(key);
+  target.push(query);
+}
+
+/**
+ * HH interprets a multi-word query quite literally. A person searching for
+ * "QA FULLSTACK PYTHON" should therefore also see the same role advertised as
+ * AQA, SDET, QA Automation, or an automation-test engineer. Keep expansion
+ * conservative: it may rephrase a role, but must not invent another profession.
+ */
+export function buildHhSearchQueries(config: HhAssistantConfig): string[] {
+  const queries: string[] = [];
+  const seen = new Set<string>();
+  const base = config.query.replace(/\s+/g, ' ').trim();
+  rememberSearchQuery(queries, seen, base);
+
+  if (config.includeRelatedQueries) {
+    const normalized = base.toLocaleLowerCase('ru');
+    const isQa = /(?:^|\W)(?:qa|aqa|sdet)(?:\W|$)|тестир|автотест/i.test(normalized);
+    const isPython = /(?:^|\W)python(?:\W|$)|питон/i.test(normalized);
+    const isFullstack = /full[\s-]?stack|фулл[\s-]?ст[еэ]к/i.test(normalized);
+
+    if (isQa && isPython) {
+      rememberSearchQuery(queries, seen, 'QA Automation Python');
+      rememberSearchQuery(queries, seen, 'AQA Python');
+      rememberSearchQuery(queries, seen, 'SDET Python');
+      rememberSearchQuery(queries, seen, 'инженер по автоматизации тестирования Python');
+      if (isFullstack) rememberSearchQuery(queries, seen, 'Fullstack QA Python');
+      // HH does not treat close role names as synonyms. Keep several precise
+      // formulations so a generic title such as "Тестировщик-автоматизатор / QA"
+      // is still found when Python appears only inside the description.
+      rememberSearchQuery(queries, seen, 'тестировщик-автоматизатор Python');
+      rememberSearchQuery(queries, seen, 'автоматизация тестирования Python');
+      rememberSearchQuery(queries, seen, 'Python QA');
+      rememberSearchQuery(queries, seen, 'QA Engineer Python');
+    } else if (isQa) {
+      rememberSearchQuery(queries, seen, 'QA Automation');
+      rememberSearchQuery(queries, seen, 'AQA');
+      rememberSearchQuery(queries, seen, 'SDET');
+      rememberSearchQuery(queries, seen, 'инженер по автоматизации тестирования');
+    }
+  }
+
+  for (const query of config.additionalQueries) rememberSearchQuery(queries, seen, query);
+  return queries;
+}
+
+/**
+ * HH searches descriptions as well as titles, so a QA query can otherwise
+ * return a business analyst or DevOps vacancy that merely mentions testing.
+ * Apply a profession-level title guard for recognised intents. Unknown queries
+ * keep HH's own ranking, while explicit developer directions get their own
+ * developer guard instead of being mixed into QA.
+ */
+export function isVacancyRelevantToSearchQuery(vacancy: HhVacancy, query: string): boolean {
+  const normalizedQuery = query.toLocaleLowerCase('ru');
+  const title = vacancy.title.toLocaleLowerCase('ru');
+  const qaIntent = /(?:^|\W)(?:qa|aqa|sdet)(?:\W|$)|тестир|автотест/i.test(normalizedQuery);
+  if (qaIntent) {
+    const developerQaTitle =
+      /(?:^|\W)(?:qa|aqa|sdet)(?:\W|$)|qa\s+automation|automation\s+qa|автотест/i.test(title);
+    const dataQualityTitle = /data\s+quality\s+assurance|качест\w*\s+данн/i.test(title);
+    const developerLedTitle = /^(?:разработчик|developer|software engineer|devops)(?:\W|$)/i.test(title);
+    if (dataQualityTitle && !/(?:^|\W)(?:qa|aqa|sdet)(?:\W|$)|автотест|тестиров/i.test(title)) return false;
+    if (developerLedTitle && !developerQaTitle) return false;
+    const qaTitle = /(?:^|\W)(?:qa|aqa|sdet)(?:\W|$)|quality assurance|тестир|автотест/i.test(title);
+    const strongQaTitle = /(?:^|\W)(?:aqa|sdet)(?:\W|$)|quality assurance|тестир|автотест|qa\s+automation|automation\s+qa/i.test(title);
+    const developerTitle = /developer|разработчик|программист|software engineer|devops/i.test(title);
+    return qaTitle && (!developerTitle || strongQaTitle);
+  }
+
+  const developerIntent = /developer|разработ|программист|game|unity|unreal|игр/i.test(normalizedQuery);
+  if (developerIntent) {
+    return /developer|разработ|программист|software engineer|full[\s-]?stack|backend|frontend|unity|unreal|game/i.test(title);
+  }
+
+  return true;
+}
+
+/**
+ * Validates recommendation cards against the complete search direction. HH's
+ * home feed often shows a generic QA title and keeps Python/automation only in
+ * the vacancy body, so title-only filtering would either miss it or admit every
+ * manual-QA role. Search result pages already apply the query to descriptions;
+ * this stricter check is for cards collected outside those result pages.
+ */
+export function isVacancyRelevantToSearchProfile(
+  vacancy: HhVacancy,
+  query: string,
+  description = '',
+): boolean {
+  if (!isVacancyRelevantToSearchQuery(vacancy, query)) return false;
+  const normalizedQuery = query.toLocaleLowerCase('ru');
+  const candidate = `${vacancy.title}\n${description}`.toLocaleLowerCase('ru');
+  const pythonIntent = /(?:^|\W)python(?:\W|$)|питон/i.test(normalizedQuery);
+  if (pythonIntent && !/(?:^|\W)python(?:\W|$)|питон/i.test(candidate)) return false;
+
+  const qaIntent = /(?:^|\W)(?:qa|aqa|sdet)(?:\W|$)|тестиров|автотест/i.test(normalizedQuery);
+  if (qaIntent && pythonIntent) {
+    const automationEvidence =
+      /(?:^|\W)(?:aqa|sdet)(?:\W|$)|automation|автоматиз|автотест|pytest|playwright|selenium|locust|jmeter|(?:^|\W)k6(?:\W|$)|нагрузочн\S*\s+тест/i.test(candidate);
+    if (!automationEvidence) return false;
+  }
+  return true;
+}
+
+/**
+ * Recommendation cards do not inherit filters from /search/vacancy. For a
+ * remote preference, missing format data is not a rejection: only an explicit
+ * office-only requirement is blocked. HH often keeps the actual work format
+ * outside the vacancy description.
+ */
+export function isVacancyCompatibleWithSearchSchedule(
+  vacancy: HhVacancy,
+  schedule: string,
+  description = '',
+): boolean {
+  if (schedule !== 'remote') return true;
+  const candidate = `${vacancy.title}\n${description}`.toLocaleLowerCase('ru');
+  if (/remote|удал[её]н|дистанцион|из любой точки|работа из дома/i.test(candidate)) {
+    return true;
+  }
+  const titleIsOfficeOnly = /(?:^|[\s([])(?:в офис|офис\s+(?:в|на)|офисн(?:ая|ый|ое) работ|on[ -]?site)(?:[\s),]|$)/i
+    .test(vacancy.title);
+  const formatIsOfficeOnly = /формат работы\s*:\s*на месте работодателя(?![^\n.]{0,80}(?:или\s+удал|удал[её]н|remote))/i
+    .test(candidate);
+  const explicitOfficeOnly = /(?:только|исключительно)\s+(?:в\s+)?офис|работа\s+(?:только|исключительно)\s+из\s+офиса/i
+    .test(candidate);
+  return !titleIsOfficeOnly && !formatIsOfficeOnly && !explicitOfficeOnly;
+}
+
 export function buildHhSearchUrl(config: HhAssistantConfig, page = 0): string {
   const url = new URL('https://hh.ru/search/vacancy');
   if (config.query) url.searchParams.set('text', config.query);
+  url.searchParams.append('search_field', 'name');
+  url.searchParams.append('search_field', 'company_name');
+  url.searchParams.append('search_field', 'description');
+  url.searchParams.set('enable_snippets', 'true');
+  url.searchParams.set('L_save_area', 'true');
   if (config.area) url.searchParams.set('area', config.area);
   if (config.experience) url.searchParams.set('experience', config.experience);
   if (config.employment) url.searchParams.set('employment', config.employment);
@@ -145,6 +346,12 @@ export function normalizeHhVacancyUrl(raw: string): string {
     const host = url.hostname.toLocaleLowerCase('en-US');
     if (url.protocol !== 'https:' || (host !== 'hh.ru' && !host.endsWith('.hh.ru'))) {
       return '';
+    }
+    const responseVacancyId = url.pathname === '/applicant/vacancy_response'
+      ? url.searchParams.get('vacancyId')?.trim() ?? ''
+      : '';
+    if (responseVacancyId && /^\d+$/.test(responseVacancyId)) {
+      url.pathname = `/vacancy/${responseVacancyId}`;
     }
     if (!/^\/vacancy\/\d+\/?$/.test(url.pathname)) return '';
     url.username = '';

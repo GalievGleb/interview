@@ -34,6 +34,7 @@ import {
   answerWavDurationSeconds,
   GatewaySttService,
   parseAnswerTranscriptionGuidance,
+  resolveManagedSttCredentials,
   wavDurationSeconds,
 } from './gateway-stt.service';
 import {
@@ -243,13 +244,7 @@ export class GatewayController {
       );
     }
 
-    // Dedicated OpenAI credentials are preferred. Existing installations may
-    // use an OpenAI-compatible upstream key; the model remains fixed below.
-    const apiKey = process.env.OPENAI_API_KEY || process.env.OPENROUTER_API_KEY || '';
-    const baseURL =
-      process.env.OPENAI_STT_BASE_URL ||
-      process.env.GATEWAY_UPSTREAM_BASE ||
-      'https://api.openai.com/v1';
+    const { apiKey, baseURL } = resolveManagedSttCredentials();
     if (!apiKey) {
       throw new HttpException(
         {
@@ -262,7 +257,21 @@ export class GatewayController {
       );
     }
 
-    const result = await this.stt.transcribe(apiKey, baseURL, audio, language || 'ru');
+    let result: { text: string; model: string };
+    try {
+      result = await this.stt.transcribe(apiKey, baseURL, audio, language || 'ru');
+    } catch (error) {
+      const upstreamStatus = Number((error as { status?: unknown })?.status ?? 0);
+      throw new HttpException(
+        {
+          error: {
+            message: 'Speech recognition is temporarily unavailable',
+            code: upstreamStatus === 401 || upstreamStatus === 403 ? 'stt_upstream_auth' : 'stt_upstream_error',
+          },
+        },
+        503,
+      );
+    }
     const seconds = Math.max(1, Math.ceil(wavDurationSeconds(audio)));
     await this.sttQuota.recordUsage(license.id, seconds);
     return result;
@@ -291,8 +300,7 @@ export class GatewayController {
       );
     }
     const guidance = parseAnswerTranscriptionGuidance(prompt, keywords, languages);
-    const apiKey = process.env.OPENAI_API_KEY || '';
-    const baseURL = process.env.OPENAI_STT_BASE_URL || 'https://api.openai.com/v1';
+    const { apiKey, baseURL } = resolveManagedSttCredentials();
     if (!apiKey) {
       throw new HttpException(
         {
@@ -311,7 +319,16 @@ export class GatewayController {
       return await this.stt.transcribeAnswer(apiKey, baseURL, audio, guidance);
     } catch (error) {
       await this.sttQuota.releaseUsage(license.id, seconds);
-      throw error;
+      const upstreamStatus = Number((error as { status?: unknown })?.status ?? 0);
+      throw new HttpException(
+        {
+          error: {
+            message: 'Answer transcription is temporarily unavailable',
+            code: upstreamStatus === 401 || upstreamStatus === 403 ? 'stt_upstream_auth' : 'stt_upstream_error',
+          },
+        },
+        503,
+      );
     }
   }
 

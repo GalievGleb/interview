@@ -76,7 +76,20 @@ function CodeBlock({ language, code }: { language: string; code: string }) {
 }
 
 /** Простой markdown: **bold**, `code`, ```code blocks```, абзацы, списки. */
-export default function MarkdownText({ text, className = '' }: { text: string; className?: string }) {
+export default function MarkdownText({
+  text,
+  className = '',
+  size = 'sm',
+}: {
+  text: string;
+  className?: string;
+  /**
+   * `inherit` — не навязывать свой размер, а взять его от контейнера. Нужно там,
+   * где размер задаёт контейнер (например `.ovl-answer-body` в оверлее): иначе
+   * `text-sm` на корневом div перебивал бы его по специфичности.
+   */
+  size?: 'sm' | 'inherit';
+}) {
   if (!text) return null;
 
   const formatted = formatLiveMarkdown(text);
@@ -100,7 +113,11 @@ export default function MarkdownText({ text, className = '' }: { text: string; c
     rest.split(/\n{2,}/).forEach((block) => segments.push(renderBlock(block, key++)));
   }
 
-  return <div className={`space-y-4 text-sm leading-relaxed ${className}`}>{segments}</div>;
+  return (
+    <div className={`space-y-4 leading-relaxed ${size === 'sm' ? 'text-sm ' : ''}${className}`}>
+      {segments}
+    </div>
+  );
 }
 
 function renderBlock(block: string, key: number): ReactNode {

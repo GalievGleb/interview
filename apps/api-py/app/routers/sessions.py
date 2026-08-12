@@ -9,7 +9,7 @@ from app.core.errors import AppError
 from app.db.models import InterviewSession, SessionAssessment, Transcript
 from app.db.session import get_db
 from app.services import quota
-from app.services.session_analysis import analyze_session
+from app.services.session_analysis import analyze_session, session_analysis_source_fingerprint
 from app.services.session_mutation_lock import (
     async_session_mutation_lock,
     session_mutation_lock,
@@ -335,6 +335,45 @@ def _build_development_track(entries: list[dict]) -> dict:
     }
 
 
+def _recent_answer_evidence(entries: list[dict]) -> list[dict]:
+    evidence: list[dict] = []
+    for entry in sorted(entries, key=lambda item: item["startedAt"], reverse=True):
+        for review in entry["assessment"].get("answerReviews", []):
+            if not isinstance(review, dict):
+                continue
+            question = str(review.get("question", "")).strip()
+            candidate_answer = str(review.get("candidateAnswer", "")).strip()
+            if not question or not candidate_answer:
+                continue
+            evidence.append(
+                {
+                    "sessionId": entry["sessionId"],
+                    "title": entry["title"],
+                    "startedAt": entry["startedAt"],
+                    "interviewType": entry["interviewType"],
+                    "question": question,
+                    "candidateAnswer": candidate_answer,
+                    "topic": str(review.get("topic", "")).strip(),
+                    "score": max(0, min(100, round(float(review.get("score", 0))))),
+                    "confidence": max(0.0, min(1.0, round(float(review.get("confidence", 0)), 2))),
+                    "problems": [
+                        str(value).strip()
+                        for value in review.get("problems", [])
+                        if str(value).strip()
+                    ][:8],
+                    "missingPoints": [
+                        str(value).strip()
+                        for value in review.get("missingPoints", [])
+                        if str(value).strip()
+                    ][:8],
+                    "betterAnswer": str(review.get("betterAnswer", "")).strip(),
+                }
+            )
+            if len(evidence) >= 20:
+                return evidence
+    return evidence
+
+
 @router.get("/development-profile")
 def development_profile(db: Session = Depends(get_db)) -> dict:
     entries: list[dict] = []
@@ -373,6 +412,7 @@ def development_profile(db: Session = Depends(get_db)) -> dict:
         "recentSessions": [
             {key: value for key, value in item.items() if key != "assessment"} for item in recent
         ],
+        "recentAnswers": _recent_answer_evidence(entries),
         "updatedAt": _naive_utc_now().isoformat(),
     }
 
@@ -496,6 +536,7 @@ def add_transcript(
 
 class AnalyzeSessionRequest(BaseModel):
     language: str = "ru"
+    force: bool = False
 
 
 @router.post("/{session_id}/analysis")
@@ -509,23 +550,47 @@ async def create_session_analysis(
         if not session:
             raise AppError("Session not found", 404, "not_found")
         existing = db.query(SessionAssessment).filter_by(session_id=session_id).first()
-        if existing:
-            return json.loads(existing.analysis_json)
+        source_fingerprint = session_analysis_source_fingerprint(session, payload.language)
+        if existing and not payload.force:
+            saved = json.loads(existing.analysis_json)
+            saved_language = saved.get("analysisLanguage") or existing.language
+            saved_fingerprint = saved.get("sourceFingerprint")
+            if saved.get("analysisVersion") == 2 and saved_language == payload.language:
+                if not saved_fingerprint:
+                    # One-time metadata upgrade for previously persisted v2 reports.
+                    # The evidence itself is unchanged, so this must not spend tokens.
+                    saved["analysisLanguage"] = payload.language
+                    saved["sourceFingerprint"] = source_fingerprint
+                    existing.analysis_json = json.dumps(saved, ensure_ascii=False)
+                    db.commit()
+                    return saved
+                if saved_fingerprint == source_fingerprint:
+                    return saved
 
         quota.check_token_quota(db)
         result = await analyze_session(db, session, payload.language)
+        result_payload = result.model_dump()
+        result_payload["analysisLanguage"] = payload.language
+        result_payload["sourceFingerprint"] = source_fingerprint
+        result_json = json.dumps(result_payload, ensure_ascii=False)
         db.expire_all()
         if not db.query(InterviewSession.id).filter_by(id=session_id).first():
             raise AppError("Session was deleted during analysis", 409, "session_deleted")
-        row = SessionAssessment(
-            session_id=session_id,
-            language=payload.language,
-            analysis_json=result.model_dump_json(),
-            markdown=result.markdown,
-        )
-        db.add(row)
+        if existing:
+            existing.language = payload.language
+            existing.analysis_json = result_json
+            existing.markdown = result.markdown
+        else:
+            db.add(
+                SessionAssessment(
+                    session_id=session_id,
+                    language=payload.language,
+                    analysis_json=result_json,
+                    markdown=result.markdown,
+                )
+            )
         db.commit()
-        return result.model_dump()
+        return result_payload
 
 
 @router.get("/{session_id}/analysis")
@@ -533,4 +598,24 @@ def get_session_analysis(session_id: str, db: Session = Depends(get_db)) -> dict
     row = db.query(SessionAssessment).filter_by(session_id=session_id).first()
     if not row:
         raise AppError("Session analysis not found", 404, "not_found")
-    return json.loads(row.analysis_json)
+    session = db.get(InterviewSession, session_id)
+    if not session:
+        raise AppError("Session not found", 404, "not_found")
+    saved = json.loads(row.analysis_json)
+    language = saved.get("analysisLanguage") or row.language
+    current_fingerprint = session_analysis_source_fingerprint(session, language)
+    saved_fingerprint = saved.get("sourceFingerprint")
+    if saved_fingerprint and saved_fingerprint != current_fingerprint:
+        raise AppError(
+            "Session transcript changed after the saved analysis",
+            409,
+            "stale_session_analysis",
+        )
+    if not saved_fingerprint:
+        # Backfill cache metadata for existing installations without asking the
+        # model to repeat an analysis whose source data has not changed.
+        saved["analysisLanguage"] = language
+        saved["sourceFingerprint"] = current_fingerprint
+        row.analysis_json = json.dumps(saved, ensure_ascii=False)
+        db.commit()
+    return saved

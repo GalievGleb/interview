@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { validateGeneratedHhCoverLetter } from './hhCoverLetter';
+import {
+  buildGroundedLocalHhCoverLetter,
+  validateGeneratedHhCoverLetter,
+} from './hhCoverLetter';
 
 const strongLetter = `Здравствуйте!
 
@@ -55,5 +58,34 @@ describe('HH generated cover-letter guard', () => {
         matches: [],
       }),
     ).toBeNull();
+  });
+
+  it('builds a local fallback only from skills present in both vacancy and résumé', () => {
+    const response = buildGroundedLocalHhCoverLetter({
+      vacancyTitle: 'QA Automation Engineer',
+      vacancyCompany: 'Example',
+      vacancyDescription: 'Нужны Python, Pytest, REST API, Docker и Kubernetes.',
+      resumeText: 'Автоматизация на Python и Pytest. API-тесты REST. Работал с Docker.',
+      language: 'ru',
+    });
+
+    expect(response.canAutoFill).toBe(true);
+    expect(response.model).toBe('local-grounded-v1');
+    expect(response.coverLetter).toContain('Python, Pytest, REST API и Docker');
+    expect(response.coverLetter).not.toContain('Kubernetes');
+    expect(validateGeneratedHhCoverLetter(response)).not.toBeNull();
+  });
+
+  it('refuses the local fallback when fewer than two skills are grounded', () => {
+    const response = buildGroundedLocalHhCoverLetter({
+      vacancyTitle: 'QA Automation Engineer',
+      vacancyCompany: 'Example',
+      vacancyDescription: 'Нужны Python и Kubernetes.',
+      resumeText: 'Автоматизация на Python и Pytest.',
+      language: 'ru',
+    });
+
+    expect(response.canAutoFill).toBe(false);
+    expect(response.coverLetter).toBe('');
   });
 });

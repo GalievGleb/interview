@@ -101,15 +101,16 @@ export default function MicrophoneSettings() {
         <p className="mt-0.5 text-sm text-ink-muted">{t('mic.desc')}</p>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
         <select
           value={selected}
           onChange={(e) => onChange(e.target.value)}
-          className="field flex-1"
+          className="field min-w-0"
+          aria-label={t('mic.title')}
         >
           {devices.length === 0 && <option value="">{t('mic.noDevices')}</option>}
           {devices.map((d, i) => (
-            <option key={d.deviceId} value={d.deviceId}>
+            <option key={d.deviceId} value={d.deviceId} title={d.label}>
               {d.label || `${t('mic.fallback')} ${i + 1}`}
             </option>
           ))}

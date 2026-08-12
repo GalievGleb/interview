@@ -27,6 +27,16 @@ export interface InterviewCalendarSettings {
   timezone: string;
 }
 
+export interface InterviewOutcome {
+  sessionId: string;
+  headline: string;
+  facts: string[];
+  conditions: string[];
+  nextSteps: string[];
+  openQuestions: string[];
+  createdAt: string;
+}
+
 export interface InterviewCalendarEvent {
   id: string;
   negotiationKey?: string;
@@ -37,8 +47,13 @@ export interface InterviewCalendarEvent {
   startAt: string;
   endAt: string;
   source: 'hh' | 'manual';
+  vacancyUrl?: string;
+  vacancyDescription?: string;
   meetingUrl?: string;
   notes?: string;
+  sessionId?: string;
+  completedAt?: string;
+  outcome?: InterviewOutcome;
   createdAt: string;
   updatedAt: string;
 }
@@ -82,6 +97,41 @@ export interface InterviewMessageAnalysis {
   isConfirmation: boolean;
   isCancellation: boolean;
   meetingUrl?: string;
+}
+
+// The overlay may be opened shortly before a scheduled call for a microphone or
+// screen check. A session started much earlier is a practice session and must not
+// complete (and consequently hide) the future calendar event.
+export const INTERVIEW_SESSION_EARLY_WINDOW_MS = 2 * 60 * 60 * 1000;
+
+export function canLinkSessionToInterview(
+  event: Pick<InterviewCalendarEvent, 'startAt'>,
+  now = new Date(),
+): boolean {
+  const startAt = Date.parse(event.startAt);
+  const nowAt = now.getTime();
+  return Number.isFinite(startAt)
+    && Number.isFinite(nowAt)
+    && nowAt >= startAt - INTERVIEW_SESSION_EARLY_WINDOW_MS;
+}
+
+function repairPrematureInterviewOutcome(event: InterviewCalendarEvent): InterviewCalendarEvent {
+  if (!event.completedAt) return event;
+  const completedAt = Date.parse(event.completedAt);
+  const startAt = Date.parse(event.startAt);
+  if (
+    !Number.isFinite(completedAt)
+    || !Number.isFinite(startAt)
+    || completedAt >= startAt - INTERVIEW_SESSION_EARLY_WINDOW_MS
+  ) {
+    return event;
+  }
+
+  const scheduledEvent = { ...event };
+  delete scheduledEvent.sessionId;
+  delete scheduledEvent.completedAt;
+  delete scheduledEvent.outcome;
+  return scheduledEvent;
 }
 
 const MONTHS: Record<string, number> = {
@@ -338,8 +388,104 @@ export function findNextInterviewSlots(
   return result;
 }
 
-export function formatInterviewSlotRu(value: Date): string {
-  return new Intl.DateTimeFormat('ru-RU', {
+/**
+ * Recruiter-facing alternatives prefer real free time today and tomorrow.
+ * We first take one option from each day (when available), then fill the
+ * remaining choices from those two days and finally fall back to later dates.
+ */
+export function findRecruiterInterviewSlots(
+  settings: InterviewCalendarSettings,
+  events: InterviewCalendarEvent[],
+  now = new Date(),
+  count = 3,
+): Date[] {
+  if (!settings.availabilityConfigured || count <= 0) return [];
+  const earliest = ceilToHalfHour(new Date(now.getTime() + settings.minimumNoticeMin * 60_000));
+  const spacingMin = Math.max(60, settings.defaultDurationMin);
+  const collectDaySlots = (day: Date): Date[] => {
+    const daySlots: Date[] = [];
+    const windows = settings.availability
+      .filter((window) => window.weekday === day.getDay())
+      .sort((left, right) => left.startMinutes - right.startMinutes);
+    for (const window of windows) {
+      const windowStart = new Date(day);
+      windowStart.setMinutes(window.startMinutes);
+      const windowEnd = new Date(day);
+      windowEnd.setMinutes(window.endMinutes);
+      let cursor = ceilToHalfHour(new Date(Math.max(windowStart.getTime(), earliest.getTime())));
+      while (cursor.getTime() + settings.defaultDurationMin * 60_000 <= windowEnd.getTime()) {
+        if (isInterviewSlotAvailable(cursor, settings, events, settings.defaultDurationMin, now)) {
+          daySlots.push(new Date(cursor));
+          cursor = new Date(cursor.getTime() + spacingMin * 60_000);
+        } else {
+          cursor = new Date(cursor.getTime() + 30 * 60_000);
+        }
+      }
+    }
+    return [...new Map(daySlots.map((slot) => [slot.getTime(), slot])).values()];
+  };
+  const nearDays = [0, 1].map((offset) =>
+    collectDaySlots(addDays(startOfDay(now), offset)),
+  );
+
+  const chosen = new Map<number, Date>();
+  for (const daySlots of nearDays) {
+    const first = daySlots[0];
+    if (first) chosen.set(first.getTime(), first);
+    if (chosen.size >= count) break;
+  }
+  const remainingNear = nearDays
+    .flatMap((daySlots) => daySlots.slice(1))
+    .sort((left, right) => left.getTime() - right.getTime());
+  for (const slot of remainingNear) {
+    if (chosen.size >= count) break;
+    chosen.set(slot.getTime(), slot);
+  }
+
+  if (chosen.size < count) {
+    for (let offset = 2; offset < 28 && chosen.size < count; offset += 1) {
+      const laterDay = collectDaySlots(addDays(startOfDay(now), offset));
+      for (const slot of laterDay) {
+        if (chosen.size >= count) break;
+        chosen.set(slot.getTime(), slot);
+      }
+    }
+  }
+  return [...chosen.values()]
+    .sort((left, right) => left.getTime() - right.getTime())
+    .slice(0, count);
+}
+
+function interviewTimezoneSuffix(timezone: string, value: Date): string {
+  try {
+    const offset = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      timeZoneName: 'shortOffset',
+    }).formatToParts(value).find((part) => part.type === 'timeZoneName')?.value
+      .replace('GMT', 'UTC') ?? timezone;
+    const rawCity = timezone.split('/').at(-1)?.replace(/_/g, ' ') ?? timezone;
+    const city = rawCity === 'Krasnoyarsk' ? 'Красноярск'
+      : rawCity === 'Moscow' ? 'Москва'
+        : rawCity;
+    return ` (${offset}, ${city})`;
+  } catch {
+    return ` (${timezone})`;
+  }
+}
+
+function dateKeyInTimezone(value: Date, timezone?: string): string {
+  if (!timezone) return `${value.getFullYear()}-${value.getMonth()}-${value.getDate()}`;
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(value);
+}
+
+export function formatInterviewSlotRu(value: Date, timezone?: string): string {
+  const formatted = new Intl.DateTimeFormat('ru-RU', {
+    ...(timezone ? { timeZone: timezone } : {}),
     weekday: 'short',
     day: 'numeric',
     month: 'short',
@@ -348,6 +494,21 @@ export function formatInterviewSlotRu(value: Date): string {
   })
     .format(value)
     .replace(',', ' в');
+  return `${formatted}${timezone ? interviewTimezoneSuffix(timezone, value) : ''}`;
+}
+
+export function formatRecruiterInterviewSlotRu(value: Date, now = new Date(), timezone?: string): string {
+  const time = new Intl.DateTimeFormat('ru-RU', {
+    ...(timezone ? { timeZone: timezone } : {}),
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(value);
+  const suffix = timezone ? interviewTimezoneSuffix(timezone, value) : '';
+  if (dateKeyInTimezone(value, timezone) === dateKeyInTimezone(now, timezone)) return `сегодня в ${time}${suffix}`;
+  if (dateKeyInTimezone(value, timezone) === dateKeyInTimezone(addDays(now, 1), timezone)) {
+    return `завтра в ${time}${suffix}`;
+  }
+  return formatInterviewSlotRu(value, timezone);
 }
 
 export function chooseThreadSlot(text: string, offeredSlots: string[]): Date | null {
@@ -412,6 +573,11 @@ export class InterviewCalendarStore {
     private readonly onChange?: (state: InterviewCalendarState) => void,
   ) {
     this.state = this.load();
+    const repairedEvents = this.state.events.map(repairPrematureInterviewOutcome);
+    if (repairedEvents.some((event, index) => event !== this.state.events[index])) {
+      this.state.events = repairedEvents;
+      this.persist();
+    }
   }
 
   getState(): InterviewCalendarState {
@@ -425,6 +591,11 @@ export class InterviewCalendarStore {
   getThread(negotiationKey: string): InterviewSchedulingThread | undefined {
     const thread = this.state.scheduling.find((item) => item.negotiationKey === negotiationKey);
     return thread ? { ...thread, offeredSlots: [...thread.offeredSlots] } : undefined;
+  }
+
+  getEvent(id: string): InterviewCalendarEvent | undefined {
+    const event = this.state.events.find((item) => item.id === id);
+    return event ? cloneState({ settings: this.state.settings, events: [event], scheduling: [] }).events[0] : undefined;
   }
 
   saveSettings(partial: Partial<InterviewCalendarSettings>): InterviewCalendarState {
@@ -513,6 +684,42 @@ export class InterviewCalendarStore {
     return this.getState();
   }
 
+  attachSession(eventId: string, sessionId: string, currentTime = new Date()): InterviewCalendarState {
+    const now = currentTime.toISOString();
+    let changed = false;
+    this.state.events = this.state.events.map((event) => {
+      if (event.id !== eventId || !canLinkSessionToInterview(event, currentTime)) return event;
+      changed = true;
+      return { ...event, sessionId: sessionId.trim(), updatedAt: now };
+    });
+    if (changed) this.commit();
+    return this.getState();
+  }
+
+  saveOutcome(eventId: string, outcome: InterviewOutcome, currentTime = new Date()): InterviewCalendarState {
+    const now = currentTime.toISOString();
+    let changed = false;
+    this.state.events = this.state.events.map((event) => {
+      if (event.id !== eventId || !canLinkSessionToInterview(event, currentTime)) return event;
+      changed = true;
+      return {
+        ...event,
+        sessionId: outcome.sessionId,
+        completedAt: now,
+        outcome: {
+          ...outcome,
+          facts: [...outcome.facts],
+          conditions: [...outcome.conditions],
+          nextSteps: [...outcome.nextSteps],
+          openQuestions: [...outcome.openQuestions],
+        },
+        updatedAt: now,
+      };
+    });
+    if (changed) this.commit();
+    return this.getState();
+  }
+
   upsertThread(input: Omit<InterviewSchedulingThread, 'id' | 'updatedAt'> & { id?: string; updatedAt?: string }): InterviewCalendarState {
     const existing = this.state.scheduling.find((item) => item.negotiationKey === input.negotiationKey);
     const next: InterviewSchedulingThread = {
@@ -560,12 +767,16 @@ export class InterviewCalendarStore {
   }
 
   private commit(): void {
+    this.persist();
+    this.onChange?.(this.getState());
+  }
+
+  private persist(): void {
     try {
       fs.mkdirSync(path.dirname(statePath(this.userDataDir)), { recursive: true });
       fs.writeFileSync(statePath(this.userDataDir), JSON.stringify(this.state, null, 2), 'utf8');
     } catch (error) {
       console.warn('[interview-calendar] persist failed:', error);
     }
-    this.onChange?.(this.getState());
   }
 }

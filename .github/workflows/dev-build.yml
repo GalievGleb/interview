@@ -1,0 +1,62 @@
+name: SkillCue Dev build
+
+# A private developer installer. It is stored as an Actions artifact and never
+# uploaded to the public SkillCue releases repository.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dev-build:
+    name: Build private SkillCue Dev installer
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Build backend (PyInstaller)
+        working-directory: apps/api-py
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+          pyinstaller skillcue-backend.spec
+          test -f dist/skillcue-backend/skillcue-backend.exe
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build shared package
+        run: pnpm --filter @interview/shared build
+      - name: Verify desktop
+        run: |
+          pnpm --filter @interview/desktop typecheck
+          pnpm --filter @interview/desktop test
+      - name: Build private developer installer
+        working-directory: apps/desktop
+        run: |
+          pnpm build:dev
+          pnpm exec electron-builder --config electron-builder.dev.cjs --win nsis --publish never
+          test -f release-dev/SkillCue-Dev-Setup.exe
+      - name: Upload private developer installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: SkillCue-Dev-${{ github.sha }}
+          path: |
+            apps/desktop/release-dev/SkillCue-Dev-Setup.exe
+            apps/desktop/release-dev/SkillCue-Dev-Setup.exe.blockmap
+          if-no-files-found: error
+          retention-days: 14

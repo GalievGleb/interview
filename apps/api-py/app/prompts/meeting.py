@@ -61,6 +61,60 @@ Use only the transcript. Never invent owners, deadlines, decisions, or facts.
 """
 
 
+def build_interview_outcome_prompt(
+    transcript: str,
+    interview_type: str,
+    vacancy_title: str,
+    company_name: str,
+    answer_language: str | None,
+) -> str:
+    """Build a compact factual memory card for one scheduled interview stage."""
+    answer_language = _effective_language(transcript, answer_language)
+    kind = interview_type if interview_type in {"hr", "technical", "other"} else "other"
+    if answer_language == "ru":
+        focus = (
+            "Для HR особенно вытащи условия: зарплатную вилку, формат и график, оформление, "
+            "испытательный срок, команду, обязанности и этапы найма."
+            if kind == "hr"
+            else "Для технического этапа особенно вытащи проверенные темы и задачи, стек, ожидания от роли, сигналы интервьюера и следующий этап."
+        )
+        language = "Все строки пиши по-русски."
+    else:
+        focus = (
+            "For HR, prioritize compensation, work format, schedule, employment terms, probation, team, responsibilities, and hiring stages."
+            if kind == "hr"
+            else "For a technical stage, prioritize topics and tasks covered, stack, role expectations, interviewer signals, and the next stage."
+        )
+        language = "Write every string in English."
+    return f"""Mode: INTERVIEW OUTCOME MEMORY CARD
+
+Company: {company_name or "unknown"}
+Vacancy: {vacancy_title or "unknown"}
+Stage: {kind}
+
+Transcript:
+<TRANSCRIPT>
+{transcript}
+</TRANSCRIPT>
+
+{language}
+{focus}
+
+Return ONLY one valid JSON object with exactly these keys:
+{{
+  "headline": "one factual sentence with the main result",
+  "facts": ["2-5 important facts learned about the role, team, or interview"],
+  "conditions": ["only concrete work or compensation conditions that were explicitly stated"],
+  "nextSteps": ["only agreed next steps, owners, or timing"],
+  "openQuestions": ["important things still unknown or explicitly left open"]
+}}
+
+Keep every item short and self-contained. Use at most 5 items per array and at most
+220 words total. Do not evaluate the candidate, retell the whole transcript, invent
+facts, or fill missing sections with boilerplate; use an empty array instead.
+"""
+
+
 def build_interview_review_prompt(transcript: str, answer_language: str | None) -> str:
     answer_language = _effective_language(transcript, answer_language)
     if answer_language == "en":

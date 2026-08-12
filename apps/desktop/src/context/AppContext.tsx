@@ -14,15 +14,11 @@ interface AppContextValue {
   backendStatus: BackendStatus | null;
   hasAnyKey: boolean;
   hasStt: boolean;
-  onboardingDone: boolean;
   /** null пока не загрузили; expired → live-режим мягко блокируется. */
   license: LicenseInfo | null;
-  completeOnboarding: () => void;
   refreshKeys: () => Promise<void>;
   refreshLicense: () => Promise<void>;
 }
-
-const ONBOARDING_KEY = 'copilot-onboarding-done';
 
 const AppContext = createContext<AppContextValue | null>(null);
 
@@ -30,10 +26,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [keys, setKeys] = useState<KeysStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [backendOnline, setBackendOnline] = useState(false);
-  const [onboardingDone, setOnboardingDone] = useState(
-    () => localStorage.getItem(ONBOARDING_KEY) === '1',
-  );
-
   const [sttReady, setSttReady] = useState(false);
   const [license, setLicense] = useState<LicenseInfo | null>(null);
   const [backendStatus, setBackendStatus] = useState<BackendStatus | null>(null);
@@ -98,11 +90,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => unsub?.();
   }, [refreshKeys]);
 
-  const completeOnboarding = () => {
-    localStorage.setItem(ONBOARDING_KEY, '1');
-    setOnboardingDone(true);
-  };
-
   const hasAnyKey = !!keys && (keys.openai || keys.openrouter);
   const hasStt = sttReady;
 
@@ -115,9 +102,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         backendStatus,
         hasAnyKey,
         hasStt,
-        onboardingDone,
         license,
-        completeOnboarding,
         refreshKeys,
         refreshLicense,
       }}

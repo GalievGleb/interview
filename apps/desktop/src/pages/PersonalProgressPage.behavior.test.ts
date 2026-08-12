@@ -2,37 +2,44 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-const page = fs.readFileSync(path.resolve(__dirname, 'PersonalProgressPage.tsx'), 'utf8');
 const app = fs.readFileSync(path.resolve(__dirname, '../App.tsx'), 'utf8');
 const sidebar = fs.readFileSync(path.resolve(__dirname, '../components/Sidebar.tsx'), 'utf8');
-const api = fs.readFileSync(path.resolve(__dirname, '../lib/api.ts'), 'utf8');
+const layout = fs.readFileSync(path.resolve(__dirname, '../components/Layout.tsx'), 'utf8');
+const documents = fs.readFileSync(path.resolve(__dirname, 'DocumentsPage.tsx'), 'utf8');
+const growthSetup = fs.readFileSync(path.resolve(__dirname, '../components/candidate/GrowthProfileSetup.tsx'), 'utf8');
+const history = fs.readFileSync(path.resolve(__dirname, 'HistoryPage.tsx'), 'utf8');
 
-describe('personal progress page', () => {
-  it('is a separate destination from vacancy readiness', () => {
-    expect(app).toContain('path="/progress"');
-    expect(sidebar).toContain("to: '/progress'");
-    expect(sidebar).toContain("label: 'nav.progress'");
+describe('personal progress migration', () => {
+  it('removes personal progress as a separate navigation destination', () => {
+    expect(sidebar).not.toContain("to: '/progress'");
+    expect(layout).not.toContain("'/progress': 'nav.progress'");
+    expect(app).not.toContain("import('./pages/PersonalProgressPage')");
+    expect(app).toContain('function LegacyProgressRedirect()');
+    expect(app).toContain('to="/history?view=growth"');
   });
 
-  it('shows separate technical and HR evidence without treating missing topics as gaps', () => {
-    expect(page).toContain('profile.technical');
-    expect(page).toContain('profile.hr');
-    expect(page).toContain('ТЕХНИЧЕСКАЯ КАРТИНА');
-    expect(page).toContain('HR И САМОПРЕЗЕНТАЦИЯ');
-    expect(page).toContain('Пока не проверялось');
+  it('moves the professional goal and baseline into profile and experience', () => {
+    expect(documents).toContain('<GrowthProfileSetup');
+    expect(documents).toContain("section=goal");
+    expect(growthSetup).toContain('ПРОФЕССИОНАЛЬНАЯ ЦЕЛЬ');
+    expect(growthSetup).toContain('Другая специализация');
+    expect(growthSetup).toContain('Стартовая самооценка');
   });
 
-  it('asks for consent and scopes assessment to the selected specialization', () => {
-    expect(page).toContain('ДОБРОВОЛЬНАЯ НАСТРОЙКА');
-    expect(page).toContain('Смежные направления');
-    expect(page).toContain('учитываем только выбранные вами');
-    expect(page).toContain('skillcue.growth-profile.v1');
-    expect(page).toContain("'qa-python'");
+  it('uses native form semantics and keeps save discoverable', () => {
+    expect(growthSetup).toContain('<fieldset className="growth-baseline-row"');
+    expect(growthSetup).toContain('<legend className="sr-only">{topic}</legend>');
+    expect(growthSetup).toContain('type="radio"');
+    expect(growthSetup).toContain('aria-expanded={expanded}');
+    expect(growthSetup).toContain('aria-invalid=');
+    expect(growthSetup).not.toMatch(/Сохранить цель[^]*disabled=/);
   });
 
-  it('loads the aggregate built from persisted per-session AI analyses', () => {
-    expect(api).toContain('getDevelopmentProfile:');
-    expect(page).toContain('api.getDevelopmentProfile()');
-    expect(page).toContain('recentSessions');
+  it('shows practice and real interview evidence together without mixing them', () => {
+    expect(history).toContain('buildCareerProgress(mockSessions, developmentProfile)');
+    expect(history).toContain('ПРАКТИКА');
+    expect(history).toContain('РЕАЛЬНЫЕ ИНТЕРВЬЮ');
+    expect(history).toContain('ЛИЧНЫЙ ПРОГРЕСС');
+    expect(history).toContain('СЛЕДУЮЩИЙ ШАГ');
   });
 });

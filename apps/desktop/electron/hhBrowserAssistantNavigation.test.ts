@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   browserLaunchArguments,
+  isAlreadyAppliedHhText,
   isBrokenHhLoginSourcePage,
   isRecoverableHhLoginNavigationAbort,
+  normalizePersistedQueue,
 } from './hhBrowserAssistant';
 
 describe('HH login navigation recovery', () => {
@@ -55,5 +57,123 @@ describe('HH login navigation recovery', () => {
     expect(isBrokenHhLoginSourcePage('https://hh.ru/404')).toBe(true);
     expect(isBrokenHhLoginSourcePage('https://hh.ru/account/login')).toBe(false);
     expect(isBrokenHhLoginSourcePage('https://example.com/negotiations')).toBe(false);
+  });
+
+  it('recognizes current and legacy HH already-applied messages', () => {
+    expect(isAlreadyAppliedHhText('Вы откликнулись')).toBe(true);
+    expect(isAlreadyAppliedHhText('Вы уже откликнулись на эту вакансию')).toBe(true);
+    expect(isAlreadyAppliedHhText('Отклик был отправлен ранее')).toBe(true);
+    expect(isAlreadyAppliedHhText('Отклик другим резюме')).toBe(false);
+    expect(isAlreadyAppliedHhText('Откликнуться')).toBe(false);
+  });
+
+  it('restores an accepted response with a missing cover letter to the actionable queue', () => {
+    const [vacancy] = normalizePersistedQueue([{
+      id: '135717978',
+      key: 'hh:135717978',
+      platform: 'hh',
+      title: 'Automation QA (Python)',
+      company: 'BLACKHUB GAMES',
+      url: 'https://hh.ru/vacancy/135717978',
+      status: 'already_applied',
+      addedAt: '2026-08-09T11:12:00.000Z',
+      coverLetterPending: true,
+      coverLetterAdded: false,
+    }]);
+
+    expect(vacancy).toMatchObject({
+      id: '135717978',
+      status: 'opened',
+      coverLetterPending: true,
+      coverLetterAdded: undefined,
+    });
+  });
+
+  it('restores vacancies hidden by the old pre-submission cover-letter marker', () => {
+    const [vacancy] = normalizePersistedQueue([{
+      id: '136143010',
+      key: 'hh:136143010',
+      platform: 'hh',
+      title: 'Тестировщик-автоматизатор / QA',
+      company: 'VisionLabs',
+      url: 'https://hh.ru/vacancy/136143010',
+      status: 'skipped',
+      reason: 'Отклик больше не найден в активных переговорах HH — письмо отправлять некуда.',
+      addedAt: '2026-08-11T15:19:32.801Z',
+      coverLetterPending: false,
+      coverLetterAdded: false,
+    }]);
+
+    expect(vacancy).toMatchObject({
+      id: '136143010',
+      status: 'new',
+      coverLetterPending: undefined,
+      coverLetterAdded: undefined,
+    });
+    expect(vacancy.reason).toContain('возвращена в очередь');
+  });
+
+  it('does not restore the same terminal skip after the v5 migration', () => {
+    const [vacancy] = normalizePersistedQueue([{
+      id: '136143010',
+      platform: 'hh',
+      title: 'Тестировщик-автоматизатор / QA',
+      url: 'https://hh.ru/vacancy/136143010',
+      status: 'skipped',
+      reason: 'Отклик больше не найден в активных переговорах HH — письмо отправлять некуда.',
+      addedAt: '2026-08-11T15:19:32.801Z',
+    }], false);
+
+    expect(vacancy).toMatchObject({
+      status: 'skipped',
+      coverLetterPending: undefined,
+    });
+  });
+
+  it('keeps an explicitly skipped vacancy skipped even if an old letter marker remains', () => {
+    const [vacancy] = normalizePersistedQueue([{
+      id: '136143972',
+      key: 'hh:136143972',
+      platform: 'hh',
+      title: 'QA специалист (офис в Москве)',
+      company: 'Example',
+      url: 'https://hh.ru/vacancy/136143972',
+      status: 'skipped',
+      reason: 'Пропущено пользователем',
+      addedAt: '2026-08-11T17:30:00.000Z',
+      coverLetterPending: true,
+      coverLetterAdded: false,
+    }]);
+
+    expect(vacancy).toMatchObject({
+      status: 'skipped',
+      coverLetterPending: undefined,
+      coverLetterAdded: undefined,
+    });
+  });
+
+  it('keeps an unanswered employer question ahead of a stale letter marker', () => {
+    const [vacancy] = normalizePersistedQueue([{
+      id: '136089306',
+      platform: 'hh',
+      title: 'QA Automation Engineer',
+      url: 'https://hh.ru/vacancy/136089306',
+      status: 'opened',
+      addedAt: '2026-08-11T17:30:00.000Z',
+      coverLetterPending: true,
+      pendingQuestions: [{
+        id: 'contract',
+        prompt: 'Подходит ли срочный договор?',
+        kind: 'single',
+        options: ['Да', 'Нет'],
+        required: true,
+      }],
+    }]);
+
+    expect(vacancy).toMatchObject({
+      status: 'needs_input',
+      coverLetterPending: undefined,
+      pendingQuestions: [{ id: 'contract' }],
+    });
   });
 });

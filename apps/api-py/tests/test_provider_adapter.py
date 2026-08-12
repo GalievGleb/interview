@@ -50,6 +50,18 @@ def test_apply_prompt_cache_noop_for_openai():
     assert provider_adapter.apply_prompt_cache(msgs, "openai/gpt-4o-mini") == msgs
 
 
+def test_fast_routing_option_is_only_sent_to_openrouter_itself():
+    assert provider_adapter._supports_openrouter_routing(
+        "openrouter", "https://openrouter.ai/api/v1"
+    )
+    assert not provider_adapter._supports_openrouter_routing(
+        "openrouter", "https://skill-cue.ru/v1"
+    )
+    assert not provider_adapter._supports_openrouter_routing(
+        "openai", "https://api.openai.com/v1"
+    )
+
+
 # --- retry ----------------------------------------------------------------
 def _patch_common(monkeypatch, client):
     monkeypatch.setattr(provider_adapter, "_resolve", lambda p: ("openrouter", "http://x", "k"))
@@ -262,3 +274,12 @@ def test_gateway_errors_pass_through_with_own_message():
         402, '{"error":{"message":"insufficient credit"}}'
     )
     assert generic.code == "insufficient_credits"
+
+
+def test_unsupported_provider_option_has_a_readable_error():
+    err = provider_adapter.parse_provider_error(
+        400,
+        '{"error":{"message":"Unrecognized request argument supplied: provider"}}',
+    )
+    assert err.code == "unsupported_provider_option"
+    assert "несовместимый параметр" in err.message.lower()

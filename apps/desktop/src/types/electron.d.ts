@@ -1,6 +1,8 @@
 export interface HhAssistantConfig {
   platform: 'hh' | 'linkedin' | 'avito';
   query: string;
+  includeRelatedQueries: boolean;
+  additionalQueries: string[];
   area: string;
   experience: string;
   employment: string;
@@ -24,7 +26,42 @@ export interface HhAssistantConfig {
   avitoCity: string;
 }
 
-export type HhQueueStatus = 'new' | 'opened' | 'prepared' | 'sent' | 'skipped';
+export type HhQueueStatus = 'new' | 'opened' | 'prepared' | 'needs_input' | 'sent' | 'already_applied' | 'skipped';
+
+export interface HhScreeningQuestion {
+  id: string;
+  prompt: string;
+  kind: 'text' | 'single' | 'multiple' | 'select';
+  options: string[];
+  required: boolean;
+  assistantReason?: string;
+  suggestedAnswer?: string;
+  suggestedOptions?: string[];
+}
+
+export interface HhScreeningAnswerInput {
+  questionId: string;
+  question: string;
+  answer: string;
+  selectedOptions: string[];
+  remember?: boolean;
+}
+
+export interface HhScreeningDraftSuggestion {
+  questionId: string;
+  answer: string;
+  selectedOptions: string[];
+  source: 'profile' | 'ai' | 'local';
+  note: string;
+}
+
+export interface HhScreeningFact {
+  id: string;
+  question: string;
+  answer: string;
+  selectedOptions: string[];
+  updatedAt: string;
+}
 
 export interface HhQueueItem {
   key: string;
@@ -34,10 +71,46 @@ export interface HhQueueItem {
   company: string;
   salary: string;
   url: string;
+  description?: string;
   status: HhQueueStatus;
   reason?: string;
   addedAt: string;
   sentAt?: string;
+  pendingQuestions?: HhScreeningQuestion[];
+  preparationNotes?: string[];
+  selectedResumeTitle?: string;
+  coverLetterPending?: boolean;
+  coverLetterAdded?: boolean;
+}
+
+export interface HhAutomationRun {
+  id: string;
+  platform: 'hh' | 'linkedin' | 'avito';
+  trigger: 'manual' | 'schedule' | 'resume' | 'direct_link';
+  status: 'running' | 'completed' | 'attention' | 'failed' | 'stopped';
+  startedAt: string;
+  finishedAt?: string;
+  query: string;
+  vacancyUrl?: string;
+  found: number;
+  attempted: number;
+  sent: number;
+  alreadyApplied: number;
+  skipped: number;
+  needsAttention: number;
+  message: string;
+}
+
+export interface HhScanSummary {
+  platform: 'hh' | 'linkedin' | 'avito';
+  queries: string[];
+  pagesScanned: number;
+  found: number;
+  newVacancies: number;
+  readyToApply: number;
+  alreadyProcessed: number;
+  excluded: number;
+  schedule: string;
 }
 
 export interface HhAssistantState {
@@ -47,10 +120,36 @@ export interface HhAssistantState {
   message: string;
   currentVacancyId: string | null;
   applying: boolean;
+  stopRequested: boolean;
+  queuePaused: boolean;
   applyProgress: { done: number; total: number } | null;
   config: HhAssistantConfig;
   queue: HhQueueItem[];
+  screeningFacts: HhScreeningFact[];
+  runHistory: HhAutomationRun[];
+  lastScanSummary: HhScanSummary | null;
+  nextRunAt: string | null;
   updatedAt: string;
+}
+
+export interface HhApplicantResume {
+  id: string;
+  title: string;
+  url: string;
+}
+
+export interface HhPreparationResume extends HhApplicantResume {
+  text: string;
+}
+
+export interface HhPreparationVacancy {
+  id: string;
+  title: string;
+  company: string;
+  salary: string;
+  url: string;
+  description: string;
+  text: string;
 }
 
 export interface HhOAuthState {
@@ -85,9 +184,59 @@ export interface HhChatState {
   lastPollAt: string | null;
   repliesToday: number;
   activeNegotiations: number;
+  checkedNegotiations: number;
   unreadMessages: number;
+  conversations: HhChatConversation[];
+  replyHistory: HhChatReplyRecord[];
+  pendingDecisions: HhChatPendingDecision[];
+  confirmedFacts: HhChatFact[];
   config: HhChatConfig;
   error: string | null;
+}
+
+export interface HhChatReplyRecord {
+  id: string;
+  negotiationKey: string;
+  messageId: string;
+  vacancyTitle: string;
+  companyName: string;
+  recruiterMessage: string;
+  reply: string;
+  sentAt: string | null;
+  recordedAt: string;
+  source: 'generated' | 'saved_fact' | 'resume_fact' | 'scheduling' | 'user_confirmed' | 'recovered';
+  status: 'sent';
+}
+
+export interface HhChatConversation {
+  key: string;
+  vacancyTitle: string;
+  companyName: string;
+  stage: 'waiting' | 'bot' | 'hr';
+  hasUnread: boolean;
+  lastMessage: string;
+  lastMessageMine: boolean;
+  needsUserInput: boolean;
+}
+
+export interface HhChatPendingDecision {
+  id: string;
+  negotiationKey: string;
+  messageId: string;
+  vacancyTitle: string;
+  companyName: string;
+  recruiterMessage: string;
+  question: string;
+  kind: 'contract' | 'salary' | 'experience' | 'relocation' | 'start_date' | 'schedule' | 'work_format' | 'travel' | 'work_authorization' | 'candidate_fact';
+  createdAt: string;
+}
+
+export interface HhChatFact {
+  id: string;
+  kind: HhChatPendingDecision['kind'];
+  question: string;
+  answer: string;
+  updatedAt: string;
 }
 
 export type InterviewType = 'hr' | 'technical' | 'other';
@@ -108,6 +257,16 @@ export interface InterviewCalendarSettings {
   timezone: string;
 }
 
+export interface InterviewOutcome {
+  sessionId: string;
+  headline: string;
+  facts: string[];
+  conditions: string[];
+  nextSteps: string[];
+  openQuestions: string[];
+  createdAt: string;
+}
+
 export interface InterviewCalendarEvent {
   id: string;
   negotiationKey?: string;
@@ -118,8 +277,13 @@ export interface InterviewCalendarEvent {
   startAt: string;
   endAt: string;
   source: 'hh' | 'manual';
+  vacancyUrl?: string;
+  vacancyDescription?: string;
   meetingUrl?: string;
   notes?: string;
+  sessionId?: string;
+  completedAt?: string;
+  outcome?: InterviewOutcome;
   createdAt: string;
   updatedAt: string;
 }
@@ -134,6 +298,8 @@ export interface InterviewEventDraft {
   startAt: string;
   endAt: string;
   source: 'hh' | 'manual';
+  vacancyUrl?: string;
+  vacancyDescription?: string;
   meetingUrl?: string;
   notes?: string;
 }
@@ -168,6 +334,7 @@ export interface InterviewCalendarState {
 export interface ElectronAPI {
   getApiUrl: () => Promise<string>;
   getApiToken?: () => Promise<string>;
+  getBuildChannel?: () => Promise<'stable' | 'dev'>;
   getVersion?: () => Promise<string>;
   getAutoLaunch?: () => Promise<boolean>;
   setAutoLaunch?: (enable: boolean) => Promise<void>;
@@ -184,6 +351,8 @@ export interface ElectronAPI {
     saveConfig: (config: Partial<HhAssistantConfig>) => Promise<HhAssistantState>;
     openBrowser: (platform?: 'hh' | 'linkedin' | 'avito') => Promise<HhAssistantState>;
     scan: (platform?: 'hh' | 'linkedin' | 'avito') => Promise<HhAssistantState>;
+    runNow: () => Promise<HhAssistantState>;
+    applyVacancyUrl: (url: string) => Promise<HhAssistantState>;
     openVacancy: (vacancyId: string) => Promise<HhAssistantState>;
     fillLetter: (vacancyId: string) => Promise<HhAssistantState>;
     mark: (
@@ -194,9 +363,21 @@ export interface ElectronAPI {
     login: (login: string, password: string) => Promise<{ ok: boolean; message: string }>;
     requestLoginCode: (email: string) => Promise<{ ok: boolean; message: string }>;
     confirmLoginCode: (code: string) => Promise<{ ok: boolean; message: string }>;
-    getResumes: () => Promise<Array<{ id: string; title: string; url: string }>>;
+    getResumes: () => Promise<HhApplicantResume[]>;
+    getResumeContent: (resumeId: string) => Promise<HhPreparationResume>;
+    inspectVacancyUrl: (url: string) => Promise<HhPreparationVacancy>;
     applyAll: () => Promise<HhAssistantState>;
     applyOne: (vacancyId: string) => Promise<HhAssistantState>;
+    answerScreeningQuestions: (
+      vacancyId: string,
+      answers: HhScreeningAnswerInput[],
+    ) => Promise<HhAssistantState>;
+    suggestScreeningAnswer: (
+      vacancyId: string,
+      questionId: string,
+      currentAnswer?: string,
+    ) => Promise<HhScreeningDraftSuggestion>;
+    forgetScreeningFact: (factId: string) => Promise<HhAssistantState>;
     stopApply: () => Promise<HhAssistantState>;
     setDailySchedule: (enabled: boolean) => Promise<HhAssistantState>;
     onState: (cb: (state: HhAssistantState) => void) => () => void;
@@ -217,12 +398,16 @@ export interface ElectronAPI {
     saveConfig: (config: Partial<HhChatConfig>) => Promise<HhChatConfig>;
     setEnabled: (enabled: boolean) => Promise<HhChatState>;
     pollNow: () => Promise<HhChatState>;
+    answerDecision: (decisionId: string, answer: string, remember?: boolean) => Promise<HhChatState>;
+    forgetFact: (factId: string) => Promise<HhChatState>;
   };
   interviewCalendar?: {
     getState: () => Promise<InterviewCalendarState>;
     saveSettings: (settings: Partial<InterviewCalendarSettings>) => Promise<InterviewCalendarState>;
     upsertEvent: (event: InterviewEventDraft) => Promise<InterviewCalendarState>;
     removeEvent: (id: string) => Promise<InterviewCalendarState>;
+    attachSession: (eventId: string, sessionId: string) => Promise<InterviewCalendarState>;
+    saveOutcome: (eventId: string, outcome: InterviewOutcome) => Promise<InterviewCalendarState>;
     dismissThread: (id: string) => Promise<InterviewCalendarState>;
     onState: (cb: (state: InterviewCalendarState) => void) => () => void;
   };
@@ -230,10 +415,16 @@ export interface ElectronAPI {
   overlay: {
     toggle: () => Promise<void>;
     show: () => Promise<void>;
+    showForInterviewEvent?: (eventId: string) => Promise<boolean>;
+    getInterviewContext?: () => Promise<InterviewCalendarEvent | null>;
+    clearInterviewContext?: () => Promise<void>;
+    onInterviewContext?: (cb: (event: InterviewCalendarEvent | null) => void) => () => void;
+    onOpenRequested?: (cb: () => void) => () => void;
     hide: () => Promise<void>;
     openApp?: () => Promise<void>;
     captureScreen?: () => Promise<string>;
     openSettings?: (section?: string) => Promise<void>;
+    openSessionAnalysis?: (sessionId: string) => Promise<void>;
     setContentProtection: (enable: boolean) => Promise<void>;
     move?: (dx: number, dy: number) => Promise<void>;
     setFocusable?: (focusable: boolean) => Promise<void>;

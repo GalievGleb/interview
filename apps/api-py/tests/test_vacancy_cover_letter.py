@@ -124,6 +124,39 @@ def test_cover_letter_blocks_generic_or_unsubstantiated_output(client, monkeypat
     assert response.json()["coverLetter"] == ""
 
 
+def test_cover_letter_accepts_selected_hh_resume_when_local_documents_are_empty(client, monkeypatch):
+    captured: dict = {}
+    monkeypatch.setattr(rag_service, "get_context_text", lambda *_args: "")
+
+    async def fake_complete(messages, *_args, **_kwargs):
+        captured["prompt"] = messages[-1]["content"]
+        return json.dumps(
+            {
+                "coverLetter": _strong_letter(),
+                "matches": [
+                    {"vacancyNeed": "Python", "resumeEvidence": "Автоматизация на Python"},
+                    {"vacancyNeed": "API", "resumeEvidence": "API-тесты на Pytest и HTTPX"},
+                ],
+                "canAutoFill": True,
+            },
+            ensure_ascii=False,
+        )
+
+    monkeypatch.setattr(provider_adapter, "complete", fake_complete)
+    payload = {
+        **_payload(),
+        "resumeText": (
+            "Выбранное резюме HH: QA Automation Engineer. Более трёх лет автоматизации "
+            "на Python, Pytest и HTTPX, поддержка API-тестов и CI/CD."
+        ),
+    }
+    response = client.post("/vacancy/cover-letter", json=payload)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["canAutoFill"] is True
+    assert "Выбранное резюме HH" in captured["prompt"]
+
+
 def test_cover_letter_does_not_call_model_without_resume_or_description(client, monkeypatch):
     monkeypatch.setattr(rag_service, "get_context_text", lambda *_args: "")
 

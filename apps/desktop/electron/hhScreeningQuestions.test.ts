@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { matchScreeningOptionLabels, normalizeScreeningOption } from './hhScreeningQuestions';
+import { matchScreeningOptionLabels, normalizeScreeningOption, screeningQuestionKey } from './hhScreeningQuestions';
 
 describe('HH screening question helpers', () => {
   it('normalizes punctuation and Russian ё for exact option matching', () => {
@@ -25,5 +25,12 @@ describe('HH screening question helpers', () => {
       ['Да', 'Нет'],
       false,
     )).toEqual([]);
+  });
+
+  it('uses an exact normalized question key without broadening its meaning', () => {
+    expect(screeningQuestionKey('Готовы ли вы к релокации в Саудовскую Аравию?'))
+      .toBe(screeningQuestionKey('  Готовы ли вы к релокации в Саудовскую Аравию! '));
+    expect(screeningQuestionKey('Готовы ли вы к релокации в Саудовскую Аравию?'))
+      .not.toBe(screeningQuestionKey('Готовы ли вы к релокации в ОАЭ?'));
   });
 });

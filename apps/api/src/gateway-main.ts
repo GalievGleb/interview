@@ -8,8 +8,8 @@
 import { NestFactory } from '@nestjs/core';
 import { Module, ValidationPipe } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import express from 'express';
 import { GatewayModule } from './gateway/gateway.module';
+import { configureHttpBodyParsing } from './gateway/http-body-parser';
 
 @Module({
   imports: [ConfigModule.forRoot({ isGlobal: true }), GatewayModule],
@@ -17,11 +17,8 @@ import { GatewayModule } from './gateway/gateway.module';
 class GatewayStandaloneModule {}
 
 async function bootstrap() {
-  const app = await NestFactory.create(GatewayStandaloneModule);
-  app.use(
-    '/gateway/stt/transcribe',
-    express.raw({ type: ['audio/wav', 'application/octet-stream'], limit: '15mb' }),
-  );
+  const app = await NestFactory.create(GatewayStandaloneModule, { bodyParser: false });
+  configureHttpBodyParsing(app);
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
   app.enableCors({ origin: '*' }); // ключ — в Authorization, cookies не используются
   const port = Number(process.env.GATEWAY_PORT ?? 8787);

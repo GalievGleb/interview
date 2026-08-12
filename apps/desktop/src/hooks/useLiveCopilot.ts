@@ -7,7 +7,7 @@ import { SttSessionOptions } from '../lib/sttOptions';
 import { getWeakTopicTitles } from '../lib/vacancyReview/weakTopics';
 import { recordSkipped } from '../lib/skippedLog';
 import { t } from '../lib/i18n';
-import { selectForceTargetSource } from '../lib/forceLiveAnswer';
+import { selectForceTargetSource, SpeechActivityTracker } from '../lib/forceLiveAnswer';
 import {
   LatestForcedAnswerCoordinator,
   type ForcePhase,
@@ -57,6 +57,11 @@ export type { SttDebugInfo };
 export interface LiveSources {
   mic: boolean;
   system: boolean;
+}
+
+export interface LiveSessionLink {
+  sessionId?: string;
+  title?: string;
 }
 
 export type ForceAnswerStatus = 'started' | 'finalizing' | 'unavailable';
@@ -150,6 +155,7 @@ export function useLiveCopilot() {
   }, [sttDebug]);
 
   const sessionRef = useRef<string | null>(null);
+  const reusedSessionRef = useRef(false);
   const liveRef = useRef<LiveEntry[]>([]);
   const cancelStreamRef = useRef<(() => void) | null>(null);
   const streamLockRef = useRef(false);
@@ -186,10 +192,7 @@ export function useLiveCopilot() {
   const pendingTriggerSequenceRef = useRef<number | null>(null);
   const forceCoordinatorRef = useRef(new LatestForcedAnswerCoordinator());
   const forceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const speechInProgressRef = useRef<Record<'mic' | 'system', boolean>>({
-    mic: false,
-    system: false,
-  });
+  const speechActivityRef = useRef(new SpeechActivityTracker());
 
   const appendForcedFinal = useCallback(
     (text: string, source: 'mic' | 'system'): ForcedTranscriptLine => {
@@ -312,14 +315,16 @@ export function useLiveCopilot() {
   const endInterviewSession = useCallback(async () => {
     const sid = sessionRef.current;
     const sessionHasContent = hasSessionContentRef.current;
+    const reusedSession = reusedSessionRef.current;
     sessionRef.current = null;
+    reusedSessionRef.current = false;
     setSessionId(null);
     if (!sid) return;
     try {
       await transcriptWriteQueueRef.current.drain(sid);
       if (sessionHasContent) {
         await api.endSession(sid);
-      } else {
+      } else if (!reusedSession) {
         await api.deleteSession(sid);
       }
     } catch {
@@ -329,7 +334,7 @@ export function useLiveCopilot() {
 
   const removeStream = useCallback(
     (source: 'mic' | 'system', msg?: string) => {
-      speechInProgressRef.current[source] = false;
+      speechActivityRef.current.resetSource(source);
       const forceSnapshot = forceCoordinatorRef.current.snapshot();
       if (
         source === forceSnapshot.source &&
@@ -929,9 +934,10 @@ export function useLiveCopilot() {
         ? 1
         : 0,
     };
+    const speechActivity = speechActivityRef.current.snapshot();
     const targetSource = selectForceTargetSource(
       liveSourcesRef.current,
-      speechInProgressRef.current,
+      speechActivity,
       unconsumedForcedFinals,
     );
     const decision = typedQuestion
@@ -941,6 +947,7 @@ export function useLiveCopilot() {
             (line) => !targetSource || !line.source || line.source === targetSource,
           ),
           targetSource,
+          Boolean(targetSource && speechActivity[targetSource]),
         );
     syncForceSnapshot();
 
@@ -1009,7 +1016,11 @@ export function useLiveCopilot() {
   }, []);
 
   const start = useCallback(
-    async (sources: LiveSources, stt: SttSessionOptions = {}) => {
+    async (
+      sources: LiveSources,
+      stt: SttSessionOptions = {},
+      link: LiveSessionLink = {},
+    ): Promise<string | null> => {
       const language = stt.language ?? 'ru';
       setError('');
       setReconnecting(null);
@@ -1034,19 +1045,37 @@ export function useLiveCopilot() {
       hasSessionContentRef.current = false;
       lastPersistedTranscriptRef.current = {};
       resetForceCoordinator();
-      speechInProgressRef.current = { mic: false, system: false };
+      speechActivityRef.current.reset();
       debugRef.current.start(16000);
       if (finalDebounceRef.current) clearTimeout(finalDebounceRef.current);
       liveRef.current.forEach((e) => e.session.stop());
       liveRef.current = [];
 
       try {
-        const s = await api.createSession('interview');
-        sessionRef.current = s.id;
-        setSessionId(s.id);
+        let nextSessionId = '';
+        if (link.sessionId) {
+          const existing = await api.getSession(link.sessionId);
+          nextSessionId = existing.id;
+          reusedSessionRef.current = true;
+        } else {
+          const created = await api.createSession('interview', link.title);
+          nextSessionId = created.id;
+          reusedSessionRef.current = false;
+        }
+        sessionRef.current = nextSessionId;
+        setSessionId(nextSessionId);
         setSessionStartedAt(Date.now());
       } catch {
-        sessionRef.current = null;
+        try {
+          const created = await api.createSession('interview', link.title);
+          sessionRef.current = created.id;
+          setSessionId(created.id);
+          setSessionStartedAt(Date.now());
+          reusedSessionRef.current = false;
+        } catch {
+          sessionRef.current = null;
+          reusedSessionRef.current = false;
+        }
       }
 
       const triggerSpeaker: Speaker = sources.system ? 'other' : 'me';
@@ -1058,23 +1087,27 @@ export function useLiveCopilot() {
         const label = source === 'mic' ? t('live.microphone') : t('live.systemAudio');
         const live = await startLiveSession(
           {
-            onTranscript: (text, isFinal, speechFinal, forceRequestId) => {
+            onTranscript: (text, isFinal, _speechFinal, forceRequestId) => {
               const trimmed = text.trim();
               if (!trimmed) return;
 
               if (!isFinal) {
-                speechInProgressRef.current[source] = true;
+                speechActivityRef.current.partial(source);
                 if (!timingRef.current.speechDetectedAt) {
                   timingRef.current.speechDetectedAt = performance.now();
                 }
                 return;
               }
 
+              // A later successful fragment clears a recoverable upstream STT
+              // notice without requiring the user to restart the microphone.
+              setError('');
+
               timingRef.current.finalTranscriptionStartAt =
                 timingRef.current.finalTranscriptionStartAt ?? performance.now();
               timingRef.current.finalTranscriptionEndAt = performance.now();
               timingRef.current.speechEndedAt = performance.now();
-              speechInProgressRef.current[source] = false;
+              speechActivityRef.current.finished(source);
               appendLine(trimmed, true, speaker);
               persistTranscriptLine(trimmed, speaker);
               debugRef.current.event('final', { text: trimmed, speaker });
@@ -1089,13 +1122,18 @@ export function useLiveCopilot() {
               const forceSnapshot = forceCoordinatorRef.current.snapshot();
               if (
                 forceRequestId ||
-                forceSnapshot.phase === 'finalizing-transcript'
+                forceSnapshot.phase === 'finalizing-transcript' ||
+                forceSnapshot.phase === 'screen-fallback'
               ) {
                 const decision = forceCoordinatorRef.current.acceptFinal(
                   ledgerLine,
                   forceRequestId,
                 );
                 if (decision.action !== 'submit') {
+                  if (decision.action === 'wait') {
+                    syncForceSnapshot();
+                    scheduleForceScreenFallback(decision.generation);
+                  }
                   if (speaker !== triggerSpeakerRef.current) {
                     recordUtterance(trimmed, true, speaker);
                   }
@@ -1117,14 +1155,14 @@ export function useLiveCopilot() {
                 return;
               }
 
-              if (speechFinal) {
-                scheduleSpeechFinal(trimmed, speaker, ledgerLine.sequence);
-              } else if (trimmed.length > 2) {
-                scheduleFinalFallback(trimmed, speaker, ledgerLine.sequence);
-              }
+              // Manual-only policy: final transcripts are persisted and kept in
+              // the Ctrl+Enter ledger, but recognition alone never starts the LLM.
+              // This also keeps the candidate's own speech available for the
+              // post-session assessment without turning it into a new request.
+              recordUtterance(trimmed, true, speaker);
             },
             onSpeechStarted: () => {
-              speechInProgressRef.current[source] = true;
+              speechActivityRef.current.started(source);
               if (speaker === triggerSpeakerRef.current) {
                 serverTimingsRef.current = null;
                 cancelPendingQuestion();
@@ -1165,13 +1203,12 @@ export function useLiveCopilot() {
               if (forceRequestId) return;
               lastFlushSpeakerRef.current = speaker === 'other' ? 'interviewer' : 'me';
               if (timings) serverTimingsRef.current = timings;
-              flushQuestion();
             },
             onLowQuality: (text, _reason, forceRequestId) => {
               // Server quality gate rejected this utterance — keep listening,
               // never call the LLM with garbage. (Server logs the reason.)
               serverTimingsRef.current = null;
-              speechInProgressRef.current[source] = false;
+              speechActivityRef.current.finished(source);
               if (forceRequestId) {
                 const decision = forceCoordinatorRef.current.acceptEmpty(forceRequestId);
                 if (decision.action === 'wait') {
@@ -1190,7 +1227,6 @@ export function useLiveCopilot() {
             },
             onForceEmpty: (forceRequestId) => {
               if (!forceRequestId) return;
-              speechInProgressRef.current[source] = false;
               const decision = forceCoordinatorRef.current.acceptEmpty(forceRequestId);
               if (decision.action !== 'wait') return;
               syncForceSnapshot();
@@ -1215,6 +1251,12 @@ export function useLiveCopilot() {
             onError: (msg) => {
               setReconnecting(null);
               removeStream(source, `${label}: ${msg}`);
+            },
+            onRecoverableError: (msg) => {
+              setReconnecting(null);
+              speechActivityRef.current.finished(source);
+              setError(`${label}: ${msg}`);
+              debugRef.current.event('error', { reason: msg, meta: { recoverable: true } });
             },
             onClose: () => {
               if (liveRef.current.some((e) => e.source === source)) {
@@ -1250,8 +1292,12 @@ export function useLiveCopilot() {
         liveRef.current = [];
         await endInterviewSession();
       }
+      return sessionRef.current;
     },
-    [appendForcedFinal, appendLine, askQuestion, cancelPendingQuestion, clearForceTimeout, endInterviewSession, flushQuestion, patchSttDebug, persistTranscriptLine, recordUtterance, removeStream, resetForceCoordinator, scheduleFinalFallback, scheduleForceScreenFallback, scheduleSpeechFinal, syncForceSnapshot],
+    // The two speech-final helpers deliberately remain disconnected from STT callbacks:
+    // keeping them in this closure makes accidental reactivation visible to the behavior test.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [appendForcedFinal, appendLine, askQuestion, cancelPendingQuestion, clearForceTimeout, endInterviewSession, patchSttDebug, persistTranscriptLine, recordUtterance, removeStream, resetForceCoordinator, scheduleFinalFallback, scheduleForceScreenFallback, scheduleSpeechFinal, syncForceSnapshot],
   );
 
   const stop = useCallback(async () => {

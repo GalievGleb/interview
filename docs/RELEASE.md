@@ -6,6 +6,40 @@
 Архитектура: код в приватном `GalievGleb/interview`, установщики/релизы — в
 публичном `GalievGleb/SkillCue` (`apps/desktop/package.json → build.publish`).
 
+## Два независимых приложения: Dev и Stable
+
+На компьютере разработчика могут одновременно стоять две версии:
+
+| Параметр | SkillCue Dev | SkillCue (Stable) |
+|---|---|---|
+| Windows App ID | `com.interview.assistant.dev` | `com.interview.assistant` |
+| Данные | `%APPDATA%/SkillCue Dev` | прежняя пользовательская папка без миграции |
+| Локальный backend | `127.0.0.1:8001` | `127.0.0.1:8000` |
+| Deep link | `skillcue-dev://` | `skillcue://` |
+| Автообновление | всегда выключено | включено из публичного GitHub Release |
+| Установщик | `release-dev/SkillCue-Dev-Setup.exe` | `release/SkillCue-Setup.exe` |
+
+Собрать приватную версию можно двойным кликом по `scripts/dev-build.bat` или
+командой из корня репозитория:
+
+```powershell
+pnpm dist:desktop:dev
+```
+
+Dev-сборка получает номер следующего патча с commit SHA, например
+`0.0.26-dev.g58e98d21`. Она не загружается в GitHub Releases и не меняет ссылку
+для пользователей. В GitHub Actions тот же установщик можно получить ручным
+запуском workflow **SkillCue Dev build**; файл хранится как приватный Actions
+artifact 14 дней.
+
+По умолчанию Dev использует `Ctrl+Shift+D` для оверлея и `Ctrl+Shift+Enter` для
+принудительного ответа, чтобы не конфликтовать с одновременно запущенной Stable.
+Секреты API Dev и Stable лежат в разных записях Windows Credential Manager.
+
+Публичный выпуск остаётся отдельным сознательным действием: после проверки Dev
+запусти `scripts/release.bat` или `scripts/release.ps1`. Только созданный им тег
+`vX.Y.Z` запускает публикацию и меняет публичную ссылку/автообновление.
+
 ## Разовая настройка (один раз)
 
 1. **PAT для публикации в SkillCue.** Встроенный `GITHUB_TOKEN` в CI имеет права
@@ -89,6 +123,14 @@ powershell -ExecutionPolicy Bypass -File scripts\release.ps1        # bump patch
 ```nginx
 location = /downloads/SkillCue-Setup.exe {
     return 302 https://github.com/GalievGleb/SkillCue/releases/latest/download/SkillCue-Setup.exe;
+}
+
+location = /downloads/SkillCue-macOS-arm64.dmg {
+    return 302 https://github.com/GalievGleb/SkillCue/releases/latest/download/SkillCue-macOS-arm64.dmg;
+}
+
+location = /downloads/SkillCue-macOS-x64.dmg {
+    return 302 https://github.com/GalievGleb/SkillCue/releases/latest/download/SkillCue-macOS-x64.dmg;
 }
 ```
 

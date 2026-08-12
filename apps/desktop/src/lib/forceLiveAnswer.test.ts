@@ -1,5 +1,30 @@
 import { describe, expect, it } from 'vitest';
-import { selectForceTargetSource } from './forceLiveAnswer';
+import { selectForceTargetSource, SpeechActivityTracker } from './forceLiveAnswer';
+
+describe('SpeechActivityTracker', () => {
+  it('keeps a newer utterance active when an older final arrives afterwards', () => {
+    const tracker = new SpeechActivityTracker();
+
+    tracker.started('mic');
+    tracker.started('mic');
+    tracker.finished('mic');
+
+    expect(tracker.snapshot()).toEqual({ mic: true, system: false });
+    tracker.finished('mic');
+    expect(tracker.snapshot()).toEqual({ mic: false, system: false });
+  });
+
+  it('treats a partial as active without double-counting its later speech-start event', () => {
+    const tracker = new SpeechActivityTracker();
+
+    tracker.partial('system');
+    expect(tracker.snapshot().system).toBe(true);
+    tracker.started('system');
+    tracker.finished('system');
+
+    expect(tracker.snapshot().system).toBe(false);
+  });
+});
 
 describe('selectForceTargetSource', () => {
   it('targets the only channel that is still speaking', () => {

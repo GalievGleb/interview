@@ -1,5 +1,6 @@
 @import './styles/tokens.css';
 @import './styles/interview-cockpit.css';
+@import './styles/interview-calendar.css';
 @import './styles/overlay-cockpit.css';
 @import './styles/workspace.css';
 @import './styles/prepare.css';
@@ -20,6 +21,20 @@
   }
 
   :root[data-theme='light'] {
+    color-scheme: light;
+  }
+
+  select {
+    min-inline-size: 0;
+    color-scheme: dark;
+  }
+
+  select option {
+    color: rgb(var(--twc-ink));
+    background-color: rgb(var(--twc-surface-light));
+  }
+
+  :root[data-theme='light'] select {
     color-scheme: light;
   }
 
@@ -139,6 +154,9 @@
   }
   select.field {
     @apply cursor-pointer appearance-none bg-no-repeat pr-9;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%239aa1ad' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
     background-position: right 0.75rem center;
   }
@@ -320,9 +338,9 @@
   }
 
   .skillcue-sidebar {
-    @apply flex w-[224px] shrink-0 flex-col border-r border-surface-border;
+    @apply relative flex w-[224px] shrink-0 flex-col border-r border-surface-border;
     background: #09121f;
-    transition: width 160ms ease;
+    transition: width 190ms cubic-bezier(0.2, 0.8, 0.2, 1);
   }
 
   .skillcue-sidebar--collapsed {
@@ -334,41 +352,70 @@
   }
 
   .skillcue-sidebar--collapsed .skillcue-sidebar__brand {
-    @apply flex-col justify-center gap-1 px-2;
+    @apply justify-center px-2;
   }
 
   .skillcue-sidebar--collapsed .skillcue-logo {
     @apply h-7 w-7 rounded-lg;
   }
 
-  .skillcue-sidebar__search {
-    @apply flex min-h-9 w-full items-center gap-2 rounded-lg border border-surface-border bg-transparent px-2.5 text-left text-xs text-ink-faint transition-colors hover:border-surface-border-strong hover:bg-surface-hover hover:text-ink;
+  .skillcue-sidebar__collapse {
+    @apply absolute right-[-13px] top-[17px] z-30 inline-flex h-[27px] w-[27px] items-center justify-center rounded-full border border-surface-border-strong text-ink-faint shadow-soft;
+    background: #101c2b;
+    opacity: 0.72;
+    transition:
+      color 140ms ease,
+      background-color 140ms ease,
+      border-color 140ms ease,
+      opacity 140ms ease,
+      transform 140ms ease;
   }
 
-  .skillcue-sidebar__search kbd {
-    @apply rounded border border-surface-border bg-surface-elevated px-1.5 py-0.5 font-mono text-[9px] text-ink-faint;
+  .skillcue-sidebar:hover .skillcue-sidebar__collapse,
+  .skillcue-sidebar__collapse:focus-visible,
+  .skillcue-sidebar--collapsed .skillcue-sidebar__collapse {
+    @apply border-accent/40 text-ink;
+    opacity: 1;
   }
 
-  .skillcue-sidebar--collapsed .skillcue-sidebar__search,
+  .skillcue-sidebar__collapse:hover {
+    @apply bg-surface-elevated text-accent;
+    transform: scale(1.06);
+  }
+
+  .skillcue-sidebar__collapse:focus-visible {
+    outline: 2px solid rgb(var(--twc-accent) / 0.55);
+    outline-offset: 2px;
+  }
+
   .skillcue-sidebar--collapsed .nav-pill,
   .skillcue-sidebar--collapsed .skillcue-live-launch {
     @apply justify-center px-0;
   }
 
+  .skillcue-sidebar__live-zone {
+    @apply border-t border-surface-border px-2.5 py-2;
+  }
+
+  .skillcue-sidebar--collapsed .skillcue-sidebar__live-zone {
+    @apply px-2;
+  }
+
   .skillcue-live-launch {
-    @apply mt-3 flex min-h-10 w-full items-center gap-2.5 rounded-lg border border-emerald-400/25 bg-emerald-400/10 px-3 py-2 text-left text-sm font-semibold text-emerald-300 transition-colors hover:border-emerald-400/45 hover:bg-emerald-400/15;
+    @apply flex min-h-10 w-full items-center gap-2.5 rounded-lg border border-surface-border bg-transparent px-3 py-2 text-left text-sm font-semibold text-ink-muted transition-colors hover:border-emerald-400/30 hover:bg-emerald-400/[0.06] hover:text-emerald-300;
   }
 
   .skillcue-live-launch.is-live {
-    @apply border-emerald-300/50 bg-emerald-400/20 text-emerald-200;
+    @apply border-emerald-300/50 bg-transparent text-emerald-200;
+    box-shadow: inset 3px 0 0 rgb(52 211 153 / 0.72);
   }
 
   .skillcue-live-launch__hint {
-    @apply font-mono text-[9px] font-medium text-emerald-300/55;
+    @apply font-mono text-xs font-medium text-emerald-300;
   }
 
   .skillcue-sidebar__footer {
-    @apply flex min-h-12 items-center justify-between gap-2 border-t border-surface-border px-3 py-2;
+    @apply flex min-h-12 flex-col items-stretch gap-2 border-t border-surface-border px-2.5 py-2;
   }
 
   .skillcue-sidebar--collapsed .skillcue-sidebar__footer {
@@ -391,8 +438,24 @@
     @apply bg-accent-soft text-accent;
   }
 
+  .skillcue-sidebar__settings {
+    @apply flex min-h-10 w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-ink-muted transition-colors duration-150 hover:bg-surface-hover hover:text-ink;
+  }
+
+  .skillcue-sidebar__settings.is-active {
+    @apply bg-surface-elevated text-ink shadow-soft ring-1 ring-surface-border-strong;
+  }
+
+  .skillcue-sidebar--collapsed .skillcue-sidebar__settings {
+    @apply justify-center px-0;
+  }
+
   :root[data-theme='light'] .skillcue-sidebar {
     background: #edf3f8;
+  }
+
+  :root[data-theme='light'] .skillcue-sidebar__collapse {
+    background: #f7fafd;
   }
 
   .skillcue-logo {
@@ -461,6 +524,8 @@
    оверлей всегда тёмный (forceDarkTheme), его это не затрагивает. */
 :root[data-theme='light'] .text-emerald-400 { color: rgb(5 150 105); }
 :root[data-theme='light'] .text-emerald-300 { color: rgb(4 120 87); }
+:root[data-theme='light'] .text-emerald-200 { color: rgb(4 120 87); }
+:root[data-theme='light'] .text-emerald-100 { color: rgb(6 95 70); }
 :root[data-theme='light'] .text-red-300 { color: rgb(185 28 28); }
 :root[data-theme='light'] .text-red-400 { color: rgb(220 38 38); }
 :root[data-theme='light'] .text-amber-300 { color: rgb(180 83 9); }
@@ -470,5 +535,289 @@
 :root[data-theme='light'] .text-amber-100 { color: rgb(146 64 14); }
 :root[data-theme='light'] .bg-amber-950\/20 { background-color: rgb(254 243 199 / 0.6); }
 :root[data-theme='light'] .border-amber-700\/30 { border-color: rgb(217 119 6 / 0.35); }
+:root[data-theme='light'] .text-violet-100 { color: rgb(91 33 182); }
+:root[data-theme='light'] .text-violet-200 { color: rgb(91 33 182); }
 :root[data-theme='light'] .text-violet-300 { color: rgb(109 40 217); }
+:root[data-theme='light'] .text-sky-100 { color: rgb(12 74 110); }
+:root[data-theme='light'] .text-sky-200 { color: rgb(3 105 161); }
+:root[data-theme='light'] .text-sky-300 { color: rgb(3 105 161); }
 :root[data-theme='light'] .text-sky-400 { color: rgb(2 132 199); }
+
+/* HH automation: compact motion that communicates activity without turning
+   the page into a dashboard full of competing animation. */
+.hh-view-switcher {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid rgb(var(--twc-surface-border));
+  border-radius: 14px;
+  background: rgb(var(--twc-surface-light) / 0.82);
+}
+
+.hh-view-switcher > button {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 12px;
+  border-radius: 10px;
+  color: rgb(var(--twc-ink-muted));
+  font-size: 12px;
+  font-weight: 650;
+  transition: color 150ms ease, background-color 150ms ease, box-shadow 150ms ease;
+}
+
+.hh-view-switcher > button:hover {
+  color: rgb(var(--twc-ink));
+  background: rgb(var(--twc-surface-hover));
+}
+
+.hh-view-switcher > button.is-active {
+  color: rgb(var(--twc-ink));
+  background: rgb(var(--twc-surface-card));
+  box-shadow: 0 4px 14px rgb(2 8 23 / 0.12);
+}
+
+.hh-view-switcher > button.is-active svg {
+  color: rgb(52 211 153);
+}
+
+.hh-view-switcher > button > span {
+  display: grid;
+  min-width: 18px;
+  height: 18px;
+  place-items: center;
+  padding-inline: 4px;
+  border-radius: 999px;
+  color: rgb(125 211 252);
+  background: rgb(14 165 233 / 0.14);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+:root[data-theme='light'] .hh-view-switcher > button > span {
+  color: rgb(3 105 161);
+  background: rgb(14 165 233 / 0.12);
+}
+
+.hh-view-switcher > button:focus-visible {
+  outline: 2px solid rgb(52 211 153 / 0.72);
+  outline-offset: 2px;
+}
+
+.hh-daily-overview {
+  position: relative;
+  overflow: hidden;
+  border-color: rgba(52, 211, 153, 0.22);
+  background:
+    radial-gradient(circle at 4% 0%, rgba(52, 211, 153, 0.08), transparent 18rem),
+    rgb(var(--twc-surface-card));
+}
+
+.hh-daily-overview.is-attention {
+  border-color: rgba(251, 191, 36, 0.28);
+  background:
+    radial-gradient(circle at 4% 0%, rgba(251, 191, 36, 0.09), transparent 18rem),
+    rgb(var(--twc-surface-card));
+}
+
+.hh-daily-overview.is-active {
+  border-color: rgba(125, 211, 252, 0.26);
+  background:
+    radial-gradient(circle at 4% 0%, rgba(56, 189, 248, 0.09), transparent 18rem),
+    rgb(var(--twc-surface-card));
+}
+
+.hh-daily-overview__stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(74px, 1fr));
+  overflow: hidden;
+  border: 1px solid rgb(var(--twc-surface-border));
+  border-radius: 12px;
+  background: rgb(var(--twc-surface) / 0.36);
+}
+
+.hh-daily-overview__stats > span {
+  display: grid;
+  min-width: 78px;
+  gap: 1px;
+  padding: 8px 11px;
+}
+
+.hh-daily-overview__stats > span + span {
+  border-left: 1px solid rgb(var(--twc-surface-border));
+}
+
+.hh-daily-overview__stats small {
+  color: rgb(var(--twc-ink-faint));
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.hh-daily-overview__stats strong {
+  color: rgb(var(--twc-ink));
+  font-size: 17px;
+  font-variant-numeric: tabular-nums;
+}
+
+.hh-settings-toggle {
+  transition: border-color 150ms ease, background-color 150ms ease, transform 150ms ease;
+}
+
+.hh-settings-toggle:hover {
+  border-color: rgba(125, 211, 252, 0.28);
+  background: rgb(var(--twc-surface-elevated));
+  transform: translateY(-1px);
+}
+
+.hh-run-orbit {
+  position: relative;
+}
+
+.hh-run-orbit.is-active::after {
+  position: absolute;
+  inset: -3px;
+  border: 1px solid rgba(125, 211, 252, 0.42);
+  border-radius: 14px;
+  content: '';
+  animation: hh-run-breathe 1.8s ease-out infinite;
+}
+
+.hh-run-progress {
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(125, 211, 252, 0.12);
+}
+
+.hh-run-progress > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #38bdf8, #34d399);
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.45);
+  transition: width 320ms ease;
+}
+
+.hh-run-progress > span.is-indeterminate {
+  width: 38%;
+  animation: hh-run-sweep 1.25s ease-in-out infinite;
+}
+
+.hh-run-stat {
+  transition: border-color 160ms ease, transform 160ms ease, background-color 160ms ease;
+}
+
+.hh-run-stat:hover {
+  border-color: rgba(125, 211, 252, 0.28);
+  transform: translateY(-1px);
+}
+
+.hh-queue-row {
+  animation: hh-row-enter 180ms ease-out both;
+}
+
+.hr-profile-banner,
+.hr-profile-hero {
+  background:
+    radial-gradient(circle at 8% 10%, rgba(139, 92, 246, 0.10), transparent 34%),
+    rgb(var(--twc-surface-card));
+}
+
+.hr-knowledge-orb {
+  position: relative;
+  border: 1px solid rgba(167, 139, 250, 0.28);
+  background: linear-gradient(145deg, rgba(124, 58, 237, 0.22), rgba(45, 212, 191, 0.10));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 10px 28px rgba(76, 29, 149, 0.14);
+}
+
+.hr-knowledge-orb::after {
+  position: absolute;
+  inset: -4px;
+  border: 1px solid rgba(167, 139, 250, 0.16);
+  border-radius: inherit;
+  content: '';
+  animation: hr-knowledge-pulse 2.8s ease-out infinite;
+}
+
+.hr-profile-question {
+  animation: hr-question-enter 220ms ease-out both;
+}
+
+.hr-profile-progress {
+  background: linear-gradient(90deg, #8b5cf6, #2dd4bf);
+  box-shadow: 0 0 14px rgba(139, 92, 246, 0.42);
+  transition: width 260ms ease;
+}
+
+@keyframes hh-run-breathe {
+  0% { opacity: 0.7; transform: scale(0.94); }
+  75%, 100% { opacity: 0; transform: scale(1.14); }
+}
+
+@keyframes hh-run-sweep {
+  0% { transform: translateX(-110%); }
+  100% { transform: translateX(365%); }
+}
+
+@keyframes hh-row-enter {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes hr-knowledge-pulse {
+  0% { opacity: 0.65; transform: scale(0.92); }
+  72%, 100% { opacity: 0; transform: scale(1.18); }
+}
+
+@keyframes hr-question-enter {
+  from { opacity: 0; transform: translateY(5px) scale(0.996); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hh-run-orbit.is-active::after,
+  .hh-run-progress > span.is-indeterminate,
+  .hh-queue-row,
+  .hr-knowledge-orb::after,
+  .hr-profile-question {
+    animation: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .hh-view-switcher {
+    width: 100%;
+  }
+
+  .hh-view-switcher > button {
+    flex: 1;
+    justify-content: center;
+  }
+
+  .hh-daily-overview__stats {
+    order: 4;
+    width: 100%;
+  }
+}
+
+/* Respect the OS motion preference across Tailwind utilities and legacy CSS.
+   Status remains visible through text, icons and color; motion is never the
+   only feedback channel in SkillCue. */
+@media (prefers-reduced-motion: reduce) {
+  html,
+  :focus-within {
+    scroll-behavior: auto !important;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
+  }
+}

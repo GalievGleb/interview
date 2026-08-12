@@ -5,6 +5,7 @@ import wave
 
 import httpx
 
+from app.services.stt import openai_transcribe
 from app.services.stt.base import TranscriptResult
 from app.services.stt.openai_mini_stream import (
     Endpointer,
@@ -63,6 +64,35 @@ def test_openai_mini_accepts_successful_2xx_gateway_response():
     )
 
     assert OpenAiMiniTranscribeProvider._response_text(response) == "Как вы тестировали API?"
+
+
+async def test_openai_mini_retries_transient_500_before_returning(monkeypatch):
+    attempts = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts < 3:
+            return httpx.Response(500, json={"message": "Internal server error"})
+        return httpx.Response(200, json={"text": "API transcript"})
+
+    async def no_wait(_delay: float) -> None:
+        return None
+
+    monkeypatch.setattr(openai_transcribe.asyncio, "sleep", no_wait)
+    provider = OpenAiMiniTranscribeProvider()
+    provider._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    try:
+        text = await provider._transcribe_direct(
+            b"RIFF mock WAVE audio",
+            language="ru",
+            key="openai-test-key",
+        )
+    finally:
+        await provider.aclose()
+
+    assert attempts == 3
+    assert text == "API transcript"
 
 
 def test_provider_model_cannot_be_changed():
@@ -291,6 +321,51 @@ async def test_live_stream_reports_empty_manual_finalize():
         event.get("type") == "force_empty" and event.get("force_request_id") == "force-empty"
         for event in ws.sent
     )
+
+
+async def test_transient_provider_failure_keeps_live_stream_recoverable():
+    class FakeWebSocket:
+        def __init__(self):
+            voice = (1200).to_bytes(2, byteorder="little", signed=True) * 4800
+            self.messages = [
+                {"type": "websocket.receive", "bytes": voice},
+                {
+                    "type": "websocket.receive",
+                    "text": json.dumps({"type": "finalize", "request_id": "force-error"}),
+                },
+                {"type": "websocket.disconnect"},
+            ]
+            self.sent = []
+
+        async def receive(self):
+            return self.messages.pop(0)
+
+        async def send_json(self, payload):
+            self.sent.append(payload)
+
+    class FailingProvider:
+        def is_available(self):
+            return True
+
+        async def prepare_async(self):
+            return None
+
+        def _active_model(self):
+            return MINI_MODEL
+
+        async def transcribe_audio_file(self, _audio, **_kwargs):
+            raise RuntimeError("OpenAI Mini STT 500: Internal server error")
+
+    ws = FakeWebSocket()
+    await run_openai_mini_stream(ws, provider=FailingProvider())
+
+    assert any(event.get("type") == "transcription_error" for event in ws.sent)
+    assert any(
+        event.get("type") == "force_empty"
+        and event.get("force_request_id") == "force-error"
+        for event in ws.sent
+    )
+    assert not any(event.get("type") == "error" for event in ws.sent)
 
 
 async def test_force_during_auto_inference_binds_to_inflight_transcript():

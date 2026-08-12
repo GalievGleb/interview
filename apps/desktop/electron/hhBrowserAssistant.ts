@@ -2,17 +2,30 @@ import fs from 'fs';
 import path from 'path';
 import net from 'net';
 import { spawn, type ChildProcess } from 'child_process';
-import { chromium, type Browser, type BrowserContext, type Locator, type Page } from 'playwright-core';
 import {
+  chromium,
+  type Browser,
+  type BrowserContext,
+  type Frame,
+  type Locator,
+  type Page,
+} from 'playwright-core';
+import {
+  buildHhSearchQueries,
   buildHhSearchUrl,
   DEFAULT_HH_ASSISTANT_CONFIG,
   type HhAssistantConfig,
   type HhVacancy,
+  isVacancyCompatibleWithSearchSchedule,
+  isVacancyRelevantToSearchProfile,
+  isVacancyRelevantToSearchQuery,
   normalizeHhAssistantConfig,
   normalizeHhVacancyUrl,
+  rankHhResumeTitlesForVacancy,
   shouldExcludeVacancy,
 } from './hhAssistantPolicy';
 import {
+  canSendMore,
   decideNextAction,
   jitterMs,
   nextAutoRunDelayMs,
@@ -22,16 +35,42 @@ import {
 import {
   collectHhScreeningFields,
   fillHhScreeningFields,
+  matchScreeningOptionLabels,
+  type HhScreeningAnswer,
   type HhScreeningAnswersRequest,
   type HhScreeningAnswersResponse,
+  type HhScreeningQuestion,
 } from './hhScreeningQuestions';
+import {
+  findSalaryExpectation,
+  knownScreeningAnswer,
+  localScreeningDraft,
+  reusableScreeningAnswer,
+  screeningRelocationScope,
+  screeningQuestionSemanticKey,
+  selectRelevantScreeningFacts,
+} from './hhScreeningKnowledge';
 import {
   validateGeneratedHhCoverLetter,
   type HhCoverLetterRequest,
   type HhCoverLetterResponse,
 } from './hhCoverLetter';
+import {
+  parseHhResumeText,
+  parseHhVacancyPage,
+  type HhPreparationResume,
+  type HhPreparationVacancy,
+} from './hhPreparationSource';
+import { parseHhSearchResults } from './hhSearchResults';
 
-export type HhQueueStatus = 'new' | 'opened' | 'prepared' | 'sent' | 'skipped';
+export type HhQueueStatus =
+  | 'new'
+  | 'opened'
+  | 'prepared'
+  | 'needs_input'
+  | 'sent'
+  | 'already_applied'
+  | 'skipped';
 export type HhAssistantPhase =
   | 'idle'
   | 'browser_open'
@@ -50,12 +89,79 @@ export interface HhQueueItem extends HhVacancy {
   reason?: string;
   addedAt: string;
   sentAt?: string;
+  pendingQuestions?: HhScreeningQuestion[];
+  screeningAnswers?: HhStoredScreeningAnswer[];
+  preparationNotes?: string[];
+  selectedResumeTitle?: string;
+  /** HH accepted the initial response, but SkillCue still has to attach the letter. */
+  coverLetterPending?: boolean;
+  coverLetterAdded?: boolean;
+}
+
+export interface HhStoredScreeningAnswer {
+  questionId: string;
+  question: string;
+  answer: string;
+  selectedOptions: string[];
+}
+
+export interface HhScreeningAnswerInput extends HhStoredScreeningAnswer {
+  remember?: boolean;
+}
+
+export interface HhScreeningFact {
+  id: string;
+  question: string;
+  answer: string;
+  selectedOptions: string[];
+  updatedAt: string;
+}
+
+export interface HhScreeningDraftSuggestion {
+  questionId: string;
+  answer: string;
+  selectedOptions: string[];
+  source: 'profile' | 'ai' | 'local';
+  note: string;
 }
 
 export interface HhApplicantResume {
   id: string;
   title: string;
   url: string;
+}
+
+export type HhAutomationRunTrigger = 'manual' | 'schedule' | 'resume' | 'direct_link';
+export type HhAutomationRunStatus = 'running' | 'completed' | 'attention' | 'failed' | 'stopped';
+
+export interface HhAutomationRun {
+  id: string;
+  platform: JobPlatform;
+  trigger: HhAutomationRunTrigger;
+  status: HhAutomationRunStatus;
+  startedAt: string;
+  finishedAt?: string;
+  query: string;
+  vacancyUrl?: string;
+  found: number;
+  attempted: number;
+  sent: number;
+  alreadyApplied: number;
+  skipped: number;
+  needsAttention: number;
+  message: string;
+}
+
+export interface HhScanSummary {
+  platform: 'hh' | 'linkedin' | 'avito';
+  queries: string[];
+  pagesScanned: number;
+  found: number;
+  newVacancies: number;
+  readyToApply: number;
+  alreadyProcessed: number;
+  excluded: number;
+  schedule: string;
 }
 
 export interface HhAssistantState {
@@ -65,15 +171,35 @@ export interface HhAssistantState {
   message: string;
   currentVacancyId: string | null;
   applying: boolean;
+  stopRequested: boolean;
+  queuePaused: boolean;
   applyProgress: { done: number; total: number } | null;
   config: HhAssistantConfig;
   queue: HhQueueItem[];
+  screeningFacts: HhScreeningFact[];
+  runHistory: HhAutomationRun[];
+  lastScanSummary: HhScanSummary | null;
+  nextRunAt: string | null;
   updatedAt: string;
 }
 
 interface PersistedState {
+  version?: number;
   config: HhAssistantConfig;
   queue: unknown;
+  screeningFacts?: unknown;
+  runHistory?: unknown;
+  queuePaused?: unknown;
+}
+
+interface QueueRunStats {
+  total: number;
+  attempted: number;
+  sent: number;
+  alreadyApplied: number;
+  skipped: number;
+  needsAttention: number;
+  stopped: boolean;
 }
 
 type EmitState = (state: HhAssistantState) => void;
@@ -130,15 +256,24 @@ const PLATFORM_INFO: Record<JobPlatform, {
   },
 };
 
-const CARD_SELECTOR = '[data-qa="vacancy-serp__vacancy"]';
-const TITLE_SELECTOR =
-  '[data-qa="serp-item__title"], [data-qa="vacancy-serp__vacancy-title"]';
-const COMPANY_SELECTOR =
-  '[data-qa="vacancy-serp__vacancy-employer"], [data-qa="vacancy-serp__vacancy-employer-text"]';
-const SALARY_SELECTOR =
-  '[data-qa="vacancy-serp__vacancy-compensation"], [data-qa="vacancy-serp__vacancy-salary"]';
 const LETTER_SELECTOR = '[data-qa="vacancy-response-popup-form-letter-input"]';
-const ADD_COVER_LETTER_SELECTOR = '[data-qa="add-cover-letter"]';
+const ADD_COVER_LETTER_SELECTOR = [
+  '[data-qa="add-cover-letter"]',
+  // Current HH response form (verified on hh.ru/applicant/vacancy_response).
+  '[data-qa="vacancy-response-letter-toggle"]',
+].join(', ');
+const OPEN_VACANCY_CHAT_SELECTOR = '[data-qa="open-vacancy-chat"]';
+const CHAT_FRAME_URL_PART = 'chatik.hh.ru/chat/';
+const CHAT_ADD_COVER_LETTER_SELECTOR = '[data-qa="chatik-chat-message-applicant-action"]';
+const CHAT_COVER_LETTER_PREVIEW_SELECTOR = '[data-qa="chat-input-preview"]';
+const CHAT_MESSAGE_TEXT_SELECTOR = '[data-qa^="chatik-chat-message-"][data-qa$="-text"]';
+const CHAT_INPUT_SELECTOR = '[data-qa="chatik-new-message-text"]';
+const CHAT_SEND_SELECTOR = '[data-qa="chatik-do-send-message"]';
+const HH_NEGOTIATIONS_URL = 'https://hh.ru/applicant/negotiations';
+const NEGOTIATION_ITEM_SELECTOR = '[data-qa="negotiations-item"]';
+const NEGOTIATION_OPEN_CHAT_SELECTOR = '[data-qa="open_chat"]';
+const NEGOTIATION_REJECTED_SELECTOR =
+  '[data-qa~="negotiations-item-discard"], [data-qa*="negotiations-item-discard"]';
 const CAPTCHA_SELECTOR =
   '[data-qa*="captcha"], iframe[src*="captcha"], iframe[title*="captcha" i]';
 const RESPONSE_QUESTION_SELECTOR = [
@@ -146,11 +281,18 @@ const RESPONSE_QUESTION_SELECTOR = [
   '[data-qa*="response-question"]',
   '[data-qa*="employer-question"]',
   '[data-qa*="screening-question"]',
+  '[data-qa="task-question"]',
+  '[data-qa="task-body"]',
+  'form[name="vacancy_response"] [name^="task_"]',
   '[name^="question_"]',
   '[name*="employer_question"]',
 ].join(', ');
-const RESPONSE_TEST_SELECTOR =
-  '[data-qa*="vacancy-response-test"], [data-qa*="vacancy-test"]';
+const RESPONSE_TEST_SELECTOR = [
+  '[data-qa*="vacancy-response-test"]',
+  '[data-qa*="vacancy-test"]',
+  '[data-qa="employer-asking-for-test"]',
+  '[data-qa="test-description"]',
+].join(', ');
 const RESPONSE_FLOW_CONTAINER_SELECTOR = [
   'form',
   '[role="dialog"]',
@@ -191,21 +333,91 @@ const LOGIN_CODE_INPUT_SELECTOR = [
 ].join(', ');
 const HH_AUTH_COOKIE_NAME = 'crypted_id';
 const HH_APPLICANT_RESUMES_URL = 'https://hh.ru/applicant/resumes';
+const VACANCY_PAGE_TITLE_SELECTOR = '[data-qa="vacancy-title"], h1';
+const VACANCY_PAGE_COMPANY_SELECTOR = '[data-qa="vacancy-company-name"], [data-qa="vacancy-company-details"]';
+const VACANCY_PAGE_SALARY_SELECTOR = '[data-qa="vacancy-salary"], [data-qa="vacancy-compensation"]';
 const APPLICANT_MENU_SELECTOR =
   '[data-qa="mainmenu_applicantProfile"], [data-qa="mainmenu_applicantProfileAndResumes"]';
 const SUCCESS_SELECTOR =
   '[data-qa*="vacancy-response-request-success"], [data-qa*="response-success"]';
+const ALREADY_APPLIED_SELECTOR = [
+  '[data-qa="vacancy-response-link-top-again"]',
+  '[data-qa="vacancy-response-link-bottom-again"]',
+  '[data-qa^="vacancy-response-link-"][data-qa$="-again"]',
+].join(', ');
 const STEP_NAVIGATION_TIMEOUT = 20_000;
 const QUEUE_STATUSES = new Set<HhQueueStatus>([
   'new',
   'opened',
   'prepared',
+  'needs_input',
   'sent',
+  'already_applied',
   'skipped',
 ]);
+const ACTIONABLE_QUEUE_STATUSES = new Set<HhQueueStatus>([
+  'new',
+  'opened',
+  'prepared',
+]);
+
+function isActionableQueueStatus(status: HhQueueStatus): boolean {
+  return ACTIONABLE_QUEUE_STATUSES.has(status);
+}
+
+function isActionableQueueItem(
+  item: Pick<HhQueueItem, 'status' | 'coverLetterPending' | 'coverLetterAdded'>,
+): boolean {
+  return isActionableQueueStatus(item.status)
+    || Boolean(item.coverLetterPending && !item.coverLetterAdded);
+}
+
+function scheduleLabel(schedule: string): string {
+  if (!schedule) return 'любой формат работы';
+  if (schedule === 'remote') return 'только удалённо';
+  if (schedule === 'fullDay') return 'полный день';
+  if (schedule === 'flexible') return 'гибкий график';
+  return schedule;
+}
+
+function scanSummaryMessage(summary: HhScanSummary): string {
+  const directions = summary.queries.length === 1
+    ? '1 поисковому направлению'
+    : `${summary.queries.length} поисковым направлениям`;
+  if (summary.found === 0) {
+    return `${PLATFORM_INFO[summary.platform].label} не показал вакансий по ${directions}. Фильтр: ${scheduleLabel(summary.schedule)}.`;
+  }
+  return `${PLATFORM_INFO[summary.platform].label} нашёл ${summary.found} вакансий по ${directions}: новых ${summary.newVacancies}, к отклику ${summary.readyToApply}, уже обработано ${summary.alreadyProcessed}. Фильтр: ${scheduleLabel(summary.schedule)}.`;
+}
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function compactHhText(value: string): string {
+  return value.replace(/\s+/g, ' ').trim();
+}
+
+function polishScreeningDraftLocally(value: string): string {
+  const compact = value.replace(/\s+/g, ' ').trim().slice(0, 2_000);
+  if (!compact) return '';
+  const capitalized = compact.replace(/^([a-zа-яё])/u, (letter) => letter.toLocaleUpperCase('ru-RU'));
+  return /[.!?…]$/u.test(capitalized) ? capitalized : `${capitalized}.`;
+}
+
+const REMOTE_ONLY_RUSSIA_QUESTION = 'Рассматриваете ли вы переезд по России ради работы?';
+const REMOTE_ONLY_RUSSIA_ANSWER = 'Нет, переезд по России не рассматриваю. Интересует только полностью удалённый формат работы.';
+
+function remoteOnlyRussiaStoredAnswer(
+  questionId: string,
+  question: string,
+): HhStoredScreeningAnswer {
+  return {
+    questionId,
+    question,
+    answer: REMOTE_ONLY_RUSSIA_ANSWER,
+    selectedOptions: [],
+  };
 }
 
 function safeJsonRead<T>(filePath: string): T | null {
@@ -405,18 +617,23 @@ function jobIdFromUrl(platform: JobPlatform, raw: string): string {
 
 function jobKey(platform: JobPlatform, id: string): string { return `${platform}:${id}`; }
 
-function buildPlatformSearchUrl(platform: JobPlatform, config: HhAssistantConfig, page = 0): string {
-  if (platform === 'hh') return buildHhSearchUrl(config, page);
+function buildPlatformSearchUrl(
+  platform: JobPlatform,
+  config: HhAssistantConfig,
+  page = 0,
+  query = config.query,
+): string {
+  if (platform === 'hh') return buildHhSearchUrl({ ...config, query }, page);
   if (platform === 'linkedin') {
     const url = new URL('https://www.linkedin.com/jobs/search/');
-    if (config.query) url.searchParams.set('keywords', config.query);
+    if (query) url.searchParams.set('keywords', query);
     if (config.linkedinLocation) url.searchParams.set('location', config.linkedinLocation);
     if (config.linkedinEasyApplyOnly) url.searchParams.set('f_AL', 'true');
     if (page) url.searchParams.set('start', String(page * 25));
     return url.toString();
   }
   const url = new URL(`https://www.avito.ru/${config.avitoCity || 'all'}/vakansii`);
-  if (config.query) url.searchParams.set('q', config.query);
+  if (query) url.searchParams.set('q', query);
   if (config.salaryFrom) url.searchParams.set('pmin', String(config.salaryFrom));
   url.searchParams.set('p', String(page + 1));
   return url.toString();
@@ -478,10 +695,43 @@ async function extractPlatformCards(page: Page, platform: JobPlatform): Promise<
   return result;
 }
 
+export function browserCandidatePaths(
+  platform: NodeJS.Platform,
+  env: NodeJS.ProcessEnv,
+): Array<{ label: string; executable: string }> {
+  const join = platform === 'win32' ? path.win32.join : path.posix.join;
+  if (platform === 'darwin') {
+    const applicationRoots = [
+      '/Applications',
+      env.HOME ? join(env.HOME, 'Applications') : '',
+    ].filter(Boolean);
+    const appExecutables = [
+      ['Google Chrome', 'Google Chrome.app/Contents/MacOS/Google Chrome'],
+      ['Microsoft Edge', 'Microsoft Edge.app/Contents/MacOS/Microsoft Edge'],
+      ['Brave', 'Brave Browser.app/Contents/MacOS/Brave Browser'],
+    ] as const;
+    return applicationRoots.flatMap((root) => appExecutables.map(([label, relative]) => ({
+      label,
+      executable: join(root, relative),
+    })));
+  }
+
+  if (platform === 'linux') {
+    return [
+      { label: 'Google Chrome', executable: '/usr/bin/google-chrome' },
+      { label: 'Chromium', executable: '/usr/bin/chromium' },
+      { label: 'Chromium', executable: '/usr/bin/chromium-browser' },
+    ];
+  }
+
+  const roots = [env.LOCALAPPDATA, env.PROGRAMFILES, env['PROGRAMFILES(X86)']].filter(Boolean) as string[];
+  const candidates = roots.map((root) => ({ label: 'Google Chrome', executable: join(root, 'Google', 'Chrome', 'Application', 'chrome.exe') }));
+  candidates.push(...roots.map((root) => ({ label: 'Microsoft Edge', executable: join(root, 'Microsoft', 'Edge', 'Application', 'msedge.exe') })));
+  return candidates;
+}
+
 function installedBrowserCandidates(): Array<{ label: string; executable: string }> {
-  const roots = [process.env.LOCALAPPDATA, process.env.PROGRAMFILES, process.env['PROGRAMFILES(X86)']].filter(Boolean) as string[];
-  const candidates = roots.map((root) => ({ label: 'Google Chrome', executable: path.join(root, 'Google', 'Chrome', 'Application', 'chrome.exe') }));
-  candidates.push(...roots.map((root) => ({ label: 'Microsoft Edge', executable: path.join(root, 'Microsoft', 'Edge', 'Application', 'msedge.exe') })));
+  const candidates = browserCandidatePaths(process.platform, process.env);
   return candidates.filter((candidate, index, all) => fs.existsSync(candidate.executable) && all.findIndex((item) => item.executable.toLowerCase() === candidate.executable.toLowerCase()) === index);
 }
 
@@ -557,6 +807,39 @@ async function terminateBrowserProcessTree(child: ChildProcess | null): Promise<
     killer.once('error', () => resolve());
     killer.once('exit', () => resolve());
   });
+}
+
+/**
+ * A previous packaged SkillCue version may leave its dedicated Chrome/Edge
+ * process alive without SkillCueDebugPort. Starting another browser against
+ * the same profile then reuses that visible window and adds another blank tab.
+ * Kill only browser processes whose command line contains this exact private
+ * profile path; regular user Chrome/Edge profiles are never matched.
+ */
+async function terminateOrphanedProfileBrowsers(profileDir: string): Promise<void> {
+  if (process.platform !== 'win32') return;
+  const script = [
+    "$target = [IO.Path]::GetFullPath($env:SKILLCUE_AUTOMATION_PROFILE).TrimEnd('\\')",
+    "$browsers = Get-CimInstance Win32_Process | Where-Object {",
+    "  ($_.Name -eq 'chrome.exe' -or $_.Name -eq 'msedge.exe') -and",
+    "  $_.CommandLine -and $_.CommandLine.IndexOf($target, [StringComparison]::OrdinalIgnoreCase) -ge 0",
+    '}',
+    '$browsers | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }',
+  ].join('; ');
+  const cleanup = new Promise<void>((resolve) => {
+    const child = spawn(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-Command', script],
+      {
+        env: { ...process.env, SKILLCUE_AUTOMATION_PROFILE: path.resolve(profileDir) },
+        stdio: 'ignore',
+        windowsHide: true,
+      },
+    );
+    child.once('error', () => resolve());
+    child.once('exit', () => resolve());
+  });
+  await settleWithin(cleanup, 5_000);
 }
 
 async function settleWithin(promise: Promise<unknown>, timeoutMs: number): Promise<void> {
@@ -660,6 +943,17 @@ function hhVacancyId(rawUrl: string): string {
   return normalizeHhVacancyUrl(rawUrl).match(/\/vacancy\/(\d+)$/)?.[1] ?? '';
 }
 
+export function isAlreadyAppliedHhText(value: string): boolean {
+  const text = value.toLocaleLowerCase('ru').replace(/\s+/g, ' ').trim();
+  return [
+    'вы откликнулись',
+    'вы уже откликнулись',
+    'вы уже откликались',
+    'отклик уже отправлен',
+    'отклик был отправлен',
+  ].some((marker) => text.includes(marker));
+}
+
 async function hasVisible(page: Page, selector: string): Promise<boolean> {
   const locator = page.locator(selector);
   const count = Math.min(await locator.count(), 20);
@@ -690,7 +984,79 @@ async function hasVisibleResponseFlowBlocker(page: Page): Promise<boolean> {
   return false;
 }
 
-function normalizePersistedQueue(value: unknown): HhQueueItem[] {
+function normalizeStoredScreeningQuestion(value: unknown): HhScreeningQuestion | null {
+  if (!value || typeof value !== 'object') return null;
+  const item = value as Record<string, unknown>;
+  const id = String(item.id ?? '').trim().slice(0, 100);
+  const prompt = String(item.prompt ?? '').replace(/\s+/g, ' ').trim().slice(0, 1_200);
+  if (!id || !prompt) return null;
+  const rawKind = String(item.kind ?? 'text');
+  const kind = new Set(['text', 'single', 'multiple', 'select']).has(rawKind)
+    ? rawKind as HhScreeningQuestion['kind']
+    : 'text';
+  const options = Array.isArray(item.options)
+    ? item.options.map((option) => String(option).trim().slice(0, 300)).filter(Boolean).slice(0, 30)
+    : [];
+  const assistantReason = String(item.assistantReason ?? '').replace(/\s+/g, ' ').trim().slice(0, 300);
+  const suggestedAnswer = String(item.suggestedAnswer ?? '').trim().slice(0, 2_000);
+  const suggestedOptions = Array.isArray(item.suggestedOptions)
+    ? item.suggestedOptions.map((option) => String(option).trim().slice(0, 300)).filter(Boolean).slice(0, 30)
+    : [];
+  return {
+    id,
+    prompt,
+    kind,
+    options,
+    required: Boolean(item.required),
+    assistantReason: assistantReason || undefined,
+    suggestedAnswer: suggestedAnswer || undefined,
+    suggestedOptions: suggestedOptions.length > 0 ? suggestedOptions : undefined,
+  };
+}
+
+function normalizeStoredScreeningAnswer(value: unknown): HhStoredScreeningAnswer | null {
+  if (!value || typeof value !== 'object') return null;
+  const item = value as Record<string, unknown>;
+  const questionId = String(item.questionId ?? '').trim().slice(0, 100);
+  const question = String(item.question ?? '').replace(/\s+/g, ' ').trim().slice(0, 1_200);
+  const answer = String(item.answer ?? '').trim().slice(0, 2_000);
+  const selectedOptions = Array.isArray(item.selectedOptions)
+    ? item.selectedOptions.map((option) => String(option).trim().slice(0, 300)).filter(Boolean).slice(0, 30)
+    : [];
+  if (!questionId || !question || (!answer && selectedOptions.length === 0)) return null;
+  return { questionId, question, answer, selectedOptions };
+}
+
+function normalizeScreeningFacts(value: unknown): HhScreeningFact[] {
+  if (!Array.isArray(value)) return [];
+  const byQuestion = new Map<string, HhScreeningFact>();
+  for (const raw of value) {
+    if (!raw || typeof raw !== 'object') continue;
+    const item = raw as Record<string, unknown>;
+    const question = String(item.question ?? '').replace(/\s+/g, ' ').trim().slice(0, 1_200);
+    const answer = String(item.answer ?? '').trim().slice(0, 2_000);
+    const selectedOptions = Array.isArray(item.selectedOptions)
+      ? item.selectedOptions.map((option) => String(option).trim().slice(0, 300)).filter(Boolean).slice(0, 30)
+      : [];
+    if (!question || (!answer && selectedOptions.length === 0)) continue;
+    const updatedAt = String(item.updatedAt ?? '');
+    const fact: HhScreeningFact = {
+      id: String(item.id ?? `fact-${Date.now()}-${byQuestion.size}`).trim().slice(0, 140),
+      question,
+      answer,
+      selectedOptions,
+      updatedAt: Number.isNaN(Date.parse(updatedAt)) ? nowIso() : updatedAt,
+    };
+    byQuestion.set(screeningQuestionSemanticKey(fact.question), fact);
+    if (byQuestion.size >= 100) break;
+  }
+  return [...byQuestion.values()];
+}
+
+export function normalizePersistedQueue(
+  value: unknown,
+  restoreLegacyPreSubmissionState = true,
+): HhQueueItem[] {
   if (!Array.isArray(value)) return [];
   const result: HhQueueItem[] = [];
   for (const raw of value) {
@@ -705,6 +1071,40 @@ function normalizePersistedQueue(value: unknown): HhQueueItem[] {
     if (!id || !title) continue;
     const rawStatus = String(item.status ?? 'new') as HhQueueStatus;
     const addedAt = String(item.addedAt ?? '');
+    const reason = typeof item.reason === 'string'
+      ? item.reason.trim().slice(0, 300) || undefined
+      : undefined;
+    const sentAt =
+      typeof item.sentAt === 'string' && !Number.isNaN(Date.parse(item.sentAt))
+        ? item.sentAt
+        : undefined;
+    const legacyAlreadyApplied = rawStatus === 'sent'
+      && !sentAt
+      && /(?:уже отклик|hh показывает|отправлен ранее)/i.test(reason ?? '');
+    const stalePreSubmissionCoverLetterState = restoreLegacyPreSubmissionState
+      && rawStatus === 'skipped'
+      && /отклик больше не найден в активных переговорах hh/i.test(reason ?? '')
+      && !sentAt;
+    const pendingQuestions = Array.isArray(item.pendingQuestions)
+      ? item.pendingQuestions.map(normalizeStoredScreeningQuestion).filter((question): question is HhScreeningQuestion => Boolean(question)).slice(0, 60)
+      : [];
+    const screeningAnswers = Array.isArray(item.screeningAnswers)
+      ? item.screeningAnswers.map(normalizeStoredScreeningAnswer).filter((answer): answer is HhStoredScreeningAnswer => Boolean(answer)).slice(0, 60)
+      : [];
+    const preparationNotes = Array.isArray(item.preparationNotes)
+      ? [...new Set(item.preparationNotes
+        .map((note) => String(note).replace(/\s+/g, ' ').trim().slice(0, 500))
+        .filter(Boolean))].slice(0, 20)
+      : [];
+    const coverLetterAdded = Boolean(item.coverLetterAdded);
+    const needsScreeningInput = pendingQuestions.length > 0
+      && rawStatus !== 'sent'
+      && rawStatus !== 'already_applied'
+      && rawStatus !== 'skipped';
+    const coverLetterPending = rawStatus !== 'skipped'
+      && !needsScreeningInput
+      && !coverLetterAdded
+      && Boolean(item.coverLetterPending);
     result.push({
       key: jobKey(platform, id),
       id,
@@ -715,20 +1115,73 @@ function normalizePersistedQueue(value: unknown): HhQueueItem[] {
       url,
       description: String(item.description ?? '').trim().slice(0, 12000),
       easyApply: Boolean(item.easyApply),
-      status: QUEUE_STATUSES.has(rawStatus) ? rawStatus : 'new',
-      reason:
-        typeof item.reason === 'string'
-          ? item.reason.trim().slice(0, 300) || undefined
-          : undefined,
+      status: needsScreeningInput
+        ? 'needs_input'
+        : coverLetterPending
+        ? 'opened'
+        : stalePreSubmissionCoverLetterState
+          ? 'new'
+          : legacyAlreadyApplied
+            ? 'already_applied'
+            : rawStatus === 'needs_input' && pendingQuestions.length === 0
+              ? 'prepared'
+              : rawStatus === 'skipped' && reason === 'Не удалось распознать состояние страницы HH.'
+                ? 'opened'
+                : QUEUE_STATUSES.has(rawStatus) ? rawStatus : 'new',
+      reason: stalePreSubmissionCoverLetterState
+        ? 'Предыдущая попытка не подтвердила отправку отклика. Вакансия возвращена в очередь для проверки на странице HH.'
+        : reason,
       addedAt: Number.isNaN(Date.parse(addedAt)) ? nowIso() : addedAt,
-      sentAt:
-        typeof item.sentAt === 'string' && !Number.isNaN(Date.parse(item.sentAt))
-          ? item.sentAt
-          : undefined,
+      sentAt,
+      pendingQuestions: pendingQuestions.length > 0 ? pendingQuestions : undefined,
+      screeningAnswers: screeningAnswers.length > 0 ? screeningAnswers : undefined,
+      preparationNotes: preparationNotes.length > 0 ? preparationNotes : undefined,
+      coverLetterPending: coverLetterPending || undefined,
+      coverLetterAdded: coverLetterAdded || undefined,
+      selectedResumeTitle: typeof item.selectedResumeTitle === 'string'
+        ? item.selectedResumeTitle.trim().slice(0, 240) || undefined
+        : undefined,
     });
-    if (result.length >= 100) break;
+    if (result.length >= 1_000) break;
   }
   return result;
+}
+
+function normalizeRunHistory(value: unknown): HhAutomationRun[] {
+  if (!Array.isArray(value)) return [];
+  const triggers = new Set<HhAutomationRunTrigger>(['manual', 'schedule', 'resume', 'direct_link']);
+  const statuses = new Set<HhAutomationRunStatus>(['running', 'completed', 'attention', 'failed', 'stopped']);
+  return value.flatMap((raw): HhAutomationRun[] => {
+    if (!raw || typeof raw !== 'object') return [];
+    const item = raw as Record<string, unknown>;
+    const startedAt = String(item.startedAt ?? '');
+    if (Number.isNaN(Date.parse(startedAt))) return [];
+    const trigger = String(item.trigger ?? 'manual') as HhAutomationRunTrigger;
+    const status = String(item.status ?? 'failed') as HhAutomationRunStatus;
+    const wasRunning = status === 'running';
+    const count = (key: string) => Math.max(0, Math.min(1_000, Math.round(Number(item[key]) || 0)));
+    return [{
+      id: String(item.id ?? `legacy-${startedAt}`).slice(0, 120),
+      platform: normalizePlatform(item.platform),
+      trigger: triggers.has(trigger) ? trigger : 'manual',
+      status: statuses.has(status) && !wasRunning ? status : 'attention',
+      startedAt,
+      finishedAt: typeof item.finishedAt === 'string' && !Number.isNaN(Date.parse(item.finishedAt))
+        ? item.finishedAt
+        : startedAt,
+      query: String(item.query ?? '').trim().slice(0, 200),
+      vacancyUrl: normalizeHhVacancyUrl(String(item.vacancyUrl ?? '')) || undefined,
+      found: count('found'),
+      attempted: count('attempted'),
+      sent: count('sent'),
+      alreadyApplied: count('alreadyApplied'),
+      skipped: count('skipped'),
+      needsAttention: count('needsAttention'),
+      message: wasRunning
+        ? 'Приложение перезапустилось. Очередь сохранена и продолжится автоматически.'
+        : String(item.message ?? '').trim().slice(0, 500),
+    }];
+  }).slice(0, 20);
 }
 
 export class HhBrowserAssistant {
@@ -746,8 +1199,15 @@ export class HhBrowserAssistant {
   private state: HhAssistantState;
   private stopApplyRequested = false;
   private applyInFlight = false;
+  private automationRunInFlight = false;
   private scheduleTimer: NodeJS.Timeout | null = null;
   private scheduleRunning = false;
+  private queueResumeTimer: NodeJS.Timeout | null = null;
+  private queueResumeRunning = false;
+  private lastScanFoundCount = 0;
+  private applicantResumes: HhApplicantResume[] = [];
+  private readonly resumeTextCache = new Map<string, string>();
+  private readonly preparedCoverLetters = new Map<string, string>();
 
   constructor(
     userDataDir: string,
@@ -759,6 +1219,25 @@ export class HhBrowserAssistant {
     this.statePath = path.join(userDataDir, 'hh-browser-assistant.json');
     this.emitState = emitState;
     const persisted = safeJsonRead<PersistedState>(this.statePath);
+    const persistedConfig = persisted?.config ?? DEFAULT_HH_ASSISTANT_CONFIG;
+    const migratedConfig = (persisted?.version ?? 0) >= 3
+      ? persistedConfig
+      : {
+          ...persistedConfig,
+          area: persistedConfig.area === '113' ? '' : persistedConfig.area,
+          employment: persistedConfig.employment === 'full' ? '' : persistedConfig.employment,
+          schedule: persistedConfig.schedule || 'remote',
+          maxQueueSize: Math.max(500, persistedConfig.maxQueueSize || 0),
+          maxPages: Math.max(20, persistedConfig.maxPages || 0),
+          dailyLimit: Math.min(20, persistedConfig.dailyLimit || 20),
+          autoRunDaily: false,
+          autoSend: true,
+        };
+    // v4 changes the default run mode to automatic. Apply it once to existing
+    // installations; a later explicit switch back to review-only is retained.
+    const config = (persisted?.version ?? 0) >= 4
+      ? migratedConfig
+      : { ...migratedConfig, autoSend: true };
     this.state = {
       phase: 'idle',
       browserOpen: false,
@@ -766,13 +1245,115 @@ export class HhBrowserAssistant {
       message: '',
       currentVacancyId: null,
       applying: false,
+      stopRequested: false,
+      queuePaused: persisted?.queuePaused === true,
       applyProgress: null,
-      config: normalizeHhAssistantConfig(
-        persisted?.config ?? DEFAULT_HH_ASSISTANT_CONFIG,
-      ),
-      queue: normalizePersistedQueue(persisted?.queue),
+      config: normalizeHhAssistantConfig(config),
+      queue: normalizePersistedQueue(persisted?.queue, (persisted?.version ?? 0) < 5),
+      screeningFacts: normalizeScreeningFacts(persisted?.screeningFacts),
+      runHistory: normalizeRunHistory(persisted?.runHistory),
+      lastScanSummary: null,
+      nextRunAt: null,
       updatedAt: nowIso(),
     };
+    if (this.reconcileKnownPendingScreeningQuestions() > 0) this.persist();
+  }
+
+  /**
+   * Re-checks persisted manual questions against explicit search preferences and
+   * remembered facts. This prevents old queues from asking the same preference
+   * again after the application is updated or restarted.
+   */
+  private reconcileKnownPendingScreeningQuestions(): number {
+    const facts = new Map(
+      this.state.screeningFacts.map((fact) => [screeningQuestionSemanticKey(fact.question), fact]),
+    );
+    let changedCount = 0;
+    if (this.state.config.schedule === 'remote') {
+      const question = REMOTE_ONLY_RUSSIA_QUESTION;
+      const key = screeningQuestionSemanticKey(question);
+      const previous = facts.get(key);
+      const answer = REMOTE_ONLY_RUSSIA_ANSWER;
+      if (previous && (previous.answer !== answer || previous.selectedOptions.length > 0)) {
+        facts.set(key, {
+          id: previous.id,
+          question,
+          answer,
+          selectedOptions: [],
+          updatedAt: nowIso(),
+        });
+        this.state.screeningFacts = [...facts.values()].slice(-100);
+        changedCount += 1;
+      }
+    }
+    this.state.queue = this.state.queue.map((item) => {
+      if (item.platform !== 'hh') return item;
+
+      // A response prepared before the user selected “remote only” may contain
+      // a stale “yes” or “let's discuss” relocation answer. Do not let that
+      // cached value win when an unfinished application is restored.
+      let screeningAnswers = item.screeningAnswers;
+      if (
+        this.state.config.schedule === 'remote'
+        && item.status !== 'sent'
+        && item.status !== 'already_applied'
+        && screeningAnswers?.some((answer) => screeningRelocationScope(answer.question) === 'russia')
+      ) {
+        let answersChanged = false;
+        screeningAnswers = screeningAnswers.map((answer) => {
+          if (screeningRelocationScope(answer.question) !== 'russia') return answer;
+          if (answer.answer === REMOTE_ONLY_RUSSIA_ANSWER && answer.selectedOptions.length === 0) return answer;
+          answersChanged = true;
+          return remoteOnlyRussiaStoredAnswer(answer.questionId, answer.question);
+        });
+        if (answersChanged) changedCount += 1;
+      }
+
+      if (item.status !== 'needs_input' || !item.pendingQuestions?.length) {
+        return screeningAnswers === item.screeningAnswers ? item : { ...item, screeningAnswers };
+      }
+      const resolved: HhStoredScreeningAnswer[] = [];
+      const pendingQuestions = item.pendingQuestions.filter((question) => {
+        const fact = facts.get(screeningQuestionSemanticKey(question.prompt));
+        const remoteOnlyRussia = this.state.config.schedule === 'remote'
+          && screeningRelocationScope(question.prompt) === 'russia';
+        const known = knownScreeningAnswer(question, this.state.config.salaryFrom, '', {
+          remoteOnly: this.state.config.schedule === 'remote',
+        });
+        // The current search format wins over an older relocation answer. If
+        // the form has no safe negative option, leave it for the user instead
+        // of falling back to a stale “yes” or “let's discuss”.
+        const answer = remoteOnlyRussia
+          ? known
+          : (fact ? reusableScreeningAnswer(question, fact) : null) ?? known;
+        if (!answer?.canAutoFill) return true;
+        resolved.push({
+          questionId: question.id,
+          question: question.prompt,
+          answer: answer.answer,
+          selectedOptions: answer.selectedOptions,
+        });
+        changedCount += 1;
+        return false;
+      });
+      if (resolved.length === 0) {
+        return screeningAnswers === item.screeningAnswers ? item : { ...item, screeningAnswers };
+      }
+      const answers = new Map(
+        (screeningAnswers ?? []).map((answer) => [screeningQuestionSemanticKey(answer.question), answer]),
+      );
+      for (const answer of resolved) answers.set(screeningQuestionSemanticKey(answer.question), answer);
+      return {
+        ...item,
+        status: pendingQuestions.length === 0 ? 'prepared' as const : 'needs_input' as const,
+        reason: pendingQuestions.length === 0
+          ? 'Известные условия применены автоматически. Вакансия вернулась в очередь.'
+          : `Известные условия применены. Осталось уточнить: ${pendingQuestions.length}.`,
+        pendingQuestions: pendingQuestions.length > 0 ? pendingQuestions : undefined,
+        screeningAnswers: [...answers.values()].slice(-60),
+      };
+    });
+    return changedCount;
   }
 
   getState(): HhAssistantState {
@@ -781,7 +1362,6 @@ export class HhBrowserAssistant {
 
   /** Отдать текущую страницу браузера (для Chat Browser). */
   async getPage(): Promise<Page | null> {
-    if (this.page && !this.page.isClosed()) return this.page;
     try {
       return await this.ensureBrowser('background');
     } catch {
@@ -795,7 +1375,10 @@ export class HhBrowserAssistant {
    * response modal.
    */
   async getChatPage(): Promise<Page | null> {
-    if (this.chatPage && !this.chatPage.isClosed()) return this.chatPage;
+    if (this.chatPage && !this.chatPage.isClosed()) {
+      await this.closeExcessAutomationPages(new Set([this.page, this.chatPage].filter(Boolean) as Page[]));
+      return this.chatPage;
+    }
     if (this.chatPagePromise) return this.chatPagePromise;
     const task = (async (): Promise<Page | null> => {
       try {
@@ -804,10 +1387,14 @@ export class HhBrowserAssistant {
         if (this.chatPage && !this.chatPage.isClosed()) return this.chatPage;
         const chatPage = await this.context.newPage();
         this.chatPage = chatPage;
+        chatPage.on('framenavigated', (frame) => {
+          if (frame === chatPage.mainFrame()) void this.restoreInteractivePage();
+        });
         chatPage.once('close', () => {
           if (this.chatPage === chatPage) this.chatPage = null;
         });
         await this.closeExcessAutomationPages(new Set([this.page, chatPage].filter(Boolean) as Page[]));
+        await this.restoreInteractivePage();
         return chatPage;
       } catch {
         return null;
@@ -819,6 +1406,20 @@ export class HhBrowserAssistant {
     } finally {
       if (this.chatPagePromise === task) this.chatPagePromise = null;
     }
+  }
+
+  /** Return focus after a background HH chat check without opening negotiations to the user. */
+  async restoreInteractivePage(): Promise<void> {
+    const page = this.page;
+    if (this.browserMode !== 'interactive' || !page || page.isClosed() || page === this.chatPage) return;
+    await page.bringToFront().catch(() => undefined);
+  }
+
+  /** Explicit user action: show the already authenticated HH conversation page. */
+  async showChatPage(): Promise<void> {
+    const page = await this.getChatPage();
+    if (!page || page.isClosed()) return;
+    await page.bringToFront();
   }
 
   /** Инжектит stealth-скрипт во все страницы контекста, чтобы скрыть автоматизацию. */
@@ -871,10 +1472,16 @@ export class HhBrowserAssistant {
       ...this.state.config,
       ...value,
     });
+    this.reconcileKnownPendingScreeningQuestions();
     if (this.state.config.autoRunDaily) {
       this.startDailySchedule();
     } else {
       this.stopDailySchedule();
+    }
+    if (this.state.config.autoSend) {
+      this.scheduleQueueResume(2_000);
+    } else {
+      this.clearQueueResumeTimer();
     }
     this.update({ message: 'Настройки сохранены.' });
     return this.getState();
@@ -885,6 +1492,7 @@ export class HhBrowserAssistant {
     if (this.state.config.autoRunDaily) {
       this.startDailySchedule();
     }
+    this.scheduleQueueResume(10_000);
   }
 
   /** Переключает ежедневный авто-прогон из UI. */
@@ -898,6 +1506,7 @@ export class HhBrowserAssistant {
     } else {
       this.stopDailySchedule();
     }
+    this.scheduleQueueResume(2_000);
     this.update({
       message: enabled
         ? `Ежедневный авто-прогон включён, старт в ${this.state.config.autoRunHour}:00.`
@@ -912,7 +1521,14 @@ export class HhBrowserAssistant {
       fs.writeFileSync(
         this.statePath,
         JSON.stringify(
-          { config: this.state.config, queue: this.state.queue } satisfies PersistedState,
+          {
+            version: 5,
+            config: this.state.config,
+            queue: this.state.queue,
+            screeningFacts: this.state.screeningFacts,
+            runHistory: this.state.runHistory,
+            queuePaused: this.state.queuePaused,
+          } satisfies PersistedState,
           null,
           2,
         ),
@@ -927,6 +1543,62 @@ export class HhBrowserAssistant {
     this.state = { ...this.state, ...patch, updatedAt: nowIso() };
     this.persist();
     this.emitState(this.getState());
+  }
+
+  private beginRun(trigger: HhAutomationRunTrigger, vacancyUrl?: string): HhAutomationRun {
+    this.stopApplyRequested = false;
+    const startedAt = nowIso();
+    const run: HhAutomationRun = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      platform: this.state.config.platform,
+      trigger,
+      status: 'running',
+      startedAt,
+      query: this.state.config.query,
+      vacancyUrl,
+      found: 0,
+      attempted: 0,
+      sent: 0,
+      alreadyApplied: 0,
+      skipped: 0,
+      needsAttention: 0,
+      message: trigger === 'schedule'
+        ? 'Запущено по ежедневному расписанию.'
+        : trigger === 'resume'
+          ? 'Продолжаю сохранённую очередь после паузы.'
+        : trigger === 'direct_link'
+          ? 'Проверяю конкретную вакансию по ссылке.'
+          : 'Запущено вручную.',
+    };
+    this.update({
+      stopRequested: false,
+      queuePaused: false,
+      runHistory: [run, ...this.state.runHistory].slice(0, 20),
+    });
+    return run;
+  }
+
+  private finishRun(
+    runId: string,
+    patch: Partial<Omit<HhAutomationRun, 'id' | 'trigger' | 'startedAt'>>,
+  ): void {
+    this.update({
+      runHistory: this.state.runHistory.map((run) => run.id === runId
+        ? { ...run, ...patch, finishedAt: nowIso() }
+        : run),
+    });
+  }
+
+  private progressRun(
+    runId: string | undefined,
+    patch: Partial<Pick<HhAutomationRun, 'found' | 'attempted' | 'sent' | 'alreadyApplied' | 'skipped' | 'needsAttention' | 'message'>>,
+  ): void {
+    if (!runId) return;
+    this.update({
+      runHistory: this.state.runHistory.map((run) => run.id === runId && run.status === 'running'
+        ? { ...run, ...patch }
+        : run),
+    });
   }
 
   private async hasHhAuthCookie(): Promise<boolean> {
@@ -969,6 +1641,25 @@ export class HhBrowserAssistant {
     }
 
     return enriched.filter((resume) => resumeTitleScore(resume.title) > 0);
+  }
+
+  private syncCurrentApplicantResume(resumes: HhApplicantResume[]): void {
+    const configured = this.state.config.resumeTitles.find((title) =>
+      resumes.some((resume) => resumeTitleMatches(resume.title, title)),
+    );
+    const currentTitle = configured
+      ? resumes.find((resume) => resumeTitleMatches(resume.title, configured))?.title
+      : resumes[0]?.title;
+    const resumeTitles = currentTitle ? [currentTitle] : [];
+    if (
+      this.state.config.resumeTitles.length === resumeTitles.length &&
+      this.state.config.resumeTitles.every((title, index) => title === resumeTitles[index])
+    ) return;
+    this.state.config = normalizeHhAssistantConfig({
+      ...this.state.config,
+      resumeTitles,
+      resumeTitleContains: '',
+    });
   }
 
   private async readApplicantResumesFromSession(): Promise<{
@@ -1077,6 +1768,7 @@ export class HhBrowserAssistant {
     if (browser) await settleWithin(browser.close(), 4_000);
     if (context) await settleWithin(context.close(), 1_000);
     await terminateBrowserProcessTree(browserProcess);
+    await terminateOrphanedProfileBrowsers(this.profileDir);
   }
 
   private async launchInstalledBrowser(mode: BrowserRunMode): Promise<BrowserContext> {
@@ -1102,6 +1794,11 @@ export class HhBrowserAssistant {
         errors.push(`existing browser: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
+    // Old releases did not always persist the CDP port and could leave a
+    // start-maximized browser behind. Remove that exact-profile orphan before
+    // launching; otherwise Chromium forwards this launch into the old window.
+    await terminateOrphanedProfileBrowsers(this.profileDir);
+    await new Promise((resolve) => setTimeout(resolve, 250));
     const debugPortPath = path.join(this.profileDir, 'DevToolsActivePort');
     const skillCuePortPath = path.join(this.profileDir, 'SkillCueDebugPort');
     for (const candidate of installedBrowserCandidates()) {
@@ -1133,7 +1830,8 @@ export class HhBrowserAssistant {
         fs.writeFileSync(skillCuePortPath, `${debugPort}\n${mode}`, 'utf8');
         return context;
       } catch (error) {
-        if (child?.exitCode === null) child.kill();
+        await terminateBrowserProcessTree(child);
+        await terminateOrphanedProfileBrowsers(this.profileDir);
         errors.push(`${candidate.label}: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
@@ -1160,10 +1858,16 @@ export class HhBrowserAssistant {
   }
 
   private async ensureBrowser(mode: BrowserRunMode = 'background'): Promise<Page> {
-    if (this.context && this.browserModeSatisfies(mode) && this.page && !this.page.isClosed()) return this.page;
+    if (this.context && this.browserModeSatisfies(mode) && this.page && !this.page.isClosed()) {
+      await this.closeExcessAutomationPages(new Set([this.page, ...(this.chatPage && !this.chatPage.isClosed() ? [this.chatPage] : [])]));
+      return this.page;
+    }
     if (this.ensureBrowserPromise) {
       const pendingPage = await this.ensureBrowserPromise;
-      if (this.browserModeSatisfies(mode) && !pendingPage.isClosed()) return pendingPage;
+      if (this.browserModeSatisfies(mode) && !pendingPage.isClosed()) {
+        await this.closeExcessAutomationPages(new Set([pendingPage, ...(this.chatPage && !this.chatPage.isClosed() ? [this.chatPage] : [])]));
+        return pendingPage;
+      }
     }
     const pending = this.ensureBrowserUnlocked(mode);
     this.ensureBrowserPromise = pending;
@@ -1603,6 +2307,8 @@ export class HhBrowserAssistant {
           return [];
         }
         if (sessionResult.resumes.length > 0) {
+          this.applicantResumes = sessionResult.resumes;
+          this.syncCurrentApplicantResume(sessionResult.resumes);
           this.update({
             browserOpen: true,
             loginRequired: false,
@@ -1626,6 +2332,8 @@ export class HhBrowserAssistant {
           return [];
         }
         if (pageResult.resumes.length > 0) {
+          this.applicantResumes = pageResult.resumes;
+          this.syncCurrentApplicantResume(pageResult.resumes);
           this.update({
             browserOpen: true,
             loginRequired: false,
@@ -1671,6 +2379,51 @@ export class HhBrowserAssistant {
     throw new Error(message);
   }
 
+  /** Reads one explicitly selected HH resume without navigating or creating a tab. */
+  async getApplicantResumeContent(resumeId: string): Promise<HhPreparationResume> {
+    await this.ensureBrowser('background');
+    if (!this.context) throw new Error('Не удалось подключиться к фоновой сессии HH.');
+    if (this.applicantResumes.length === 0) {
+      const result = await this.readApplicantResumesFromSession();
+      if (result.loginRequired) {
+        throw new Error('Сессия HH закончилась. Подключите HH ещё раз во вкладке «Отклики».');
+      }
+      this.applicantResumes = result.resumes;
+    }
+    const resume = this.applicantResumes.find((item) => item.id === resumeId.trim());
+    if (!resume) throw new Error('Выбранное резюме больше не найдено в HH. Обновите список.');
+
+    const cached = this.resumeTextCache.get(resume.id);
+    if (cached) return { ...resume, text: cached };
+    const response = await this.context.request.get(resume.url, {
+      failOnStatusCode: false,
+      timeout: 20_000,
+      headers: { accept: 'text/html,application/xhtml+xml' },
+    }).catch(() => null);
+    if (!response?.ok()) throw new Error('HH не отдал выбранное резюме. Повторите загрузку.');
+    const text = parseHhResumeText(await response.text());
+    if (text.length < 80) {
+      throw new Error('HH открыл резюме, но не отдал его содержимое. Обновите резюме на HH и повторите.');
+    }
+    this.resumeTextCache.set(resume.id, text);
+    return { ...resume, text };
+  }
+
+  /** Imports a vacancy for preparation only; never opens the response form or applies. */
+  async inspectVacancyUrl(rawUrl: string): Promise<HhPreparationVacancy> {
+    const url = normalizeHhVacancyUrl(rawUrl);
+    if (!url) throw new Error('Вставьте ссылку вида https://hh.ru/vacancy/123456.');
+    await this.ensureBrowser('background');
+    if (!this.context) throw new Error('Не удалось подключиться к фоновой сессии HH.');
+    const response = await this.context.request.get(url, {
+      failOnStatusCode: false,
+      timeout: 20_000,
+      headers: { accept: 'text/html,application/xhtml+xml' },
+    }).catch(() => null);
+    if (!response?.ok()) throw new Error('Не удалось загрузить вакансию с HH. Проверьте ссылку.');
+    return parseHhVacancyPage(url, await response.text());
+  }
+
   private async isLoginRequired(page: Page, platformValue: JobPlatform = 'hh'): Promise<boolean> {
     const platform = normalizePlatform(platformValue);
     const loginLink = page.locator(PLATFORM_INFO[platform].login.join(', '));
@@ -1689,79 +2442,84 @@ export class HhBrowserAssistant {
     ) {
       return 'HH запросил проверку. Завершите её вручную в браузере.';
     }
-    if (
-      body.includes('ответьте на вопросы работодателя') ||
-      body.includes('пройти тест для отклика') ||
-      (await hasVisibleResponseFlowBlocker(page))
-    ) {
+    if (await hasVisibleResponseFlowBlocker(page)) {
       return 'Для этой вакансии нужны дополнительные ответы или тест.';
     }
     return null;
   }
 
-  private async scrapeCurrentPage(page: Page): Promise<HhVacancy[]> {
-    const cards = page.locator(CARD_SELECTOR);
-    const count = Math.min(await cards.count(), 100);
-    const result: HhVacancy[] = [];
-    for (let index = 0; index < count; index += 1) {
-      const card = cards.nth(index);
-      const titleLink = card.locator(TITLE_SELECTOR).first();
-      const title = (await titleLink.innerText().catch(() => '')).trim();
-      const rawUrl = (await titleLink.getAttribute('href').catch(() => null)) ?? '';
-      const url = normalizeHhVacancyUrl(rawUrl);
+  private async scrapeCurrentPage(page: Page): Promise<Array<HhVacancy & { alreadyApplied: boolean }>> {
+    const cards = parseHhSearchResults(await page.content(), 100);
+    const result: Array<HhVacancy & { alreadyApplied: boolean }> = [];
+    for (const card of cards) {
+      const url = normalizeHhVacancyUrl(card.rawUrl);
       const id = hhVacancyId(url);
-      if (!id || !title || !url) continue;
+      if (!id || !card.title || !url) continue;
       result.push({
         id,
-        title,
-        company: (
-          await card.locator(COMPANY_SELECTOR).first().innerText().catch(() => '')
-        ).trim(),
-        salary: (
-          await card.locator(SALARY_SELECTOR).first().innerText().catch(() => '')
-        ).trim(),
+        title: card.title,
+        company: card.company,
+        salary: card.salary,
         url,
+        alreadyApplied: card.alreadyApplied,
       });
     }
     return result;
   }
 
-  async scan(platformValue?: JobPlatform): Promise<HhAssistantState> {
+  async scan(platformValue?: JobPlatform, runId?: string): Promise<HhAssistantState> {
     const platform = normalizePlatform(platformValue ?? this.state.config.platform);
     const info = PLATFORM_INFO[platform];
+    this.lastScanFoundCount = 0;
     if (!this.state.config.query) {
       this.update({
         phase: 'error',
+        lastScanSummary: null,
         message: 'Укажите должность или специальность для поиска.',
       });
       return this.getState();
     }
 
     try {
-      const page = await this.ensureBrowser('background');
       this.state.config = normalizeHhAssistantConfig({ ...this.state.config, platform });
-      this.update({
-        phase: 'scanning',
-        browserOpen: true,
-        message: 'Собираю вакансии из видимых страниц поиска…',
-      });
-      const collected = new Map<string, HhVacancy & { description?: string; easyApply?: boolean }>();
-      for (let pageIndex = 0; pageIndex < this.state.config.maxPages; pageIndex += 1) {
-        await page.goto(buildPlatformSearchUrl(platform, this.state.config, pageIndex), {
-          waitUntil: 'domcontentloaded',
-          timeout: 30_000,
-        });
+      const queries = platform === 'hh'
+        ? buildHhSearchQueries(this.state.config)
+        : [this.state.config.query];
+      const openingMessage = `Открываю ${info.label} и проверяю сессию…`;
+      this.update({ phase: 'scanning', lastScanSummary: null, message: openingMessage });
+      this.progressRun(runId, { message: openingMessage });
+      const page = await this.ensureBrowser('background');
+      const collected = new Map<string, HhVacancy & {
+        description?: string;
+        easyApply?: boolean;
+        alreadyApplied?: boolean;
+      }>();
+      const previous = new Map(this.state.queue.map((item) => [item.key, item]));
+      const excludedKeys = new Set<string>();
+      const exhaustedQueries = new Set<string>();
+      const nextPageByQuery = new Map(queries.map((query) => [query, 0]));
+      const pagesToScan = platform === 'hh'
+        ? Math.min(100, Math.max(this.state.config.maxPages, queries.length * 6))
+        : this.state.config.maxPages;
+      const queueLimit = this.state.config.maxQueueSize;
+      let pagesScanned = 0;
+
+      // HH's personalised home feed can surface a strong match that is buried
+      // deep in text search. Treat it as an additional discovery source. A
+      // generic QA title is verified against the full vacancy body before it is
+      // allowed into the automatic queue, so this does not broaden auto-apply
+      // to unrelated manual-QA or non-Python jobs.
+      if (platform === 'hh' && !this.stopApplyRequested) {
+        const recommendationMessage = 'Сверяю персональные рекомендации HH с выбранной ролью…';
+        this.update({ phase: 'scanning', browserOpen: true, message: recommendationMessage });
+        this.progressRun(runId, { found: collected.size, message: recommendationMessage });
+        await page.goto('https://hh.ru/', { waitUntil: 'domcontentloaded', timeout: 30_000 });
         const blocker = await this.detectManualBlocker(page);
         if (blocker) {
-          this.update({
-            phase: 'manual_required',
-            browserOpen: true,
-            message: blocker,
-          });
+          this.update({ phase: 'manual_required', browserOpen: true, message: blocker });
           return this.getState();
         }
-        const loginRequired = await this.isLoginRequired(page, platform);
-        if (loginRequired) {
+        if (await this.isLoginRequired(page, platform)) {
           this.update({
             phase: 'manual_required',
             browserOpen: true,
@@ -1770,57 +2528,321 @@ export class HhBrowserAssistant {
           });
           return this.getState();
         }
-        await page.locator(info.cards.join(', ')).first().waitFor({ timeout: 10_000 }).catch(() => undefined);
-        const pageVacancies = platform === 'hh'
-          ? (await this.scrapeCurrentPage(page)).map((vacancy) => ({ ...vacancy, description: '', easyApply: false }))
-          : await extractPlatformCards(page, platform);
-        if (pageVacancies.length === 0) break;
-        for (const vacancy of pageVacancies) {
-          if (shouldExcludeVacancy(vacancy, this.state.config)) continue;
-          const key = jobKey(platform, vacancy.id);
-          if (!collected.has(key)) collected.set(key, vacancy);
-          if (collected.size >= this.state.config.maxQueueSize) break;
+        await page.locator(info.cards.join(', ')).first().waitFor({ timeout: 6_000 }).catch(() => undefined);
+        const recommendations = await this.scrapeCurrentPage(page);
+        for (const recommendation of recommendations) {
+          if (this.stopApplyRequested || collected.size >= queueLimit) break;
+          const key = jobKey(platform, recommendation.id);
+          if (shouldExcludeVacancy(recommendation, this.state.config)) {
+            excludedKeys.add(key);
+            continue;
+          }
+          if (!isVacancyRelevantToSearchQuery(recommendation, this.state.config.query)) continue;
+
+          let candidate: HhVacancy & {
+            description?: string;
+            easyApply?: boolean;
+            alreadyApplied?: boolean;
+          } = { ...recommendation, description: '', easyApply: false };
+          if (
+            !isVacancyRelevantToSearchProfile(candidate, this.state.config.query)
+            || !isVacancyCompatibleWithSearchSchedule(
+              candidate,
+              this.state.config.schedule,
+              candidate.description,
+            )
+          ) {
+            const response = await this.context?.request.get(candidate.url, {
+              failOnStatusCode: false,
+              timeout: 20_000,
+              headers: { accept: 'text/html,application/xhtml+xml' },
+            }).catch(() => null);
+            if (!response?.ok()) continue;
+            try {
+              const details = parseHhVacancyPage(candidate.url, await response.text());
+              candidate = { ...candidate, ...details };
+            } catch {
+              continue;
+            }
+          }
+          if (!isVacancyRelevantToSearchProfile(
+            candidate,
+            this.state.config.query,
+            candidate.description,
+          )) continue;
+          if (!isVacancyCompatibleWithSearchSchedule(
+            candidate,
+            this.state.config.schedule,
+            candidate.description,
+          )) continue;
+          if (!collected.has(key)) collected.set(key, candidate);
         }
-        if (collected.size >= this.state.config.maxQueueSize) break;
       }
 
-      const previous = new Map(this.state.queue.map((item) => [item.key, item]));
+      scanLoop: while (
+        pagesScanned < pagesToScan
+        && collected.size < queueLimit
+        && exhaustedQueries.size < queries.length
+        && !this.stopApplyRequested
+      ) {
+        let requestedInRound = false;
+        for (const searchQuery of queries) {
+          if (this.stopApplyRequested) break scanLoop;
+          if (
+            exhaustedQueries.has(searchQuery)
+            || pagesScanned >= pagesToScan
+            || collected.size >= queueLimit
+          ) continue;
+          requestedInRound = true;
+          const pageIndex = nextPageByQuery.get(searchQuery) ?? 0;
+          nextPageByQuery.set(searchQuery, pageIndex + 1);
+          pagesScanned += 1;
+          const pageMessage = queries.length > 1
+            ? `Проверяю ${pagesScanned} из ${pagesToScan}: ${searchQuery} · страница ${pageIndex + 1}…`
+            : `Ищу вакансии: страница ${pageIndex + 1} из ${pagesToScan}…`;
+          this.update({ phase: 'scanning', browserOpen: true, message: pageMessage });
+          this.progressRun(runId, { found: collected.size, message: pageMessage });
+          await page.goto(
+            buildPlatformSearchUrl(platform, this.state.config, pageIndex, searchQuery),
+            { waitUntil: 'domcontentloaded', timeout: 30_000 },
+          );
+          if (this.stopApplyRequested) break scanLoop;
+          const blocker = await this.detectManualBlocker(page);
+          if (blocker) {
+            this.update({
+              phase: 'manual_required',
+              browserOpen: true,
+              message: blocker,
+            });
+            return this.getState();
+          }
+          const loginRequired = await this.isLoginRequired(page, platform);
+          if (loginRequired) {
+            this.update({
+              phase: 'manual_required',
+              browserOpen: true,
+              loginRequired: true,
+              message: `Сначала войдите в ${info.label} в открытом браузере.`,
+            });
+            return this.getState();
+          }
+          await page.locator(info.cards.join(', ')).first().waitFor({ timeout: 6_000 }).catch(() => undefined);
+          if (this.stopApplyRequested) break scanLoop;
+          const pageVacancies = platform === 'hh'
+            ? (await this.scrapeCurrentPage(page)).map((vacancy) => ({ ...vacancy, description: '', easyApply: false }))
+            : await extractPlatformCards(page, platform);
+          if (pageVacancies.length === 0) {
+            exhaustedQueries.add(searchQuery);
+            continue;
+          }
+          for (const vacancy of pageVacancies) {
+            const key = jobKey(platform, vacancy.id);
+            if (shouldExcludeVacancy(vacancy, this.state.config)) {
+              excludedKeys.add(key);
+              continue;
+            }
+            if (platform === 'hh' && !isVacancyRelevantToSearchQuery(vacancy, searchQuery)) {
+              excludedKeys.add(key);
+              continue;
+            }
+            if (!collected.has(key)) collected.set(key, vacancy);
+            if (collected.size >= queueLimit) break;
+          }
+          const foundMessage = `Найдено ${collected.size} · проверено страниц ${pagesScanned}`;
+          this.update({ message: foundMessage });
+          this.progressRun(runId, { found: collected.size, message: foundMessage });
+        }
+        if (!requestedInRound) break;
+      }
+
       const queue: HhQueueItem[] = [];
       for (const vacancy of collected.values()) {
         const key = jobKey(platform, vacancy.id);
         const old = previous.get(key);
+        const alreadyApplied = vacancy.alreadyApplied === true;
+        const vacancyData = { ...vacancy };
+        delete vacancyData.alreadyApplied;
         queue.push({
-          ...vacancy,
+          ...old,
+          ...vacancyData,
           key,
           platform,
-          status: old?.status ?? 'new',
-          reason: old?.reason,
+          status: alreadyApplied
+            ? old?.coverLetterPending
+              ? 'opened'
+              : old?.status === 'sent' && Boolean(old.sentAt) ? 'sent' : 'already_applied'
+            : old?.status ?? 'new',
+          reason: alreadyApplied
+            ? old?.coverLetterPending
+              ? old.reason ?? 'Дожидаюсь формы сопроводительного письма; отклик пока не считаю завершённым.'
+              : old?.status === 'sent' && Boolean(old.sentAt)
+              ? old.reason
+              : 'HH показывает: отклик уже был отправлен ранее.'
+            : old?.reason,
           addedAt: old?.addedAt ?? nowIso(),
+          pendingQuestions: alreadyApplied ? undefined : old?.pendingQuestions,
+          screeningAnswers: alreadyApplied ? undefined : old?.screeningAnswers,
+          selectedResumeTitle: rankHhResumeTitlesForVacancy(
+            vacancy.title,
+            this.applicantResumes.map((resume) => resume.title),
+            this.state.config.resumeTitles,
+          )[0] ?? old?.selectedResumeTitle,
         });
       }
       const foundCount = queue.length;
+      this.lastScanFoundCount = foundCount;
+      const newVacancies = queue.filter(
+        (item) => !previous.has(item.key) && isActionableQueueItem(item),
+      ).length;
+      const readyToApply = queue.filter((item) => isActionableQueueItem(item)).length;
+      const summary: HhScanSummary = {
+        platform,
+        queries,
+        pagesScanned,
+        found: foundCount,
+        newVacancies,
+        readyToApply,
+        alreadyProcessed: Math.max(0, foundCount - readyToApply),
+        excluded: [...excludedKeys].filter((key) => !collected.has(key)).length,
+        schedule: this.state.config.schedule,
+      };
+      const summaryMessage = scanSummaryMessage(summary);
+      const finalMessage = this.stopApplyRequested
+        ? `Поиск остановлен вами. Найденные вакансии сохранены: ${foundCount}. Отклики больше не отправляются.`
+        : summaryMessage;
       const queuedIds = new Set(queue.map((item) => item.key));
       for (const item of this.state.queue) {
-        if (
-          (item.status === 'sent' || item.status === 'skipped') &&
-          !queuedIds.has(item.key)
-        ) {
-          queue.push(item);
+        if (!queuedIds.has(item.key)) {
+          queue.push(
+            item.status === 'new' && excludedKeys.has(item.key)
+              ? { ...item, status: 'skipped', reason: 'Не соответствует названию выбранной роли.' }
+              : item,
+          );
           queuedIds.add(item.key);
         }
-        if (queue.length >= 100) break;
+        if (queue.length >= 1_000) break;
       }
       this.update({
         phase: 'ready',
         browserOpen: true,
         loginRequired: false,
         queue,
-        message: foundCount
-          ? `Подготовлено вакансий: ${foundCount}.`
-          : 'Подходящих вакансий на выбранных страницах не найдено.',
+        lastScanSummary: summary,
+        message: finalMessage,
+      });
+      this.progressRun(runId, {
+        found: foundCount,
+        message: this.stopApplyRequested
+          ? finalMessage
+          : foundCount && readyToApply > 0
+          ? `${summaryMessage} Перехожу к откликам…`
+          : summaryMessage,
       });
     } catch (error) {
       this.fail(error);
+    }
+    return this.getState();
+  }
+
+  async applyVacancyUrl(rawUrl: string): Promise<HhAssistantState> {
+    const url = normalizeHhVacancyUrl(rawUrl);
+    if (this.applyInFlight || this.automationRunInFlight) {
+      this.update({ message: 'Дождитесь завершения текущего прогона, затем проверьте ссылку.' });
+      return this.getState();
+    }
+    const run = this.beginRun('direct_link', url || undefined);
+    if (!url) {
+      const message = 'Вставьте ссылку вида https://hh.ru/vacancy/123456.';
+      this.update({ phase: 'error', message });
+      this.finishRun(run.id, { status: 'failed', message });
+      return this.getState();
+    }
+    try {
+      const page = await this.ensureBrowser('background');
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+      const blocker = await this.detectManualBlocker(page);
+      if (blocker) {
+        this.update({ phase: 'manual_required', browserOpen: true, message: blocker });
+        this.finishRun(run.id, { status: 'attention', found: 1, needsAttention: 1, message: blocker });
+        return this.getState();
+      }
+      if (await this.isLoginRequired(page, 'hh')) {
+        const message = 'Сессия HH закончилась. Подключите HH ещё раз.';
+        this.update({ phase: 'manual_required', browserOpen: true, loginRequired: true, message });
+        this.finishRun(run.id, { status: 'attention', found: 1, needsAttention: 1, message });
+        return this.getState();
+      }
+      const id = hhVacancyId(page.url()) || hhVacancyId(url);
+      const title = (await firstText(page, [VACANCY_PAGE_TITLE_SELECTOR])).slice(0, 300);
+      if (!id || !title) throw new Error('HH не отдал название вакансии по этой ссылке.');
+      const key = jobKey('hh', id);
+      const existing = this.state.queue.find((item) => item.key === key);
+      const vacancy: HhQueueItem = {
+        key,
+        platform: 'hh',
+        id,
+        title,
+        company: (await firstText(page, [VACANCY_PAGE_COMPANY_SELECTOR])).slice(0, 300),
+        salary: (await firstText(page, [VACANCY_PAGE_SALARY_SELECTOR])).slice(0, 120),
+        url,
+        description: (await firstText(page, PLATFORM_INFO.hh.descriptions)).slice(0, 12_000),
+        status: existing?.status === 'sent'
+          ? 'sent'
+          : existing?.status === 'already_applied'
+            ? 'already_applied'
+            : existing?.status === 'needs_input' ? 'needs_input' : 'new',
+        reason: existing?.status === 'sent'
+          || existing?.status === 'already_applied'
+          || existing?.status === 'needs_input'
+          ? existing.reason
+          : undefined,
+        addedAt: existing?.addedAt ?? nowIso(),
+        sentAt: existing?.sentAt,
+        pendingQuestions: existing?.pendingQuestions,
+        screeningAnswers: existing?.screeningAnswers,
+        preparationNotes: existing?.preparationNotes,
+        selectedResumeTitle: rankHhResumeTitlesForVacancy(
+          title,
+          this.applicantResumes.map((resume) => resume.title),
+          this.state.config.resumeTitles,
+        )[0] ?? existing?.selectedResumeTitle,
+      };
+      this.update({
+        phase: 'ready',
+        browserOpen: true,
+        loginRequired: false,
+        queue: [vacancy, ...this.state.queue.filter((item) => item.key !== key)].slice(0, 1_000),
+        currentVacancyId: key,
+        message: `Вакансия «${title}» добавлена по ссылке. Начинаю отклик…`,
+      });
+      await this.applyOne(key, { explicitUserSelection: true });
+      if (this.state.queuePaused) {
+        this.finishRun(run.id, {
+          status: 'stopped',
+          found: 1,
+          message: this.state.message,
+        });
+        return this.getState();
+      }
+      const result = this.state.queue.find((item) => item.key === key);
+      const sent = result?.status === 'sent' ? 1 : 0;
+      const alreadyApplied = result?.status === 'already_applied' ? 1 : 0;
+      const skipped = result?.status === 'skipped' ? 1 : 0;
+      const needsAttention = sent || alreadyApplied || skipped ? 0 : 1;
+      this.finishRun(run.id, {
+        status: needsAttention ? 'attention' : 'completed',
+        found: 1,
+        attempted: 1,
+        sent,
+        alreadyApplied,
+        skipped,
+        needsAttention,
+        message: result?.reason || this.state.message,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.fail(error);
+      this.finishRun(run.id, { status: 'failed', message });
     }
     return this.getState();
   }
@@ -1837,7 +2859,9 @@ export class HhBrowserAssistant {
       await page.bringToFront();
       await this.captureVacancyDescription(page, vacancy);
       const blocker = await this.detectManualBlocker(page);
-      this.patchQueue(vacancy.key, { status: 'opened' });
+      this.patchQueue(vacancy.key, {
+        status: vacancy.status === 'needs_input' ? 'needs_input' : 'opened',
+      });
       this.update({
         phase: blocker ? 'manual_required' : 'ready',
         currentVacancyId: vacancy.key,
@@ -1912,11 +2936,14 @@ export class HhBrowserAssistant {
 
   private buildApplyContext(): HhApplyContext {
     return {
-      hasCoverLetter: this.state.config.coverLetterTemplate.trim().length > 0,
+      hasCoverLetter: Boolean(this.generateCoverLetter)
+        || this.state.config.coverLetterTemplate.trim().length > 0,
       resumeTitleContains: (this.state.config.resumeTitles[0] ?? this.state.config.resumeTitleContains).trim(),
       resumeSelected: false,
       letterFilled: false,
       questionsFilled: false,
+      responseClicked: false,
+      responseSubmitted: false,
     };
   }
 
@@ -1927,7 +2954,7 @@ export class HhBrowserAssistant {
     const body = () =>
       page
         .locator('body')
-        .innerText()
+        .innerText({ timeout: 5_000 })
         .then((text) => text.toLocaleLowerCase('ru'))
         .catch(() => '');
 
@@ -1953,31 +2980,59 @@ export class HhBrowserAssistant {
     ) {
       return 'captcha';
     }
-    if (
-      text.includes('ответьте на вопросы работодателя') ||
-      text.includes('пройти тест для отклика') ||
-      (await hasVisibleResponseFlowBlocker(page))
-    ) {
+    const alreadyAppliedVisible =
+      isAlreadyAppliedHhText(text) ||
+      (await hasVisible(page, ALREADY_APPLIED_SELECTOR));
+    // Current HH forms can show employer test fields and the cover-letter
+    // textarea at the same time. Questions are mandatory, so handle them
+    // before classifying the same form as a letter editor.
+    if (!ctx.questionsFilled && (await hasVisibleResponseFlowBlocker(page))) {
       return 'employer_questions';
     }
+    const letter = page.locator(LETTER_SELECTOR).first();
+    let letterFormVisible = (await letter.count()) > 0 && await letter.isVisible().catch(() => false);
+    let addCoverLetterVisible = await hasVisible(page, ADD_COVER_LETTER_SELECTOR);
+    const successVisible =
+      text.includes('отклик отправлен') || (await hasVisible(page, SUCCESS_SELECTOR));
+    const responseAccepted = successVisible || alreadyAppliedVisible || ctx.responseSubmitted;
+    // HH often renders the success state first and adds the letter controls a
+    // moment later. Give that UI a grace period before deciding the response
+    // flow is finished.
     if (
-      text.includes('отклик отправлен') ||
-      (await hasVisible(page, SUCCESS_SELECTOR))
+      responseAccepted
+      && (ctx.responseClicked || ctx.responseSubmitted)
+      && ctx.hasCoverLetter
+      && !ctx.letterFilled
+      && !letterFormVisible
+      && !addCoverLetterVisible
     ) {
+      await page
+        .locator(`${LETTER_SELECTOR}:visible, ${ADD_COVER_LETTER_SELECTOR}:visible`)
+        .first()
+        .waitFor({ state: 'visible', timeout: 5_000 })
+        .catch(() => undefined);
+      letterFormVisible = (await letter.count()) > 0 && await letter.isVisible().catch(() => false);
+      addCoverLetterVisible = await hasVisible(page, ADD_COVER_LETTER_SELECTOR);
+    }
+    // HH can keep the success banner visible while the post-response letter
+    // editor is open. Finish and submit that editor before marking the vacancy
+    // as sent, otherwise the application silently loses its cover letter.
+    if (letterFormVisible) {
+      return 'letter_form';
+    }
+    if (addCoverLetterVisible) {
+      return responseAccepted || ctx.responseClicked
+        ? 'post_response_letter_offer'
+        : 'letter_offer';
+    }
+    if (successVisible) {
       return 'success';
     }
-    if (text.includes('вы уже откликнулись') || text.includes('отклик уже отправлен')) {
+    if (alreadyAppliedVisible) {
       return 'already_applied';
     }
     if (!ctx.resumeSelected && (await hasVisible(page, RESUME_ANY_SELECTOR))) {
       return 'resume_select';
-    }
-    const letter = page.locator(LETTER_SELECTOR).first();
-    if ((await letter.count()) > 0 && (await letter.isVisible().catch(() => false))) {
-      return 'letter_form';
-    }
-    if (await hasVisible(page, ADD_COVER_LETTER_SELECTOR)) {
-      return 'letter_offer';
     }
     if (await hasVisible(page, RESPONSE_SUBMIT_SELECTOR)) {
       return 'confirm';
@@ -2023,7 +3078,7 @@ export class HhBrowserAssistant {
       const currentMatches = resumeTitleMatches(visible[0]?.text ?? '', target);
       if (visible.length === 1 && currentMatches) return;
       if (visible.length === 1) {
-        await modernTitles.nth(visible[0].index).click();
+        await modernTitles.nth(visible[0].index).click({ timeout: 5_000 });
         await page.waitForTimeout(250);
         visible = await visibleModern();
       }
@@ -2031,7 +3086,7 @@ export class HhBrowserAssistant {
         .slice(currentMatches ? 1 : 0)
         .find((item) => resumeTitleMatches(item.text, target));
       if (option) {
-        await modernTitles.nth(option.index).click();
+        await modernTitles.nth(option.index).click({ timeout: 5_000 });
         return;
       }
       if (currentMatches) return;
@@ -2050,7 +3105,7 @@ export class HhBrowserAssistant {
       const score = selected.split(/[^a-zа-яё0-9+#.]+/i).filter((token) => vacancyTokens.has(token)).length;
       if (!best || score > best.score) best = { index, score };
     }
-    if (best) await items.nth(best.index).click().catch(() => undefined);
+    if (best) await items.nth(best.index).click({ timeout: 5_000 }).catch(() => undefined);
   }
 
   private async clickFirstVisible(
@@ -2062,16 +3117,73 @@ export class HhBrowserAssistant {
     for (let index = 0; index < count; index += 1) {
       const candidate = locator.nth(index);
       if (!(await candidate.isVisible().catch(() => false))) continue;
-      await candidate.click().catch(() => undefined);
-      return true;
+      try {
+        await candidate.click({ timeout: 5_000 });
+        return true;
+      } catch {
+        // Try another matching control: HH sometimes keeps a hidden or stale
+        // duplicate button in the response modal while it re-renders.
+      }
     }
     return false;
+  }
+
+  private async openResponseForm(page: Page): Promise<boolean> {
+    const links = page.locator(RESPONSE_BUTTON_SELECTOR);
+    const count = Math.min(await links.count(), 10);
+    for (let index = 0; index < count; index += 1) {
+      const link = links.nth(index);
+      if (!(await link.isVisible().catch(() => false))) continue;
+      const href = await link.getAttribute('href').catch(() => null);
+      if (!href) continue;
+      try {
+        const target = new URL(href, page.url());
+        if (!isHhPage(target.href) || target.pathname !== '/applicant/vacancy_response') continue;
+        await page.goto(target.href, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+        return true;
+      } catch {
+        // Fall back to the rendered button below. This also covers a future HH
+        // response control that stops exposing a normal href.
+      }
+    }
+    return this.clickFirstVisible(page, RESPONSE_BUTTON_SELECTOR);
+  }
+
+  private async preferredApplicantResume(vacancyTitle: string): Promise<HhApplicantResume | undefined> {
+    if (!this.context) return undefined;
+    if (this.applicantResumes.length === 0) {
+      const result = await this.readApplicantResumesFromSession().catch(() => null);
+      if (result && !result.loginRequired) this.applicantResumes = result.resumes;
+    }
+    const rankedTitles = rankHhResumeTitlesForVacancy(
+      vacancyTitle,
+      this.applicantResumes.map((resume) => resume.title),
+      this.state.config.resumeTitles,
+    );
+    const preferredTitle = rankedTitles[0];
+    return preferredTitle
+      ? this.applicantResumes.find((resume) => resumeTitleMatches(resume.title, preferredTitle))
+      : undefined;
+  }
+
+  /** Best matching HH résumé for this vacancy, reused by forms, letters and recruiter chat. */
+  async getSelectedResumeText(vacancyTitle: string): Promise<string> {
+    const preferred = await this.preferredApplicantResume(vacancyTitle);
+    if (!preferred) return '';
+    return this.getApplicantResumeContent(preferred.id)
+      .then((result) => result.text)
+      .catch(() => '');
   }
 
   private async fillEmployerQuestions(
     page: Page,
     vacancy: HhQueueItem,
-  ): Promise<{ ok: boolean; reason: string }> {
+  ): Promise<{
+    ok: boolean;
+    reason: string;
+    pendingQuestions?: HhScreeningQuestion[];
+    preparationNotes?: string[];
+  }> {
     const fields = await collectHhScreeningFields(page);
     if (fields.length === 0) {
       return {
@@ -2079,34 +3191,153 @@ export class HhBrowserAssistant {
         reason: 'HH открыл внешний тест или форму без распознаваемых полей. Заполните её вручную.',
       };
     }
-    if (!this.generateScreeningAnswers) {
-      return {
-        ok: false,
-        reason: 'Генератор ответов недоступен. Заполните вопросы работодателя вручную.',
-      };
-    }
 
     this.update({
       phase: 'applying',
       message: `Готовлю ответы на вопросы работодателя: ${fields.length}…`,
     });
-    const generated = await this.generateScreeningAnswers({
-      vacancyTitle: vacancy.title,
-      vacancyCompany: vacancy.company,
-      vacancyDescription: vacancy.description ?? '',
-      questions: fields.map((field) => field.question),
-      language: 'ru',
+    const resumeText = await this.getSelectedResumeText(vacancy.title);
+    const confirmedAnswers = selectRelevantScreeningFacts(
+      this.state.screeningFacts,
+      fields.map((field) => field.question),
+      30,
+    ).map((item) => ({
+      question: item.question,
+      answer: item.answer,
+      selectedOptions: item.selectedOptions,
+    }));
+    const salaryExpectation = findSalaryExpectation(
+      this.state.config.salaryFrom,
+      [...this.state.config.resumeTitles, resumeText],
+    );
+    const knownAnswers = new Map(
+      fields.flatMap((field) => {
+        const answer = knownScreeningAnswer(field.question, salaryExpectation, resumeText, {
+          remoteOnly: this.state.config.schedule === 'remote',
+        });
+        return answer ? [[field.question.id, answer] as const] : [];
+      }),
+    );
+    let generatedAnswers: HhScreeningAnswer[] = fields.map((field) => ({
+      id: field.question.id,
+      answer: '',
+      selectedOptions: [],
+      canAutoFill: false,
+      reason: 'AI не смог подтвердить ответ — нужен ваш выбор.',
+    }));
+    if (this.generateScreeningAnswers) {
+      const pendingForAi = fields.filter((field) => !knownAnswers.has(field.question.id));
+      const batches = Array.from(
+        { length: Math.ceil(pendingForAi.length / 6) },
+        (_, index) => pendingForAi.slice(index * 6, index * 6 + 6),
+      );
+      const batchResults = await Promise.allSettled(batches.map((batch) =>
+        this.generateScreeningAnswers!({
+          vacancyTitle: vacancy.title,
+          vacancyCompany: vacancy.company,
+          vacancyDescription: vacancy.description ?? '',
+          resumeText,
+          questions: batch.map((field) => field.question),
+          confirmedAnswers,
+          language: 'ru',
+        })));
+      const byId = new Map(generatedAnswers.map((answer) => [answer.id, answer]));
+      batchResults.forEach((result, batchIndex) => {
+        const batch = batches[batchIndex] ?? [];
+        if (result.status === 'fulfilled') {
+          for (const answer of result.value.answers) byId.set(answer.id, answer);
+          return;
+        }
+        const reason = result.reason instanceof Error ? result.reason.message : String(result.reason);
+        for (const field of batch) {
+          byId.set(field.question.id, {
+            id: field.question.id,
+            answer: '', selectedOptions: [], canAutoFill: false,
+            reason: `Не удалось получить безопасный AI-ответ: ${reason.slice(0, 180)}`,
+          });
+        }
+      });
+      generatedAnswers = [...byId.values()];
+      if (batches.length === 0) {
+        generatedAnswers = fields.map((field) => knownAnswers.get(field.question.id)!).filter(Boolean);
+      }
+    }
+
+    // A user-entered answer is authoritative. Preference keys deliberately keep
+    // relocation inside Russia separate from international relocation.
+    const confirmedByMeaning = new Map<string, HhStoredScreeningAnswer>();
+    for (const item of this.state.screeningFacts) {
+      confirmedByMeaning.set(screeningQuestionSemanticKey(item.question), {
+        questionId: '',
+        question: item.question,
+        answer: item.answer,
+        selectedOptions: item.selectedOptions,
+      });
+    }
+    for (const item of vacancy.screeningAnswers ?? []) {
+      confirmedByMeaning.set(screeningQuestionSemanticKey(item.question), item);
+    }
+    const generatedById = new Map(generatedAnswers.map((answer) => [answer.id, answer]));
+    const mergedAnswers = fields.map((field): HhScreeningAnswer => {
+      const remoteOnlyRussia = this.state.config.schedule === 'remote'
+        && screeningRelocationScope(field.question.prompt) === 'russia';
+      if (remoteOnlyRussia) {
+        return knownAnswers.get(field.question.id) ?? {
+          id: field.question.id,
+          answer: '', selectedOptions: [], canAutoFill: false,
+          reason: 'Выбран только удалённый формат, но в форме нет безопасного отрицательного варианта.',
+        };
+      }
+      const confirmed = confirmedByMeaning.get(screeningQuestionSemanticKey(field.question.prompt));
+      if (!confirmed) {
+        return knownAnswers.get(field.question.id) ?? generatedById.get(field.question.id) ?? {
+          id: field.question.id,
+          answer: '', selectedOptions: [], canAutoFill: false,
+          reason: 'Нужен ответ пользователя.',
+        };
+      }
+      return reusableScreeningAnswer(field.question, confirmed)
+        ?? knownAnswers.get(field.question.id)
+        ?? generatedById.get(field.question.id)
+        ?? {
+          id: field.question.id,
+          answer: '', selectedOptions: [], canAutoFill: false,
+          reason: 'Сохранённый ответ не совпадает с вариантами этой формы.',
+        };
     });
-    const result = await fillHhScreeningFields(page, fields, generated.answers);
+    const preparationNotes = [...new Set(mergedAnswers
+      .filter((answer) => answer.canAutoFill)
+      .map((answer) => answer.preparationNote?.replace(/\s+/g, ' ').trim() ?? '')
+      .filter(Boolean))].slice(0, 20);
+    const result = await fillHhScreeningFields(page, fields, mergedAnswers);
     if (result.unresolved.length > 0) {
+      const unresolvedById = new Map(result.unresolved.map((item) => [item.id, item]));
+      const answerById = new Map(mergedAnswers.map((answer) => [answer.id, answer]));
+      const pendingQuestions = fields
+        .filter((field) => unresolvedById.has(field.question.id))
+        .map((field) => {
+          const unresolved = unresolvedById.get(field.question.id);
+          const suggestion = answerById.get(field.question.id);
+          return {
+            ...field.question,
+            assistantReason: unresolved?.reason,
+            suggestedAnswer: suggestion?.answer || undefined,
+            suggestedOptions: suggestion?.selectedOptions.length
+              ? suggestion.selectedOptions
+              : undefined,
+          };
+        });
       return {
         ok: false,
-        reason: `Не заполняю ответы без подтверждённых данных: ${result.unresolved[0].slice(0, 180)}`,
+        reason: `Нужно ответить на ${pendingQuestions.length} ${pendingQuestions.length === 1 ? 'вопрос работодателя' : 'вопроса работодателя'}. Остальные вакансии продолжат обрабатываться.`,
+        pendingQuestions,
+        preparationNotes,
       };
     }
     return {
       ok: result.filled === fields.length,
       reason: `Ответы работодателю заполнены: ${result.filled}.`,
+      preparationNotes,
     };
   }
 
@@ -2115,16 +3346,35 @@ export class HhBrowserAssistant {
     vacancy: HhQueueItem,
   ): Promise<string> {
     const stored = String(vacancy.description ?? '').replace(/\s+/g, ' ').trim();
-    if (stored.length >= 80) return stored.slice(0, 12_000);
+    const workFormat = vacancy.platform === 'hh'
+      ? compactHhText(
+        await page.locator('[data-qa="work-formats-text"]').first()
+          .innerText({ timeout: 2_000 }).catch(() => ''),
+      )
+      : '';
+    const withWorkFormat = (description: string): string => {
+      if (!workFormat || description.toLocaleLowerCase('ru').includes(workFormat.toLocaleLowerCase('ru'))) {
+        return description.slice(0, 12_000);
+      }
+      return `${description}\n${workFormat}`.slice(0, 12_000);
+    };
+    if (stored.length >= 80) {
+      const description = withWorkFormat(stored);
+      if (description !== stored) {
+        vacancy.description = description;
+        this.patchQueue(vacancy.key, { description });
+      }
+      return description;
+    }
 
     await page
       .locator(PLATFORM_INFO[vacancy.platform].descriptions.join(', '))
       .first()
       .waitFor({ state: 'visible', timeout: 5_000 })
       .catch(() => undefined);
-    const description = (
+    const description = withWorkFormat((
       await firstText(page, PLATFORM_INFO[vacancy.platform].descriptions)
-    ).slice(0, 12_000);
+    ));
     if (description.length >= 80) {
       vacancy.description = description;
       this.patchQueue(vacancy.key, { description });
@@ -2137,17 +3387,19 @@ export class HhBrowserAssistant {
     page: Page,
     vacancy: HhQueueItem,
   ): Promise<{ ok: true; letter: string } | { ok: false; reason: string }> {
+    const cached = this.preparedCoverLetters.get(vacancy.key);
+    if (cached) return { ok: true, letter: cached };
     if (!this.generateCoverLetter) {
       return {
         ok: false,
-        reason: 'AI-генератор сопроводительного письма недоступен. Отклик не отправлен.',
+        reason: 'Персональное письмо сейчас недоступно. Проверьте вакансию и добавьте письмо вручную.',
       };
     }
     const vacancyDescription = await this.captureVacancyDescription(page, vacancy);
     if (vacancyDescription.length < 80) {
       return {
         ok: false,
-        reason: 'Не удалось прочитать описание вакансии. Слабое шаблонное письмо не отправляю.',
+        reason: 'Не удалось прочитать описание вакансии. Добавьте письмо вручную после проверки требований.',
       };
     }
 
@@ -2158,10 +3410,12 @@ export class HhBrowserAssistant {
     });
     let response: HhCoverLetterResponse;
     try {
+      const resumeText = await this.getSelectedResumeText(vacancy.title);
       response = await this.generateCoverLetter({
         vacancyTitle: vacancy.title,
         vacancyCompany: vacancy.company,
         vacancyDescription,
+        resumeText,
         language: 'ru',
       });
     } catch (error) {
@@ -2176,45 +3430,413 @@ export class HhBrowserAssistant {
         ok: false,
         reason:
           response.reason?.trim()
-          || 'Не найдено достаточно подтверждённых совпадений с вакансией. Слабое письмо не отправляю.',
+          || 'Не найдено достаточно подтверждённых совпадений с вакансией. Проверьте письмо вручную.',
       };
     }
+    this.preparedCoverLetters.set(vacancy.key, validated.letter);
     return { ok: true, letter: validated.letter };
+  }
+
+  private async openVacancyChatFrame(
+    page: Page,
+    vacancy: HhQueueItem,
+  ): Promise<Frame | null> {
+    await page
+      .locator(OPEN_VACANCY_CHAT_SELECTOR)
+      .first()
+      .waitFor({ state: 'visible', timeout: 6_000 })
+      .catch(() => undefined);
+    let opened = await this.clickFirstVisible(page, OPEN_VACANCY_CHAT_SELECTOR);
+    if (!opened) {
+      const button = page.locator(OPEN_VACANCY_CHAT_SELECTOR).first();
+      if (await button.isVisible().catch(() => false)) {
+        opened = await button.click({ timeout: 5_000, force: true })
+          .then(() => true)
+          .catch(() => false);
+      }
+    }
+    if (!opened) return null;
+
+    const expectedTitle = compactHhText(vacancy.title).toLocaleLowerCase('ru');
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline) {
+      const frames = page.frames().filter((frame) => frame.url().includes(CHAT_FRAME_URL_PART));
+      for (const frame of frames.reverse()) {
+        const label = compactHhText(
+          await frame.locator('body').innerText({ timeout: 1_500 }).catch(() => ''),
+        ).toLocaleLowerCase('ru');
+        if (!label) continue;
+        if (!expectedTitle || label.includes(expectedTitle)) return frame;
+        // The compact HH widget can shorten or omit the vacancy title. It is
+        // still the only chat frame created by open-vacancy-chat on this freshly
+        // navigated response page, so accept it when the application card is
+        // present instead of waiting forever on a cosmetic header mismatch.
+        if (/отклик на вакансию|добавить сопроводительное/i.test(label)) return frame;
+      }
+      await page.waitForTimeout(150);
+    }
+    return null;
+  }
+
+  private async openVacancyChatFromNegotiations(
+    page: Page,
+    vacancy: HhQueueItem,
+  ): Promise<{ frame: Frame | null; rejected: boolean; found: boolean }> {
+    const vacancyLinkSelector = `a[href*="/vacancy/${vacancy.id}"]`;
+    for (let pageIndex = 0; pageIndex < 21; pageIndex += 1) {
+      const target = pageIndex === 0
+        ? HH_NEGOTIATIONS_URL
+        : `${HH_NEGOTIATIONS_URL}?page=${pageIndex}`;
+      await page.goto(target, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+      await page
+        .locator(NEGOTIATION_ITEM_SELECTOR)
+        .first()
+        .waitFor({ state: 'attached', timeout: 7_000 })
+        .catch(() => undefined);
+      const vacancyLink = page.locator(vacancyLinkSelector).first();
+      if (!(await vacancyLink.isVisible().catch(() => false))) continue;
+      const item = vacancyLink
+        .locator('xpath=ancestor::*[@data-qa="negotiations-item"][1]');
+      const itemText = compactHhText(await item.innerText({ timeout: 2_000 }).catch(() => ''));
+      const rejected = (await item.locator(NEGOTIATION_REJECTED_SELECTOR).count().catch(() => 0)) > 0
+        || /^отказ(?:\s|$)/i.test(itemText);
+      if (rejected) return { frame: null, rejected: true, found: true };
+
+      const openChat = item.locator(NEGOTIATION_OPEN_CHAT_SELECTOR).first();
+      if (!(await openChat.isVisible().catch(() => false))) {
+        return { frame: null, rejected: false, found: true };
+      }
+      try {
+        await openChat.click({ timeout: 5_000 });
+      } catch {
+        await openChat.click({ timeout: 5_000, force: true }).catch(() => undefined);
+      }
+
+      const deadline = Date.now() + 10_000;
+      while (Date.now() < deadline) {
+        const frames = page.frames().filter((frame) => frame.url().includes(CHAT_FRAME_URL_PART));
+        for (const frame of frames.reverse()) {
+          const label = compactHhText(
+            await frame.locator('body').innerText({ timeout: 1_500 }).catch(() => ''),
+          );
+          if (/отклик на вакансию|добавить сопроводительное/i.test(label)) {
+            return { frame, rejected: false, found: true };
+          }
+        }
+        await page.waitForTimeout(150);
+      }
+      return { frame: null, rejected: false, found: true };
+    }
+    return { frame: null, rejected: false, found: false };
+  }
+
+  private async attachPendingCoverLetterInChat(
+    page: Page,
+    vacancy: HhQueueItem,
+  ): Promise<{ attached: boolean; reason: string; terminal?: boolean }> {
+    const responseUrl = new URL('/applicant/vacancy_response', vacancy.url);
+    responseUrl.searchParams.set('vacancyId', vacancy.id);
+    if (page.url() !== responseUrl.href) {
+      await page.goto(responseUrl.href, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+    }
+    if (page.url().includes('/account/login')) {
+      return {
+        attached: false,
+        reason: 'Сессия HH истекла. Войдите в HH — письмо останется в очереди.',
+      };
+    }
+
+    let frame = await this.openVacancyChatFrame(page, vacancy);
+    if (!frame) {
+      const fallback = await this.openVacancyChatFromNegotiations(page, vacancy);
+      if (fallback.rejected) {
+        return {
+          attached: false,
+          terminal: true,
+          reason: 'Работодатель уже отказал по этой вакансии — сопроводительное письмо больше не отправляю.',
+        };
+      }
+      if (!fallback.found) {
+        return {
+          attached: false,
+          terminal: true,
+          reason: 'Отклик больше не найден в активных переговорах HH — письмо отправлять некуда.',
+        };
+      }
+      frame = fallback.frame;
+    }
+    if (!frame) {
+      return {
+        attached: false,
+        reason: 'HH пока не открыл чат этого отклика. Повторю добавление сопроводительного письма автоматически.',
+      };
+    }
+
+    const readChatBody = async (): Promise<string> => compactHhText(
+      await frame.locator('body').innerText({ timeout: 2_000 }).catch(() => ''),
+    );
+    const addLetter = frame
+      .locator(CHAT_ADD_COVER_LETTER_SELECTOR)
+      .filter({ hasText: 'Добавить сопроводительное' })
+      .first();
+    const actionVisible = await addLetter.isVisible().catch(() => false);
+    const initialBody = await readChatBody();
+    if (!actionVisible) {
+      if (/отклик на вакансию/i.test(initialBody) && !/без сопроводительного письма/i.test(initialBody)) {
+        return {
+          attached: true,
+          reason: 'HH уже показывает сопроводительное письмо в чате отклика.',
+        };
+      }
+      return {
+        attached: false,
+        reason: /без сопроводительного письма/i.test(initialBody)
+          ? 'HH показывает отклик без письма, но ещё не отдал кнопку добавления. Повторю автоматически.'
+          : 'HH ещё не загрузил карточку отклика в чате. Повторю добавление письма автоматически.',
+      };
+    }
+
+    const generated = await this.prepareCoverLetter(page, vacancy);
+    if (!generated.ok) {
+      return {
+        attached: false,
+        reason: `Не удалось подготовить сопроводительное письмо: ${generated.reason}`,
+      };
+    }
+
+    try {
+      await addLetter.click({ timeout: 5_000 });
+    } catch {
+      // The compact HH chat is rendered inside an iframe and can briefly be
+      // covered by the parent-page transition. The control itself is already
+      // verified visible, so retry the same semantic click without coordinates.
+      await addLetter.click({ timeout: 5_000, force: true });
+    }
+    const preview = frame.locator(CHAT_COVER_LETTER_PREVIEW_SELECTOR).first();
+    await preview.waitFor({ state: 'visible', timeout: 5_000 }).catch(() => undefined);
+    let previewText = compactHhText(await preview.innerText({ timeout: 1_500 }).catch(() => ''));
+    if (!/сопроводительное письмо/i.test(previewText)) {
+      await addLetter.click({ timeout: 5_000, force: true }).catch(() => undefined);
+      await preview.waitFor({ state: 'visible', timeout: 5_000 }).catch(() => undefined);
+      previewText = compactHhText(await preview.innerText({ timeout: 1_500 }).catch(() => ''));
+    }
+    if (!/сопроводительное письмо/i.test(previewText)) {
+      return {
+        attached: false,
+        reason: 'HH не открыл режим сопроводительного письма в чате. Повторю автоматически.',
+      };
+    }
+
+    const input = frame.locator(CHAT_INPUT_SELECTOR).first();
+    await input.waitFor({ state: 'visible', timeout: 5_000 });
+    await input.fill(generated.letter);
+    if (compactHhText(await input.inputValue()) !== compactHhText(generated.letter)) {
+      return {
+        attached: false,
+        reason: 'HH не принял текст сопроводительного письма в поле чата. Повторю автоматически.',
+      };
+    }
+
+    const send = frame.locator(CHAT_SEND_SELECTOR).first();
+    await send.waitFor({ state: 'visible', timeout: 5_000 });
+    await send.click({ timeout: 5_000 });
+
+    const expected = compactHhText(generated.letter).slice(0, 100);
+    const verifyDeadline = Date.now() + 12_000;
+    while (Date.now() < verifyDeadline) {
+      const messageTexts = await frame
+        .locator(CHAT_MESSAGE_TEXT_SELECTOR)
+        .allInnerTexts()
+        .catch(() => [] as string[]);
+      const exactLetterRendered = messageTexts.some((text) =>
+        compactHhText(text).includes(expected));
+      const missingLetterActionStillVisible = await addLetter.isVisible().catch(() => false);
+      const coverLetterEditorStillVisible = await preview.isVisible().catch(() => false);
+      const body = await readChatBody();
+      const applicationCardUpdated = !missingLetterActionStillVisible
+        && !coverLetterEditorStillVisible
+        && !/без сопроводительного письма/i.test(body);
+      if (exactLetterRendered || applicationCardUpdated) {
+        return {
+          attached: true,
+          reason: 'Отклик и сопроводительное письмо подтверждены в чате HH.',
+        };
+      }
+      await page.waitForTimeout(200);
+    }
+    return {
+      attached: false,
+      reason: 'HH не подтвердил появление сопроводительного письма в чате. Не считаю отклик завершённым и повторю проверку.',
+    };
+  }
+
+  private async finishPendingCoverLetter(
+    page: Page,
+    vacancy: HhQueueItem,
+  ): Promise<{ sent: boolean; alreadyApplied?: boolean; blocked: boolean; reason: string }> {
+    const result = await this.attachPendingCoverLetterInChat(page, vacancy);
+    if (!result.attached) {
+      if (result.terminal) {
+        vacancy.coverLetterPending = false;
+        this.patchQueue(vacancy.id, {
+          status: 'skipped',
+          reason: result.reason,
+          coverLetterPending: false,
+          coverLetterAdded: false,
+        });
+        return { sent: false, blocked: false, reason: result.reason };
+      }
+      vacancy.coverLetterPending = true;
+      this.patchQueue(vacancy.id, {
+        status: 'opened',
+        reason: result.reason,
+        coverLetterPending: true,
+        coverLetterAdded: false,
+      });
+      return { sent: false, blocked: false, reason: result.reason };
+    }
+
+    vacancy.coverLetterPending = false;
+    vacancy.coverLetterAdded = true;
+    this.patchQueue(vacancy.id, {
+      status: 'sent',
+      reason: result.reason,
+      sentAt: vacancy.sentAt ?? nowIso(),
+      pendingQuestions: undefined,
+      screeningAnswers: undefined,
+      coverLetterPending: false,
+      coverLetterAdded: true,
+    });
+    return { sent: true, blocked: false, reason: result.reason };
   }
 
   private async applyToVacancy(
     vacancy: HhQueueItem,
-  ): Promise<{ sent: boolean; blocked: boolean; reason: string }> {
+    options: { explicitUserSelection?: boolean } = {},
+  ): Promise<{ sent: boolean; alreadyApplied?: boolean; blocked: boolean; reason: string }> {
     const page = await this.ensureBrowser('background');
+    const preferredResume = await this.preferredApplicantResume(vacancy.title);
+    if (preferredResume) {
+      this.patchQueue(vacancy.id, { selectedResumeTitle: preferredResume.title });
+    }
     if (hhVacancyId(page.url()) !== vacancy.id) {
       await page.goto(vacancy.url, {
         waitUntil: 'domcontentloaded',
         timeout: 30_000,
       });
     }
-    await this.captureVacancyDescription(page, vacancy);
+    const vacancyDescription = await this.captureVacancyDescription(page, vacancy);
+    if (!options.explicitUserSelection
+      && !isVacancyRelevantToSearchProfile(vacancy, this.state.config.query, vacancyDescription)) {
+      const reason = 'Пропущено перед откликом: вакансия не соответствует выбранному QA/Python-профилю.';
+      this.patchQueue(vacancy.id, {
+        status: 'skipped',
+        reason,
+        coverLetterPending: false,
+        coverLetterAdded: false,
+      });
+      return { sent: false, blocked: false, reason };
+    }
+    if (!options.explicitUserSelection
+      && !isVacancyCompatibleWithSearchSchedule(vacancy, this.state.config.schedule, vacancyDescription)) {
+      const reason = 'Пропущено перед откликом: вакансия явно требует работу только в офисе.';
+      this.patchQueue(vacancy.id, {
+        status: 'skipped',
+        reason,
+        coverLetterPending: false,
+        coverLetterAdded: false,
+      });
+      return { sent: false, blocked: false, reason };
+    }
     const baseCtx: HhApplyContext = {
       ...this.buildApplyContext(),
+      responseClicked: Boolean(vacancy.coverLetterPending),
+      responseSubmitted: Boolean(vacancy.coverLetterPending),
     };
+    if (vacancy.coverLetterPending && !vacancy.coverLetterAdded) {
+      return this.finishPendingCoverLetter(page, vacancy);
+    }
 
+    let lastSituation: HhApplySituation = 'unknown';
+    let repeatedSituation = 0;
     for (let step = 0; step < 12; step += 1) {
       const situation = await this.detectApplySituation(page, baseCtx);
+      repeatedSituation = situation === lastSituation ? repeatedSituation + 1 : 0;
+      lastSituation = situation;
+      if (repeatedSituation >= 2) {
+        const reason = `HH не изменил форму после нескольких попыток. Последнее состояние: ${situation}.`;
+        this.patchQueue(vacancy.id, { status: 'opened', reason });
+        return { sent: false, blocked: false, reason };
+      }
       const decided = decideNextAction(situation, baseCtx);
       switch (decided.action) {
-        case 'mark_sent':
+        case 'wait_letter':
+          vacancy.coverLetterPending = true;
+          this.patchQueue(vacancy.id, {
+            status: 'opened',
+            reason: decided.reason,
+            coverLetterPending: true,
+            coverLetterAdded: false,
+          });
+          return this.finishPendingCoverLetter(page, vacancy);
+        case 'mark_sent': {
+          if (situation === 'already_applied') {
+            if (baseCtx.letterFilled) {
+              this.patchQueue(vacancy.id, {
+                status: 'sent',
+                reason: 'Отклик и сопроводительное письмо отправлены',
+                sentAt: nowIso(),
+                pendingQuestions: undefined,
+                screeningAnswers: undefined,
+                coverLetterPending: false,
+                coverLetterAdded: true,
+              });
+              return {
+                sent: true,
+                blocked: false,
+                reason: 'Отклик и сопроводительное письмо отправлены.',
+              };
+            }
+            this.patchQueue(vacancy.id, {
+              status: vacancy.status === 'sent' && vacancy.sentAt ? 'sent' : 'already_applied',
+              reason: vacancy.status === 'sent' && vacancy.sentAt
+                ? vacancy.reason
+                : 'HH подтверждает: отклик уже был отправлен ранее.',
+              pendingQuestions: undefined,
+              screeningAnswers: undefined,
+            });
+            return {
+              sent: false,
+              alreadyApplied: true,
+              blocked: false,
+              reason: 'Отклик уже был отправлен ранее — не считаю его новым.',
+            };
+          }
+          const sentReason = baseCtx.letterFilled
+            ? 'Отклик и сопроводительное письмо отправлены'
+            : 'Отклик отправлен';
           this.patchQueue(vacancy.id, {
             status: 'sent',
-            reason: situation === 'already_applied' ? 'Уже откликались' : 'Отклик отправлен',
+            reason: sentReason,
             sentAt: nowIso(),
+            pendingQuestions: undefined,
+            screeningAnswers: undefined,
+            coverLetterPending: false,
+            coverLetterAdded: baseCtx.letterFilled || vacancy.coverLetterAdded || undefined,
           });
           return {
             sent: true,
             blocked: false,
-            reason:
-              situation === 'already_applied' ? 'Отклик уже был отправлен ранее.' : 'Отклик отправлен.',
+            reason: `${sentReason}.`,
           };
+        }
         case 'skip':
-          this.patchQueue(vacancy.id, { status: 'skipped', reason: decided.reason });
+          this.patchQueue(vacancy.id, {
+            status: decided.reason === 'Не удалось распознать состояние страницы HH.'
+              ? 'opened'
+              : 'skipped',
+            reason: decided.reason,
+          });
           return { sent: false, blocked: false, reason: decided.reason };
         case 'wait_user':
           this.update({
@@ -2225,28 +3847,55 @@ export class HhBrowserAssistant {
           });
           return { sent: false, blocked: true, reason: decided.reason };
         case 'click_response': {
-          const clicked = await this.clickFirstVisible(page, RESPONSE_BUTTON_SELECTOR);
+          if (baseCtx.hasCoverLetter) {
+            const generated = await this.prepareCoverLetter(page, vacancy);
+            if (!generated.ok) {
+              this.patchQueue(vacancy.id, {
+                status: 'opened',
+                reason: `Отклик не начат: ${generated.reason}`,
+                coverLetterPending: false,
+                coverLetterAdded: false,
+              });
+              return {
+                sent: false,
+                blocked: false,
+                reason: `Отклик не начат: ${generated.reason}`,
+              };
+            }
+          }
+          const clicked = await this.openResponseForm(page);
           if (!clicked) {
             this.patchQueue(vacancy.id, {
-              status: 'skipped',
-              reason: 'Кнопка «Откликнуться» не найдена.',
+              status: 'opened',
+              reason: 'Не удалось нажать «Откликнуться». Вакансия останется в очереди для повторной проверки.',
             });
-            return { sent: false, blocked: false, reason: 'Кнопка «Откликнуться» не найдена.' };
+            return {
+              sent: false,
+              blocked: false,
+              reason: 'Не удалось нажать «Откликнуться». Повторю при следующем запуске.',
+            };
           }
           await page.waitForTimeout(jitterMs(1));
+          baseCtx.responseClicked = true;
           break;
         }
         case 'select_resume':
-          await this.selectPreferredResume(
-            page,
-            this.state.config.resumeTitles.length > 0
-              ? this.state.config.resumeTitles
-              : [this.state.config.resumeTitleContains].filter(Boolean),
-            vacancy.title,
-          );
+          {
+            const preferredResume = await this.preferredApplicantResume(vacancy.title);
+            const selectedTitles = preferredResume
+              ? [preferredResume.title]
+              : this.state.config.resumeTitles.length > 0
+                ? this.state.config.resumeTitles
+                : [this.state.config.resumeTitleContains].filter(Boolean);
+            await this.selectPreferredResume(page, selectedTitles, vacancy.title);
+            if (selectedTitles[0]) {
+              this.patchQueue(vacancy.id, { selectedResumeTitle: selectedTitles[0] });
+            }
+          }
           baseCtx.resumeSelected = true;
           break;
         case 'open_letter': {
+          if (situation === 'post_response_letter_offer') baseCtx.responseSubmitted = true;
           const opened = await this.clickFirstVisible(page, ADD_COVER_LETTER_SELECTOR);
           if (!opened) throw new Error('HH не показал кнопку добавления сопроводительного письма.');
           await page
@@ -2259,6 +3908,21 @@ export class HhBrowserAssistant {
           const textarea = page.locator(LETTER_SELECTOR).first();
           const generated = await this.prepareCoverLetter(page, vacancy);
           if (!generated.ok) {
+            if (baseCtx.responseSubmitted) {
+              const reason = `Не удалось добавить сопроводительное письмо автоматически: ${generated.reason} Повторю попытку отдельно.`;
+              vacancy.coverLetterPending = true;
+              this.patchQueue(vacancy.id, {
+                status: 'opened',
+                reason,
+                coverLetterPending: true,
+                coverLetterAdded: false,
+              });
+              return {
+                sent: false,
+                blocked: false,
+                reason,
+              };
+            }
             this.patchQueue(vacancy.id, { status: 'opened', reason: generated.reason });
             this.update({
               phase: 'manual_required',
@@ -2266,7 +3930,7 @@ export class HhBrowserAssistant {
               currentVacancyId: vacancy.id,
               message: generated.reason,
             });
-            return { sent: false, blocked: true, reason: generated.reason };
+            return { sent: false, blocked: false, reason: generated.reason };
           }
           await textarea.fill(generated.letter);
           if ((await textarea.inputValue()).trim() !== generated.letter.trim()) {
@@ -2276,7 +3940,12 @@ export class HhBrowserAssistant {
           break;
         }
         case 'fill_questions': {
-          let result: { ok: boolean; reason: string };
+          let result: {
+            ok: boolean;
+            reason: string;
+            pendingQuestions?: HhScreeningQuestion[];
+            preparationNotes?: string[];
+          };
           try {
             result = await this.fillEmployerQuestions(page, vacancy);
           } catch (error) {
@@ -2286,17 +3955,36 @@ export class HhBrowserAssistant {
             };
           }
           if (!result.ok) {
-            this.patchQueue(vacancy.id, { status: 'prepared', reason: result.reason });
+            const needsInput = Boolean(result.pendingQuestions?.length);
+            const preparationNotes = [...new Set([
+              ...(vacancy.preparationNotes ?? []),
+              ...(result.preparationNotes ?? []),
+            ])].slice(-20);
+            this.patchQueue(vacancy.id, {
+              status: needsInput ? 'needs_input' : 'prepared',
+              reason: result.reason,
+              pendingQuestions: result.pendingQuestions,
+              preparationNotes: preparationNotes.length > 0 ? preparationNotes : undefined,
+            });
             this.update({
               phase: 'manual_required',
               browserOpen: true,
               currentVacancyId: vacancy.id,
               message: result.reason,
             });
-            return { sent: false, blocked: true, reason: result.reason };
+            return { sent: false, blocked: false, reason: result.reason };
           }
           baseCtx.questionsFilled = true;
-          this.patchQueue(vacancy.id, { status: 'prepared', reason: result.reason });
+          const preparationNotes = [...new Set([
+            ...(vacancy.preparationNotes ?? []),
+            ...(result.preparationNotes ?? []),
+          ])].slice(-20);
+          this.patchQueue(vacancy.id, {
+            status: 'prepared',
+            reason: result.reason,
+            pendingQuestions: undefined,
+            preparationNotes: preparationNotes.length > 0 ? preparationNotes : undefined,
+          });
           break;
         }
         case 'click_confirm': {
@@ -2313,79 +4001,602 @@ export class HhBrowserAssistant {
     }
 
     this.patchQueue(vacancy.id, {
-      status: 'skipped',
-      reason: 'Превышено число шагов авто-отклика.',
+      status: 'opened',
+      reason: `HH не подтвердил отправку отклика. Последнее состояние формы: ${lastSituation}.`,
     });
     return {
       sent: false,
       blocked: false,
-      reason: 'Не удалось завершить отклик: слишком много шагов.',
+      reason: 'HH не подтвердил отправку. Вакансия оставлена во вкладке «Нужно разобрать» для повторной проверки.',
     };
   }
 
-  private async runQueue(): Promise<void> {
-    if (this.applyInFlight) return;
+  private async runQueue(runId?: string, scopedKeys?: ReadonlySet<string>): Promise<QueueRunStats> {
+    if (this.applyInFlight) {
+      return { total: 0, attempted: 0, sent: 0, alreadyApplied: 0, skipped: 0, needsAttention: 0, stopped: false };
+    }
     this.applyInFlight = true;
-    this.stopApplyRequested = false;
     let sentNow = 0;
     const initial = this.state.queue.filter(
-      (item) => item.platform === 'hh' && (item.status === 'new' || item.status === 'opened' || item.status === 'prepared'),
+      (item) => item.platform === 'hh'
+        && isActionableQueueItem(item)
+        && (!scopedKeys || scopedKeys.has(item.key)),
     );
     const total = initial.length;
     if (total === 0) {
       this.applyInFlight = false;
       this.update({
         phase: 'ready', applying: false, applyProgress: null,
-        message: 'Новых вакансий для авто-отклика нет.',
+        message: this.state.lastScanSummary
+          ? scanSummaryMessage(this.state.lastScanSummary)
+          : 'Очередь проверена: новых вакансий для автоотклика нет.',
       });
-      return;
+      return { total: 0, attempted: 0, sent: 0, alreadyApplied: 0, skipped: 0, needsAttention: 0, stopped: false };
     }
 
     let done = 0;
+    let alreadyAppliedNow = 0;
+    let skippedNow = 0;
+    let needsAttention = 0;
+    let dailyLimitReached = false;
+    let hardBlocked = false;
+    let blockerReason = '';
     this.update({
       phase: 'applying', browserOpen: true, applying: true,
       applyProgress: { done: 0, total },
       message: 'Начинаю авто-отклики…',
     });
+    this.progressRun(runId, {
+      found: this.lastScanFoundCount,
+      attempted: 0,
+      sent: 0,
+      alreadyApplied: 0,
+      skipped: 0,
+      needsAttention: 0,
+      message: `Проверяю вакансии и отправляю отклики: 0 из ${total}`,
+    });
 
     for (const item of initial) {
       if (this.stopApplyRequested) break;
+      const onlyFinishingAcceptedResponse = Boolean(
+        item.coverLetterPending && !item.coverLetterAdded,
+      );
+      if (!onlyFinishingAcceptedResponse && !canSendMore(this.state.config, this.state.queue)) {
+        dailyLimitReached = true;
+        break;
+      }
       this.update({
         currentVacancyId: item.id,
         applyProgress: { done, total },
         message: `Откликаюсь на «${item.title}»… (${done + 1}/${total})`,
       });
+      this.progressRun(runId, {
+        attempted: done,
+        sent: sentNow,
+        alreadyApplied: alreadyAppliedNow,
+        skipped: skippedNow,
+        needsAttention,
+        message: `Вакансия ${done + 1} из ${total}: ${item.title}`,
+      });
       const outcome = await this.applyToVacancy(item).catch((error) => ({
-        sent: false, blocked: false,
+        sent: false, alreadyApplied: false, blocked: false,
         reason: error instanceof Error ? error.message : String(error),
       }));
       if (outcome.sent) sentNow += 1;
+      if (outcome.alreadyApplied) alreadyAppliedNow += 1;
+      const updatedItem = this.state.queue.find((candidate) => candidate.key === item.key);
+      if (!outcome.sent && updatedItem?.status === 'skipped') skippedNow += 1;
+      if (updatedItem?.status === 'needs_input' || outcome.blocked) needsAttention += 1;
       done += 1;
       this.update({ applyProgress: { done, total } });
-      if (outcome.blocked) break;
+      this.progressRun(runId, {
+        attempted: done,
+        sent: sentNow,
+        alreadyApplied: alreadyAppliedNow,
+        skipped: skippedNow,
+        needsAttention,
+        message: `Проверено ${done} из ${total} · отправлено сейчас ${sentNow} · уже было ${alreadyAppliedNow}`,
+      });
+      if (outcome.blocked) {
+        hardBlocked = true;
+        blockerReason = outcome.reason;
+        break;
+      }
       if (this.stopApplyRequested) break;
     }
 
+    const stopped = this.stopApplyRequested;
     this.applyInFlight = false;
     this.stopApplyRequested = false;
     const remaining = this.state.queue.filter(
-      (item) => item.status === 'new' || item.status === 'opened' || item.status === 'prepared',
+      (item) => item.platform === 'hh'
+        && isActionableQueueItem(item)
+        && (!scopedKeys || scopedKeys.has(item.key)),
     ).length;
     this.update({
-      phase: 'ready', applying: false, applyProgress: null,
-      message: `Сессия завершена: ${
-        sentNow > 0 ? `успешно ${sentNow}` : 'успешных нет'
-      } из ${total}. ${remaining > 0 ? `Осталось в очереди: ${remaining}.` : 'Очередь пуста.'}`,
+      phase: hardBlocked && !stopped ? 'manual_required' : 'ready',
+      applying: false,
+      stopRequested: false,
+      queuePaused: stopped || this.state.queuePaused,
+      applyProgress: null,
+      message: stopped
+        ? `Поиск и автоотклики остановлены вами. Уже завершённые действия сохранены. Осталось в очереди: ${remaining}.`
+        : hardBlocked
+        ? blockerReason
+        : dailyLimitReached
+        ? `Дневной план выполнен: отправлено сегодня ${this.state.config.dailyLimit}. Осталось в очереди: ${remaining}. Продолжу автоматически в следующий запуск.`
+        : `Сессия завершена: ${
+         sentNow > 0 ? `отправлено сейчас ${sentNow}` : 'новых отправок нет'
+       } из ${done}. ${alreadyAppliedNow > 0 ? `Уже были отправлены: ${alreadyAppliedNow}. ` : ''}${needsAttention > 0 ? `Нужен ваш ответ: ${needsAttention}. ` : ''}${remaining > 0 ? `Осталось в очереди: ${remaining}.` : 'Очередь пуста.'}`,
     });
+    if (remaining > 0 && !hardBlocked && !stopped) this.scheduleQueueResume(this.queueRetryDelayMs());
+    return { total, attempted: done, sent: sentNow, alreadyApplied: alreadyAppliedNow, skipped: skippedNow, needsAttention, stopped };
   }
 
   async applyAll(): Promise<HhAssistantState> {
-    if (this.applyInFlight) return this.getState();
+    if (this.applyInFlight || this.automationRunInFlight) return this.getState();
+    this.stopApplyRequested = false;
+    this.update({ stopRequested: false, queuePaused: false });
     void this.runQueue();
     return this.getState();
   }
 
-  async applyOne(vacancyId: string): Promise<HhAssistantState> {
+  async suggestScreeningAnswer(
+    vacancyId: string,
+    questionId: string,
+    currentAnswer?: string,
+  ): Promise<HhScreeningDraftSuggestion> {
+    const vacancy = this.state.queue.find((item) => item.key === vacancyId || item.id === vacancyId);
+    if (!vacancy || vacancy.platform !== 'hh') {
+      throw new Error('Вакансия с вопросом работодателя не найдена.');
+    }
+    const question = (vacancy.pendingQuestions ?? []).find((item) => item.id === questionId);
+    if (!question) throw new Error('Этот вопрос уже обработан или больше не существует.');
+    const existingDraft = question.kind === 'text'
+      ? String(currentAnswer ?? '').trim().slice(0, 2_000)
+      : '';
+
+    const normalizeSuggestion = (
+      answer: Pick<HhScreeningAnswer, 'answer' | 'selectedOptions'>,
+      source: HhScreeningDraftSuggestion['source'],
+      note: string,
+    ): HhScreeningDraftSuggestion | null => {
+      const text = String(answer.answer ?? '').trim().slice(0, 2_000);
+      const selectedOptions = matchScreeningOptionLabels(
+        { answer: text, selectedOptions: answer.selectedOptions ?? [] },
+        question.options,
+        question.kind === 'multiple',
+      );
+      const valid = question.kind === 'text' ? Boolean(text) : selectedOptions.length > 0;
+      return valid ? {
+        questionId: question.id,
+        answer: text,
+        selectedOptions,
+        source,
+        note,
+      } : null;
+    };
+
+    if (existingDraft) {
+      const resumeText = await this.getSelectedResumeText(vacancy.title);
+      const confirmedAnswers = selectRelevantScreeningFacts(
+        this.state.screeningFacts,
+        [question],
+        30,
+      ).map((fact) => ({
+        question: fact.question,
+        answer: fact.answer,
+        selectedOptions: fact.selectedOptions,
+      }));
+      let generationError = '';
+      if (this.generateScreeningAnswers) {
+        try {
+          const generated = await this.generateScreeningAnswers({
+            vacancyTitle: vacancy.title,
+            vacancyCompany: vacancy.company,
+            vacancyDescription: vacancy.description ?? '',
+            resumeText,
+            questions: [question],
+            confirmedAnswers,
+            draftMode: true,
+            existingDraft: {
+              questionId: question.id,
+              answer: existingDraft,
+            },
+            language: 'ru',
+          });
+          const answer = generated.answers.find((item) => item.id === question.id);
+          if (answer) {
+            const suggestion = normalizeSuggestion(
+              answer,
+              'ai',
+              'SkillCue улучшил ваш текст, сохранив исходный смысл и факты. Проверьте итоговую формулировку.',
+            );
+            if (suggestion) return suggestion;
+          }
+        } catch (error) {
+          generationError = error instanceof Error ? error.message : String(error);
+        }
+      }
+
+      const polished = polishScreeningDraftLocally(existingDraft);
+      if (polished && polished !== existingDraft) {
+        return {
+          questionId: question.id,
+          answer: polished,
+          selectedOptions: [],
+          source: 'local',
+          note: generationError
+            ? 'Онлайн-ИИ сейчас недоступен, поэтому применена только базовая правка регистра, пробелов и пунктуации. Смысл ответа не менялся.'
+            : 'Применена базовая редактура без изменения смысла ответа.',
+        };
+      }
+      if (/лимит.*(?:токен|тариф).*исчерпан|месячн.*лимит/i.test(generationError)) {
+        throw new Error('Онлайн-ИИ временно недоступен из-за месячного лимита. Ваш ответ сохранён без изменений — SkillCue не будет заменять его чужим предположением.');
+      }
+      throw new Error(generationError || 'Не удалось улучшить формулировку. Ваш исходный ответ сохранён без изменений.');
+    }
+
+    const exactFact = this.state.screeningFacts.find(
+      (fact) => screeningQuestionSemanticKey(fact.question) === screeningQuestionSemanticKey(question.prompt),
+    );
+    const remoteOnlyRussia = this.state.config.schedule === 'remote'
+      && screeningRelocationScope(question.prompt) === 'russia';
+    if (remoteOnlyRussia) {
+      const preference = knownScreeningAnswer(question, null, '', { remoteOnly: true });
+      const suggestion = preference && normalizeSuggestion(
+        preference,
+        'profile',
+        'Использован ваш текущий фильтр: только удалённая работа, без переезда по России.',
+      );
+      if (suggestion) return suggestion;
+      throw new Error('В форме нет безопасного варианта «без переезда по России». Проверьте этот вопрос вручную.');
+    }
+    if (exactFact) {
+      const suggestion = normalizeSuggestion(
+        reusableScreeningAnswer(question, exactFact) ?? exactFact,
+        'profile',
+        'Ответ найден в вашем подтверждённом профиле. Проверьте, что он по-прежнему актуален.',
+      );
+      if (suggestion) return suggestion;
+    }
+
+    const resumeText = await this.getSelectedResumeText(vacancy.title);
+    const salaryExpectation = findSalaryExpectation(
+      this.state.config.salaryFrom,
+      [...this.state.config.resumeTitles, resumeText],
+    );
+    const known = knownScreeningAnswer(question, salaryExpectation, resumeText, {
+      remoteOnly: this.state.config.schedule === 'remote',
+    });
+    if (known) {
+      const suggestion = normalizeSuggestion(
+        known,
+        'profile',
+        'SkillCue составил ответ из подтверждённых данных резюме. Проверьте формулировку перед сохранением.',
+      );
+      if (suggestion) return suggestion;
+    }
+
+    let generationError = '';
+    if (this.generateScreeningAnswers) {
+      const confirmedAnswers = selectRelevantScreeningFacts(
+        this.state.screeningFacts,
+        [question],
+        30,
+      ).map((fact) => ({
+        question: fact.question,
+        answer: fact.answer,
+        selectedOptions: fact.selectedOptions,
+      }));
+      try {
+        const generated = await this.generateScreeningAnswers({
+          vacancyTitle: vacancy.title,
+          vacancyCompany: vacancy.company,
+          vacancyDescription: vacancy.description ?? '',
+          resumeText,
+          questions: [question],
+          confirmedAnswers,
+          draftMode: true,
+          language: 'ru',
+        });
+        const answer = generated.answers.find((item) => item.id === question.id);
+        if (answer) {
+          const suggestion = normalizeSuggestion(
+            answer,
+            'ai',
+            'Это ИИ-предположение, а не подтверждённый факт. Отредактируйте всё, что не соответствует вашему опыту.',
+          );
+          if (suggestion) return suggestion;
+        }
+      } catch (error) {
+        generationError = error instanceof Error ? error.message : String(error);
+      }
+    }
+
+    const fallback = localScreeningDraft(question, vacancy.title, vacancy.company);
+    if (fallback) {
+      const suggestion = normalizeSuggestion(
+        fallback,
+        'local',
+        generationError
+          ? 'Онлайн-генератор сейчас недоступен, поэтому SkillCue подготовил нейтральное предположение локально. Обязательно проверьте факты.'
+          : 'SkillCue подготовил нейтральное предположение. Обязательно проверьте факты перед сохранением.',
+      );
+      if (suggestion) return suggestion;
+    }
+    if (/лимит.*(?:токен|тариф).*исчерпан|месячн.*лимит/i.test(generationError)) {
+      throw new Error('Онлайн-ИИ временно недоступен из-за месячного лимита. Для этого вопроса SkillCue не может безопасно придумать личный факт — введите его один раз, и он сохранится в профиле.');
+    }
+    throw new Error(generationError || 'Для этого вопроса не удалось подготовить безопасное предположение.');
+  }
+
+  async answerScreeningQuestions(
+    vacancyId: string,
+    rawAnswers: unknown,
+  ): Promise<HhAssistantState> {
+    const vacancy = this.state.queue.find((item) => item.key === vacancyId || item.id === vacancyId);
+    if (!vacancy || vacancy.platform !== 'hh') {
+      this.update({ phase: 'error', message: 'Вакансия с вопросами работодателя не найдена.' });
+      return this.getState();
+    }
+    const questions = vacancy.pendingQuestions ?? [];
+    if (questions.length === 0) {
+      this.update({ message: 'Для этой вакансии больше нет вопросов, ожидающих ответа.' });
+      return this.getState();
+    }
+    if (!Array.isArray(rawAnswers)) {
+      this.update({ phase: 'manual_required', message: 'Ответы не сохранены: заполните все вопросы.' });
+      return this.getState();
+    }
+    const submitted = new Map<string, Record<string, unknown>>();
+    for (const raw of rawAnswers) {
+      if (!raw || typeof raw !== 'object') continue;
+      const item = raw as Record<string, unknown>;
+      submitted.set(String(item.questionId ?? ''), item);
+    }
+    const accepted: HhStoredScreeningAnswer[] = [];
+    const remembered: HhStoredScreeningAnswer[] = [];
+    const submittedAnswers = new Map<string, HhStoredScreeningAnswer>();
+    const submittedByMeaning = new Map<string, HhStoredScreeningAnswer>();
+    for (const question of questions) {
+      const item = submitted.get(question.id);
+      if (!item) continue;
+      const answer = String(item?.answer ?? '').trim().slice(0, 2_000);
+      const selectedOptions = matchScreeningOptionLabels(
+        {
+          answer,
+          selectedOptions: Array.isArray(item?.selectedOptions)
+            ? item.selectedOptions.map((option) => String(option))
+            : [],
+        },
+        question.options,
+        question.kind === 'multiple',
+      );
+      const valid = question.kind === 'text' ? Boolean(answer) : selectedOptions.length > 0;
+      if (!valid) {
+        this.update({
+          phase: 'manual_required',
+          message: `Заполните вопрос: ${question.prompt.slice(0, 180)}`,
+        });
+        return this.getState();
+      }
+      const stored = {
+        questionId: question.id,
+        question: question.prompt,
+        answer,
+        selectedOptions,
+      };
+      submittedAnswers.set(question.id, stored);
+      submittedByMeaning.set(screeningQuestionSemanticKey(question.prompt), stored);
+      if (item?.remember) remembered.push(stored);
+    }
+
+    for (const question of questions) {
+      const direct = submittedAnswers.get(question.id);
+      if (direct) {
+        accepted.push(direct);
+        continue;
+      }
+      const reusable = submittedByMeaning.get(screeningQuestionSemanticKey(question.prompt));
+      const mapped = reusable && reusableScreeningAnswer(question, reusable);
+      if (!mapped?.canAutoFill) {
+        this.update({
+          phase: 'manual_required',
+          message: `Заполните вопрос: ${question.prompt.slice(0, 180)}`,
+        });
+        return this.getState();
+      }
+      accepted.push({
+        questionId: question.id,
+        question: question.prompt,
+        answer: mapped.answer,
+        selectedOptions: mapped.selectedOptions,
+      });
+    }
+
+    const vacancyAnswers = new Map(
+      (vacancy.screeningAnswers ?? []).map((answer) => [screeningQuestionSemanticKey(answer.question), answer]),
+    );
+    for (const answer of accepted) vacancyAnswers.set(screeningQuestionSemanticKey(answer.question), answer);
+
+    const facts = new Map(
+      this.state.screeningFacts.map((fact) => [screeningQuestionSemanticKey(fact.question), fact]),
+    );
+    for (const answer of remembered) {
+      const key = screeningQuestionSemanticKey(answer.question);
+      const previous = facts.get(key);
+      facts.set(key, {
+        id: previous?.id ?? `fact-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        question: answer.question,
+        answer: answer.answer,
+        selectedOptions: answer.selectedOptions,
+        updatedAt: nowIso(),
+      });
+    }
+    this.state.screeningFacts = [...facts.values()].slice(-100);
+    const reusableAnswers = new Map(
+      remembered.map((answer) => [screeningQuestionSemanticKey(answer.question), answer]),
+    );
+    let reusedVacancies = 0;
+    if (reusableAnswers.size > 0) {
+      this.state.queue = this.state.queue.map((item) => {
+        if (item.key === vacancy.key || item.status !== 'needs_input' || !item.pendingQuestions?.length) {
+          return item;
+        }
+        const reused: HhStoredScreeningAnswer[] = [];
+        const pendingQuestions = item.pendingQuestions.filter((question) => {
+          const reusable = reusableAnswers.get(screeningQuestionSemanticKey(question.prompt));
+          if (!reusable) return true;
+          const mapped = reusableScreeningAnswer(question, reusable);
+          if (!mapped?.canAutoFill) return true;
+          reused.push({
+            questionId: question.id,
+            question: question.prompt,
+            answer: mapped.answer,
+            selectedOptions: mapped.selectedOptions,
+          });
+          return false;
+        });
+        if (reused.length === 0) return item;
+        reusedVacancies += 1;
+        const answers = new Map(
+          (item.screeningAnswers ?? []).map((answer) => [screeningQuestionSemanticKey(answer.question), answer]),
+        );
+        for (const answer of reused) answers.set(screeningQuestionSemanticKey(answer.question), answer);
+        return {
+          ...item,
+          status: pendingQuestions.length === 0 ? 'prepared' as const : 'needs_input' as const,
+          reason: pendingQuestions.length === 0
+            ? 'Ответ из профиля применён автоматически. Вакансия вернулась в очередь.'
+            : `Повторяющиеся ответы применены. Осталось уточнить: ${pendingQuestions.length}.`,
+          pendingQuestions: pendingQuestions.length > 0 ? pendingQuestions : undefined,
+          screeningAnswers: [...answers.values()].slice(-60),
+        };
+      });
+    }
+    this.patchQueue(vacancy.key, {
+      status: 'prepared',
+      reason: 'Ответы подтверждены. Возвращаюсь к форме HH…',
+      pendingQuestions: undefined,
+      screeningAnswers: [...vacancyAnswers.values()].slice(-60),
+    });
+    this.update({
+      message: reusedVacancies > 0
+        ? `Ответы сохранены и применены ещё к ${reusedVacancies} ${reusedVacancies === 1 ? 'вакансии' : 'вакансиям'}. Продолжаю отклики.`
+        : 'Ответы сохранены. Продолжаю отклик на эту вакансию.',
+    });
+    if (this.applyInFlight) {
+      this.scheduleQueueResume(2_000);
+      return this.getState();
+    }
+    const next = await this.applyOne(vacancy.key);
+    this.scheduleQueueResume(2_000);
+    return next;
+  }
+
+  forgetScreeningFact(factId: string): HhAssistantState {
+    const next = this.state.screeningFacts.filter((fact) => fact.id !== factId);
+    if (next.length === this.state.screeningFacts.length) return this.getState();
+    this.update({ screeningFacts: next, message: 'Сохранённый ответ удалён.' });
+    return this.getState();
+  }
+
+  async runNow(
+    trigger: Exclude<HhAutomationRunTrigger, 'direct_link' | 'resume'> = 'manual',
+  ): Promise<HhAssistantState> {
+    if (this.applyInFlight || this.automationRunInFlight) {
+      this.update({ message: 'Предыдущий прогон ещё выполняется.' });
+      return this.getState();
+    }
+    this.automationRunInFlight = true;
+    const run = this.beginRun(trigger);
+    try {
+      await this.scan(this.state.config.platform, run.id);
+      if (this.stopApplyRequested) {
+        const message = this.state.message || 'Поиск и автоотклики остановлены вами.';
+        this.stopApplyRequested = false;
+        this.update({
+          phase: 'ready',
+          applying: false,
+          stopRequested: false,
+          queuePaused: true,
+          applyProgress: null,
+          message,
+        });
+        this.finishRun(run.id, {
+          status: 'stopped',
+          found: this.lastScanFoundCount,
+          message,
+        });
+        return this.getState();
+      }
+      if (this.state.phase === 'error' || this.state.phase === 'manual_required') {
+        const status: HhAutomationRunStatus = this.state.phase === 'error' ? 'failed' : 'attention';
+        this.finishRun(run.id, {
+          status,
+          found: this.lastScanFoundCount,
+          needsAttention: status === 'attention' ? 1 : 0,
+          message: this.state.message,
+        });
+        return this.getState();
+      }
+      if (this.state.config.platform === 'hh' && !this.state.config.autoSend) {
+        const queued = this.pendingQueueCount();
+        const message = queued > 0
+          ? `Найденные вакансии добавлены в очередь: ${queued}. Проверьте их и отправляйте отклики по одному.`
+          : 'Поиск завершён: новых подходящих вакансий для очереди нет.';
+        this.update({ phase: 'ready', applying: false, applyProgress: null, message });
+        this.finishRun(run.id, {
+          status: 'completed',
+          found: this.lastScanFoundCount,
+          attempted: 0,
+          sent: 0,
+          message,
+        });
+        return this.getState();
+      }
+      const stats = this.state.config.platform === 'hh'
+        ? await this.runQueue(run.id)
+        : { total: 0, attempted: 0, sent: 0, alreadyApplied: 0, skipped: 0, needsAttention: 0, stopped: false };
+      this.finishRun(run.id, {
+        status: stats.stopped ? 'stopped' : stats.needsAttention > 0 ? 'attention' : 'completed',
+        found: this.lastScanFoundCount,
+        attempted: stats.attempted,
+        sent: stats.sent,
+        alreadyApplied: stats.alreadyApplied,
+        skipped: stats.skipped,
+        needsAttention: stats.needsAttention,
+        message: this.state.message,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (this.stopApplyRequested) {
+        const stoppedMessage = 'Поиск и автоотклики остановлены вами. Уже завершённые действия сохранены.';
+        this.stopApplyRequested = false;
+        this.update({
+          phase: 'ready',
+          applying: false,
+          stopRequested: false,
+          queuePaused: true,
+          applyProgress: null,
+          message: stoppedMessage,
+        });
+        this.finishRun(run.id, { status: 'stopped', found: this.lastScanFoundCount, message: stoppedMessage });
+      } else {
+        this.fail(error);
+        this.finishRun(run.id, { status: 'failed', found: this.lastScanFoundCount, message });
+      }
+    } finally {
+      this.automationRunInFlight = false;
+    }
+    return this.getState();
+  }
+
+  async applyOne(
+    vacancyId: string,
+    options: { explicitUserSelection?: boolean } = {},
+  ): Promise<HhAssistantState> {
     const vacancy = this.state.queue.find((item) => item.key === vacancyId || item.id === vacancyId);
     if (!vacancy) {
       this.update({ phase: 'error', message: 'Вакансия не найдена в очереди.' });
@@ -2395,6 +4606,17 @@ export class HhBrowserAssistant {
       return this.openVacancy(vacancy.key);
     }
     if (this.applyInFlight) return this.getState();
+    if (this.stopApplyRequested) {
+      this.stopApplyRequested = false;
+      this.update({
+        phase: 'ready',
+        applying: false,
+        stopRequested: false,
+        queuePaused: true,
+        message: 'Отклик остановлен вами до отправки.',
+      });
+      return this.getState();
+    }
     this.applyInFlight = true;
     this.update({
       phase: 'applying',
@@ -2402,27 +4624,114 @@ export class HhBrowserAssistant {
       currentVacancyId: vacancy.id,
       message: `Откликаюсь на «${vacancy.title}»…`,
     });
-    const outcome = await this.applyToVacancy(vacancy).catch((error) => ({
+    const outcome = await this.applyToVacancy(vacancy, options).catch((error) => ({
       sent: false,
       blocked: false,
       reason: error instanceof Error ? error.message : String(error),
     }));
+    const stopped = this.stopApplyRequested;
+    this.stopApplyRequested = false;
     this.applyInFlight = false;
     this.update({
-      phase: outcome.blocked ? 'manual_required' : 'ready',
+      phase: outcome.blocked && !stopped ? 'manual_required' : 'ready',
       applying: false,
-      message: outcome.reason,
+      stopRequested: false,
+      queuePaused: stopped || this.state.queuePaused,
+      message: stopped
+        ? 'Автоотклики остановлены вами. Текущая вакансия завершена, следующие не обрабатываются.'
+        : outcome.reason,
     });
     return this.getState();
   }
 
   stopApply(): HhAssistantState {
-    if (!this.applyInFlight) return this.getState();
+    if (!this.applyInFlight && !this.automationRunInFlight && !this.queueResumeRunning) {
+      return this.getState();
+    }
     this.stopApplyRequested = true;
+    this.clearQueueResumeTimer();
+    const message = this.state.phase === 'scanning'
+      ? 'Останавливаю поиск после текущей страницы…'
+      : this.applyInFlight
+        ? 'Останавливаю автоотклики после текущей вакансии…'
+        : 'Останавливаю текущий запуск…';
     this.update({
-      message: 'Останавливаю авто-отклики после текущей вакансии…',
+      stopRequested: true,
+      queuePaused: true,
+      message,
     });
     return this.getState();
+  }
+
+  private pendingQueueCount(): number {
+    return this.state.queue.filter(
+      (item) => item.platform === 'hh' && isActionableQueueItem(item),
+    ).length;
+  }
+
+  private clearQueueResumeTimer(): void {
+    if (!this.queueResumeTimer) return;
+    clearTimeout(this.queueResumeTimer);
+    this.queueResumeTimer = null;
+  }
+
+  private queueRetryDelayMs(): number {
+    if (canSendMore(this.state.config, this.state.queue)) return 30 * 60 * 1_000;
+    const nextDay = new Date();
+    nextDay.setDate(nextDay.getDate() + 1);
+    nextDay.setHours(0, 5, 0, 0);
+    return Math.max(60_000, nextDay.getTime() - Date.now());
+  }
+
+  private scheduleQueueResume(delayMs = 30 * 60 * 1_000): void {
+    this.clearQueueResumeTimer();
+    if (
+      !this.state.config.autoSend
+      || this.state.config.platform !== 'hh'
+      || this.pendingQueueCount() === 0
+      || this.state.loginRequired
+      || this.state.queuePaused
+    ) return;
+    this.queueResumeTimer = setTimeout(() => {
+      this.queueResumeTimer = null;
+      void this.resumePendingQueue();
+    }, Math.max(1_000, delayMs));
+    this.queueResumeTimer.unref?.();
+  }
+
+  private async resumePendingQueue(): Promise<void> {
+    if (this.state.queuePaused) return;
+    if (this.queueResumeRunning || this.applyInFlight || this.automationRunInFlight) {
+      this.scheduleQueueResume(30_000);
+      return;
+    }
+    if (this.pendingQueueCount() === 0) return;
+    this.queueResumeRunning = true;
+    this.automationRunInFlight = true;
+    const run = this.beginRun('resume');
+    try {
+      const stats = await this.runQueue(run.id);
+      this.finishRun(run.id, {
+        status: stats.stopped ? 'stopped' : stats.needsAttention > 0 ? 'attention' : 'completed',
+        found: stats.total,
+        attempted: stats.attempted,
+        sent: stats.sent,
+        alreadyApplied: stats.alreadyApplied,
+        skipped: stats.skipped,
+        needsAttention: stats.needsAttention,
+        message: this.state.message,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.fail(error);
+      this.finishRun(run.id, { status: 'failed', message });
+    } finally {
+      this.automationRunInFlight = false;
+      this.queueResumeRunning = false;
+      if (this.pendingQueueCount() > 0 && !this.state.loginRequired && !this.state.queuePaused) {
+        this.scheduleQueueResume(this.queueRetryDelayMs());
+      }
+    }
   }
 
   private clearScheduleTimer(): void {
@@ -2430,18 +4739,23 @@ export class HhBrowserAssistant {
       clearTimeout(this.scheduleTimer);
       this.scheduleTimer = null;
     }
+    this.state.nextRunAt = null;
   }
 
-  startDailySchedule(): void {
+  startDailySchedule(announce = true): void {
     this.clearScheduleTimer();
     const config = this.state.config;
     if (!config.autoRunDaily) return;
     const delay = nextAutoRunDelayMs(config, new Date());
+    const nextRunAt = new Date(Date.now() + delay).toISOString();
     this.scheduleTimer = setTimeout(() => {
       void this.onScheduleTick();
     }, delay);
     this.update({
-      message: `Ежедневный авто-прогон запланирован на ${config.autoRunHour}:00 локального времени.`,
+      nextRunAt,
+      ...(announce
+        ? { message: `Следующий автоматический поиск: ${new Date(nextRunAt).toLocaleString('ru-RU')}.` }
+        : {}),
     });
   }
 
@@ -2453,14 +4767,11 @@ export class HhBrowserAssistant {
     if (this.scheduleRunning) return;
     this.scheduleRunning = true;
     try {
-      if (this.state.config.query) {
-        await this.scan();
-      }
-      await this.runQueue();
+      if (this.state.config.query) await this.runNow('schedule');
     } finally {
       this.scheduleRunning = false;
       if (this.state.config.autoRunDaily) {
-        this.startDailySchedule();
+        this.startDailySchedule(false);
       }
     }
   }
@@ -2470,6 +4781,8 @@ export class HhBrowserAssistant {
       status,
       reason: status === 'sent' ? 'Подтверждено пользователем' : 'Пропущено пользователем',
       sentAt: status === 'sent' ? nowIso() : undefined,
+      coverLetterPending: false,
+      ...(status === 'skipped' ? { coverLetterAdded: false } : {}),
     });
     this.update({
       message: status === 'sent' ? 'Отклик отмечен как отправленный.' : 'Вакансия пропущена.',
@@ -2486,7 +4799,9 @@ export class HhBrowserAssistant {
 
   async close(): Promise<void> {
     this.stopApplyRequested = true;
+    this.automationRunInFlight = false;
     this.clearScheduleTimer();
+    this.clearQueueResumeTimer();
     const context = this.context;
     const browser = this.browser;
     const browserProcess = this.browserProcess;
@@ -2502,6 +4817,7 @@ export class HhBrowserAssistant {
     if (browser) await settleWithin(browser.close(), 4_000);
     if (context) await settleWithin(context.close(), 1_000);
     await terminateBrowserProcessTree(browserProcess);
+    await terminateOrphanedProfileBrowsers(this.profileDir);
     this.update({
       phase: 'idle',
       browserOpen: false,

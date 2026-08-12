@@ -9,6 +9,7 @@ import {
   Tray,
   Menu,
   nativeImage,
+  Notification,
 } from 'electron';
 import path from 'path';
 import fs from 'fs';
@@ -18,7 +19,10 @@ import crypto from 'crypto';
 import { spawn, type ChildProcess } from 'child_process';
 import { autoUpdater } from 'electron-updater';
 import { HhBrowserAssistant } from './hhBrowserAssistant';
-import type { HhCoverLetterResponse } from './hhCoverLetter';
+import {
+  buildGroundedLocalHhCoverLetter,
+  type HhCoverLetterResponse,
+} from './hhCoverLetter';
 import type { HhScreeningAnswersResponse } from './hhScreeningQuestions';
 import type { HhAssistantConfig } from './hhAssistantPolicy';
 import { HhOAuthService } from './hhOAuthService';
@@ -38,9 +42,43 @@ import { PersistentGlobalShortcut } from './persistentGlobalShortcut';
 import { bindOverlayPointerRecovery } from './overlayPointerRecovery';
 import { getTitleBarOverlayTheme } from './titleBarTheme';
 import { preparePersistentBackendData, sqliteDatabaseUrl } from './backendData';
+import { getAppIdentity, resolveBuildChannel } from './buildChannel';
+import { screenCaptureDataUrl, SCREEN_CAPTURE_THUMBNAIL_SIZE } from './screenCapture';
 
-const API_URL = process.env.API_URL ?? 'http://127.0.0.1:8000';
 const isDev = !app.isPackaged;
+
+function readPackagedBuildChannel(): unknown {
+  if (!app.isPackaged) return 'dev';
+  try {
+    const metadata = JSON.parse(
+      fs.readFileSync(path.join(app.getAppPath(), 'package.json'), 'utf8'),
+    ) as { buildChannel?: unknown };
+    return metadata.buildChannel;
+  } catch (err) {
+    console.warn('[desktop] failed to read build channel; using stable identity', err);
+    return undefined;
+  }
+}
+
+const BUILD_CHANNEL = resolveBuildChannel(app.isPackaged, readPackagedBuildChannel());
+const APP_IDENTITY = getAppIdentity(BUILD_CHANNEL);
+const isDeveloperBuild = BUILD_CHANNEL === 'dev';
+// The first macOS release is distributed as architecture-specific DMGs. Keep
+// the Windows updater quiet until a signed macOS ZIP/update manifest is shipped.
+const isAutoUpdateSupported = !isDeveloperBuild && process.platform === 'win32';
+
+// Set the developer profile before taking the single-instance lock or creating
+// any Chromium session. Stable deliberately keeps Electron's historical path.
+if (APP_IDENTITY.userDataDirectoryName) {
+  app.setName(APP_IDENTITY.displayName);
+  app.setPath(
+    'userData',
+    path.join(app.getPath('appData'), APP_IDENTITY.userDataDirectoryName),
+  );
+}
+
+const API_URL =
+  process.env.API_URL ?? `http://127.0.0.1:${APP_IDENTITY.apiPort}`;
 
 // Адрес серверного гейтвея лицензий SkillCue. Покупатель без своего ключа
 // OpenRouter, но с валидной лицензией ходит к нейросети через него (провайдер
@@ -59,7 +97,7 @@ const BRAND_ICON = nativeImage.createFromPath(
 );
 
 if (process.platform === 'win32') {
-  app.setAppUserModelId('com.interview.assistant');
+  app.setAppUserModelId(APP_IDENTITY.appUserModelId);
 }
 
 let mainWindow: BrowserWindow | null = null;
@@ -75,6 +113,7 @@ let hhBrowserAssistant: HhBrowserAssistant | null = null;
 let hhOAuthService: HhOAuthService | null = null;
 let hhChatBrowser: HhChatBrowser | null = null;
 let interviewCalendar: InterviewCalendarStore | null = null;
+let activeInterviewEventId: string | null = null;
 let closingHhBrowserForQuit = false;
 let quitting = false;
 // Ключ лицензии из ссылки skillcue://activate?key=… ждёт здесь, пока окно
@@ -178,6 +217,7 @@ async function ensureBackend(): Promise<void> {
       PYTHONPATH: '.',
       SKILLCUE_PORT: new URL(API_URL).port || '8000',
       SKILLCUE_API_TOKEN: API_TOKEN,
+      SKILLCUE_BUILD_CHANNEL: BUILD_CHANNEL,
       // Бэкенд подхватит как settings.skillcue_gateway_url (BYOK-фолбэк на гейтвей).
       SKILLCUE_GATEWAY_URL,
       ...(persistentDatabase
@@ -310,7 +350,7 @@ function setupContentSecurityPolicy(): void {
             "img-src 'self' data: blob:",
             "font-src 'self' data: https://fonts.gstatic.com",
             "media-src 'self' blob:",
-            "connect-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com http://127.0.0.1:8000 ws://127.0.0.1:8000 http://localhost:8000 ws://localhost:8000",
+            "connect-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com http://127.0.0.1:8000 ws://127.0.0.1:8000 http://localhost:8000 ws://localhost:8000 http://127.0.0.1:8001 ws://127.0.0.1:8001 http://localhost:8001 ws://localhost:8001",
           ].join('; '),
         ],
       },
@@ -326,13 +366,20 @@ function createMainWindow(): BrowserWindow {
     minHeight: 600,
     show: false,
     backgroundColor: '#0f1117',
-    title: 'SkillCue',
+    title: APP_IDENTITY.displayName,
     icon: BRAND_ICON,
     autoHideMenuBar: true,
-    // Прячем светлую системную рамку Windows и рисуем кнопки окна поверх нашего
-    // тёмного тайтлбара — сам тайтлбар отвечает за перетаскивание (app-region).
-    titleBarStyle: 'hidden',
-    titleBarOverlay: getTitleBarOverlayTheme('dark'),
+    // Windows uses our dark title-bar controls. macOS keeps its familiar inset
+    // traffic lights so close/minimize/fullscreen remain obvious and native.
+    ...(process.platform === 'darwin'
+      ? {
+          titleBarStyle: 'hiddenInset' as const,
+          trafficLightPosition: { x: 14, y: 14 },
+        }
+      : {
+          titleBarStyle: 'hidden' as const,
+          titleBarOverlay: getTitleBarOverlayTheme('dark'),
+        }),
     webPreferences: {
       preload: getPreloadPath(),
       contextIsolation: true,
@@ -423,11 +470,38 @@ function getOrCreateOverlayWindow(): BrowserWindow {
   return overlayWindow;
 }
 
+function activeInterviewEvent() {
+  return activeInterviewEventId
+    ? interviewCalendar?.getEvent(activeInterviewEventId) ?? null
+    : null;
+}
+
+function publishInterviewContext(): void {
+  if (!isLiveWindow(overlayWindow)) return;
+  overlayWindow.webContents.send('overlay:interview-context', activeInterviewEvent());
+}
+
+function prepareOverlayForOpen(win: BrowserWindow): void {
+  const send = () => {
+    if (!isLiveWindow(win) || win.webContents.isDestroyed()) return;
+    win.webContents.send('overlay:open-requested');
+  };
+  if (win.webContents.isLoadingMainFrame()) win.webContents.once('did-finish-load', send);
+  else send();
+}
+
+function setActiveInterviewEvent(id: string | null): boolean {
+  if (id && !interviewCalendar?.getEvent(id)) return false;
+  activeInterviewEventId = id;
+  publishInterviewContext();
+  return true;
+}
+
 function registerIpc(): void {
   ipcMain.handle('app:getApiUrl', () => API_URL);
   ipcMain.handle('app:getApiToken', () => API_TOKEN);
+  ipcMain.handle('app:getBuildChannel', () => BUILD_CHANNEL);
   ipcMain.handle('app:openExternal', (_e, url: string) => safeOpenExternal(url));
-  // «Выйти из SkillCue» в настройках — то же, что «Выход» в трее.
   ipcMain.handle('app:quit', () => app.quit());
 
   ipcMain.handle('hh-assistant:get-state', () => hhBrowserAssistant?.getState());
@@ -437,9 +511,26 @@ function registerIpc(): void {
   );
   ipcMain.handle('hh-assistant:open-browser', (_e, platform) => hhBrowserAssistant?.openBrowser(platform));
   ipcMain.handle('hh-assistant:scan', (_e, platform) => hhBrowserAssistant?.scan(platform));
+  ipcMain.handle('hh-assistant:run-now', () => {
+    if (!hhBrowserAssistant) return undefined;
+    void hhBrowserAssistant.runNow('manual');
+    return hhBrowserAssistant.getState();
+  });
+  ipcMain.handle('hh-assistant:apply-vacancy-url', (_e, url: string) =>
+    hhBrowserAssistant?.applyVacancyUrl(url),
+  );
   ipcMain.handle('hh-assistant:apply-all', () => hhBrowserAssistant?.applyAll());
   ipcMain.handle('hh-assistant:apply-one', (_e, vacancyId: string) =>
     hhBrowserAssistant?.applyOne(vacancyId),
+  );
+  ipcMain.handle('hh-assistant:answer-screening-questions', (_e, vacancyId: string, answers: unknown) =>
+    hhBrowserAssistant?.answerScreeningQuestions(vacancyId, answers),
+  );
+  ipcMain.handle('hh-assistant:suggest-screening-answer', (_e, vacancyId: string, questionId: string, currentAnswer?: string) =>
+    hhBrowserAssistant?.suggestScreeningAnswer(vacancyId, questionId, currentAnswer),
+  );
+  ipcMain.handle('hh-assistant:forget-screening-fact', (_e, factId: string) =>
+    hhBrowserAssistant?.forgetScreeningFact(factId),
   );
   ipcMain.handle('hh-assistant:stop-apply', () => hhBrowserAssistant?.stopApply());
   ipcMain.handle('hh-assistant:set-daily-schedule', (_e, enabled: boolean) =>
@@ -476,6 +567,12 @@ function registerIpc(): void {
     hhBrowserAssistant?.confirmLoginCode(code),
   );
   ipcMain.handle('hh-assistant:get-resumes', () => hhBrowserAssistant?.getApplicantResumes());
+  ipcMain.handle('hh-assistant:get-resume-content', (_e, resumeId: string) =>
+    hhBrowserAssistant?.getApplicantResumeContent(resumeId),
+  );
+  ipcMain.handle('hh-assistant:inspect-vacancy-url', (_e, url: string) =>
+    hhBrowserAssistant?.inspectVacancyUrl(url),
+  );
 
   // ─── HH OAuth ───────────────────────────────────────────────────────
   ipcMain.handle('hh-oauth:get-state', () => hhOAuthService?.getState());
@@ -527,6 +624,13 @@ function registerIpc(): void {
     hhChatBrowser?.setEnabled(enabled),
   );
   ipcMain.handle('hh-chat:poll-now', async () => hhChatBrowser?.pollNow());
+  ipcMain.handle(
+    'hh-chat:answer-decision',
+    (_e, decisionId: string, answer: string, remember: boolean) =>
+      hhChatBrowser?.answerDecision(decisionId, answer, remember),
+  );
+  ipcMain.handle('hh-chat:forget-fact', (_e, factId: string) =>
+    hhChatBrowser?.forgetFact(factId));
 
   // ─── Календарь собеседований ────────────────────────────────────────
   ipcMain.handle('interview-calendar:get-state', () => interviewCalendar?.getState());
@@ -540,8 +644,25 @@ function registerIpc(): void {
     (_e, event: Parameters<InterviewCalendarStore['upsertEvent']>[0]) =>
       interviewCalendar?.upsertEvent(event),
   );
-  ipcMain.handle('interview-calendar:remove-event', (_e, id: string) =>
-    interviewCalendar?.removeEvent(id),
+  ipcMain.handle('interview-calendar:remove-event', (_e, id: string) => {
+    if (activeInterviewEventId === id) setActiveInterviewEvent(null);
+    return interviewCalendar?.removeEvent(id);
+  });
+  ipcMain.handle(
+    'interview-calendar:attach-session',
+    (_e, eventId: string, sessionId: string) => {
+      const state = interviewCalendar?.attachSession(eventId, sessionId);
+      publishInterviewContext();
+      return state;
+    },
+  );
+  ipcMain.handle(
+    'interview-calendar:save-outcome',
+    (_e, eventId: string, outcome: Parameters<InterviewCalendarStore['saveOutcome']>[1]) => {
+      const state = interviewCalendar?.saveOutcome(eventId, outcome);
+      publishInterviewContext();
+      return state;
+    },
   );
   ipcMain.handle('interview-calendar:dismiss-thread', (_e, id: string) =>
     interviewCalendar?.dismissThread(id),
@@ -615,6 +736,46 @@ function registerIpc(): void {
         /* лог не собрался — отчёт всё равно полезен */
       }
 
+      try {
+        const automation = hhBrowserAssistant?.getState();
+        if (automation) {
+          fs.writeFileSync(
+            path.join(dir, 'hh-automation.json'),
+            JSON.stringify({
+              phase: automation.phase,
+              message: automation.message,
+              updatedAt: automation.updatedAt,
+              nextRunAt: automation.nextRunAt,
+              config: {
+                platform: automation.config.platform,
+                query: automation.config.query,
+                area: automation.config.area,
+                experience: automation.config.experience,
+                schedule: automation.config.schedule,
+                salaryFrom: automation.config.salaryFrom,
+                resumeTitles: automation.config.resumeTitles,
+                autoRunDaily: automation.config.autoRunDaily,
+                autoRunHour: automation.config.autoRunHour,
+              },
+              runHistory: automation.runHistory,
+              queue: automation.queue.map((item) => ({
+                key: item.key,
+                title: item.title,
+                company: item.company,
+                url: item.url,
+                status: item.status,
+                reason: item.reason,
+                addedAt: item.addedAt,
+                sentAt: item.sentAt,
+              })),
+            }, null, 2),
+            'utf8',
+          );
+        }
+      } catch {
+        /* журнал HH не должен ломать сбор остальных диагностик */
+      }
+
       for (const file of extra.slice(0, 10)) {
         if (typeof file?.name !== 'string' || typeof file?.content !== 'string') continue;
         const safe = file.name.replace(/[^a-z0-9._-]/gi, '_').slice(0, 64) || 'extra.txt';
@@ -649,7 +810,24 @@ function registerIpc(): void {
     toggleOverlay();
   });
 
-  ipcMain.handle('overlay:show', () => getOrCreateOverlayWindow().show());
+  ipcMain.handle('overlay:show', () => {
+    setActiveInterviewEvent(null);
+    const win = getOrCreateOverlayWindow();
+    prepareOverlayForOpen(win);
+    win.show();
+  });
+  ipcMain.handle('overlay:showForInterviewEvent', (_event, eventId: string) => {
+    if (!setActiveInterviewEvent(eventId)) return false;
+    const win = getOrCreateOverlayWindow();
+    prepareOverlayForOpen(win);
+    win.show();
+    publishInterviewContext();
+    return true;
+  });
+  ipcMain.handle('overlay:getInterviewContext', () => activeInterviewEvent());
+  ipcMain.handle('overlay:clearInterviewContext', () => {
+    setActiveInterviewEvent(null);
+  });
   ipcMain.handle('overlay:hide', () => hideOverlay());
 
   ipcMain.handle('overlay:captureScreen', async () => {
@@ -658,11 +836,11 @@ function registerIpc(): void {
     try {
       const sources = await desktopCapturer.getSources({
         types: ['screen'],
-        thumbnailSize: { width: 1600, height: 1000 },
+        thumbnailSize: SCREEN_CAPTURE_THUMBNAIL_SIZE,
       });
       const primary = sources[0];
       if (!primary) return '';
-      return `data:image/jpeg;base64,${primary.thumbnail.toJPEG(70).toString('base64')}`;
+      return screenCaptureDataUrl(primary.thumbnail);
     } catch (err) {
       console.warn('[overlay] screen capture failed:', err);
       return '';
@@ -679,6 +857,12 @@ function registerIpc(): void {
     hideOverlayAndShowMain(overlayWindow, mainWindow);
     const safe = section && /^[a-z-]+$/.test(section) ? `?tab=${section}` : '';
     mainWindow.webContents.send('app:navigate', `/settings${safe}`);
+  });
+
+  ipcMain.handle('overlay:openSessionAnalysis', (_e, sessionId: string) => {
+    if (!isLiveWindow(mainWindow) || !/^[a-zA-Z0-9-]{6,80}$/.test(sessionId)) return;
+    hideOverlayAndShowMain(overlayWindow, mainWindow);
+    mainWindow.webContents.send('app:navigate', `/history/${encodeURIComponent(sessionId)}`);
   });
 
   ipcMain.handle('overlay:setContentProtection', (_e, enable: boolean) => {
@@ -736,17 +920,20 @@ function registerIpc(): void {
     ) {
       return;
     }
+    if (process.platform === 'darwin') return;
     mainWindow.setTitleBarOverlay(getTitleBarOverlayTheme(theme));
   });
 
   ipcMain.handle('app:getVersion', () => app.getVersion());
 
   ipcMain.handle('updater:check', async () => {
-    // Ручная проверка из настроек. В dev автообновление не настроено.
-    if (isDev) {
+    // Dev and the first DMG release have no compatible update manifest yet.
+    if (!isAutoUpdateSupported) {
       const status = {
         state: 'none' as const,
-        message: 'dev-режим: обновления недоступны',
+        message: isDeveloperBuild
+          ? 'SkillCue Dev: обновления отключены'
+          : 'Обновления macOS пока устанавливаются новой версией с сайта',
       };
       updaterStatusStore.publish(status);
       return status;
@@ -772,8 +959,8 @@ function registerIpc(): void {
 
 /* ---- Настройки main-процесса (нужны до готовности renderer'а) ---- */
 
-const DEFAULT_TOGGLE_SHORTCUT = 'CommandOrControl+Shift+H';
-const FORCE_ANSWER_SHORTCUT = 'CommandOrControl+Enter';
+const DEFAULT_TOGGLE_SHORTCUT = APP_IDENTITY.defaultToggleShortcut;
+const FORCE_ANSWER_SHORTCUT = APP_IDENTITY.forceAnswerShortcut;
 let toggleOverlayShortcut = DEFAULT_TOGGLE_SHORTCUT;
 
 function mainSettingsPath(): string {
@@ -802,7 +989,10 @@ function saveMainSetting(key: string, value: unknown): void {
 function toggleOverlay(): void {
   const win = getOrCreateOverlayWindow();
   if (win.isVisible()) hideOverlay();
-  else win.show();
+  else {
+    prepareOverlayForOpen(win);
+    win.show();
+  }
 }
 
 function registerToggleShortcut(acc: string): boolean {
@@ -862,7 +1052,7 @@ function registerShortcuts(): void {
 
 function createTray(): void {
   tray = new Tray(BRAND_ICON);
-  tray.setToolTip('SkillCue');
+  tray.setToolTip(APP_IDENTITY.displayName);
   tray.setContextMenu(
     Menu.buildFromTemplate([
       {
@@ -871,7 +1061,14 @@ function createTray(): void {
           if (isLiveWindow(mainWindow)) mainWindow.show();
         },
       },
-      { label: 'Overlay', click: () => getOrCreateOverlayWindow().show() },
+      {
+        label: 'Overlay',
+        click: () => {
+          const win = getOrCreateOverlayWindow();
+          prepareOverlayForOpen(win);
+          win.show();
+        },
+      },
       { type: 'separator' },
       { label: 'Выход', click: () => app.quit() },
     ]),
@@ -879,7 +1076,7 @@ function createTray(): void {
 }
 
 function setupAutoUpdater(): void {
-  if (isDev) return;
+  if (!isAutoUpdateSupported) return;
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
   autoUpdater.on('update-available', (info) =>
@@ -926,7 +1123,7 @@ function setupDisplayMedia(): void {
 
 // --- Deep link skillcue://activate?key=… — авто-активация лицензии после
 // оплаты на сайте (страница успеха ЮKassa ведёт на эту ссылку). ------------
-const DEEP_LINK_PROTOCOL = 'skillcue';
+const DEEP_LINK_PROTOCOL = APP_IDENTITY.deepLinkProtocol;
 if (isDev && process.argv.length >= 2) {
   // Dev (electron .): регистрируем с явным путём к процессу и точке входа.
   app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL, process.execPath, [
@@ -1005,7 +1202,7 @@ if (!hasSingleInstanceLock) {
           method: 'POST',
           headers,
           body: JSON.stringify(request),
-          signal: AbortSignal.timeout(5_000),
+          signal: AbortSignal.timeout(12_000),
         });
         if (!response.ok) {
           const payload = await response.json().catch(() => null) as { detail?: string } | null;
@@ -1016,17 +1213,32 @@ if (!hasSingleInstanceLock) {
       async (request) => {
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
         if (API_TOKEN) headers['X-SkillCue-Token'] = API_TOKEN;
-        const response = await fetch(`${API_URL}/vacancy/cover-letter`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify(request),
-          signal: AbortSignal.timeout(12_000),
-        });
-        if (!response.ok) {
-          const payload = await response.json().catch(() => null) as { detail?: string } | null;
-          throw new Error(payload?.detail || `Не удалось подготовить письмо: HTTP ${response.status}`);
+        let response: Response;
+        try {
+          response = await fetch(`${API_URL}/vacancy/cover-letter`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(request),
+            signal: AbortSignal.timeout(12_000),
+          });
+        } catch (error) {
+          const local = buildGroundedLocalHhCoverLetter(request);
+          if (local.canAutoFill) return local;
+          throw error;
         }
-        return await response.json() as HhCoverLetterResponse;
+        if (response.ok) {
+          return await response.json() as HhCoverLetterResponse;
+        }
+        const payload = await response.json().catch(() => null) as { detail?: unknown } | null;
+        const detail = typeof payload?.detail === 'string'
+          ? payload.detail
+          : `Не удалось подготовить письмо: HTTP ${response.status}`;
+        if (response.status !== 402 && response.status !== 429 && response.status < 500) {
+          throw new Error(detail);
+        }
+        const local = buildGroundedLocalHhCoverLetter(request);
+        if (local.canAutoFill) return local;
+        throw new Error(`${detail}. ${local.reason ?? ''}`.trim());
       },
     );
     hhBrowserAssistant.restoreSchedule();
@@ -1036,6 +1248,7 @@ if (!hasSingleInstanceLock) {
     interviewCalendar = new InterviewCalendarStore(app.getPath('userData'), (state) => {
       sendToWindows('interview-calendar:state', state);
     });
+    const recruiterProfileCache = new Map<string, { content: string; expiresAt: number }>();
     hhChatBrowser = new HhChatBrowser(
       app.getPath('userData'),
       // Фоновый чат работает в отдельной вкладке и не перехватывает поиск/отклик.
@@ -1054,6 +1267,7 @@ if (!hasSingleInstanceLock) {
         const res = await fetch(`${API_URL}/chat`, {
           method: 'POST',
           headers,
+          signal: AbortSignal.timeout(20_000),
           body: JSON.stringify({
             message: prompt,
             mode: 'general',
@@ -1081,6 +1295,77 @@ if (!hasSingleInstanceLock) {
         return chunks.join('').trim();
       },
       interviewCalendar,
+      ({ vacancyTitle, companyName, recruiterMessage, kind }) => {
+        const normalizedTitle = vacancyTitle.replace(/\s+/g, ' ').trim().toLocaleLowerCase('ru');
+        const normalizedCompany = companyName.replace(/\s+/g, ' ').trim().toLocaleLowerCase('ru');
+        const vacancy = hhBrowserAssistant?.getState().queue.find((item) => {
+          const title = item.title.replace(/\s+/g, ' ').trim().toLocaleLowerCase('ru');
+          const company = item.company.replace(/\s+/g, ' ').trim().toLocaleLowerCase('ru');
+          const titleMatches = Boolean(title && normalizedTitle) && (
+            title === normalizedTitle || title.includes(normalizedTitle) || normalizedTitle.includes(title)
+          );
+          const companyMatches = !normalizedCompany || !company || (
+            company === normalizedCompany || company.includes(normalizedCompany) || normalizedCompany.includes(company)
+          );
+          return titleMatches && companyMatches;
+        });
+        const preparation = vacancy?.preparationNotes ?? [];
+        if (!Notification.isSupported()) return;
+        const notification = new Notification({
+          title: companyName
+            ? `${companyName} · ${vacancyTitle || (kind === 'telegram' ? 'Контакт Telegram' : 'Интервью')}`
+            : vacancyTitle || (kind === 'telegram' ? 'Рекрутер прислал Telegram' : 'Приглашение на интервью с HH'),
+          body: recruiterMessage.replace(/\s+/g, ' ').trim().slice(0, 260) || (
+            preparation.length > 0
+              ? `Перед интервью повторите: ${preparation.join('; ')}`.slice(0, 260)
+              : 'Работодатель предлагает обсудить интервью.'
+          ),
+          icon: BRAND_ICON,
+        });
+        notification.on('click', () => {
+          void hhBrowserAssistant?.showChatPage();
+        });
+        notification.show();
+      },
+      async (vacancyTitle: string) => {
+        const cacheKey = vacancyTitle.replace(/\s+/g, ' ').trim().toLocaleLowerCase('ru');
+        const cached = recruiterProfileCache.get(cacheKey);
+        if (cached && cached.expiresAt > Date.now()) return cached.content;
+
+        // The resume selected for this vacancy is the primary source. It may
+        // contain current salary expectations that are absent from the local
+        // profile pack, and it must win over older uploaded documents.
+        const selectedResume = await hhBrowserAssistant
+          ?.getSelectedResumeText(vacancyTitle)
+          .catch(() => '') ?? '';
+        let localProfile = '';
+        try {
+          const headers: Record<string, string> = {};
+          if (API_TOKEN) headers['X-SkillCue-Token'] = API_TOKEN;
+          const response = await fetch(`${API_URL}/documents/profile-pack`, {
+            headers,
+            signal: AbortSignal.timeout(5_000),
+          });
+          if (response.ok) {
+            const payload = await response.json() as { content?: string };
+            localProfile = String(payload.content ?? '').trim();
+          }
+        } catch (error) {
+          console.warn('[hh-chat-browser] local candidate profile lookup failed:', error);
+        }
+
+        const content = [selectedResume.trim(), localProfile]
+          .filter((part, index, parts) => part && parts.indexOf(part) === index)
+          .join('\n\n');
+        recruiterProfileCache.set(cacheKey, {
+          content: content.slice(0, 12_000),
+          expiresAt: Date.now() + (content ? 5 * 60_000 : 30_000),
+        });
+        return content.slice(0, 12_000);
+      },
+      async () => {
+        await hhBrowserAssistant?.restoreInteractivePage();
+      },
     );
 
     // Запускаем браузерный чат, если был включён

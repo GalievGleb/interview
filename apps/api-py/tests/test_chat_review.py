@@ -6,8 +6,63 @@ monkeypatched, so we test the routing, prompt wiring, and SSE framing only.
 
 import json
 
-from app.prompts.meeting import build_interview_review_prompt, build_meeting_prompt
+from app.routers.chat import MAX_SCREEN_IMAGE_CHARS
+from app.prompts.meeting import (
+    build_interview_outcome_prompt,
+    build_interview_review_prompt,
+    build_meeting_prompt,
+)
 from app.services import provider_adapter
+
+
+def test_interview_outcome_prompt_is_compact_and_stage_specific():
+    prompt = build_interview_outcome_prompt(
+        "HR: Формат удалённый. Следующий этап во вторник.",
+        "hr",
+        "QA Automation",
+        "Acme",
+        "ru",
+    )
+    assert '"conditions"' in prompt
+    assert '"nextSteps"' in prompt
+    assert "зарплатную вилку" in prompt
+    assert "Do not evaluate the candidate" in prompt
+
+
+def test_interview_outcome_returns_normalized_json(client, monkeypatch):
+    captured: dict = {}
+
+    async def fake_complete(messages, provider=None, model=None, **kwargs):
+        captured["prompt"] = messages[-1]["content"]
+        captured["kwargs"] = kwargs
+        return json.dumps(
+            {
+                "headline": "Договорились о техническом этапе.",
+                "facts": ["Команда из пяти человек"],
+                "conditions": ["Удалённый формат"],
+                "nextSteps": ["Технический этап во вторник"],
+                "openQuestions": ["Зарплатная вилка"],
+            },
+            ensure_ascii=False,
+        )
+
+    monkeypatch.setattr(provider_adapter, "complete", fake_complete)
+    response = client.post(
+        "/chat/interview-outcome",
+        json={
+            "transcript": "HR: Работа удалённая.",
+            "interview_type": "hr",
+            "vacancy_title": "QA Automation",
+            "company_name": "Acme",
+            "answer_language": "ru",
+        },
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["conditions"] == ["Удалённый формат"]
+    assert body["nextSteps"] == ["Технический этап во вторник"]
+    assert captured["kwargs"]["response_format"] == {"type": "json_object"}
+    assert "QA Automation" in captured["prompt"]
 
 
 def test_prompt_builders_detect_transcript_language_when_not_explicit():
@@ -149,6 +204,7 @@ def test_screen_assist_stream_builds_multimodal_message(client, monkeypatch):
     assert "реши задачу" in text_part  # транскрипт подмешан
     img = next(p for p in parts if p["type"] == "image_url")["image_url"]["url"]
     assert img.startswith("data:image/jpeg;base64,")
+    assert next(p for p in parts if p["type"] == "image_url")["image_url"]["detail"] == "low"
 
 
 def test_screen_assist_rejects_empty_and_huge_images(client, monkeypatch):
@@ -157,7 +213,7 @@ def test_screen_assist_rejects_empty_and_huge_images(client, monkeypatch):
 
     monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
     assert client.post("/chat/screen/stream", json={"image": ""}).status_code == 400
-    huge = "A" * 8_000_001
+    huge = "A" * (MAX_SCREEN_IMAGE_CHARS + 1)
     assert client.post("/chat/screen/stream", json={"image": huge}).status_code == 413
 
 

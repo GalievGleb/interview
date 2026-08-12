@@ -9,6 +9,8 @@ const packageJson = JSON.parse(
 ) as {
   scripts: Record<string, string>;
   build: {
+    mac: Record<string, unknown>;
+    dmg: Record<string, unknown>;
     nsis: Record<string, unknown>;
   };
 };
@@ -70,5 +72,28 @@ describe('Windows installer artwork', () => {
     expect(include).toContain('$INSTDIR\\resources\\backend\\_internal\\data');
     expect(include).toContain('$DESKTOP\\Skillcue\\resources\\backend\\_internal\\data');
     expect(include).toContain('CopyFiles /SILENT');
+  });
+});
+
+describe('macOS installer contract', () => {
+  it('ships separate Apple silicon and Intel DMGs with the product icon and microphone disclosure', () => {
+    expect(packageJson.build.mac).toMatchObject({
+      target: ['dmg'],
+      icon: 'assets/branding/skillcue-app-icon-1024.png',
+      category: 'public.app-category.productivity',
+      artifactName: 'SkillCue-macOS-${arch}.${ext}',
+      minimumSystemVersion: '12.0',
+      hardenedRuntime: false,
+      extendInfo: {
+        NSMicrophoneUsageDescription: expect.stringContaining('microphone'),
+      },
+    });
+    expect(packageJson.build.dmg).toMatchObject({
+      title: 'SkillCue ${version}',
+      contents: expect.arrayContaining([
+        expect.objectContaining({ type: 'file' }),
+        expect.objectContaining({ type: 'link', path: '/Applications' }),
+      ]),
+    });
   });
 });

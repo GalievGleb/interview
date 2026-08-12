@@ -207,10 +207,21 @@ async def run_openai_mini_stream(
                     logger.warning("OpenAI Mini transcription failed: %s", exc)
                     await client_ws.send_json(
                         {
-                            "type": "error",
-                            "message": f"Не удалось распознать речь: {exc}",
+                            "type": "transcription_error",
+                            "message": (
+                                "Не удалось распознать этот фрагмент. "
+                                "Продолжаю слушать — повторите фразу."
+                            ),
+                            "force_request_id": job.force_request_id,
                         }
                     )
+                    if job.force_request_id:
+                        await client_ws.send_json(
+                            {
+                                "type": "force_empty",
+                                "force_request_id": job.force_request_id,
+                            }
+                        )
                     return
 
                 final_done_at = time.monotonic()

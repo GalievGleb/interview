@@ -108,6 +108,15 @@
   -webkit-app-region: no-drag;
 }
 
+/* The transcript itself is scrollable. It must not inherit the card's drag
+   region, otherwise Electron treats wheel/thumb interaction as window drag. */
+.ovl-transcript {
+  -webkit-app-region: no-drag;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  user-select: text;
+}
+
 /* Панель ответа */
 .ovl-response {
   @apply mt-2 flex min-h-0 flex-col p-4;
@@ -123,8 +132,11 @@
   @apply mb-1 text-[11px] font-medium text-ink-faint;
 }
 
+/* Текст ответа — ядро ценности оверлея, его читают мельком во время разговора.
+   Он должен быть крупнее всего остального в панели: подписи здесь 11px, а до
+   этого ответ шёл теми же 14px, что и второстепенный текст. */
 .ovl-answer-body {
-  @apply min-h-0 flex-1 overflow-y-auto text-[14.5px] leading-relaxed text-ink;
+  @apply min-h-0 flex-1 overflow-y-auto text-[16px] leading-relaxed text-ink;
 }
 
 /* Командная панель */
@@ -518,6 +530,9 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
+}
+.ovl-analysis-columns--single {
+  grid-template-columns: minmax(0, 1fr);
 }
 .ovl-analysis-section,
 .ovl-analysis-topics {

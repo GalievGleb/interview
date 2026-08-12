@@ -1,11 +1,11 @@
 import { lazy, Suspense, useEffect } from 'react';
-import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { AppProvider, useApp } from './context/AppContext';
 import Layout from './components/Layout';
 import { markMilestone } from './lib/activation';
+import { useBuildChannel } from './lib/buildChannel';
 
 // Route-level code splitting — keeps the initial bundle small and cold start fast.
-const OnboardingPage = lazy(() => import('./pages/OnboardingPage'));
 const HomePage = lazy(() => import('./pages/HomePage'));
 const PreparePage = lazy(() => import('./pages/PreparePage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
@@ -13,8 +13,9 @@ const DocumentsPage = lazy(() => import('./pages/DocumentsPage'));
 const DemoPage = lazy(() => import('./pages/DemoPage'));
 const MeetingPage = lazy(() => import('./pages/MeetingPage'));
 const HistoryPage = lazy(() => import('./pages/HistoryPage'));
-const PersonalProgressPage = lazy(() => import('./pages/PersonalProgressPage'));
+const SessionAnalysisPage = lazy(() => import('./pages/SessionAnalysisPage'));
 const HhApplicationsPage = lazy(() => import('./pages/HhApplicationsPage'));
+const HhHrProfilePage = lazy(() => import('./pages/HhHrProfilePage'));
 const InterviewCalendarPage = lazy(() => import('./pages/InterviewCalendarPage'));
 const TestLabPage = lazy(() => import('./pages/TestLabPage'));
 const BenchmarkPage = lazy(() => import('./pages/BenchmarkPage'));
@@ -31,7 +32,7 @@ function PageFallback() {
 }
 
 function Gate({ children }: { children: React.ReactNode }) {
-  const { onboardingDone, loading } = useApp();
+  const { loading } = useApp();
   if (loading) {
     return (
       <div className="flex h-screen items-center justify-center bg-surface text-ink-muted">
@@ -39,15 +40,29 @@ function Gate({ children }: { children: React.ReactNode }) {
       </div>
     );
   }
-  if (!onboardingDone) {
-    return <Navigate to="/onboarding" replace />;
-  }
   return <Layout>{children}</Layout>;
+}
+
+function DeveloperGate({ children }: { children: React.ReactNode }) {
+  const channel = useBuildChannel();
+  if (channel == null) return <PageFallback />;
+  if (channel !== 'dev') return <Navigate to="/home" replace />;
+  return <Gate>{children}</Gate>;
+}
+
+function LegacyProgressRedirect() {
+  const { search } = useLocation();
+  const start = new URLSearchParams(search).get('start');
+  if (start === 'goal' || start === 'assessment') {
+    return <Navigate to={`/documents?mode=baseline&section=${start === 'goal' ? 'goal' : 'baseline'}`} replace />;
+  }
+  return <Navigate to="/history?view=growth" replace />;
 }
 
 /** Lets the main window respond to navigation requested from the overlay. */
 function NavigationBridge() {
   const navigate = useNavigate();
+  const buildChannel = useBuildChannel();
   useEffect(() => window.electronAPI?.onNavigate?.((path) => navigate(path)), [navigate]);
 
   // Ключ из ссылки skillcue://activate?key=… (после оплаты на сайте) → раскрываем
@@ -87,15 +102,19 @@ function NavigationBridge() {
       void import('./pages/HomePage');
       void import('./pages/PreparePage');
       void import('./pages/HistoryPage');
-      void import('./pages/PersonalProgressPage');
+      void import('./pages/SessionAnalysisPage');
       void import('./pages/HhApplicationsPage');
+      void import('./pages/HhHrProfilePage');
       void import('./pages/InterviewCalendarPage');
       void import('./pages/DocumentsPage');
       void import('./pages/SettingsPage');
-      void import('./pages/MeetingPage');
-      void import('./pages/TestLabPage');
-      void import('./pages/BenchmarkPage');
-      void import('./pages/DiagnosticsPage');
+      if (buildChannel === 'dev') {
+        void import('./pages/MeetingPage');
+        void import('./pages/TestLabPage');
+        void import('./pages/BenchmarkPage');
+        void import('./pages/DiagnosticsPage');
+        void import('./pages/LicensesPage');
+      }
     };
     if (window.requestIdleCallback) {
       const id = window.requestIdleCallback(prefetch);
@@ -103,7 +122,7 @@ function NavigationBridge() {
     }
     const t = window.setTimeout(prefetch, 1500);
     return () => window.clearTimeout(t);
-  }, []);
+  }, [buildChannel]);
 
   return null;
 }
@@ -114,22 +133,23 @@ export default function App() {
       <NavigationBridge />
       <Suspense fallback={<PageFallback />}>
         <Routes>
-          <Route path="/onboarding" element={<OnboardingPage />} />
           <Route path="/overlay" element={<OverlayPage />} />
           <Route path="/home" element={<Gate><HomePage /></Gate>} />
           <Route path="/prepare" element={<Gate><PreparePage /></Gate>} />
           <Route path="/demo" element={<Gate><DemoPage /></Gate>} />
-          <Route path="/meeting" element={<Gate><MeetingPage /></Gate>} />
+          <Route path="/meeting" element={<DeveloperGate><MeetingPage /></DeveloperGate>} />
           <Route path="/documents" element={<Gate><DocumentsPage /></Gate>} />
           <Route path="/history" element={<Gate><HistoryPage /></Gate>} />
-          <Route path="/progress" element={<Gate><PersonalProgressPage /></Gate>} />
+          <Route path="/history/:sessionId" element={<Gate><SessionAnalysisPage /></Gate>} />
+          <Route path="/progress" element={<LegacyProgressRedirect />} />
           <Route path="/applications" element={<Gate><HhApplicationsPage /></Gate>} />
+          <Route path="/applications/hr-profile" element={<Gate><HhHrProfilePage /></Gate>} />
           <Route path="/calendar" element={<Gate><InterviewCalendarPage /></Gate>} />
           <Route path="/settings" element={<Gate><SettingsPage /></Gate>} />
-          <Route path="/licenses" element={<Gate><LicensesPage /></Gate>} />
-          <Route path="/test-lab" element={<Gate><TestLabPage /></Gate>} />
-          <Route path="/benchmark" element={<Gate><BenchmarkPage /></Gate>} />
-          <Route path="/diagnostics" element={<Gate><DiagnosticsPage /></Gate>} />
+          <Route path="/licenses" element={<DeveloperGate><LicensesPage /></DeveloperGate>} />
+          <Route path="/test-lab" element={<DeveloperGate><TestLabPage /></DeveloperGate>} />
+          <Route path="/benchmark" element={<DeveloperGate><BenchmarkPage /></DeveloperGate>} />
+          <Route path="/diagnostics" element={<DeveloperGate><DiagnosticsPage /></DeveloperGate>} />
           <Route path="/" element={<Navigate to="/home" replace />} />
           <Route path="*" element={<Navigate to="/home" replace />} />
         </Routes>

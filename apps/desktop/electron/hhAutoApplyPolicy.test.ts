@@ -15,11 +15,44 @@ describe('hhAutoApplyPolicy', () => {
       resumeSelected: false,
       letterFilled: false,
       questionsFilled: false,
+      responseClicked: false,
+      responseSubmitted: false,
     };
 
     it('marks sent on success and already_applied', () => {
       expect(decideNextAction('success', ctx)).toEqual({ action: 'mark_sent' });
       expect(decideNextAction('already_applied', ctx)).toEqual({ action: 'mark_sent' });
+    });
+
+    it('adds a cover letter after HH has already accepted the first response click', () => {
+      expect(decideNextAction('post_response_letter_offer', {
+        ...ctx,
+        responseClicked: true,
+        responseSubmitted: true,
+      })).toEqual({ action: 'open_letter' });
+      expect(decideNextAction('post_response_letter_offer', {
+        ...ctx,
+        letterFilled: true,
+        responseClicked: true,
+        responseSubmitted: true,
+      })).toEqual({ action: 'mark_sent' });
+    });
+
+    it('does not mark the response complete while its cover letter is still pending', () => {
+      expect(decideNextAction('success', {
+        ...ctx,
+        responseClicked: true,
+      }).action).toBe('wait_letter');
+      expect(decideNextAction('already_applied', {
+        ...ctx,
+        responseClicked: true,
+        responseSubmitted: true,
+      }).action).toBe('wait_letter');
+      expect(decideNextAction('success', {
+        ...ctx,
+        responseClicked: true,
+        letterFilled: true,
+      })).toEqual({ action: 'mark_sent' });
     });
 
     it('waits for user on captcha and login', () => {

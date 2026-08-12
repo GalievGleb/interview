@@ -69,6 +69,11 @@ def _base_url(provider: str) -> str:
     return PROVIDER_CONFIG[provider]["base_url"]
 
 
+def _supports_openrouter_routing(provider: str, base_url: str) -> bool:
+    """Return whether the endpoint accepts OpenRouter-only routing options."""
+    return provider == "openrouter" and "openrouter.ai" in base_url.lower()
+
+
 # Коды ошибок НАШЕГО гейтвея лицензий: у них уже есть готовое русское сообщение
 # для покупателя — пробрасываем как есть, не подменяя на generic-текст провайдера
 # (иначе «лимит тарифа исчерпан» превратился бы в «пополните баланс провайдера»).
@@ -97,6 +102,12 @@ def parse_provider_error(status: int, body: str, provider: str = "openrouter") -
         msg, code = passthrough
         return AppError(msg, status, code)
     low = body.lower()
+    if status == 413:
+        return AppError(
+            "Снимок экрана оказался слишком большим. SkillCue уменьшит его — повторите запрос.",
+            413,
+            "image_too_large",
+        )
     if status == 401:
         return AppError(
             f"Неверный API key ({provider}). Проверьте ключ в настройках.",
@@ -120,6 +131,12 @@ def parse_provider_error(status: int, body: str, provider: str = "openrouter") -
             "Выбранная модель недоступна. Выберите другую или Auto Select.",
             404,
             "model_unavailable",
+        )
+    if status == 400 and "unrecognized request argument supplied" in low:
+        return AppError(
+            "Провайдер отклонил несовместимый параметр запроса. Повторите запрос.",
+            400,
+            "unsupported_provider_option",
         )
     if status >= 500:
         return AppError(
@@ -519,7 +536,7 @@ async def stream_chat(
     _apply_reasoning_options(payload, provider=provider, model=model, reasoning=reasoning)
     # Ask OpenRouter to prefer the highest-throughput upstream provider for the
     # lowest time-to-first-token (fast-answer mode only).
-    if route_fast and provider == "openrouter":
+    if route_fast and _supports_openrouter_routing(provider, base_url):
         payload["provider"] = {"sort": "throughput"}
     # OpenAI отдаёт usage в стриме только по явному запросу (OpenRouter — сам).
     if provider == "openai":

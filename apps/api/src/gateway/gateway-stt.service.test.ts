@@ -3,10 +3,12 @@ import test from 'node:test';
 import {
   ANSWER_STT_MODEL,
   ANSWER_UPLOAD_LIMITS,
+  LIVE_STT_REQUEST_OPTIONS,
   STT_MODEL,
   answerWavDurationSeconds,
   buildAnswerTranscriptionForm,
   parseAnswerTranscriptionGuidance,
+  resolveManagedSttCredentials,
 } from './gateway-stt.service';
 import { GatewaySttUploadGuard } from './gateway-stt-upload.guard';
 
@@ -46,6 +48,7 @@ test('answer form uses gpt-transcribe while live keeps Mini', () => {
 
   assert.equal(ANSWER_STT_MODEL, 'gpt-transcribe');
   assert.equal(STT_MODEL, 'gpt-4o-mini-transcribe');
+  assert.deepEqual(LIVE_STT_REQUEST_OPTIONS, { maxRetries: 3, timeout: 30_000 });
   assert.equal(form.get('model'), ANSWER_STT_MODEL);
   assert.equal(
     form.get('prompt'),
@@ -63,6 +66,34 @@ test('answer form uses gpt-transcribe while live keeps Mini', () => {
     parts: 5,
     fieldSize: 8 * 1024,
   });
+});
+
+test('managed STT pairs a shared ProxyAPI base with its shared key', () => {
+  assert.deepEqual(
+    resolveManagedSttCredentials({
+      OPENAI_API_KEY: 'stale-direct-key',
+      OPENROUTER_API_KEY: 'proxy-key',
+      GATEWAY_UPSTREAM_BASE: 'https://api.proxyapi.ru/openai/v1',
+    }),
+    {
+      apiKey: 'proxy-key',
+      baseURL: 'https://api.proxyapi.ru/openai/v1',
+    },
+  );
+});
+
+test('managed STT keeps a direct OpenAI base paired with the OpenAI key', () => {
+  assert.deepEqual(
+    resolveManagedSttCredentials({
+      OPENAI_API_KEY: 'openai-key',
+      OPENROUTER_API_KEY: 'proxy-key',
+      OPENAI_STT_BASE_URL: 'https://api.openai.com/v1',
+    }),
+    {
+      apiKey: 'openai-key',
+      baseURL: 'https://api.openai.com/v1',
+    },
+  );
 });
 
 test('gateway guidance parser preserves bounded literal terms', () => {

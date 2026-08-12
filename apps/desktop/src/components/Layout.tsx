@@ -1,4 +1,4 @@
-import { ReactNode, Suspense, useEffect, useState } from 'react';
+import { ReactNode, Suspense, useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import CommandPalette from './CommandPalette';
@@ -15,6 +15,7 @@ const ROUTE_TITLE_KEYS: Record<string, I18nKey> = {
   '/home': 'nav.home',
   '/prepare': 'nav.prepare',
   '/applications': 'nav.applications',
+  '/applications/hr-profile': 'nav.applications',
   '/calendar': 'nav.calendar',
   '/documents': 'nav.documents',
   '/history': 'nav.history',
@@ -80,14 +81,25 @@ export default function Layout({ children }: { children: ReactNode }) {
   const { backendOnline, backendStatus } = useApp();
   const { t } = useI18n();
   const { pathname } = useLocation();
-  const wide = WIDE_ROUTES.has(pathname);
-  const prep = PREP_ROUTES.has(pathname);
-  const showTitleBar = !NO_TITLEBAR_ROUTES.has(pathname);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const mainRef = useRef<HTMLElement>(null);
+  const routeKey = pathname.startsWith('/history/') ? '/history' : pathname;
+  const wide = WIDE_ROUTES.has(routeKey);
+  const prep = PREP_ROUTES.has(routeKey);
+  const showTitleBar = !NO_TITLEBAR_ROUTES.has(routeKey);
   const backendBannerKind = getBackendBannerKind({
     backendOnline,
     backendStatus,
     isDev: import.meta.env.DEV,
   });
+
+  useEffect(() => {
+    // Контент прокручивается внутри оболочки приложения. Без явного сброса новый
+    // раздел наследует позицию предыдущего и может открыться сразу с середины.
+    contentRef.current?.scrollTo({ top: 0, left: 0 });
+    document.title = `${t(ROUTE_TITLE_KEYS[routeKey] ?? 'nav.home')} · SkillCue`;
+    window.requestAnimationFrame(() => mainRef.current?.focus({ preventScroll: true }));
+  }, [pathname, routeKey, t]);
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-surface text-ink">
@@ -96,11 +108,13 @@ export default function Layout({ children }: { children: ReactNode }) {
       </a>
       <CommandPalette />
       <UpdateToast />
-      {showTitleBar && <TitleBar pathname={pathname} />}
+      {showTitleBar && <TitleBar pathname={routeKey} />}
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <Sidebar />
         <main
+          ref={mainRef}
           id="skillcue-main"
+          tabIndex={-1}
           className="skillcue-main flex min-w-0 flex-1 flex-col overflow-hidden"
         >
           {backendBannerKind === 'failed' ? (
@@ -114,24 +128,26 @@ export default function Layout({ children }: { children: ReactNode }) {
           ) : (
             backendBannerKind === 'dev-offline' && (
               <div
-                className="flex shrink-0 items-center gap-2 border-b border-amber-900/30 bg-amber-950/20 px-5 py-2 text-sm text-amber-200/90"
+                className="flex shrink-0 flex-wrap items-center gap-2 border-b border-amber-900/30 bg-amber-950/20 px-3 py-2 text-sm text-amber-200/90 sm:px-5"
                 role="status"
               >
-                <span className="sc-dot sc-dot--processing animate-pulse" />
+                <span className="sc-dot sc-dot--processing motion-safe:animate-pulse" />
                 {t('shell.backendConnecting')}{' '}
-                <code className="rounded-md bg-black/30 px-1.5 py-0.5 text-amber-100">
+                <code className="min-w-0 break-all rounded-md bg-black/30 px-1.5 py-0.5 text-amber-100">
                   cd apps/api-py; .\run_dev.ps1
                 </code>
               </div>
             )
           )}
           <div
+            key={pathname}
+            ref={contentRef}
             className={`mx-auto flex min-h-0 w-full flex-1 flex-col ${
               prep
                 ? 'max-w-none overflow-hidden p-0'
                 : wide
                   ? 'max-w-[1600px] px-5 py-4'
-                  : 'max-w-[1280px] overflow-y-auto px-8 py-8'
+                  : 'max-w-[1280px] overflow-y-auto px-4 py-4 sm:px-8 sm:py-8'
             }`}
           >
             <Suspense

@@ -42,7 +42,7 @@
   --twc-accent-hover: 88 220 150; /* #58dc96 */
   --twc-ink: 237 246 255; /* #edf6ff */
   --twc-ink-muted: 169 184 203; /* #a9b8cb */
-  --twc-ink-faint: 115 132 155; /* #73849b */
+  --twc-ink-faint: 135 153 175; /* #8799af — >= 4.5:1 on every dark surface */
 }
 
 /* Светлая тема — тот же навы-характер, но на светлых поверхностях.
@@ -65,5 +65,5 @@
   --twc-accent-hover: 23 138 82; /* #178a52 */
   --twc-ink: 22 40 60; /* #16283c */
   --twc-ink-muted: 74 93 116; /* #4a5d74 */
-  --twc-ink-faint: 118 136 157; /* #76889d */
+  --twc-ink-faint: 89 111 134; /* #596f86 — >= 4.5:1 on light app surfaces */
 }

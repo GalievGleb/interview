@@ -9,6 +9,7 @@ export type HhApplySituation =
   | 'confirm'
   | 'success'
   | 'already_applied'
+  | 'post_response_letter_offer'
   | 'captcha'
   | 'employer_questions'
   | 'login'
@@ -23,6 +24,10 @@ export interface HhApplyContext {
   letterFilled: boolean;
   /** IO-слой отмечает, что обязательные вопросы работодателя заполнены. */
   questionsFilled: boolean;
+  /** В этой попытке уже нажимали первую кнопку отклика. */
+  responseClicked: boolean;
+  /** HH уже принял отклик, но ещё разрешает добавить письмо. */
+  responseSubmitted: boolean;
 }
 
 export type HhApplyAction =
@@ -33,6 +38,7 @@ export type HhApplyAction =
   | { action: 'fill_questions' }
   | { action: 'click_confirm' }
   | { action: 'mark_sent' }
+  | { action: 'wait_letter'; reason: string }
   | { action: 'skip'; reason: string }
   | { action: 'wait_user'; reason: string };
 
@@ -43,9 +49,23 @@ export function decideNextAction(
 ): HhApplyAction {
   switch (situation) {
     case 'success':
-      return { action: 'mark_sent' };
+      return ctx.hasCoverLetter && !ctx.letterFilled && ctx.responseClicked
+        ? {
+            action: 'wait_letter',
+            reason: 'Дожидаюсь формы сопроводительного письма; отклик пока не считаю завершённым.',
+          }
+        : { action: 'mark_sent' };
     case 'already_applied':
-      return { action: 'mark_sent' };
+      return ctx.hasCoverLetter && !ctx.letterFilled && ctx.responseSubmitted
+        ? {
+            action: 'wait_letter',
+            reason: 'Дожидаюсь формы сопроводительного письма; отклик пока не считаю завершённым.',
+          }
+        : { action: 'mark_sent' };
+    case 'post_response_letter_offer':
+      return ctx.hasCoverLetter && !ctx.letterFilled
+        ? { action: 'open_letter' }
+        : { action: 'mark_sent' };
     case 'captcha':
       return {
         action: 'wait_user',

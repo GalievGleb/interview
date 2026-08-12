@@ -1,6 +1,6 @@
 {
   "name": "@interview/desktop",
-  "version": "0.0.25",
+  "version": "0.0.26",
   "private": true,
   "main": "dist-electron/main.js",
   "scripts": {
@@ -8,8 +8,11 @@
     "prebuild": "pnpm assets:installer",
     "dev": "concurrently -k -n vite,electron -c blue,green \"vite\" \"wait-on http://localhost:5173 && tsc -p tsconfig.electron.json && electron .\"",
     "build": "vite build && tsc -p tsconfig.electron.json",
+    "build:dev": "vite build --mode devbuild && tsc -p tsconfig.electron.json",
     "dist": "pnpm dist:full",
     "dist:app": "pnpm build && electron-builder",
+    "dist:dev:app": "pnpm build:dev && electron-builder --config electron-builder.dev.cjs --win nsis --publish never",
+    "dist:dev": "pnpm build:backend && pnpm dist:dev:app",
     "build:backend": "cd ../api-py && .venv\\Scripts\\pyinstaller.exe -y skillcue-backend.spec",
     "dist:full": "pnpm build:backend && pnpm build && electron-builder",
     "preview": "vite preview",
@@ -20,6 +23,7 @@
   },
   "dependencies": {
     "@interview/shared": "workspace:*",
+    "cheerio": "1.0.0",
     "electron-updater": "^6.3.9",
     "keytar": "^7.9.0",
     "lucide-react": "^0.468.0",
@@ -87,6 +91,40 @@
         "nsis"
       ],
       "icon": "build/icon.ico"
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "icon": "assets/branding/skillcue-app-icon-1024.png",
+      "category": "public.app-category.productivity",
+      "artifactName": "SkillCue-macOS-${arch}.${ext}",
+      "minimumSystemVersion": "12.0",
+      "hardenedRuntime": false,
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "SkillCue uses the microphone only when you start voice practice or a live interview session."
+      }
+    },
+    "dmg": {
+      "title": "SkillCue ${version}",
+      "iconSize": 96,
+      "window": {
+        "width": 560,
+        "height": 380
+      },
+      "contents": [
+        {
+          "x": 150,
+          "y": 190,
+          "type": "file"
+        },
+        {
+          "x": 410,
+          "y": 190,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
     },
     "nsis": {
       "oneClick": true,

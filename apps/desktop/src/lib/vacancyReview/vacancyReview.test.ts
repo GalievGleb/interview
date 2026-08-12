@@ -137,6 +137,14 @@ describe('topic extraction', () => {
 });
 
 describe('smoke plan', () => {
+  it('keeps résumé coverage unknown when no résumé was provided', () => {
+    const analysis = analyzeVacancyMock({ vacancyText: QA_VACANCY, language: 'ru' });
+    expect(analysis.hasResume).toBe(false);
+    expect(analysis.competencies?.length).toBeGreaterThan(0);
+    expect(analysis.competencies?.every((item) => item.resumeMatch === 'unknown')).toBe(true);
+    expect(analysis.riskAreas.join(' ')).not.toContain('Пробелы против резюме');
+  });
+
   it('builds 8–15 questions grouped by topic, increasing difficulty', async () => {
     const analysis = analyzeVacancyMock({ vacancyText: QA_VACANCY, language: 'ru' });
     const plan = buildSmokePlan(analysis);

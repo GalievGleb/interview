@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, Plus, Trash2 } from 'lucide-react';
+import { CheckCircle2, CircleHelp, Copy, Plus, Trash2 } from 'lucide-react';
 import type { AvailabilityWindow, InterviewCalendarSettings } from '../../types/electron';
 
 export const AVAILABILITY_DAYS = [
@@ -12,17 +12,45 @@ export const AVAILABILITY_DAYS = [
   { weekday: 0, short: 'Вс', label: 'Воскресенье' },
 ] as const;
 
+const WEEKDAYS = [1, 2, 3, 4, 5] as const;
+const ALL_DAYS = AVAILABILITY_DAYS.map((day) => day.weekday);
+const TIME_STEP_MINUTES = 15;
+const TIME_OPTIONS = Array.from(
+  { length: (24 * 60) / TIME_STEP_MINUTES + 1 },
+  (_, index) => index * TIME_STEP_MINUTES,
+);
+
+const TIMEZONE_CITY_LABELS: Record<string, string> = {
+  'Asia/Barnaul': 'Барнаул',
+  'Asia/Irkutsk': 'Иркутск',
+  'Asia/Kamchatka': 'Камчатка',
+  'Asia/Krasnoyarsk': 'Красноярск',
+  'Asia/Magadan': 'Магадан',
+  'Asia/Novosibirsk': 'Новосибирск',
+  'Asia/Omsk': 'Омск',
+  'Asia/Sakhalin': 'Сахалин',
+  'Asia/Tomsk': 'Томск',
+  'Asia/Vladivostok': 'Владивосток',
+  'Asia/Yakutsk': 'Якутск',
+  'Asia/Yekaterinburg': 'Екатеринбург',
+  'Europe/Kaliningrad': 'Калининград',
+  'Europe/Moscow': 'Москва',
+};
+
 function pad(value: number): string {
   return String(value).padStart(2, '0');
 }
 
 function minutesToTime(value: number): string {
+  if (value === 24 * 60) return '24:00';
   return `${pad(Math.floor(value / 60))}:${pad(value % 60)}`;
 }
 
-function timeToMinutes(value: string): number {
-  const [hours, minutes] = value.split(':').map(Number);
-  return hours * 60 + minutes;
+function durationLabel(minutes: number): string {
+  if (minutes < 60) return `${minutes} мин`;
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return remainder ? `${hours} ч ${remainder} мин` : `${hours} ч`;
 }
 
 function windowId(weekday: number): string {
@@ -31,12 +59,13 @@ function windowId(weekday: number): string {
 
 function newWindow(weekday: number, existing: AvailabilityWindow[]): AvailabilityWindow {
   const last = [...existing].sort((left, right) => left.endMinutes - right.endMinutes).at(-1);
-  const startMinutes = last ? Math.min(last.endMinutes + 60, 21 * 60) : 10 * 60;
+  const proposedStart = last ? last.endMinutes + 30 : 10 * 60;
+  const startMinutes = proposedStart >= 23 * 60 ? 10 * 60 : proposedStart;
   return {
     id: windowId(weekday),
     weekday,
     startMinutes,
-    endMinutes: Math.min(startMinutes + 2 * 60, 23 * 60),
+    endMinutes: Math.min(startMinutes + 2 * 60, 24 * 60),
   };
 }
 
@@ -53,11 +82,54 @@ function cloneWindows(windows: AvailabilityWindow[]): AvailabilityWindow[] {
   return windows.map((window) => ({ ...window }));
 }
 
+export function copyAvailabilityDay(
+  windows: AvailabilityWindow[],
+  sourceWeekday: number,
+  targetWeekdays: readonly number[],
+): AvailabilityWindow[] {
+  const source = windows
+    .filter((window) => window.weekday === sourceWeekday)
+    .sort((left, right) => left.startMinutes - right.startMinutes);
+  if (source.length === 0) return windows;
+  const targets = new Set(targetWeekdays);
+  return [
+    ...windows.filter((window) => !targets.has(window.weekday)),
+    ...targetWeekdays.flatMap((weekday) => source.map((window) => ({
+      ...window,
+      id: windowId(weekday),
+      weekday,
+    }))),
+  ];
+}
+
+function timezoneOffset(timezone: string, at: Date): string {
+  try {
+    const offset = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      timeZoneName: 'longOffset',
+    }).formatToParts(at).find((part) => part.type === 'timeZoneName')?.value ?? 'GMT';
+    const match = offset.match(/^GMT([+-])(\d{2}):(\d{2})$/);
+    if (!match) return 'UTC+0';
+    const hours = Number(match[2]);
+    const minutes = Number(match[3]);
+    return `UTC${match[1]}${hours}${minutes ? `:${pad(minutes)}` : ''}`;
+  } catch {
+    return 'Локальное время';
+  }
+}
+
+export function formatTimezoneDisplay(timezone: string, at = new Date()): string {
+  const fallbackCity = timezone.split('/').at(-1)?.replaceAll('_', ' ') || timezone;
+  const city = TIMEZONE_CITY_LABELS[timezone] ?? fallbackCity;
+  return `${timezoneOffset(timezone, at)} · ${city}`;
+}
+
 function noticeLabel(minutes: number): string {
-  if (minutes === 0) return 'без запаса';
-  if (minutes < 60) return `запас ${minutes} мин`;
-  if (minutes < 24 * 60) return `запас ${minutes / 60} ч`;
-  return `запас ${minutes / (24 * 60)} дн`;
+  if (minutes === 0) return 'можно назначать сразу';
+  if (minutes < 60) return `не раньше чем через ${minutes} мин`;
+  if (minutes < 24 * 60) return `не раньше чем через ${durationLabel(minutes)}`;
+  const days = minutes / (24 * 60);
+  return `не раньше чем через ${days} ${days === 1 ? 'день' : 'дня'}`;
 }
 
 export function formatAvailabilitySummary(settings: InterviewCalendarSettings): string {
@@ -78,7 +150,7 @@ export function formatAvailabilitySummary(settings: InterviewCalendarSettings): 
   const schedule = [...groups.entries()]
     .map(([ranges, days]) => `${days.join(', ')} ${ranges}`)
     .join(' · ');
-  return `${schedule} · ${settings.defaultDurationMin} мин · ${noticeLabel(settings.minimumNoticeMin)}`;
+  return `${schedule} · ${noticeLabel(settings.minimumNoticeMin)}`;
 }
 
 interface AvailabilityEditorProps {
@@ -97,14 +169,13 @@ export default function AvailabilityEditor({
   allowClear = false,
 }: AvailabilityEditorProps) {
   const [availability, setAvailability] = useState<AvailabilityWindow[]>(() => cloneWindows(settings.availability));
-  const [durationMin, setDurationMin] = useState(settings.defaultDurationMin);
   const [noticeMin, setNoticeMin] = useState(settings.minimumNoticeMin);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [copyMessage, setCopyMessage] = useState('');
 
   useEffect(() => {
     setAvailability(cloneWindows(settings.availability));
-    setDurationMin(settings.defaultDurationMin);
     setNoticeMin(settings.minimumNoticeMin);
   }, [settings]);
 
@@ -115,9 +186,42 @@ export default function AvailabilityEditor({
 
   const applyPreset = (preset: 'workday' | 'evening' | 'weekend') => {
     setError('');
-    if (preset === 'workday') setAvailability(presetWindows([1, 2, 3, 4, 5], 10 * 60, 18 * 60));
-    if (preset === 'evening') setAvailability(presetWindows([1, 2, 3, 4, 5], 18 * 60, 21 * 60));
+    setCopyMessage('');
+    if (preset === 'workday') setAvailability(presetWindows(WEEKDAYS, 10 * 60, 18 * 60));
+    if (preset === 'evening') setAvailability(presetWindows(WEEKDAYS, 18 * 60, 21 * 60));
     if (preset === 'weekend') setAvailability(presetWindows([6, 0], 10 * 60, 18 * 60));
+  };
+
+  const toggleDay = (weekday: number) => {
+    setError('');
+    setCopyMessage('');
+    setAvailability((current) => {
+      const active = current.some((window) => window.weekday === weekday);
+      if (active) return current.filter((window) => window.weekday !== weekday);
+      const templateDay = AVAILABILITY_DAYS.find((day) => current.some((window) => window.weekday === day.weekday));
+      const template = templateDay
+        ? current.filter((window) => window.weekday === templateDay.weekday)
+        : [{ id: '', weekday, startMinutes: 10 * 60, endMinutes: 18 * 60 }];
+      return [...current, ...template.map((window) => ({ ...window, id: windowId(weekday), weekday }))];
+    });
+  };
+
+  const updateStart = (id: string, startMinutes: number) => {
+    setAvailability((current) => current.map((item) => {
+      if (item.id !== id) return item;
+      const previousLength = Math.max(TIME_STEP_MINUTES, item.endMinutes - item.startMinutes);
+      return {
+        ...item,
+        startMinutes,
+        endMinutes: Math.min(24 * 60, startMinutes + previousLength),
+      };
+    }));
+  };
+
+  const copyDay = (weekday: number, targets: readonly number[], label: string) => {
+    setAvailability((current) => copyAvailabilityDay(current, weekday, targets));
+    setCopyMessage(`Расписание скопировано: ${label}.`);
+    setError('');
   };
 
   const save = async () => {
@@ -135,7 +239,6 @@ export default function AvailabilityEditor({
       await onSave({
         availability,
         availabilityConfigured: availability.length > 0,
-        defaultDurationMin: durationMin,
         minimumNoticeMin: noticeMin,
         timezone: settings.timezone,
       });
@@ -147,7 +250,7 @@ export default function AvailabilityEditor({
   };
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       <div>
         <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-ink-faint">Быстрый выбор</p>
         <div className="flex flex-wrap gap-2">
@@ -157,82 +260,114 @@ export default function AvailabilityEditor({
         </div>
       </div>
 
-      <div className={compact ? 'grid gap-2 md:grid-cols-2' : 'space-y-3'}>
-        {AVAILABILITY_DAYS.map((day) => {
-          const windows = availability
-            .filter((window) => window.weekday === day.weekday)
-            .sort((left, right) => left.startMinutes - right.startMinutes);
-          return (
-            <div key={day.weekday} className="rounded-xl border border-surface-border bg-surface/30 p-3">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-semibold text-ink">{compact ? day.short : day.label}</span>
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-300"
-                  onClick={() => setAvailability((current) => [...current, newWindow(day.weekday, windows)])}
-                >
-                  <Plus size={12} /> Интервал
-                </button>
-              </div>
-              {windows.length === 0 ? (
-                <p className="mt-2 text-[11px] text-ink-faint">Не предлагать</p>
-              ) : (
-                <div className="mt-2 space-y-2">
-                  {windows.map((window) => (
-                    <div key={window.id} className="flex items-center gap-1.5">
-                      <input
-                        type="time"
-                        className="field min-w-0 px-2 py-1.5 text-xs"
-                        value={minutesToTime(window.startMinutes)}
-                        onChange={(event) => setAvailability((current) => current.map((item) => (
-                          item.id === window.id ? { ...item, startMinutes: timeToMinutes(event.target.value) } : item
-                        )))}
-                      />
-                      <span className="text-xs text-ink-faint">—</span>
-                      <input
-                        type="time"
-                        className="field min-w-0 px-2 py-1.5 text-xs"
-                        value={minutesToTime(window.endMinutes)}
-                        onChange={(event) => setAvailability((current) => current.map((item) => (
-                          item.id === window.id ? { ...item, endMinutes: timeToMinutes(event.target.value) } : item
-                        )))}
-                      />
-                      <button
-                        type="button"
-                        className="shrink-0 p-1 text-ink-faint hover:text-red-300"
-                        aria-label={`Удалить интервал: ${day.label}`}
-                        onClick={() => setAvailability((current) => current.filter((item) => item.id !== window.id))}
-                      >
-                        <Trash2 size={13} />
+      <div>
+        <div className="mb-2 flex items-end justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold text-ink">Дни и свободные часы</p>
+            <p className="mt-0.5 text-[11px] text-ink-faint">Включите день и выберите начало и конец. Шаг — 15 минут.</p>
+          </div>
+        </div>
+        <div className={compact ? 'grid gap-2 lg:grid-cols-2' : 'space-y-2'}>
+          {AVAILABILITY_DAYS.map((day) => {
+            const windows = availability
+              .filter((window) => window.weekday === day.weekday)
+              .sort((left, right) => left.startMinutes - right.startMinutes);
+            const active = windows.length > 0;
+            return (
+              <div key={day.weekday} className={`rounded-xl border p-3 transition-colors ${active ? 'border-emerald-500/20 bg-emerald-500/[0.035]' : 'border-surface-border bg-surface/20'}`}>
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 shrink-0 accent-emerald-400"
+                      checked={active}
+                      onChange={() => toggleDay(day.weekday)}
+                    />
+                    <span className="text-xs font-semibold text-ink">{compact ? day.short : day.label}</span>
+                    {!active && <span className="text-[11px] text-ink-faint">не предлагать</span>}
+                  </label>
+                  {active && (
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium text-emerald-300 hover:bg-emerald-400/10"
+                      onClick={() => setAvailability((current) => [...current, newWindow(day.weekday, windows)])}
+                    >
+                      <Plus size={12} /> Ещё интервал
+                    </button>
+                  )}
+                </div>
+
+                {active && (
+                  <>
+                    <div className="mt-3 space-y-2">
+                      {windows.map((window) => (
+                        <div key={window.id} className="flex items-end gap-2">
+                          <label className="min-w-0 flex-1">
+                            <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-ink-faint">С</span>
+                            <select
+                              className="field h-9 min-w-0 py-1.5 text-xs tabular-nums"
+                              aria-label={`Начало: ${day.label}`}
+                              value={window.startMinutes}
+                              onChange={(event) => updateStart(window.id, Number(event.target.value))}
+                            >
+                              {TIME_OPTIONS.slice(0, -1).map((minutes) => <option key={minutes} value={minutes}>{minutesToTime(minutes)}</option>)}
+                            </select>
+                          </label>
+                          <span className="pb-2 text-xs text-ink-faint">—</span>
+                          <label className="min-w-0 flex-1">
+                            <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-ink-faint">До</span>
+                            <select
+                              className="field h-9 min-w-0 py-1.5 text-xs tabular-nums"
+                              aria-label={`Конец: ${day.label}`}
+                              value={window.endMinutes}
+                              onChange={(event) => setAvailability((current) => current.map((item) => (
+                                item.id === window.id ? { ...item, endMinutes: Number(event.target.value) } : item
+                              )))}
+                            >
+                              {TIME_OPTIONS.filter((minutes) => minutes > window.startMinutes).map((minutes) => <option key={minutes} value={minutes}>{minutesToTime(minutes)}</option>)}
+                            </select>
+                          </label>
+                          <button
+                            type="button"
+                            className="mb-0.5 shrink-0 rounded-lg p-2 text-ink-faint hover:bg-red-400/10 hover:text-red-300"
+                            aria-label={`Удалить интервал: ${day.label}`}
+                            onClick={() => setAvailability((current) => current.filter((item) => item.id !== window.id))}
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-2.5 flex flex-wrap items-center gap-1.5 border-t border-surface-border/70 pt-2.5">
+                      <span className="mr-0.5 text-[10px] text-ink-faint">Повторить этот день:</span>
+                      <button type="button" className="inline-flex items-center gap-1 rounded-md bg-surface-light px-2 py-1 text-[10px] font-medium text-ink-muted hover:text-ink" onClick={() => copyDay(day.weekday, WEEKDAYS, 'Пн–Пт')}>
+                        <Copy size={10} /> Пн–Пт
+                      </button>
+                      <button type="button" className="inline-flex items-center gap-1 rounded-md bg-surface-light px-2 py-1 text-[10px] font-medium text-ink-muted hover:text-ink" onClick={() => copyDay(day.weekday, ALL_DAYS, 'вся неделя')}>
+                        <Copy size={10} /> Вся неделя
                       </button>
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
+                  </>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        {copyMessage && <p className="mt-2 flex items-center gap-1.5 text-[11px] text-emerald-300"><CheckCircle2 size={13} />{copyMessage}</p>}
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        <label>
-          <span className="label">Длительность созвона</span>
-          <select className="field py-2 text-xs" value={durationMin} onChange={(event) => setDurationMin(Number(event.target.value))}>
-            <option value={30}>30 минут</option><option value={45}>45 минут</option><option value={60}>1 час</option><option value={90}>1,5 часа</option><option value={120}>2 часа</option>
-          </select>
-        </label>
-        <label>
-          <span className="label">Не назначать раньше чем</span>
-          <select className="field py-2 text-xs" value={noticeMin} onChange={(event) => setNoticeMin(Number(event.target.value))}>
-            <option value={0}>Без запаса</option><option value={120}>За 2 часа</option><option value={720}>За 12 часов</option><option value={1440}>За 1 день</option><option value={2880}>За 2 дня</option>
-          </select>
-        </label>
-      </div>
+      <label className="block rounded-xl border border-surface-border bg-surface/30 p-3.5">
+        <span className="flex items-center gap-2 text-xs font-semibold text-ink"><CircleHelp size={15} className="text-violet-300" />За сколько времени можно назначать созвон?</span>
+        <span className="mt-1 block text-[11px] leading-relaxed text-ink-muted">Например, «за 1 день» означает, что бот не предложит сегодня встречу на ближайшие 24 часа.</span>
+        <select className="field mt-2.5 py-2 text-xs" value={noticeMin} onChange={(event) => setNoticeMin(Number(event.target.value))}>
+          <option value={0}>Можно сразу</option><option value={120}>Минимум за 2 часа</option><option value={720}>Минимум за 12 часов</option><option value={1440}>Минимум за 1 день</option><option value={2880}>Минимум за 2 дня</option>
+        </select>
+      </label>
 
       <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-        <p className="flex items-center gap-1.5 text-[11px] text-ink-faint">
+        <p className="flex items-center gap-1.5 text-[11px] text-ink-faint" title={settings.timezone}>
           {settings.availabilityConfigured && <CheckCircle2 className="text-emerald-300" size={14} />}
-          Часовой пояс: {settings.timezone}
+          Часовой пояс: <strong className="font-semibold text-ink-muted">{formatTimezoneDisplay(settings.timezone)}</strong>
         </p>
         <div className="flex flex-wrap gap-2">
           {allowClear && settings.availabilityConfigured && (

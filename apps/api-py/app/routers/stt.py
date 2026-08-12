@@ -171,12 +171,19 @@ async def transcribe_mock_answer(
     parsed_hints = _parse_answer_hints(hints)
     _validate_answer_wav(audio)
 
-    text = await get_answer_transcriber().transcribe(
-        audio,
-        question=compact_question,
-        hints=parsed_hints,
-        language=language,
-    )
+    try:
+        text = await get_answer_transcriber().transcribe(
+            audio,
+            question=compact_question,
+            hints=parsed_hints,
+            language=language,
+        )
+    except RuntimeError as exc:
+        logger.warning("Mock answer transcription is unavailable: %s", exc)
+        raise HTTPException(
+            status_code=503,
+            detail="Распознавание временно недоступно. Запись можно отправить повторно.",
+        ) from exc
     return {"text": text.strip(), "model": ANSWER_MODEL}
 
 

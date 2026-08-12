@@ -60,18 +60,24 @@ export class LatestForcedAnswerCoordinator {
     return { ...this.state, pendingRequestCount: this.pendingFinalizations.size };
   }
 
-  press(lines: ForcedTranscriptLine[], source: 'mic' | 'system' | null): ForceDecision {
+  press(
+    lines: ForcedTranscriptLine[],
+    source: 'mic' | 'system' | null,
+    forceCurrentSpeechFinalization = false,
+  ): ForceDecision {
     const generation = this.state.generation + 1;
     // Every press supersedes the previous forced finalization. Keeping older
     // request ids made late STT callbacks eligible forever and leaked the map.
     this.pendingFinalizations.clear();
-    const line = [...lines]
-      .reverse()
-      .find(
-        (item) =>
-          item.sequence > this.state.consumedSequence &&
-          (!source || !item.source || item.source === source),
-      );
+    const line = forceCurrentSpeechFinalization
+      ? undefined
+      : [...lines]
+        .reverse()
+        .find(
+          (item) =>
+            item.sequence > this.state.consumedSequence &&
+            (!source || !item.source || item.source === source),
+        );
 
     if (line) {
       this.state = {
@@ -117,6 +123,27 @@ export class LatestForcedAnswerCoordinator {
 
   acceptFinal(line: ForcedTranscriptLine, requestId?: string): ForceAcceptDecision {
     const activeRequestId = this.state.requestId;
+
+    // A forced finalize is tagged end-to-end by the STT server. While that
+    // tagged request is pending, an id-less final from the same socket may be
+    // an older transcription job that happened to finish first. Submitting it
+    // immediately races the actual latest utterance and produces exactly the
+    // wrong Ctrl+Enter answer. Keep waiting for the tagged result; the caller
+    // refreshes the fallback timer so a busy transcription queue still gets a
+    // chance to deliver it.
+    if (!requestId && activeRequestId) {
+      const activePending = this.pendingFinalizations.get(activeRequestId);
+      if (
+        activePending &&
+        activePending.generation === this.state.generation &&
+        line.sequence > this.state.consumedSequence &&
+        (!line.source || line.source === activePending.source)
+      ) {
+        return { action: 'wait', generation: activePending.generation };
+      }
+      return { action: 'store-only' };
+    }
+
     const pending = requestId
       ? this.pendingFinalizations.get(requestId)
       : (this.state.phase === 'finalizing-transcript' ||

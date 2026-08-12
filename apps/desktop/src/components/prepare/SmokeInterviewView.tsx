@@ -75,6 +75,7 @@ export default function SmokeInterviewView({
   const voice = useVoiceAnswer((voiceText) => setText(voiceText), {
     language: vacancyAnalysis.language,
     question: question?.question ?? '',
+    previewBeforeTranscription: true,
     topicLabels: vacancyAnalysis.interviewTopics
       .filter((item) => item.id === question?.topicId)
       .map((item) => item.title),
@@ -92,6 +93,12 @@ export default function SmokeInterviewView({
     return () => window.clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentIndex, Boolean(existing)]);
+
+  useEffect(() => {
+    voice.discardPreview();
+    // The recording belongs to one question and must never leak into the next one.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentIndex]);
 
   const evaluationRef = useRef<HTMLDivElement | null>(null);
   const wasEvaluating = useRef(false);
@@ -119,7 +126,11 @@ export default function SmokeInterviewView({
   const submitCurrentAnswer = async () => {
     if (voice.finalizing) return;
     if (voice.recording) {
-      const voiceText = await voice.finish();
+      voice.finishRecording();
+      return;
+    }
+    if (voice.previewUrl) {
+      const voiceText = await voice.transcribePreview();
       const submission = resolveVoiceAnswerSubmission(voiceText, text);
       if (!submission) return;
       onSubmitAnswer(submission.text, submission.source);
@@ -247,28 +258,54 @@ export default function SmokeInterviewView({
 
         {!answered && (
           <div
-            className={`prep-voice-strip ${voice.recording || voice.finalizing ? 'is-recording' : ''}`}
+            className={`prep-voice-strip ${voice.recording || voice.finalizing ? 'is-recording' : ''} ${voice.previewUrl ? 'has-preview' : ''}`}
+            aria-live="polite"
           >
-            <span className="prep-voice-dot" />
+            <span className="prep-voice-dot" aria-hidden="true" />
             <div className="min-w-0 flex-1">
-              <p>
-                {voice.finalizing
-                  ? t('prep.smoke.finalizing')
-                  : voice.recording
-                    ? t('prep.smoke.recording')
-                    : t('prep.smoke.voiceAnswer')}
-              </p>
-              <span>
-                {voice.error
-                  ? voice.error
-                  : !hasStt
-                    ? t('prep.smoke.voiceNotReady')
-                    : voice.finalizing
-                      ? t('prep.smoke.finalizingHint')
-                      : voice.recording
-                      ? t('prep.smoke.recordingHint')
-                      : t('prep.smoke.voiceHint')}
-              </span>
+              <div className="prep-voice-title-row">
+                <p>
+                  {voice.finalizing
+                    ? t('prep.smoke.finalizing')
+                    : voice.recording
+                      ? t('prep.smoke.recording')
+                      : voice.previewUrl
+                        ? t('prep.smoke.recordingReady')
+                        : t('prep.smoke.voiceAnswer')}
+                </p>
+                {(voice.recording || voice.previewUrl) && (
+                  <time>{Math.floor(voice.recordingSeconds / 60)}:{String(voice.recordingSeconds % 60).padStart(2, '0')}</time>
+                )}
+              </div>
+              {voice.recording && (
+                <div className="prep-voice-meter" aria-hidden="true">
+                  <span style={{ width: `${Math.max(4, Math.round(voice.inputLevel * 100))}%` }} />
+                </div>
+              )}
+              {voice.previewUrl ? (
+                <audio
+                  className="prep-voice-player"
+                  controls
+                  preload="metadata"
+                  src={voice.previewUrl}
+                  aria-label={t('prep.smoke.previewLabel')}
+                />
+              ) : (
+                <span className={voice.error ? 'prep-voice-error' : ''}>
+                  {voice.error
+                    ? voice.error
+                    : !hasStt
+                      ? t('prep.smoke.voiceNotReady')
+                      : voice.finalizing
+                        ? t('prep.smoke.finalizingHint')
+                        : voice.recording
+                          ? t('prep.smoke.recordingHint')
+                          : t('prep.smoke.voiceHint')}
+                </span>
+              )}
+              {voice.previewUrl && voice.error && (
+                <span className="prep-voice-error" role="alert">{voice.error}</span>
+              )}
             </div>
           </div>
         )}
@@ -278,8 +315,8 @@ export default function SmokeInterviewView({
             <>
               <button
                 type="button"
-                className="prep-btn"
-                onClick={voice.recording ? () => void submitCurrentAnswer() : voice.toggle}
+                className={`prep-btn ${voice.recording ? 'is-recording' : ''}`}
+                onClick={voice.recording || voice.previewUrl ? () => void submitCurrentAnswer() : voice.start}
                 disabled={evaluating || voice.finalizing || (!hasStt && !voice.recording)}
                 title={!hasStt ? t('prep.smoke.voiceNotReady') : t('prep.smoke.voiceAnswerTitle')}
               >
@@ -288,8 +325,10 @@ export default function SmokeInterviewView({
                 ) : voice.recording ? (
                   <>
                     <Square size={14} fill="currentColor" aria-hidden="true" />
-                    {t('prep.smoke.stopAndScore')}
+                    {t('prep.smoke.finishRecording')}
                   </>
+                ) : voice.previewUrl ? (
+                  <>{t('prep.smoke.transcribeAndScore')}</>
                 ) : (
                   <>
                     <Mic size={16} aria-hidden="true" />
@@ -300,10 +339,21 @@ export default function SmokeInterviewView({
               <button
                 type="button"
                 className="prep-btn-secondary prep-btn-sm"
-                disabled={!canEvaluate || voice.recording || voice.finalizing}
-                onClick={() => void submitCurrentAnswer()}
+                disabled={voice.previewUrl ? evaluating || voice.finalizing : !canEvaluate || voice.recording || voice.finalizing}
+                onClick={() => {
+                  if (voice.previewUrl) {
+                    voice.discardPreview();
+                    void voice.start();
+                    return;
+                  }
+                  void submitCurrentAnswer();
+                }}
               >
-                {evaluating ? t('prep.smoke.evaluating') : t('prep.smoke.scoreAnswer')}
+                {voice.previewUrl
+                  ? t('prep.smoke.rerecord')
+                  : evaluating
+                    ? t('prep.smoke.evaluating')
+                    : t('prep.smoke.scoreAnswer')}
               </button>
             </>
           ) : isLast ? (

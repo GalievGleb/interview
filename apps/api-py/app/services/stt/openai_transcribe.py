@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Awaitable, Callable
 from typing import TypedDict
 
 import httpx
@@ -17,6 +18,29 @@ from .pcm_audio import pcm16_mono_wav
 
 MINI_MODEL = "gpt-4o-mini-transcribe"
 ANSWER_MODEL = "gpt-transcribe"
+STT_RETRY_DELAYS_S = (0.2, 0.6)
+STT_RETRY_STATUS_CODES = {429, 500, 502, 503, 504}
+STT_TEMPORARY_ERROR = "Сервис распознавания временно недоступен. Повторите фразу."
+
+
+async def _post_stt_with_retry(
+    request: Callable[[], Awaitable[httpx.Response]],
+) -> httpx.Response:
+    """Retry a short transient STT outage without killing the live microphone."""
+    for attempt in range(len(STT_RETRY_DELAYS_S) + 1):
+        try:
+            response = await request()
+        except (httpx.TimeoutException, httpx.TransportError) as exc:
+            if attempt >= len(STT_RETRY_DELAYS_S):
+                raise RuntimeError(STT_TEMPORARY_ERROR) from exc
+        else:
+            if (
+                response.status_code not in STT_RETRY_STATUS_CODES
+                or attempt >= len(STT_RETRY_DELAYS_S)
+            ):
+                return response
+        await asyncio.sleep(STT_RETRY_DELAYS_S[attempt])
+    raise RuntimeError(STT_TEMPORARY_ERROR)
 
 
 class AnswerRequestData(TypedDict):
@@ -152,11 +176,13 @@ class OpenAiMiniTranscribeProvider(BaseTranscriptionProvider):
         language: str | None,
         key: str,
     ) -> str:
-        response = await self._http_client().post(
-            "https://api.openai.com/v1/audio/transcriptions",
-            headers={"Authorization": f"Bearer {key}"},
-            data=build_request_data(language=language),
-            files={"file": ("utterance.wav", audio, "audio/wav")},
+        response = await _post_stt_with_retry(
+            lambda: self._http_client().post(
+                "https://api.openai.com/v1/audio/transcriptions",
+                headers={"Authorization": f"Bearer {key}"},
+                data=build_request_data(language=language),
+                files={"file": ("utterance.wav", audio, "audio/wav")},
+            )
         )
         return self._response_text(response)
 
@@ -176,20 +202,24 @@ class OpenAiMiniTranscribeProvider(BaseTranscriptionProvider):
         params = {}
         if language:
             params["language"] = language
-        response = await self._http_client().post(
-            f"{root}/gateway/stt/transcribe",
-            headers={
-                "Authorization": f"Bearer {license_key}",
-                "Content-Type": "audio/wav",
-            },
-            params=params,
-            content=audio,
+        response = await _post_stt_with_retry(
+            lambda: self._http_client().post(
+                f"{root}/gateway/stt/transcribe",
+                headers={
+                    "Authorization": f"Bearer {license_key}",
+                    "Content-Type": "audio/wav",
+                },
+                params=params,
+                content=audio,
+            )
         )
         return self._response_text(response)
 
     @staticmethod
     def _response_text(response: httpx.Response) -> str:
         if not 200 <= response.status_code < 300:
+            if response.status_code in STT_RETRY_STATUS_CODES:
+                raise RuntimeError(STT_TEMPORARY_ERROR)
             raise RuntimeError(f"OpenAI Mini STT {response.status_code}: {response.text[:240]}")
         return str(response.json().get("text") or "").strip()
 
@@ -240,11 +270,13 @@ class OpenAiAnswerTranscriber:
             "keywords[]": list(request_data["keywords"]),
             "languages[]": list(request_data["languages"]),
         }
-        response = await self._http_client().post(
-            "https://api.openai.com/v1/audio/transcriptions",
-            headers={"Authorization": f"Bearer {key}"},
-            data=data,
-            files={"file": ("answer.wav", audio, "audio/wav")},
+        response = await _post_stt_with_retry(
+            lambda: self._http_client().post(
+                "https://api.openai.com/v1/audio/transcriptions",
+                headers={"Authorization": f"Bearer {key}"},
+                data=data,
+                files={"file": ("answer.wav", audio, "audio/wav")},
+            )
         )
         return self._response_text(response)
 
@@ -261,15 +293,17 @@ class OpenAiAnswerTranscriber:
         if not license_key:
             raise RuntimeError("SkillCue license is unavailable")
         root = _gateway_root_url(settings.skillcue_gateway_url)
-        response = await self._http_client().post(
-            f"{root}/gateway/stt/answer",
-            headers={"Authorization": f"Bearer {license_key}"},
-            data={
-                "prompt": str(request_data["prompt"]),
-                "keywords": json.dumps(request_data["keywords"], ensure_ascii=False),
-                "languages": json.dumps(request_data["languages"], ensure_ascii=False),
-            },
-            files={"file": ("answer.wav", audio, "audio/wav")},
+        response = await _post_stt_with_retry(
+            lambda: self._http_client().post(
+                f"{root}/gateway/stt/answer",
+                headers={"Authorization": f"Bearer {license_key}"},
+                data={
+                    "prompt": str(request_data["prompt"]),
+                    "keywords": json.dumps(request_data["keywords"], ensure_ascii=False),
+                    "languages": json.dumps(request_data["languages"], ensure_ascii=False),
+                },
+                files={"file": ("answer.wav", audio, "audio/wav")},
+            )
         )
         return self._response_text(response)
 
@@ -281,6 +315,8 @@ class OpenAiAnswerTranscriber:
     @staticmethod
     def _response_text(response: httpx.Response) -> str:
         if not 200 <= response.status_code < 300:
+            if response.status_code in STT_RETRY_STATUS_CODES:
+                raise RuntimeError(STT_TEMPORARY_ERROR)
             raise RuntimeError(f"OpenAI answer STT {response.status_code}: {response.text[:240]}")
         return str(response.json().get("text") or "").strip()
 

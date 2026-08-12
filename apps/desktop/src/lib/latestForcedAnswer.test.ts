@@ -31,23 +31,43 @@ describe('LatestForcedAnswerCoordinator', () => {
     });
   });
 
-  it('uses a newer id-less final while forced STT is pending', () => {
+  it('waits for the request-tagged latest final instead of answering an earlier id-less final', () => {
     const coordinator = new LatestForcedAnswerCoordinator(() => 'force-1');
     coordinator.press([], 'system');
 
-    expect(coordinator.acceptFinal({ sequence: 7, text: 'What should we check besides 200?' }))
-      .toMatchObject({ action: 'submit', generation: 1, sequence: 7 });
+    expect(
+      coordinator.acceptFinal({
+        sequence: 7,
+        text: 'Какие бывают техники тестирования?',
+        source: 'system',
+      }),
+    ).toEqual({ action: 'wait', generation: 1 });
     expect(coordinator.snapshot()).toMatchObject({
-      phase: 'waiting-first-token',
-      consumedSequence: 7,
+      phase: 'finalizing-transcript',
+      consumedSequence: 0,
       generation: 1,
+    });
+    expect(
+      coordinator.acceptFinal(
+        {
+          sequence: 8,
+          text: 'Что ты знаешь про принципы REST API?',
+          source: 'system',
+        },
+        'force-1',
+      ),
+    ).toMatchObject({
+      action: 'submit',
+      generation: 1,
+      sequence: 8,
+      question: 'Что ты знаешь про принципы REST API?',
     });
   });
 
-  it('ignores a late empty result after an id-less final consumed the request', () => {
+  it('ignores a late empty result after the tagged final consumed the request', () => {
     const coordinator = new LatestForcedAnswerCoordinator(() => 'force-1');
     coordinator.press([], 'system');
-    coordinator.acceptFinal({ sequence: 7, text: 'Use this final' });
+    coordinator.acceptFinal({ sequence: 7, text: 'Use this final' }, 'force-1');
 
     expect(coordinator.acceptEmpty('force-1')).toEqual({ action: 'store-only' });
     expect(coordinator.snapshot()).toMatchObject({
@@ -67,11 +87,14 @@ describe('LatestForcedAnswerCoordinator', () => {
       generation: 1,
     });
     expect(
-      coordinator.acceptFinal({
-        sequence: 1,
-        text: 'Что такое тестирование?',
-        source: 'mic',
-      }),
+      coordinator.acceptFinal(
+        {
+          sequence: 1,
+          text: 'Что такое тестирование?',
+          source: 'mic',
+        },
+        'force-1',
+      ),
     ).toMatchObject({
       action: 'submit',
       generation: 1,
@@ -91,11 +114,14 @@ describe('LatestForcedAnswerCoordinator', () => {
       pendingRequestCount: 1,
     });
     expect(
-      coordinator.acceptFinal({
-        sequence: 1,
-        text: 'Какие бывают техники тест-дизайна?',
-        source: 'system',
-      }),
+      coordinator.acceptFinal(
+        {
+          sequence: 1,
+          text: 'Какие бывают техники тест-дизайна?',
+          source: 'system',
+        },
+        'force-1',
+      ),
     ).toMatchObject({
       action: 'submit',
       generation: 1,
@@ -115,11 +141,14 @@ describe('LatestForcedAnswerCoordinator', () => {
       }),
     ).toEqual({ action: 'store-only' });
     expect(
-      coordinator.acceptFinal({
-        sequence: 2,
-        text: 'The interviewer question',
-        source: 'system',
-      }),
+      coordinator.acceptFinal(
+        {
+          sequence: 2,
+          text: 'The interviewer question',
+          source: 'system',
+        },
+        'force-1',
+      ),
     ).toMatchObject({
       action: 'submit',
       question: 'The interviewer question',
@@ -136,6 +165,32 @@ describe('LatestForcedAnswerCoordinator', () => {
         sequence: 3,
         question: 'How do you handle flaky tests?',
       });
+  });
+
+  it('finalizes current speech instead of reusing an older unconsumed final', () => {
+    const coordinator = new LatestForcedAnswerCoordinator(() => 'force-current');
+
+    expect(
+      coordinator.press(
+        [{ sequence: 1, text: 'Предыдущая уже распознанная фраза', source: 'mic' }],
+        'mic',
+        true,
+      ),
+    ).toMatchObject({
+      action: 'flush',
+      requestId: 'force-current',
+      source: 'mic',
+    });
+    expect(
+      coordinator.acceptFinal(
+        { sequence: 2, text: 'Самая последняя фраза', source: 'mic' },
+        'force-current',
+      ),
+    ).toMatchObject({
+      action: 'submit',
+      sequence: 2,
+      question: 'Самая последняя фраза',
+    });
   });
 
   it('reports empty audio only for the current request', () => {

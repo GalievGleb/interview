@@ -9,6 +9,8 @@ const hookSource = fs.readFileSync(
 );
 const apiSource = fs.readFileSync(path.resolve(__dirname, '../lib/api.ts'), 'utf8');
 const ruSource = fs.readFileSync(path.resolve(__dirname, '../lib/i18n/ru.ts'), 'utf8');
+const mainSource = fs.readFileSync(path.resolve(__dirname, '../../electron/main.ts'), 'utf8');
+const preloadSource = fs.readFileSync(path.resolve(__dirname, '../../electron/preload.ts'), 'utf8');
 const cssSource = fs.readFileSync(
   path.resolve(__dirname, '../styles/overlay-cockpit.css'),
   'utf8',
@@ -52,7 +54,7 @@ describe('overlay request behavior', () => {
   });
 
   it('selects the forced source from speech activity and unconsumed finals', () => {
-    expect(hookSource).toContain('speechInProgressRef.current');
+    expect(hookSource).toContain('speechActivityRef.current.snapshot()');
     expect(hookSource).toContain('unconsumedForcedFinals');
     expect(hookSource).toContain('selectForceTargetSource(');
   });
@@ -61,7 +63,13 @@ describe('overlay request behavior', () => {
     const partialAt = hookSource.indexOf('if (!isFinal) {');
     expect(partialAt).toBeGreaterThan(-1);
     expect(hookSource.slice(partialAt, partialAt + 260)).toContain(
-      'speechInProgressRef.current[source] = true',
+      'speechActivityRef.current.partial(source)',
+    );
+  });
+
+  it('forces the active utterance to finish instead of reusing the previous final', () => {
+    expect(hookSource).toContain(
+      'Boolean(targetSource && speechActivity[targetSource])',
     );
   });
 
@@ -88,6 +96,7 @@ describe('overlay request behavior', () => {
 
   it('cancels the same-generation screen fallback when the delayed transcript arrives', () => {
     expect(hookSource).toContain('forceCoordinatorRef.current.beginScreenFallback(generation)');
+    expect(hookSource).toContain("forceSnapshot.phase === 'screen-fallback'");
     expect(overlaySource).toContain('forceScreenFallbackOwnerRef');
     expect(overlaySource).toContain('cancelOwnedForceScreenFallback(forceGeneration)');
   });
@@ -96,6 +105,23 @@ describe('overlay request behavior', () => {
     expect(overlaySource).toContain('className="ovl-stack"');
     expect(cssSource).toMatch(/\.ovl-stack\s*\{[^}]*overflow-y:\s*auto/s);
     expect(cssSource).toMatch(/\.ovl-stack\s*\{[^}]*min-height:\s*0/s);
+  });
+
+  it('keeps the live transcript at the latest line without defeating manual scroll', () => {
+    expect(overlaySource).toContain('ref={transcriptScrollRef}');
+    expect(overlaySource).toContain('onScroll={handleTranscriptScroll}');
+    expect(overlaySource).toContain('distanceFromBottom <= 24');
+    expect(overlaySource).toContain(
+      'if (transcriptFollowsTailRef.current) scroller.scrollTop = scroller.scrollHeight',
+    );
+    expect(cssSource).toMatch(/\.ovl-transcript\s*\{[^}]*-webkit-app-region:\s*no-drag/s);
+    expect(cssSource).toMatch(/\.ovl-transcript\s*\{[^}]*overscroll-behavior:\s*contain/s);
+  });
+
+  it('hides vacancy context during a technical interview', () => {
+    expect(overlaySource).toContain(
+      "interviewContext && interviewContext.type !== 'technical' && !collapsed",
+    );
   });
 
   it('uses deep screen analysis for forced fallback when Smart is enabled', () => {
@@ -111,10 +137,11 @@ describe('overlay request behavior', () => {
     expect(overlaySource).not.toContain("setNotice(t('overlay.forceSent'))");
   });
 
-  it('does not submit both the textarea action and the Ctrl+Enter hotkey', () => {
-    expect(overlaySource).toContain(
+  it('does not generate from plain Enter in the textarea', () => {
+    expect(overlaySource).not.toContain(
       "e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey",
     );
+    expect(overlaySource).toContain("onClick={() => submitForcedAnswer('button')}");
   });
 
   it('treats typed Ctrl+Enter as the newest forced generation', () => {
@@ -127,16 +154,20 @@ describe('overlay request behavior', () => {
     expect(overlaySource).toContain("submitForcedAnswer('global')");
   });
 
-  it('marks normally processed transcript finals as handled', () => {
-    expect(hookSource).toContain('forceCoordinatorRef.current.markHandled(sequence)');
+  it('never starts an answer from speech recognition without Ctrl+Enter', () => {
+    expect(hookSource).not.toContain('scheduleSpeechFinal(trimmed, speaker');
+    expect(hookSource).not.toContain('scheduleFinalFallback(trimmed, speaker');
+    const utteranceEndAt = hookSource.indexOf('onUtteranceEnd:');
+    const lowQualityAt = hookSource.indexOf('onLowQuality:', utteranceEndAt);
+    expect(utteranceEndAt).toBeGreaterThan(-1);
+    expect(hookSource.slice(utteranceEndAt, lowQualityAt)).not.toContain('flushQuestion()');
+    expect(hookSource).toContain('Manual-only policy');
   });
 
-  it('consumes a normal final only after the automatic pipeline accepts it', () => {
-    const acceptedAt = hookSource.indexOf('const accepted = requestSuggestion');
-    const markAt = hookSource.indexOf('markPendingTriggerHandled();', acceptedAt);
-    expect(acceptedAt).toBeGreaterThan(-1);
-    expect(markAt).toBeGreaterThan(acceptedAt);
-    expect(hookSource.slice(acceptedAt, markAt)).toContain('if (accepted)');
+  it('opens the detailed real-answer review in the main window', () => {
+    expect(overlaySource).toContain('overlay.openSessionAnalysis?.(recap.sessionId!)');
+    expect(preloadSource).toContain("ipcRenderer.invoke('overlay:openSessionAnalysis', sessionId)");
+    expect(mainSource).toContain("mainWindow.webContents.send('app:navigate', `/history/${encodeURIComponent(sessionId)}`)");
   });
 
   it('snapshots whether the ending session has content before another session can start', () => {
@@ -176,14 +207,49 @@ describe('overlay request behavior', () => {
     expect(overlaySource).toContain('refreshSessionKnowledge');
   });
 
-  it('starts the persisted AI analysis automatically when a live session ends', () => {
-    expect(overlaySource).toContain("setRecapTab(endedSessionId ? 'analysis' : 'summary')");
-    expect(overlaySource).toContain('void requestRecapAnalysis(endedSessionId)');
+  it('stores a compact outcome for a linked calendar call without replacing it with a generic analysis', () => {
+    expect(overlaySource).toContain("setRecapTab('summary')");
+    expect(overlaySource).toContain('if (linkedEvent && endedSessionId)');
+    expect(overlaySource).toContain(
+      'void generateInterviewOutcome(snapshot, endedSessionId, linkedEvent)',
+    );
+    expect(overlaySource).toContain('api.interviewOutcome({');
+    expect(overlaySource).toContain('interviewCalendar?.saveOutcome(event.id, saved)');
+    expect(overlaySource).toContain('if (endedSessionId) void requestRecapAnalysis(endedSessionId)');
+  });
+
+  it('persists one reusable full analysis after every ended session, including calendar calls', () => {
+    const openRecapAt = overlaySource.indexOf('const openRecap = useCallback');
+    const closeRecapAt = overlaySource.indexOf('const closeRecap = useCallback', openRecapAt);
+    const openRecapSource = overlaySource.slice(openRecapAt, closeRecapAt);
+    const summaryBranchEnd = openRecapSource.indexOf('generateSummary(snapshot);');
+    const analysisAt = openRecapSource.indexOf(
+      'if (endedSessionId) void requestRecapAnalysis(endedSessionId);',
+    );
+
+    expect(summaryBranchEnd).toBeGreaterThan(-1);
+    expect(analysisAt).toBeGreaterThan(summaryBranchEnd);
+    expect(openRecapSource.match(/requestRecapAnalysis\(endedSessionId\)/g)).toHaveLength(1);
+  });
+
+  it('reuses the calendar session when starting again or changing audio sources', () => {
+    expect(overlaySource).toContain('sessionId: linkedEvent?.sessionId');
+    expect(overlaySource).toContain('const linkedSessionId = sessionId ?? linkedEvent?.sessionId');
+    expect(overlaySource).toContain('sessionId: linkedSessionId');
+    expect(overlaySource).toContain('interviewCalendar?.attachSession(');
   });
 
   it('keeps the ended session id in the recap snapshot', () => {
     expect(overlaySource).toContain('const endedSessionId = sessionId');
     expect(overlaySource).toContain('sessionId: endedSessionId');
+  });
+
+  it('opens a finished hidden overlay as a clean new practice while preserving an active call', () => {
+    expect(overlaySource).toContain('overlay.onOpenRequested?.(() => {');
+    expect(overlaySource).toContain('if (!active) resetInactiveOverlay()');
+    expect(overlaySource).toContain('setRecap(null)');
+    expect(overlaySource).toContain('setUsageLog([])');
+    expect(overlaySource).toContain('setCollapsed(false)');
   });
 
   it('does not create an analysis without a persisted session id', () => {
@@ -199,6 +265,15 @@ describe('overlay request behavior', () => {
     expect(overlaySource).toContain('analysis.weaknesses.map');
     expect(overlaySource).toContain('analysis.topicAssessments.map');
     expect(cssSource).toContain('.ovl-analysis-score-fill');
+  });
+
+  it('hides empty analysis groups and expands the only known group', () => {
+    expect(overlaySource).toContain('analysisEvidenceLayout.hasAny &&');
+    expect(overlaySource).toContain('analysisEvidenceLayout.hasStrengths &&');
+    expect(overlaySource).toContain('analysisEvidenceLayout.hasWeaknesses &&');
+    expect(overlaySource).toContain("' ovl-analysis-columns--single'");
+    expect(overlaySource).toContain('analysis.topicAssessments.length > 0 &&');
+    expect(cssSource).toContain('.ovl-analysis-columns--single');
   });
 
   it('uses persisted analysis endpoints with a long creation timeout', () => {

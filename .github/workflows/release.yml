@@ -1,11 +1,10 @@
 name: Release
 
 # Build the frozen backend (PyInstaller) + the desktop installer (electron-builder)
-# and publish to a GitHub Release. Triggered by a version tag, or manually.
+# and publish to a GitHub Release. Only a deliberate stable version tag may publish.
 on:
   push:
     tags: ['v*']
-  workflow_dispatch:
 
 permissions:
   contents: write # electron-builder publishes the release artifacts
@@ -74,6 +73,10 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Build shared package
         run: pnpm --filter @interview/shared build
+      - name: Typecheck desktop
+        run: pnpm --filter @interview/desktop typecheck
+      - name: Test desktop
+        run: pnpm --filter @interview/desktop test
       - name: Build & publish desktop
         working-directory: apps/desktop
         env:
@@ -87,3 +90,124 @@ jobs:
         run: |
           pnpm build
           pnpm exec electron-builder --win --publish always
+
+  release-macos:
+    name: Build & publish (macOS ${{ matrix.arch }})
+    needs: release
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      # Upload one architecture at a time so both jobs cannot mutate the same
+      # GitHub Release concurrently.
+      max-parallel: 1
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+            binary_arch: arm64
+          - runner: macos-15-intel
+            arch: x64
+            binary_arch: x86_64
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      # The frozen backend must be built natively for the same CPU architecture
+      # as Electron; copying the Windows .exe or an ARM binary into an Intel app
+      # would produce a DMG that installs successfully but never becomes usable.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Build native macOS backend (PyInstaller)
+        working-directory: apps/api-py
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+          pyinstaller skillcue-backend.spec
+          test -x dist/skillcue-backend/skillcue-backend
+          file dist/skillcue-backend/skillcue-backend | grep -q '${{ matrix.binary_arch }}'
+
+      - name: Smoke-test frozen macOS backend
+        working-directory: apps/api-py
+        env:
+          SKILLCUE_PORT: '8123'
+          SKILLCUE_API_TOKEN: 'ci-smoke-token'
+        run: |
+          ./dist/skillcue-backend/skillcue-backend > backend-smoke.log 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          ok=0
+          for _ in $(seq 1 60); do
+            if curl -fsS 'http://127.0.0.1:8123/health' >/dev/null; then
+              ok=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ok" != '1' ]; then cat backend-smoke.log; exit 1; fi
+          code=$(curl -s -o /dev/null -w '%{http_code}' 'http://127.0.0.1:8123/stt/providers')
+          test "$code" = '401'
+          curl -fsS -H 'X-SkillCue-Token: ci-smoke-token' 'http://127.0.0.1:8123/stt/providers' >/dev/null
+          curl -fsS -H 'X-SkillCue-Token: ci-smoke-token' 'http://127.0.0.1:8123/license/status' >/dev/null
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build shared package
+        run: pnpm --filter @interview/shared build
+      - name: Verify desktop on macOS
+        run: |
+          pnpm --filter @interview/desktop typecheck
+          pnpm --filter @interview/desktop test
+      - name: Build native macOS DMG
+        working-directory: apps/desktop
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: |
+          pnpm build
+          pnpm exec electron-builder --mac dmg --${{ matrix.arch }} --publish never
+          test -f 'release/SkillCue-macOS-${{ matrix.arch }}.dmg'
+
+      - name: Smoke-test packaged macOS app
+        working-directory: apps/desktop
+        run: |
+          app_bin=$(find release -path '*/SkillCue.app/Contents/MacOS/SkillCue' -type f -print -quit)
+          backend_bin=$(find release -path '*/SkillCue.app/Contents/Resources/backend/skillcue-backend' -type f -print -quit)
+          test -n "$app_bin"
+          test -x "$backend_bin"
+          file "$app_bin" | grep -q '${{ matrix.binary_arch }}'
+          file "$backend_bin" | grep -q '${{ matrix.binary_arch }}'
+          "$app_bin" --disable-gpu > packaged-smoke.log 2>&1 &
+          app_pid=$!
+          trap 'kill "$app_pid" 2>/dev/null || true' EXIT
+          ok=0
+          for _ in $(seq 1 60); do
+            if curl -fsS 'http://127.0.0.1:8000/health' >/dev/null; then
+              ok=1
+              break
+            fi
+            if ! kill -0 "$app_pid" 2>/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ok" != '1' ]; then cat packaged-smoke.log; exit 1; fi
+
+      - name: Publish macOS DMG and checksum
+        working-directory: apps/desktop
+        env:
+          GH_TOKEN: ${{ secrets.SCILLCUE_RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          dmg='release/SkillCue-macOS-${{ matrix.arch }}.dmg'
+          shasum -a 256 "$dmg" > "$dmg.sha256"
+          gh release upload "$GITHUB_REF_NAME" "$dmg" "$dmg.sha256" \
+            --repo GalievGleb/SkillCue \
+            --clobber

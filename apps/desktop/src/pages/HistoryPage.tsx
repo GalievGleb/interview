@@ -1,8 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import InterviewExportButtons from '../components/interview/InterviewExportButtons';
 import MarkdownText from '../components/MarkdownText';
-import { api, SessionItem, SessionDetail, type SessionAssessment } from '../lib/api';
+import { api, SessionItem, SessionDetail, type DevelopmentProfile, type SessionAssessment } from '../lib/api';
+import { buildCareerProgress } from '../lib/careerProgress';
+import {
+  GROWTH_PROFILE_UPDATED_EVENT,
+  growthRoleLabel,
+  readGrowthProfile,
+} from '../lib/growthProfile';
 import { buildStoredSessionExport } from '../lib/interviewSessionExport';
 import { useI18n, type I18nKey } from '../lib/i18n';
 import { launchLive } from '../lib/launchLive';
@@ -151,10 +157,13 @@ function MockSessionDetail({ session }: { session: SmokeReviewSession }) {
 
 export default function HistoryPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { t, lang } = useI18n();
   const loc = lang === 'en' ? 'en-US' : 'ru-RU';
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [mockSessions, setMockSessions] = useState<SmokeReviewSession[]>([]);
+  const [developmentProfile, setDevelopmentProfile] = useState<DevelopmentProfile | null>(null);
+  const [growthProfile, setGrowthProfile] = useState(readGrowthProfile);
   const [selected, setSelected] = useState<SessionDetail | null>(null);
   const [selectedAnalysis, setSelectedAnalysis] = useState<SessionAssessment | null>(null);
   const [analysisLoading, setAnalysisLoading] = useState(false);
@@ -167,6 +176,7 @@ export default function HistoryPage() {
   const [query, setQuery] = useState('');
   const [source, setSource] = useState<SourceFilter>('all');
   const openGenerationRef = useRef(0);
+  const growthSummaryRef = useRef<HTMLElement>(null);
   const invalidatePendingOpen = () => {
     openGenerationRef.current += 1;
     setAnalysisLoading(false);
@@ -177,8 +187,12 @@ export default function HistoryPage() {
     setError('');
     setMockSessions(listMockSessions());
     try {
-      const res = await api.listSessions();
+      const [res, profile] = await Promise.all([
+        api.listSessions(),
+        api.getDevelopmentProfile().catch(() => null),
+      ]);
       setSessions(res.sessions);
+      setDevelopmentProfile(profile);
     } catch (err) {
       setError(err instanceof Error ? err.message : t('history.loadError'));
     } finally {
@@ -197,28 +211,16 @@ export default function HistoryPage() {
     return () => window.removeEventListener('skillcue:mock-sessions-synced', refresh);
   }, []);
 
-  const open = async (id: string) => {
-    const generation = ++openGenerationRef.current;
-    setAnalysisLoading(true);
-    setSelectedAnalysis(null);
-    setAnalysisError('');
-    try {
-      const [detail, savedAnalysis] = await Promise.all([
-        api.getSession(id),
-        api.getSessionAnalysis(id).catch(() => null),
-      ]);
-      if (generation !== openGenerationRef.current) return;
-      setSelected(detail);
-      setSelectedAnalysis(savedAnalysis);
-      setSelectedMock(null);
-      setError('');
-    } catch (err) {
-      if (generation !== openGenerationRef.current) return;
-      setError(err instanceof Error ? err.message : t('history.openError'));
-    } finally {
-      if (generation === openGenerationRef.current) setAnalysisLoading(false);
-    }
-  };
+  useEffect(() => {
+    const refresh = () => setGrowthProfile(readGrowthProfile());
+    window.addEventListener(GROWTH_PROFILE_UPDATED_EVENT, refresh);
+    return () => window.removeEventListener(GROWTH_PROFILE_UPDATED_EVENT, refresh);
+  }, []);
+
+  useEffect(() => {
+    if (searchParams.get('view') !== 'growth') return;
+    window.requestAnimationFrame(() => growthSummaryRef.current?.scrollIntoView({ block: 'start' }));
+  }, [searchParams]);
 
   const openMock = (session: SmokeReviewSession) => {
     openGenerationRef.current += 1;
@@ -240,6 +242,7 @@ export default function HistoryPage() {
       const result = await api.createSessionAnalysis(selected.id, lang);
       if (generation !== openGenerationRef.current) return;
       setSelectedAnalysis(result);
+      void api.getDevelopmentProfile().then(setDevelopmentProfile).catch(() => {});
       await refreshSessionKnowledge().catch(() => {
         // The session analysis is already persisted; aggregate refresh is best-effort.
       });
@@ -271,6 +274,7 @@ export default function HistoryPage() {
           setSelectedAnalysis(null);
         }
         await refreshSessionKnowledge().catch(() => clearSessionKnowledge());
+        void api.getDevelopmentProfile().then(setDevelopmentProfile).catch(() => setDevelopmentProfile(null));
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : t('history.deleteError'));
@@ -290,6 +294,7 @@ export default function HistoryPage() {
       await api.deleteAllSessions();
       clearSessionKnowledge();
       setSessions([]);
+      setDevelopmentProfile(null);
       setSelected(null);
       setSelectedAnalysis(null);
     } catch (err) {
@@ -338,17 +343,87 @@ export default function HistoryPage() {
     });
   }, [rows, query, source, loc]);
 
+  const careerProgress = useMemo(
+    () => buildCareerProgress(mockSessions, developmentProfile),
+    [mockSessions, developmentProfile],
+  );
+  const goalLabel = growthRoleLabel(growthProfile);
+  const latestPractice = careerProgress.latestPractice;
+  const latestScore = latestPractice?.report?.overallScore;
+  const progressAction = !goalLabel
+    ? {
+        title: 'Сначала выберите профессиональную цель.',
+        detail: 'Она задаст направление для новых разборов; уже сохранённые попытки останутся раздельными.',
+        label: 'Выбрать цель',
+        to: '/documents?mode=baseline&section=goal',
+      }
+    : !latestPractice
+      ? {
+          title: 'Пройдите первую практику по конкретной вакансии.',
+          detail: 'Она создаст стартовую точку, которую позже можно сравнивать с повторной попыткой.',
+          label: 'Разобрать вакансию',
+          to: '/prepare',
+        }
+      : {
+          title: careerProgress.nextTrainingAction || 'Повторите самую слабую тему из последней практики.',
+          detail: 'Изменение балла будет показано только после сопоставимой попытки по той же роли.',
+          label: 'Открыть последний результат',
+          to: `/prepare?session=${encodeURIComponent(latestPractice.id)}`,
+        };
+
   return (
     <div className="prep h-full overflow-y-auto">
       <div className="prep-wrap prep-rise prep-home">
         <section>
           <p className="prep-eyebrow">{t('history.eyebrow')}</p>
           <h1 className="prep-h1 mt-1">{t('history.title')}</h1>
-          <p className="prep-sub mt-1.5 max-w-2xl">{t('history.sub')}</p>
         </section>
 
-        <section className="prep-history-toolbar mt-5">
-          <div className="relative min-w-[260px] flex-1">
+        <section ref={growthSummaryRef} className="history-growth-summary" aria-labelledby="history-growth-title">
+          <div className="history-growth-summary__header">
+            <div>
+              <p className="prep-eyebrow">ЛИЧНЫЙ ПРОГРЕСС</p>
+              <h2 id="history-growth-title" className="prep-h2 prep-section-title">Результаты и следующий шаг</h2>
+            </div>
+            <button type="button" className="prep-btn prep-btn-ghost prep-btn-sm" onClick={() => navigate('/documents?section=goal')}>
+              {goalLabel ? 'Изменить цель' : 'Выбрать цель'}
+            </button>
+          </div>
+          <div className="history-growth-metrics">
+            <div>
+              <small>ТЕКУЩАЯ ЦЕЛЬ</small>
+              <strong>{goalLabel || 'Не выбрана'}</strong>
+              <span>{goalLabel ? 'подставляется в новые разборы' : 'поможет связать новые разборы'}</span>
+            </div>
+            <div>
+              <small>ПРАКТИКА</small>
+              <strong>{latestScore == null ? 'Нет оценки' : `${latestScore}/100`}</strong>
+              <span>
+                {careerProgress.practiceDelta == null
+                  ? careerProgress.scoredPracticeSessions > 0 ? 'пока нет сопоставимой повторной попытки' : 'завершённых попыток ещё нет'
+                  : `${careerProgress.practiceDelta > 0 ? '+' : ''}${careerProgress.practiceDelta} к прошлой попытке по этой роли`}
+              </span>
+            </div>
+            <div>
+              <small>РЕАЛЬНЫЕ ИНТЕРВЬЮ</small>
+              <strong>{careerProgress.confirmedInterviewSessions}</strong>
+              <span>разобрано отдельно от тренировок</span>
+            </div>
+          </div>
+          <div className="history-growth-next">
+            <div>
+              <small>СЛЕДУЮЩИЙ ШАГ</small>
+              <strong>{progressAction.title}</strong>
+              <p>{progressAction.detail}</p>
+            </div>
+            <button type="button" className="prep-btn" onClick={() => navigate(progressAction.to)}>
+              {progressAction.label}
+            </button>
+          </div>
+        </section>
+
+        {(loading || rows.length > 0) && <section className="prep-history-toolbar mt-5">
+          <div className="relative min-w-0 flex-1 basis-64">
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
@@ -381,7 +456,7 @@ export default function HistoryPage() {
               </button>
             )}
           </div>
-        </section>
+        </section>}
 
         {error && (
           <p className="text-[13px]" style={{ color: 'var(--prep-red)' }}>
@@ -389,7 +464,23 @@ export default function HistoryPage() {
           </p>
         )}
 
-        <section className="prep-history-grid">
+        {!loading && rows.length === 0 ? (
+          <section className="prep-history-zero">
+            <span className="prep-history-zero__step">1</span>
+            <div>
+              <p className="prep-eyebrow">ПЕРВАЯ СЕССИЯ</p>
+              <h2 className="prep-h2 mt-1">{t('history.empty.none')}</h2>
+              <p className="prep-sub mt-1 max-w-xl">{t('history.empty.sub')}</p>
+            </div>
+            <button
+              type="button"
+              className="prep-btn prep-btn-sm"
+              onClick={() => navigate('/prepare')}
+            >
+              {t('home.action.reviewVacancy')}
+            </button>
+          </section>
+        ) : <section className="prep-history-grid">
           <div className="prep-session-list">
             {loading && <p className="prep-faint">{t('common.loading')}</p>}
             {!loading && filtered.length === 0 && (
@@ -431,7 +522,11 @@ export default function HistoryPage() {
                 <div key={row.id} className={`prep-session-row ${active ? 'is-active' : ''}`}>
                   <button
                     type="button"
-                    onClick={() => (row.kind === 'mock' ? openMock(row.session) : void open(row.id))}
+                    onClick={() =>
+                      row.kind === 'mock'
+                        ? openMock(row.session)
+                        : navigate(`/history/${encodeURIComponent(row.id)}`)
+                    }
                     className="prep-session-open"
                   >
                     <span className={`prep-session-dot ${isLive ? 'is-live' : 'is-manual'}`} />
@@ -562,7 +657,7 @@ export default function HistoryPage() {
               </div>
             )}
           </div>
-        </section>
+        </section>}
       </div>
     </div>
   );

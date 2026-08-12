@@ -16,7 +16,13 @@ export type QuestionLevel = 'junior' | 'middle' | 'senior' | 'lead';
 /** Depth a vacancy expects for a competency. */
 export type CompetencyLevel = 'basic' | 'practical' | 'advanced' | 'lead';
 /** How well the résumé covers a vacancy competency. */
-export type ResumeMatch = 'strong' | 'partial' | 'gap';
+export type ResumeMatch = 'strong' | 'partial' | 'gap' | 'unknown';
+
+export interface ResumeSourceRef {
+  kind: 'hh' | 'document' | 'session' | 'manual';
+  id?: string;
+  title: string;
+}
 
 export type TopicStatus = 'strong' | 'medium' | 'weak' | 'critical';
 export type ReadinessLabel = 'not_ready' | 'weak' | 'almost_ready' | 'ready' | 'strong';
@@ -63,6 +69,9 @@ export interface InterviewTopic extends QuestionMeta {
 export interface VacancyAnalysis {
   id: string;
   vacancyText: string;
+  /** Original vacancy link when the text was imported from a supported job board. */
+  vacancyUrl?: string;
+  vacancyCompany?: string;
   targetRole: string;
   seniorityLevel: SeniorityLevel;
   language: AnswerLanguage;
@@ -76,6 +85,8 @@ export interface VacancyAnalysis {
   /** Whether resume / legend context was attached during analysis. */
   hasResume: boolean;
   hasLegend: boolean;
+  /** Exact résumé used for this analysis so later stages do not silently switch context. */
+  resumeSource?: ResumeSourceRef;
   /**
    * Where the analysis came from: the full AI pipeline or the local heuristic
    * fallback (no key / backend down). Absent on old saved analyses = unknown.
@@ -221,8 +232,11 @@ export interface ReadinessReport {
 
 export interface VacancyReviewInput {
   vacancyText: string;
+  vacancyUrl?: string;
+  vacancyCompany?: string;
   targetRole?: string;
   language: AnswerLanguage;
   resumeText?: string;
+  resumeSource?: ResumeSourceRef;
   legendText?: string;
 }

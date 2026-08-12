@@ -40,6 +40,7 @@ export interface MockAnswerRecording {
 
 interface MockAnswerRecordingOptions {
   onLimitReached?: () => void;
+  onLevel?: (level: number) => void;
 }
 
 function compact(value: string): string {
@@ -171,6 +172,9 @@ export async function startMockAnswerRecording(
     processor.onaudioprocess = (event) => {
       if (closed || capturedBytes >= maxPcmBytes) return;
       const input = event.inputBuffer.getChannelData(0);
+      let sum = 0;
+      for (let index = 0; index < input.length; index += 1) sum += input[index] * input[index];
+      options.onLevel?.(Math.min(1, Math.sqrt(sum / Math.max(1, input.length)) * 7));
       const pcm = floatToPcm16(input);
       const remaining = maxPcmBytes - capturedBytes;
       const bytes = new Uint8Array(pcm.buffer, pcm.byteOffset, Math.min(pcm.byteLength, remaining));

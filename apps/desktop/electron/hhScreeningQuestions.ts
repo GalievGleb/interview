@@ -8,6 +8,9 @@ export interface HhScreeningQuestion {
   kind: HhScreeningQuestionKind;
   options: string[];
   required: boolean;
+  assistantReason?: string;
+  suggestedAnswer?: string;
+  suggestedOptions?: string[];
 }
 
 export interface HhScreeningAnswer {
@@ -16,13 +19,27 @@ export interface HhScreeningAnswer {
   selectedOptions: string[];
   canAutoFill: boolean;
   reason?: string;
+  preparationNote?: string;
 }
 
 export interface HhScreeningAnswersRequest {
   vacancyTitle: string;
   vacancyCompany: string;
   vacancyDescription: string;
+  resumeText?: string;
   questions: HhScreeningQuestion[];
+  confirmedAnswers?: Array<{
+    question: string;
+    answer: string;
+    selectedOptions: string[];
+  }>;
+  /** Interactive drafts may contain a cautious hypothesis that the user must confirm. */
+  draftMode?: boolean;
+  /** User-authored text that must be polished without changing its facts or position. */
+  existingDraft?: {
+    questionId: string;
+    answer: string;
+  };
   language: 'ru' | 'en';
 }
 
@@ -45,10 +62,16 @@ interface RawControl {
   required: boolean;
 }
 
-interface HhScreeningField {
+export interface HhScreeningField {
   question: HhScreeningQuestion;
   controlIndices: number[];
   optionValues: Array<{ label: string; value: string; controlIndex?: number }>;
+}
+
+export interface HhUnresolvedScreeningQuestion {
+  id: string;
+  prompt: string;
+  reason: string;
 }
 
 const SCREENING_CONTROL_SELECTOR = [
@@ -66,6 +89,10 @@ export function normalizeScreeningOption(value: string): string {
     .replace(/ё/g, 'е')
     .replace(/[^a-zа-я0-9+#.]+/gi, ' ')
     .trim();
+}
+
+export function screeningQuestionKey(value: string): string {
+  return normalizeScreeningOption(value).slice(0, 1_200);
 }
 
 export function matchScreeningOptionLabels(
@@ -106,6 +133,15 @@ async function readControls(page: Page): Promise<RawControl[]> {
       return clean((clone as HTMLElement).innerText || clone.textContent);
     };
     const promptFor = (control: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement): string => {
+      // HH's current test form labels textareas with the generic hint
+      // "Писать тут". The real employer question is a sibling inside the
+      // task body, so prefer it over aria-labelledby.
+      const taskPrompt = clean(
+        control.closest('[data-qa="task-body"]')
+          ?.querySelector('[data-qa="task-question"]')
+          ?.textContent,
+      );
+      if (taskPrompt.length >= 5) return taskPrompt;
       const labelledBy = control.getAttribute('aria-labelledby');
       if (labelledBy) {
         const labelled = labelledBy.split(/\s+/).map((id) => document.getElementById(id)?.textContent ?? '').join(' ');
@@ -224,29 +260,36 @@ export async function collectHhScreeningFields(page: Page): Promise<HhScreeningF
       optionValues,
     });
   }
-  return fields.slice(0, 20);
+  return fields.slice(0, 60);
 }
 
 export async function fillHhScreeningFields(
   page: Page,
   fields: HhScreeningField[],
   answers: HhScreeningAnswer[],
-): Promise<{ filled: number; unresolved: string[] }> {
+): Promise<{ filled: number; unresolved: HhUnresolvedScreeningQuestion[] }> {
   const controls = page.locator(SCREENING_CONTROL_SELECTOR);
   const answersById = new Map(answers.map((answer) => [answer.id, answer]));
-  const unresolved: string[] = [];
+  const unresolved: HhUnresolvedScreeningQuestion[] = [];
+  const markUnresolved = (field: HhScreeningField, reason?: string) => {
+    unresolved.push({
+      id: field.question.id,
+      prompt: field.question.prompt,
+      reason: reason?.trim() || 'Нужен ответ пользователя.',
+    });
+  };
   let filled = 0;
 
   for (const field of fields) {
     const answer = answersById.get(field.question.id);
     if (!answer?.canAutoFill) {
-      unresolved.push(answer?.reason || field.question.prompt);
+      markUnresolved(field, answer?.reason);
       continue;
     }
     if (field.question.kind === 'text') {
       const text = answer.answer.trim();
       if (!text) {
-        unresolved.push(field.question.prompt);
+        markUnresolved(field);
         continue;
       }
       const control = controls.nth(field.controlIndices[0]);
@@ -254,7 +297,7 @@ export async function fillHhScreeningFields(
       const safeText = Number.isFinite(maxLength) && maxLength > 0 ? text.slice(0, maxLength) : text;
       await control.fill(safeText);
       if ((await control.inputValue()).trim() !== safeText.trim()) {
-        unresolved.push(field.question.prompt);
+        markUnresolved(field, 'HH не принял введённый ответ.');
         continue;
       }
       filled += 1;
@@ -267,13 +310,13 @@ export async function fillHhScreeningFields(
       field.question.kind === 'multiple',
     );
     if (labels.length === 0) {
-      unresolved.push(field.question.prompt);
+      markUnresolved(field, 'Нужно выбрать один из вариантов работодателя.');
       continue;
     }
     if (field.question.kind === 'select') {
       const option = field.optionValues.find((candidate) => labels.includes(candidate.label));
       if (!option) {
-        unresolved.push(field.question.prompt);
+        markUnresolved(field, 'Не удалось сопоставить выбранный вариант.');
         continue;
       }
       await controls.nth(field.controlIndices[0]).selectOption(option.value);
@@ -284,11 +327,26 @@ export async function fillHhScreeningFields(
     for (const option of field.optionValues) {
       if (!labels.includes(option.label) || option.controlIndex === undefined) continue;
       const control = controls.nth(option.controlIndex);
-      if (!(await control.isChecked().catch(() => false))) await control.check({ force: true });
-      selected += 1;
+      if (!(await control.isChecked().catch(() => false))) {
+        // Current HH Magritte radios keep the native input visually hidden.
+        // Playwright's input.check({ force: true }) clicks it but HH does not
+        // update React state. Clicking the containing label follows the same
+        // path as a real user and changes the checked value reliably.
+        const label = control.locator('xpath=ancestor::label[1]');
+        if (await label.count()) {
+          await label.click({ timeout: 5_000 }).catch(() => undefined);
+        }
+        if (!(await control.isChecked().catch(() => false))) {
+          await control.evaluate((element) => (element as HTMLInputElement).click()).catch(() => undefined);
+        }
+        if (!(await control.isChecked().catch(() => false))) {
+          await control.check({ force: true }).catch(() => undefined);
+        }
+      }
+      if (await control.isChecked().catch(() => false)) selected += 1;
     }
     if (selected > 0) filled += 1;
-    else unresolved.push(field.question.prompt);
+    else markUnresolved(field, 'HH не принял выбранный вариант.');
   }
   return { filled, unresolved };
 }

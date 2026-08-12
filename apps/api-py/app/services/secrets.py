@@ -1,10 +1,16 @@
 import logging
+import os
 
 from app.config import get_settings
 
 logger = logging.getLogger("secrets")
 
-SERVICE_NAME = "interview-copilot"
+def service_name(build_channel: str | None = None) -> str:
+    channel = build_channel if build_channel is not None else os.environ.get("SKILLCUE_BUILD_CHANNEL")
+    return "interview-copilot-dev" if channel == "dev" else "interview-copilot"
+
+
+SERVICE_NAME = service_name()
 
 _VALID_KEYS = {
     "openai_api_key",

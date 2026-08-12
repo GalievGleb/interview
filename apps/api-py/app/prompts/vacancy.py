@@ -26,7 +26,7 @@ Output STRICT JSON ONLY (no markdown, no prose, no code fences) with exactly thi
       "name": "competency from the vacancy",
       "priority": "high|medium|low",
       "expectedLevel": "basic|practical|advanced|lead",
-      "resumeMatch": "strong|partial|gap",
+      "resumeMatch": "strong|partial|gap|unknown",
       "note": "one line: what to probe or where the gap is"
     }}
   ],
@@ -52,7 +52,7 @@ Output STRICT JSON ONLY (no markdown, no prose, no code fences) with exactly thi
 Competency analysis rules:
 - priority: high = critical for the role, medium = important, low = a plus.
 - expectedLevel: basic = knows theory, practical = did it hands-on, advanced = designed/evolved the approach, lead = owned strategy, people, review, prioritization.
-- resumeMatch: strong = direct experience in the résumé, partial = adjacent experience, gap = no/weak evidence. If no résumé is provided, mark real matches as "gap" and add a riskArea about missing grounding.
+- resumeMatch: strong = direct experience in the résumé, partial = adjacent experience, gap = no/weak evidence. If no résumé is provided, use "unknown" for every competency and add a riskArea explaining that comparison is unavailable.
 - Use resumeMatch to choose questions: probe "gap" and "partial" competencies harder.
 
 Topic & question rules:
@@ -77,14 +77,21 @@ INTERVIEW LEGEND (optional, may be empty):
 Return ONLY the JSON object."""
 
 
-VACANCY_SCREENING_ANSWERS_PROMPT = """You fill employer screening questions for a job candidate. Produce concise, truthful first-person answers that the candidate can review and submit.
+VACANCY_SCREENING_ANSWERS_PROMPT = """You fill employer screening questions for a job candidate. Produce concise, defensible first-person answers that maximize relevant opportunities without inventing concrete achievements.
+
+ACTIVE MODE:
+{answer_mode_rules}
 
 STRICT GROUNDING RULES:
-- Personal experience claims may come ONLY from RESUME or INTERVIEW LEGEND below.
+- Any answer marked canAutoFill=true may contain personal experience claims ONLY from RESUME, INTERVIEW LEGEND, or USER-CONFIRMED ANSWERS below.
+- USER-CONFIRMED ANSWERS are authoritative candidate facts and preferences, but ONLY within the exact scope stated by their original question and answer.
+- Never generalize a confirmed answer to a broader decision. Consent to relocate to one named country, for one duration, or under stated conditions does not imply consent to another country, duration, or conditions. A salary, work format, start date, citizenship, language level, or travel preference is reusable only when the new question asks the same thing.
 - Never invent project counts, team size, dates, metrics, budgets, people management, tools, responsibilities, or outcomes.
 - Vacancy text describes what the employer wants; it is NOT evidence that the candidate has done it.
 - General professional knowledge may explain an approach, but must not be presented as personal experience unless RESUME or LEGEND confirms it.
-- If a required factual answer cannot be supported, set canAutoFill=false and explain the missing fact in reason. Do not guess.
+- If a required factual answer cannot be supported, follow the ACTIVE MODE rules above. Never silently turn a hypothesis into an automatic answer.
+- Narrow familiarity bridge for yes/no screening only: when a question asks whether the candidate has experience or familiarity with a technology/domain and the résumé shows clearly adjacent transferable work, you MAY select the affirmative option. Do not claim production ownership, duration, results, or a specific project that is absent from the sources. Set preparationNote to a concise topic the candidate must review before an interview (for example, the named domain and how their adjacent experience transfers).
+- Never use the familiarity bridge for legal status, citizenship, work authorization, security clearance, certification, education, salary, relocation, schedule, start date, or contract terms. Unknown preferences in those categories require canAutoFill=false.
 - For text questions: answer directly in 1-3 sentences, normally under 500 characters. Use a concrete real example when the sources contain one.
 - For single/multiple/select questions: selectedOptions must contain only exact strings from that question's options.
 - Do not add greetings, coaching notes, markdown, or placeholders.
@@ -98,7 +105,8 @@ Return STRICT JSON ONLY:
       "answer": "finished first-person answer, or empty when an option is selected",
       "selectedOptions": ["exact option label"],
       "canAutoFill": true,
-      "reason": "short reason only when canAutoFill=false"
+      "reason": "short reason only when canAutoFill=false",
+      "preparationNote": "what to review before an interview when the narrow familiarity bridge was used, otherwise empty"
     }}
   ]
 }}
@@ -115,6 +123,12 @@ RESUME (authoritative candidate facts):
 
 INTERVIEW LEGEND (allowed framing, must not contradict resume):
 {legend}
+
+USER-CONFIRMED ANSWERS (authoritative only in their stated scope):
+{confirmed_answers}
+
+CURRENT USER DRAFT TO IMPROVE (preserve its facts and position; never replace it with an unrelated answer):
+{existing_draft}
 
 QUESTIONS JSON:
 {questions_json}

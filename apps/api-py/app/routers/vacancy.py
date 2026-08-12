@@ -42,7 +42,7 @@ _SENIORITY = {"intern", "junior", "middle", "senior", "lead", "unknown"}
 _IMPORTANCE = {"high", "medium", "low"}
 _QUESTION_LEVEL = {"junior", "middle", "senior", "lead"}
 _COMPETENCY_LEVEL = {"basic", "practical", "advanced", "lead"}
-_RESUME_MATCH = {"strong", "partial", "gap"}
+_RESUME_MATCH = {"strong", "partial", "gap", "unknown"}
 
 
 def _resolve(mode: str = "general") -> tuple[str, str]:
@@ -61,7 +61,7 @@ FALLBACK_MODEL = "openai/gpt-4o-mini"
 FEEDBACK_FALLBACK_MODEL = "openai/gpt-4o-mini"
 VACANCY_EVALUATE_DEADLINE_SECONDS = 4.5
 VACANCY_EVALUATE_MAX_TOKENS = 1200
-SCREENING_ANSWERS_DEADLINE_SECONDS = 4.5
+SCREENING_ANSWERS_DEADLINE_SECONDS = 9.0
 SCREENING_ANSWERS_MAX_TOKENS = 1600
 COVER_LETTER_DEADLINE_SECONDS = 9.0
 COVER_LETTER_MAX_TOKENS = 1200
@@ -186,11 +186,26 @@ class ScreeningQuestionPayload(BaseModel):
     required: bool = False
 
 
+class ConfirmedScreeningAnswerPayload(BaseModel):
+    question: str = ""
+    answer: str = ""
+    selectedOptions: list[str] = []
+
+
+class ExistingScreeningDraftPayload(BaseModel):
+    questionId: str = ""
+    answer: str = ""
+
+
 class ScreeningAnswersPayload(BaseModel):
     vacancyTitle: str = ""
     vacancyCompany: str = ""
     vacancyDescription: str = ""
+    resumeText: str | None = None
     questions: list[ScreeningQuestionPayload] = []
+    confirmedAnswers: list[ConfirmedScreeningAnswerPayload] = []
+    draftMode: bool = False
+    existingDraft: ExistingScreeningDraftPayload | None = None
     language: str = "ru"
 
 
@@ -198,6 +213,7 @@ class CoverLetterPayload(BaseModel):
     vacancyTitle: str = ""
     vacancyCompany: str = ""
     vacancyDescription: str = ""
+    resumeText: str | None = None
     language: str = "ru"
 
 
@@ -219,7 +235,8 @@ async def cover_letter(payload: CoverLetterPayload, db=Depends(get_db)) -> dict:
             "Не удалось прочитать полное описание вакансии — письмо оставлено для ручной проверки."
         )
 
-    resume = rag_service.get_context_text(db, "resume")[:8_000].strip()
+    supplied_resume = re.sub(r"\s+", " ", payload.resumeText or "").strip()[:8_000]
+    resume = supplied_resume or rag_service.get_context_text(db, "resume")[:8_000].strip()
     legend = rag_service.get_context_text(db, "legend")[:3_000].strip()
     if len(resume) < 80:
         return _cover_letter_unavailable(
@@ -335,15 +352,71 @@ async def screening_answers(payload: ScreeningAnswersPayload, db=Depends(get_db)
             }
         )
 
-    resume = rag_service.get_context_text(db, "resume")[:5_000]
+    supplied_resume = re.sub(r"\s+", " ", payload.resumeText or "").strip()[:5_000]
+    resume = supplied_resume or rag_service.get_context_text(db, "resume")[:5_000]
     legend = rag_service.get_context_text(db, "legend")[:2_000]
+    confirmed_answers = []
+    confirmed_answers_chars = 0
+    for item in payload.confirmedAnswers[-30:]:
+        question = re.sub(r"\s+", " ", item.question).strip()[:1_200]
+        answer = item.answer.strip()[:2_000]
+        selected_options = _as_list(item.selectedOptions, 30)
+        if question and (answer or selected_options):
+            item_chars = len(question) + len(answer) + sum(map(len, selected_options))
+            if confirmed_answers_chars + item_chars > 12_000:
+                continue
+            confirmed_answers.append(
+                {
+                    "question": question,
+                    "answer": answer,
+                    "selectedOptions": selected_options,
+                }
+            )
+            confirmed_answers_chars += item_chars
+    existing_draft = None
+    if payload.existingDraft:
+        draft_question_id = payload.existingDraft.questionId.strip()[:200]
+        draft_answer = re.sub(r"\s+", " ", payload.existingDraft.answer).strip()[:2_000]
+        if draft_question_id in ids and draft_answer:
+            existing_draft = {
+                "questionId": draft_question_id,
+                "answer": draft_answer,
+            }
+
     provider, model = _resolve("feedback")
+    answer_mode_rules = (
+        """REFINEMENT MODE — rewrite the CURRENT USER DRAFT below instead of inventing a different answer.
+- Preserve every concrete fact, limitation, preference, condition, and yes/no position from the user's draft.
+- Improve clarity, grammar, structure, confidence, and relevance to the exact employer question.
+- Do not add technologies, experience, achievements, dates, metrics, employers, or commitments absent from the draft or authoritative sources.
+- Never turn uncertainty into certainty or a limited experience claim into commercial/production ownership.
+- Return a finished first-person answer, normally 1-3 concise sentences, with canAutoFill=false because the user reviews it in the editor.
+- If the draft is already good, make only minimal edits. Do not replace it with a generic template or unrelated hypothesis."""
+        if existing_draft
+        else
+        """INTERACTIVE DRAFT MODE — the result is shown in an editor and is never submitted without explicit user confirmation.
+- Prefer supported résumé facts, but when a low-risk personal preference or informal history is unknown, provide one conservative, plausible first-person example as a useful starting point.
+- A hypothesis MUST have canAutoFill=false and reason must say that the user needs to verify it.
+- Do not invent employers, commercial projects, dates, duration, metrics, credentials, legal status, location, salary, work authorization, or contractual commitments.
+- For unknown legal, location, compensation, schedule, relocation, or contract facts, return an empty answer and ask for confirmation rather than guessing.
+- Keep a hypothetical draft natural and specific enough to edit; do not use placeholders or coaching instructions inside the answer."""
+        if payload.draftMode
+        else """AUTOMATIC MODE — every answer may be sent without another review.
+- If a factual answer is not supported by the supplied sources, return an empty answer, set canAutoFill=false, and explain the missing fact in reason. Do not guess."""
+    )
     prompt = VACANCY_SCREENING_ANSWERS_PROMPT.format(
+        answer_mode_rules=answer_mode_rules,
         vacancy_title=payload.vacancyTitle.strip()[:300] or "(unknown)",
         vacancy_company=payload.vacancyCompany.strip()[:300] or "(unknown)",
         vacancy_description=payload.vacancyDescription.strip()[:3_500] or "(not provided)",
         resume=resume or "(none — do not make personal experience claims)",
         legend=legend or "(none)",
+        confirmed_answers=json.dumps(confirmed_answers, ensure_ascii=False)
+        if confirmed_answers
+        else "(none)",
+        existing_draft=json.dumps(existing_draft, ensure_ascii=False)
+        if existing_draft
+        else "(none)",
         questions_json=json.dumps(normalized_questions, ensure_ascii=False),
         language="Russian" if payload.language == "ru" else "English",
     )
@@ -401,6 +474,7 @@ async def screening_answers(payload: ScreeningAnswersPayload, db=Depends(get_db)
                 "selectedOptions": selected,
                 "canAutoFill": can_auto_fill,
                 "reason": str(item.get("reason", "")).strip()[:300],
+                "preparationNote": str(item.get("preparationNote", "")).strip()[:500],
             }
         )
     return {"answers": answers, "model": model}

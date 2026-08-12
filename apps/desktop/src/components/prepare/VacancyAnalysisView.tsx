@@ -4,6 +4,7 @@ import {
   ArrowRight,
   Check,
   ChevronDown,
+  ExternalLink,
   Pencil,
   ShieldCheck,
 } from 'lucide-react';
@@ -47,6 +48,7 @@ const IMPORTANCE_KEY: Record<TopicImportance, I18nKey> = {
 };
 
 const MATCH_GROUPS: Array<{ match: ResumeMatch; titleKey: I18nKey; tone: string }> = [
+  { match: 'unknown', titleKey: 'prep.match.unknown', tone: 'blue' },
   { match: 'gap', titleKey: 'prep.match.gap', tone: 'red' },
   { match: 'partial', titleKey: 'prep.match.partial', tone: 'amber' },
   { match: 'strong', titleKey: 'prep.match.strong', tone: 'green' },
@@ -114,6 +116,15 @@ export default function VacancyAnalysisView({
             <span className="prep-chip">
               {t('prep.analysis.answers')} {analysis.language.toUpperCase()}
             </span>
+            {analysis.vacancyUrl && (
+              <button
+                type="button"
+                className="prep-chip cursor-pointer hover:border-emerald-400/50 hover:text-emerald-200"
+                onClick={() => void window.electronAPI?.openExternal(analysis.vacancyUrl!)}
+              >
+                {analysis.vacancyCompany || 'HH.ru'} <ExternalLink size={12} aria-hidden="true" />
+              </button>
+            )}
           </div>
         </div>
         <button type="button" className="prep-btn-ghost prep-btn-sm" onClick={onBack}>
@@ -210,7 +221,9 @@ export default function VacancyAnalysisView({
 
           {competencies.length > 0 && (
             <div className="prep-match-summary">
-              <p className="prep-faint">{t('prep.analysis.competencies')}</p>
+              <p className="prep-faint">
+                {analysis.hasResume ? t('prep.analysis.competencies') : t('prep.match.unknownHelp')}
+              </p>
               {MATCH_GROUPS.map((group) => {
                 const count = competencies.filter(
                   (competency) => competency.resumeMatch === group.match,

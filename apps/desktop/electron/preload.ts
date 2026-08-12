@@ -3,6 +3,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 const api = {
   getApiUrl: () => ipcRenderer.invoke('app:getApiUrl'),
   getApiToken: () => ipcRenderer.invoke('app:getApiToken'),
+  getBuildChannel: () => ipcRenderer.invoke('app:getBuildChannel'),
   getVersion: () => ipcRenderer.invoke('app:getVersion'),
   getAutoLaunch: () => ipcRenderer.invoke('app:getAutoLaunch'),
   setAutoLaunch: (enable: boolean) => ipcRenderer.invoke('app:setAutoLaunch', enable),
@@ -21,8 +22,16 @@ const api = {
       ipcRenderer.invoke('hh-assistant:save-config', config),
     openBrowser: (platform?: 'hh' | 'linkedin' | 'avito') => ipcRenderer.invoke('hh-assistant:open-browser', platform),
     scan: (platform?: 'hh' | 'linkedin' | 'avito') => ipcRenderer.invoke('hh-assistant:scan', platform),
+    runNow: () => ipcRenderer.invoke('hh-assistant:run-now'),
+    applyVacancyUrl: (url: string) => ipcRenderer.invoke('hh-assistant:apply-vacancy-url', url),
     applyAll: () => ipcRenderer.invoke('hh-assistant:apply-all'),
     applyOne: (vacancyId: string) => ipcRenderer.invoke('hh-assistant:apply-one', vacancyId),
+    answerScreeningQuestions: (vacancyId: string, answers: unknown) =>
+      ipcRenderer.invoke('hh-assistant:answer-screening-questions', vacancyId, answers),
+    suggestScreeningAnswer: (vacancyId: string, questionId: string, currentAnswer?: string) =>
+      ipcRenderer.invoke('hh-assistant:suggest-screening-answer', vacancyId, questionId, currentAnswer),
+    forgetScreeningFact: (factId: string) =>
+      ipcRenderer.invoke('hh-assistant:forget-screening-fact', factId),
     stopApply: () => ipcRenderer.invoke('hh-assistant:stop-apply'),
     setDailySchedule: (enabled: boolean) =>
       ipcRenderer.invoke('hh-assistant:set-daily-schedule', enabled),
@@ -40,6 +49,10 @@ const api = {
     confirmLoginCode: (code: string) =>
       ipcRenderer.invoke('hh-assistant:confirm-login-code', code),
     getResumes: () => ipcRenderer.invoke('hh-assistant:get-resumes'),
+    getResumeContent: (resumeId: string) =>
+      ipcRenderer.invoke('hh-assistant:get-resume-content', resumeId),
+    inspectVacancyUrl: (url: string) =>
+      ipcRenderer.invoke('hh-assistant:inspect-vacancy-url', url),
     onState: (cb: (state: unknown) => void) => {
       const handler = (_e: unknown, state: unknown) => cb(state);
       ipcRenderer.on('hh-assistant:state', handler);
@@ -67,6 +80,9 @@ const api = {
     setEnabled: (enabled: boolean) =>
       ipcRenderer.invoke('hh-chat:set-enabled', enabled),
     pollNow: () => ipcRenderer.invoke('hh-chat:poll-now'),
+    answerDecision: (decisionId: string, answer: string, remember = true) =>
+      ipcRenderer.invoke('hh-chat:answer-decision', decisionId, answer, remember),
+    forgetFact: (factId: string) => ipcRenderer.invoke('hh-chat:forget-fact', factId),
   },
   interviewCalendar: {
     getState: () => ipcRenderer.invoke('interview-calendar:get-state'),
@@ -76,6 +92,10 @@ const api = {
       ipcRenderer.invoke('interview-calendar:upsert-event', event),
     removeEvent: (id: string) =>
       ipcRenderer.invoke('interview-calendar:remove-event', id),
+    attachSession: (eventId: string, sessionId: string) =>
+      ipcRenderer.invoke('interview-calendar:attach-session', eventId, sessionId),
+    saveOutcome: (eventId: string, outcome: unknown) =>
+      ipcRenderer.invoke('interview-calendar:save-outcome', eventId, outcome),
     dismissThread: (id: string) =>
       ipcRenderer.invoke('interview-calendar:dismiss-thread', id),
     onState: (cb: (state: unknown) => void) => {
@@ -92,10 +112,26 @@ const api = {
   overlay: {
     toggle: () => ipcRenderer.invoke('overlay:toggle'),
     show: () => ipcRenderer.invoke('overlay:show'),
+    showForInterviewEvent: (eventId: string) =>
+      ipcRenderer.invoke('overlay:showForInterviewEvent', eventId),
+    getInterviewContext: () => ipcRenderer.invoke('overlay:getInterviewContext'),
+    clearInterviewContext: () => ipcRenderer.invoke('overlay:clearInterviewContext'),
+    onInterviewContext: (cb: (event: unknown) => void) => {
+      const handler = (_e: unknown, event: unknown) => cb(event);
+      ipcRenderer.on('overlay:interview-context', handler);
+      return () => ipcRenderer.removeListener('overlay:interview-context', handler);
+    },
+    onOpenRequested: (cb: () => void) => {
+      const handler = () => cb();
+      ipcRenderer.on('overlay:open-requested', handler);
+      return () => ipcRenderer.removeListener('overlay:open-requested', handler);
+    },
     hide: () => ipcRenderer.invoke('overlay:hide'),
     openApp: () => ipcRenderer.invoke('overlay:openApp'),
     captureScreen: () => ipcRenderer.invoke('overlay:captureScreen'),
     openSettings: (section?: string) => ipcRenderer.invoke('overlay:openSettings', section),
+    openSessionAnalysis: (sessionId: string) =>
+      ipcRenderer.invoke('overlay:openSessionAnalysis', sessionId),
     setContentProtection: (enable: boolean) =>
       ipcRenderer.invoke('overlay:setContentProtection', enable),
     move: (dx: number, dy: number) => ipcRenderer.invoke('overlay:move', dx, dy),

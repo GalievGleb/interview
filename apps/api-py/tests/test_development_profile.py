@@ -24,6 +24,7 @@ def _assessment(
     db_session.add(session)
     db_session.flush()
     payload = {
+        "analysisVersion": 2,
         "interviewType": kind,
         "overallLevel": "Middle" if kind == "technical" else "Уверенная подача",
         "overallScore": score,
@@ -38,6 +39,19 @@ def _assessment(
             }
         ],
         "topicAssessments": [{"topic": topic, "score": topic_score, "confidence": confidence}],
+        "answerReviews": [
+            {
+                "question": f"Что вы знаете по теме {topic}?",
+                "candidateAnswer": "Фактический ответ кандидата из транскрипта.",
+                "topic": topic,
+                "score": topic_score,
+                "confidence": confidence,
+                "whatWasGood": ["Есть релевантный пример."],
+                "problems": ["Не раскрыта причина выбора подхода."],
+                "missingPoints": ["Не хватило конкретных ограничений."],
+                "betterAnswer": "Более структурированный ответ на основе тех же фактов.",
+            }
+        ],
         "markdown": "## Итог\nСохранённый разбор.",
     }
     db_session.add(
@@ -85,6 +99,8 @@ def test_development_profile_separates_technical_and_hr_growth(client, db_sessio
     assert payload["hr"]["score"] == 76
     assert payload["hr"]["strengths"][0]["topic"] == "Самопрезентация"
     assert [item["sessionId"] for item in payload["recentSessions"]] == [hr_id, technical_id]
+    assert payload["recentAnswers"][0]["sessionId"] == hr_id
+    assert payload["recentAnswers"][0]["candidateAnswer"].startswith("Фактический ответ")
 
 
 def test_development_profile_handles_old_saved_analysis(client, db_session):

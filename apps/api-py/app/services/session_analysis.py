@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from typing import Literal
 
@@ -27,7 +28,20 @@ class TopicAssessment(BaseModel):
     confidence: float = Field(ge=0, le=1)
 
 
+class AnswerReview(BaseModel):
+    question: str = Field(min_length=2, max_length=800)
+    candidateAnswer: str = Field(min_length=2, max_length=2_500)
+    topic: str = Field(min_length=2, max_length=120)
+    score: int = Field(ge=0, le=100)
+    confidence: float = Field(ge=0, le=1)
+    whatWasGood: list[str] = Field(default_factory=list, max_length=6)
+    problems: list[str] = Field(default_factory=list, max_length=8)
+    missingPoints: list[str] = Field(default_factory=list, max_length=8)
+    betterAnswer: str = Field(min_length=2, max_length=2_500)
+
+
 class SessionAssessmentPayload(BaseModel):
+    analysisVersion: Literal[2] = 2
     interviewType: Literal["technical", "hr", "mixed", "unknown"]
     overallLevel: str = Field(min_length=2, max_length=40)
     overallScore: int = Field(ge=0, le=100)
@@ -36,6 +50,7 @@ class SessionAssessmentPayload(BaseModel):
     strengths: list[TopicEvidence] = Field(max_length=8)
     weaknesses: list[WeakTopicEvidence] = Field(max_length=8)
     topicAssessments: list[TopicAssessment] = Field(min_length=1, max_length=16)
+    answerReviews: list[AnswerReview] = Field(default_factory=list, max_length=16)
     markdown: str = Field(min_length=2, max_length=12_000)
 
 
@@ -57,10 +72,133 @@ def _validate_analysis(raw: str) -> SessionAssessmentPayload:
     return SessionAssessmentPayload.model_validate(_extract_first_json_object(raw))
 
 
-def _transcript_context(session: InterviewSession) -> tuple[str, bool]:
+def _append_bullets(lines: list[str], values: list[str]) -> None:
+    lines.extend(f"- {value.strip()}" for value in values if value.strip())
+
+
+def _render_markdown(result: SessionAssessmentPayload, language: str) -> SessionAssessmentPayload:
+    """Build the visible report from structured evidence instead of trusting a vague free-form recap."""
+    ru = language == "ru"
+    labels = (
+        {
+            "title": "Итог по реальным ответам",
+            "level": "Уровень",
+            "score": "Оценка",
+            "confidence": "уверенность",
+            "answers": "Разбор вопросов и ваших ответов",
+            "answer": "Что вы ответили",
+            "good": "Что получилось хорошо",
+            "problems": "Ошибки и неточности",
+            "missing": "Чего не хватило",
+            "better": "Как ответить сильнее",
+            "strengths": "Подтверждённые сильные стороны",
+            "growth": "Пробелы и зоны роста",
+            "action": "Что сделать",
+        }
+        if ru
+        else {
+            "title": "Assessment of your actual answers",
+            "level": "Level",
+            "score": "Score",
+            "confidence": "confidence",
+            "answers": "Questions and your answers",
+            "answer": "What you actually said",
+            "good": "What worked",
+            "problems": "Errors and inaccuracies",
+            "missing": "What was missing",
+            "better": "A stronger answer",
+            "strengths": "Confirmed strengths",
+            "growth": "Knowledge gaps and growth areas",
+            "action": "Next action",
+        }
+    )
     lines = [
-        item for item in sorted(session.transcripts, key=lambda item: item.ts) if item.text.strip()
+        f"## {labels['title']}",
+        "",
+        result.conclusion.strip(),
+        "",
+        f"**{labels['level']}:** {result.overallLevel} · "
+        f"**{labels['score']}:** {result.overallScore}/100 · "
+        f"**{labels['confidence']}:** {round(result.overallConfidence * 100)}%",
     ]
+    if result.answerReviews:
+        lines.extend(["", f"## {labels['answers']}"])
+        for index, review in enumerate(result.answerReviews, start=1):
+            lines.extend(
+                [
+                    "",
+                    f"### {index}. {review.question.strip()}",
+                    "",
+                    f"**{labels['answer']}:** {review.candidateAnswer.strip()}",
+                    "",
+                    f"**{labels['score']}:** {review.score}/100 · "
+                    f"**{labels['confidence']}:** {round(review.confidence * 100)}%",
+                ]
+            )
+            if review.whatWasGood:
+                lines.extend(["", f"**{labels['good']}:**"])
+                _append_bullets(lines, review.whatWasGood)
+            if review.problems:
+                lines.extend(["", f"**{labels['problems']}:**"])
+                _append_bullets(lines, review.problems)
+            if review.missingPoints:
+                lines.extend(["", f"**{labels['missing']}:**"])
+                _append_bullets(lines, review.missingPoints)
+            lines.extend(["", f"**{labels['better']}:** {review.betterAnswer.strip()}"])
+    if result.strengths:
+        lines.extend(["", f"## {labels['strengths']}"])
+        _append_bullets(
+            lines,
+            [f"**{item.topic}:** {item.evidence}" for item in result.strengths],
+        )
+    if result.weaknesses:
+        lines.extend(["", f"## {labels['growth']}"])
+        _append_bullets(
+            lines,
+            [
+                f"**{item.topic}:** {item.evidence} **{labels['action']}:** {item.learningAction}"
+                for item in result.weaknesses
+            ],
+        )
+    result.markdown = "\n".join(lines)[:12_000]
+    return result
+
+
+def _finalize_analysis(
+    result: SessionAssessmentPayload,
+    language: str,
+    roles_ambiguous: bool,
+) -> SessionAssessmentPayload:
+    return _apply_role_ambiguity(_render_markdown(result, language), language, roles_ambiguous)
+
+
+def _ordered_transcript_lines(session: InterviewSession):
+    return [
+        item
+        for item in sorted(session.transcripts, key=lambda item: (item.ts, item.id))
+        if item.text.strip()
+    ]
+
+
+def session_analysis_source_fingerprint(session: InterviewSession, language: str) -> str:
+    """Stable identity of the exact persisted evidence used by the assessment."""
+    source = {
+        "language": language,
+        "transcript": [
+            {"speaker": item.speaker, "text": item.text.strip()}
+            for item in _ordered_transcript_lines(session)
+        ],
+    }
+    encoded = json.dumps(
+        source,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
+
+
+def _transcript_context(session: InterviewSession) -> tuple[str, bool]:
+    lines = _ordered_transcript_lines(session)
     speakers = {item.speaker for item in lines}
     roles_ambiguous = speakers != {"other", "me"}
     if roles_ambiguous:
@@ -108,6 +246,8 @@ def _apply_role_ambiguity(
     result.overallConfidence = min(result.overallConfidence, 0.35)
     for topic in result.topicAssessments:
         topic.confidence = min(topic.confidence, 0.35)
+    for review in result.answerReviews:
+        review.confidence = min(review.confidence, 0.35)
     return result
 
 
@@ -184,6 +324,19 @@ Return exactly one JSON object matching this schema:
 Every strength, weakness, conclusion, score, and learning action must be grounded
 in the transcript. Confidence must reflect how directly the transcript supports the score.
 
+The transcript is the only source of truth. "Кандидат"/"Candidate" lines are what the
+user actually said. Never use, reconstruct, or evaluate an AI-generated suggested answer.
+Build answerReviews for every substantial interviewer question that has an attributable
+candidate reply. In candidateAnswer, preserve what the candidate really said; do not replace
+it with an ideal answer. For each review:
+- judge whether the reply directly answered the question;
+- name concrete technical or factual errors in problems (never write only "be clearer");
+- put absent but expected details in missingPoints, without claiming they were said;
+- make betterAnswer a stronger version that preserves the candidate's supported facts;
+- keep confidence low when the question/answer pairing or speech recognition is uncertain.
+The overall conclusion and topic scores must be derived primarily from answerReviews.
+Do not award a skill based on an interviewer statement or on an unanswered question.
+
 <TRANSCRIPT>
 {transcript}
 </TRANSCRIPT>
@@ -204,11 +357,13 @@ in the transcript. Confidence must reflect how directly the transcript supports 
     )
     _record_usage(db, provider, prompt, raw)
     try:
-        return _apply_role_ambiguity(_validate_analysis(raw), language, roles_ambiguous)
+        return _finalize_analysis(_validate_analysis(raw), language, roles_ambiguous)
     except (ValidationError, ValueError) as first_error:
         repair_prompt = f"""Repair the invalid response so it matches the required JSON schema.
 Return exactly one corrected JSON object and no commentary.
 Use only evidence from the persisted transcript; remove or correct every unsupported claim.
+Only Candidate lines are the user's actual answers. Populate answerReviews from those lines;
+never substitute a generated or ideal answer into candidateAnswer.
 
 {_language_contract(language)}
 {_role_contract(roles_ambiguous)}
@@ -239,7 +394,7 @@ Use only evidence from the persisted transcript; remove or correct every unsuppo
         )
         _record_usage(db, provider, repair_prompt, repaired)
         try:
-            return _apply_role_ambiguity(_validate_analysis(repaired), language, roles_ambiguous)
+            return _finalize_analysis(_validate_analysis(repaired), language, roles_ambiguous)
         except (ValidationError, ValueError) as repair_error:
             raise AppError(
                 "Не удалось получить корректный разбор сессии",

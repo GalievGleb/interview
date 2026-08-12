@@ -151,6 +151,28 @@ def test_mock_answer_endpoint_preserves_raw_transcript_words(client, monkeypatch
     assert response.json()["text"] == "Проверяю самскада и  JSON — как произнесено."
 
 
+def test_mock_answer_endpoint_returns_retryable_error_when_provider_is_unavailable(client, monkeypatch):
+    class UnavailableAnswerTranscriber:
+        async def transcribe(self, _audio, **_kwargs):
+            raise RuntimeError("upstream failed")
+
+    monkeypatch.setattr(
+        stt_router,
+        "get_answer_transcriber",
+        lambda: UnavailableAnswerTranscriber(),
+    )
+    response = client.post(
+        "/stt/answer",
+        files={"file": ("answer.wav", _wav(), "audio/wav")},
+        data={"question": "Вопрос", "hints": "[]", "language": "ru"},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == (
+        "Распознавание временно недоступно. Запись можно отправить повторно."
+    )
+
+
 def test_mock_answer_endpoint_rejects_silence_without_calling_provider(client, monkeypatch):
     called = False
 

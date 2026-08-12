@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { getFastAnswer, setFastAnswer } from '../lib/api';
 import { answerChimeEnabled, setAnswerChime } from '../lib/notifySound';
 import { getLang, setLang, useI18n } from '../lib/i18n';
 import { launchLive } from '../lib/launchLive';
+import { useBuildChannel } from '../lib/buildChannel';
 
 interface Command {
   id: string;
@@ -18,10 +20,14 @@ interface Command {
 export default function CommandPalette() {
   const navigate = useNavigate();
   const { t } = useI18n();
+  const buildChannel = useBuildChannel();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const titleId = useId();
+  const listboxId = useId();
+  const optionId = (commandId: string) => `${listboxId}-${commandId}`;
 
   const commands: Command[] = useMemo(
     () => {
@@ -54,22 +60,21 @@ export default function CommandPalette() {
           run: () => setLang(getLang() === 'ru' ? 'en' : 'ru'),
         },
         { id: 'overlay', label: t('cmd.overlay'), hint: 'Ctrl+Shift+H', run: () => launchLive(() => navigate('/overlay')) },
-        { id: 'meeting', label: t('cmd.meeting'), dev: true, run: () => navigate('/meeting') },
-        { id: 'testlab', label: t('cmd.testlab'), dev: true, run: () => navigate('/test-lab') },
-        { id: 'benchmark', label: t('cmd.benchmark'), dev: true, run: () => navigate('/benchmark') },
-        { id: 'diagnostics', label: t('cmd.diagnostics'), dev: true, run: () => navigate('/diagnostics') },
-        { id: 'licenses', label: t('cmd.licenses'), dev: true, run: () => navigate('/licenses') },
+        ...(buildChannel === 'dev' ? [
+          { id: 'meeting', label: t('cmd.meeting'), dev: true, run: () => navigate('/meeting') },
+          { id: 'testlab', label: t('cmd.testlab'), dev: true, run: () => navigate('/test-lab') },
+          { id: 'benchmark', label: t('cmd.benchmark'), dev: true, run: () => navigate('/benchmark') },
+          { id: 'diagnostics', label: t('cmd.diagnostics'), dev: true, run: () => navigate('/diagnostics') },
+          { id: 'licenses', label: t('cmd.licenses'), dev: true, run: () => navigate('/licenses') },
+        ] satisfies Command[] : []),
       ];
     },
-    [navigate, t],
+    [buildChannel, navigate, t],
   );
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    // Dev-инструменты не засоряют общий список — появляются, когда пользователь
-    // явно набирает «dev».
-    const base = q.startsWith('dev') ? commands : commands.filter((c) => !c.dev);
-    return q ? base.filter((c) => c.label.toLowerCase().includes(q)) : base;
+    return q ? commands.filter((c) => c.label.toLowerCase().includes(q)) : commands;
   }, [commands, query]);
 
   useEffect(() => {
@@ -99,7 +104,17 @@ export default function CommandPalette() {
   }, []);
 
   useEffect(() => {
-    if (open) inputRef.current?.focus();
+    if (!open) return;
+    const restoreTo = document.activeElement as HTMLElement | null;
+    const appRoot = document.getElementById('root') as (HTMLElement & { inert: boolean }) | null;
+    const rootWasInert = appRoot?.inert ?? false;
+    if (appRoot) appRoot.inert = true;
+    inputRef.current?.focus();
+
+    return () => {
+      if (appRoot) appRoot.inert = rootWasInert;
+      restoreTo?.focus?.();
+    };
   }, [open]);
   useEffect(() => setActive(0), [query]);
 
@@ -111,19 +126,35 @@ export default function CommandPalette() {
     setOpen(false);
   };
 
-  return (
+  const activeCommand = filtered[active];
+
+  return createPortal(
     <div
       className="fixed inset-0 z-[80] flex items-start justify-center bg-black/50 pt-[18vh] backdrop-blur-sm"
       onMouseDown={() => setOpen(false)}
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
         className="w-full max-w-lg overflow-hidden rounded-2xl border border-surface-border bg-surface-elevated shadow-pop"
         onMouseDown={(e) => e.stopPropagation()}
+        onKeyDown={(event) => {
+          if (event.key !== 'Tab') return;
+          event.preventDefault();
+          inputRef.current?.focus();
+        }}
       >
+        <h2 id={titleId} className="sr-only">{t('sidebar.quickActions')}</h2>
         <input
           ref={inputRef}
           value={query}
           aria-label={t('cmd.placeholder')}
+          role="combobox"
+          aria-autocomplete="list"
+          aria-expanded="true"
+          aria-controls={listboxId}
+          aria-activedescendant={activeCommand ? optionId(activeCommand.id) : undefined}
           name="commandSearch"
           autoComplete="off"
           onChange={(e) => setQuery(e.target.value)}
@@ -142,14 +173,18 @@ export default function CommandPalette() {
           placeholder={t('cmd.placeholder')}
           className="w-full border-b border-surface-border bg-transparent px-4 py-3.5 text-[15px] text-ink outline-none placeholder:text-ink-faint focus-visible:ring-2 focus-visible:ring-accent-ring"
         />
-        <div className="max-h-80 overflow-y-auto p-1.5">
+        <div id={listboxId} role="listbox" aria-label={t('sidebar.quickActions')} className="max-h-80 overflow-y-auto overscroll-contain p-1.5">
           {filtered.length === 0 && (
             <p className="px-3 py-6 text-center text-sm text-ink-faint">{t('cmd.empty')}</p>
           )}
           {filtered.map((c, i) => (
             <button
               key={c.id}
+              id={optionId(c.id)}
               type="button"
+              role="option"
+              aria-selected={i === active}
+              tabIndex={-1}
               onMouseEnter={() => setActive(i)}
               onClick={() => execute(c)}
               className={`flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left text-sm transition-colors ${
@@ -162,6 +197,7 @@ export default function CommandPalette() {
           ))}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

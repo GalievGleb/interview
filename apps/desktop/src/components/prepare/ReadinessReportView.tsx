@@ -8,6 +8,7 @@ import {
   MoreHorizontal,
   Printer,
   RotateCcw,
+  Send,
   TrendingUp,
 } from 'lucide-react';
 import ReadinessRing from './ReadinessRing';
@@ -34,6 +35,7 @@ interface Props {
   onNewReview: () => void;
   onFollowUpRound?: () => void;
   onPracticeTopic?: (topicId: string) => void;
+  onApply?: () => void;
   scoreHistory?: number[];
 }
 
@@ -46,6 +48,7 @@ export default function ReadinessReportView({
   onNewReview,
   onFollowUpRound,
   onPracticeTopic,
+  onApply,
   scoreHistory,
 }: Props) {
   const { t } = useI18n();
@@ -154,6 +157,23 @@ export default function ReadinessReportView({
             <p>{t('prep.report.noAiBody')}</p>
           </div>
         </div>
+      )}
+
+      {onApply && (
+        <section className="prep-apply-handoff" aria-labelledby="prep-apply-title">
+          <div>
+            <p className="prep-eyebrow">Следующий шаг</p>
+            <h2 id="prep-apply-title">Проверьте отклик по этой вакансии</h2>
+            <p>
+              Вакансия и выбранное резюме будут перенесены в HH. Ничего не отправится,
+              пока вы явно не подтвердите отклик.
+            </p>
+          </div>
+          <button type="button" className="prep-btn" onClick={onApply}>
+            <Send size={15} aria-hidden="true" />
+            Перейти к проверке отклика
+          </button>
+        </section>
       )}
 
       {(report.narrativeVerdict || report.interviewerImpression || report.focusTopic) && (

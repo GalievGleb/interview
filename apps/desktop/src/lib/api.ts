@@ -70,7 +70,9 @@ export interface SttBenchmarkReport {
   savedAs?: string;
 }
 
-const API_URL = (import.meta.env.VITE_API_URL as string) ?? 'http://127.0.0.1:8000';
+const API_URL =
+  (import.meta.env.VITE_API_URL as string) ??
+  'http://127.0.0.1:8000';
 
 // Локальная аутентификация: Electron выдаёт per-run токен, бэкенд без него
 // отвечает 401 (защита от чужих локальных процессов и drive-by запросов).
@@ -344,6 +346,15 @@ export interface InterviewAnswer {
   risk: string;
 }
 
+export interface InterviewOutcomeResult {
+  headline: string;
+  facts: string[];
+  conditions: string[];
+  nextSteps: string[];
+  openQuestions: string[];
+  model?: string;
+}
+
 export type AnswerVariantKind = 'short' | 'detailed' | 'english' | 'risk';
 
 export interface SessionItem {
@@ -393,6 +404,9 @@ export interface SessionKnowledgeDto {
 }
 
 export interface SessionAssessment {
+  analysisVersion?: 2;
+  sourceFingerprint?: string;
+  analysisLanguage?: 'ru' | 'en';
   interviewType: 'technical' | 'hr' | 'mixed' | 'unknown';
   overallLevel: string;
   overallScore: number;
@@ -401,6 +415,17 @@ export interface SessionAssessment {
   strengths: Array<{ topic: string; evidence: string }>;
   weaknesses: Array<{ topic: string; evidence: string; learningAction: string }>;
   topicAssessments: Array<{ topic: string; score: number; confidence: number }>;
+  answerReviews?: Array<{
+    question: string;
+    candidateAnswer: string;
+    topic: string;
+    score: number;
+    confidence: number;
+    whatWasGood: string[];
+    problems: string[];
+    missingPoints: string[];
+    betterAnswer: string;
+  }>;
   markdown: string;
 }
 
@@ -433,6 +458,20 @@ export interface DevelopmentProfile {
     overallLevel: string | null;
     score: number;
     confidence: number;
+  }>;
+  recentAnswers: Array<{
+    sessionId: string;
+    title: string | null;
+    startedAt: string;
+    interviewType: 'technical' | 'hr' | 'mixed' | 'unknown';
+    question: string;
+    candidateAnswer: string;
+    topic: string;
+    score: number;
+    confidence: number;
+    problems: string[];
+    missingPoints: string[];
+    betterAnswer: string;
   }>;
   updatedAt: string;
 }
@@ -570,11 +609,11 @@ export const api = {
   getDevelopmentProfile: () =>
     request<DevelopmentProfile>('/sessions/development-profile'),
 
-  createSessionAnalysis: (id: string, language: 'ru' | 'en') =>
+  createSessionAnalysis: (id: string, language: 'ru' | 'en', force = false) =>
     request<SessionAssessment>(`/sessions/${encodeURIComponent(id)}/analysis`, {
       method: 'POST',
       timeoutMs: LONG_REQUEST_TIMEOUT_MS,
-      body: JSON.stringify({ language }),
+      body: JSON.stringify({ language, force }),
     }),
 
   getSessionAnalysis: (id: string) =>
@@ -664,6 +703,25 @@ export const api = {
         provider: opts.provider,
         model: opts.model,
         answer_language: answerLanguageParam(),
+      }),
+    }),
+
+  interviewOutcome: (input: {
+    transcript: string;
+    interviewType: 'hr' | 'technical' | 'other';
+    vacancyTitle: string;
+    companyName: string;
+    answerLanguage?: 'ru' | 'en';
+  }) =>
+    request<InterviewOutcomeResult>('/chat/interview-outcome', {
+      method: 'POST',
+      timeoutMs: LONG_REQUEST_TIMEOUT_MS,
+      body: JSON.stringify({
+        transcript: input.transcript,
+        interview_type: input.interviewType,
+        vacancy_title: input.vacancyTitle,
+        company_name: input.companyName,
+        answer_language: input.answerLanguage ?? answerLanguageParam(),
       }),
     }),
 

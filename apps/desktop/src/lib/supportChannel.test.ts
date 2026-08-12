@@ -9,10 +9,11 @@ const settingsSource = readFileSync(
 );
 
 describe('public support channel', () => {
-  it('uses @SkillCue without exposing an inactive support email', () => {
+  it('uses one Telegram entry without exposing an inactive support email', () => {
     expect(supportSource).toContain("https://t.me/SkillCue");
     expect(supportSource).not.toContain('SUPPORT_EMAIL');
     expect(settingsSource).not.toContain('mailto:');
-    expect(settingsSource).toContain('?text=');
+    expect(settingsSource).toContain('openSupportLink(SUPPORT_TELEGRAM_URL)');
+    expect(settingsSource.match(/SUPPORT_TELEGRAM_URL/g)).toHaveLength(2);
   });
 });

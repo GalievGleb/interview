@@ -9,8 +9,10 @@
   <link rel="canonical" href="https://skill-cue.ru/en/" />
   <link rel="alternate" hreflang="ru" href="https://skill-cue.ru/" />
   <link rel="alternate" hreflang="en" href="https://skill-cue.ru/en/" />
+  <link rel="icon" type="image/png" href="/skillcue-icon.png" />
+  <link rel="apple-touch-icon" href="/skillcue-icon.png" />
   <meta property="og:title" content="SkillCue — vacancy-specific interview preparation" />
-  <meta property="og:description" content="A working Windows MVP for personalized interview preparation, currently entering external validation." />
+  <meta property="og:description" content="A desktop app for vacancy-specific interview preparation on Windows and macOS." />
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://skill-cue.ru/en/" />
   <meta property="og:image" content="https://skill-cue.ru/og.png" />
@@ -19,7 +21,7 @@
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
     "name": "SkillCue",
-    "operatingSystem": "Windows",
+    "operatingSystem": "Windows 10/11, macOS 12+",
     "applicationCategory": "BusinessApplication",
     "description": "SkillCue creates vacancy-specific preparation plans and mock interviews. Completed audio fragments are transcribed by the OpenAI cloud service."
   }
@@ -82,11 +84,10 @@
 
     .brand { display: inline-flex; align-items: center; gap: 10px; font-size: 20px; font-weight: 900; }
     .brand-mark {
-      width: 30px;
-      height: 30px;
-      border-radius: 9px 14px 14px 9px;
-      background: linear-gradient(135deg, var(--green), #98efb6);
-      box-shadow: 0 12px 26px rgba(70, 211, 125, .22);
+      width: 38px;
+      height: 38px;
+      border-radius: 11px;
+      box-shadow: 0 12px 26px rgba(70, 211, 125, .18), 0 0 0 1px rgba(255, 255, 255, .1);
     }
 
     .nav { display: flex; gap: 20px; color: var(--soft); font-size: 13px; font-weight: 750; }
@@ -130,6 +131,8 @@
     h1 span, h2 span { color: var(--green); }
     .hero-copy { max-width: 730px; margin: 0 auto; color: var(--soft); font-size: clamp(17px, 2vw, 21px); }
     .hero-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 30px; }
+    .download-note { margin: 11px auto 0; color: var(--muted); font-size: 12px; }
+    .download-note a { color: var(--green-2); text-decoration: underline; text-underline-offset: 3px; }
     .proofs { display: flex; flex-wrap: wrap; justify-content: center; gap: 9px; margin-top: 22px; }
     .proofs span { padding: 7px 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 12px; font-weight: 760; }
 
@@ -199,7 +202,7 @@
 </head>
 <body>
   <header class="topbar">
-    <a class="brand" href="#top" aria-label="SkillCue home"><span class="brand-mark" aria-hidden="true"></span><span>SkillCue</span></a>
+    <a class="brand" href="#top" aria-label="SkillCue home"><img class="brand-mark" src="/skillcue-icon.png" alt="" width="38" height="38" /><span>SkillCue</span></a>
     <nav class="nav" aria-label="Main navigation">
       <a href="#workflow">Workflow</a>
       <a href="#truth">Product facts</a>
@@ -207,7 +210,7 @@
     </nav>
     <div class="actions">
       <a class="btn" href="/" hreflang="ru" lang="ru">RU</a>
-      <a class="btn btn-primary" href="/downloads/SkillCue-Setup.exe">Download</a>
+      <a class="btn btn-primary" href="#download">Download</a>
     </div>
   </header>
 
@@ -218,10 +221,11 @@
       <p class="hero-copy">SkillCue identifies likely interview topics, maps skill gaps, runs a personalized mock interview, and helps candidates improve answers using their real experience.</p>
       <div class="hero-actions">
         <a class="btn btn-primary" href="/downloads/SkillCue-Setup.exe">Download for Windows</a>
+        <a class="btn" href="https://github.com/GalievGleb/SkillCue/releases/latest/download/SkillCue-macOS-arm64.dmg">Download for Mac</a>
         <a class="btn" href="https://github.com/GalievGleb/SkillCue">Public GitHub overview</a>
       </div>
       <div class="proofs" aria-label="Current product status">
-        <span>Working Windows MVP</span>
+        <span>Windows and macOS</span>
         <span>0 external users</span>
         <span>0 revenue</span>
         <span>Russian-first launch</span>
@@ -246,7 +250,7 @@
         <div>
           <div class="label">Product facts</div>
           <h2>Transparent about <span>data and stage</span>.</h2>
-          <p>SkillCue is a pre-launch MVP built for Russian-speaking job seekers. The commercial source code remains private; the public repository contains product documentation and Windows releases.</p>
+          <p>SkillCue is a pre-launch MVP built for Russian-speaking job seekers. The commercial source code remains private; the public repository contains product documentation and desktop releases.</p>
         </div>
         <div class="facts">
           <div class="fact"><strong>Cloud speech recognition</strong><span>Completed audio fragments are sent to OpenAI directly or through the SkillCue gateway for transcription.</span></div>
@@ -277,13 +281,14 @@
       </div>
     </section>
 
-    <section class="final wrap">
+    <section class="final wrap" id="download">
       <div class="final-box">
         <h2>SkillCue is ready for its <span>first external testers</span>.</h2>
-        <p>For product questions, partnership discussions, or test access, contact the project through Telegram.</p>
+        <p>Download the current desktop test build.</p>
         <div class="hero-actions">
-          <a class="btn btn-primary" href="https://t.me/SkillCue">Telegram @SkillCue</a>
-          <a class="btn" href="https://github.com/GalievGleb/SkillCue">GitHub</a>
+          <a class="btn btn-primary" href="/downloads/SkillCue-Setup.exe">Windows 10/11</a>
+          <a class="btn" href="https://github.com/GalievGleb/SkillCue/releases/latest/download/SkillCue-macOS-arm64.dmg">Mac · Apple silicon</a>
+          <a class="btn" href="https://github.com/GalievGleb/SkillCue/releases/latest/download/SkillCue-macOS-x64.dmg">Mac · Intel</a>
         </div>
       </div>
     </section>

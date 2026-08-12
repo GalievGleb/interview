@@ -1,10 +1,6 @@
 import { useEffect, useState } from 'react';
-import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { api } from '../lib/api';
-import Modal from '../components/Modal';
+import { useLocation, useSearchParams } from 'react-router-dom';
 import MicrophoneSettings from '../components/MicrophoneSettings';
-import SpeechRecognitionSettings from '../components/SpeechRecognitionSettings';
-import DiagnosticsPanel from '../components/DiagnosticsPanel';
 import LicenseCard from '../components/LicenseCard';
 import PlanPicker from '../components/PlanPicker';
 import AnswerModesSettings from '../components/AnswerModesSettings';
@@ -19,10 +15,8 @@ import {
   type AnswerLanguagePref,
 } from '../lib/answerLanguage';
 import { openSupportLink, SUPPORT_TELEGRAM_URL } from '../lib/support';
-import { getErrorLog, isErrorLogEnabled, setErrorLogEnabled } from '../lib/errorLog';
-import { getActivation } from '../lib/activation';
-import type { UpdaterStatus } from '../types/electron';
-import { clearSessionKnowledge } from '../lib/sessionKnowledge';
+import { summarizePendingHhScreening } from '../lib/hhScreening';
+import type { HhAssistantState, UpdaterStatus } from '../types/electron';
 
 /**
  * Настройки — панель в стиле Cluely: слева разделы, справа контент
@@ -35,8 +29,6 @@ type SettingsTab =
   | 'modes'
   | 'keybinds'
   | 'billing'
-  | 'privacy'
-  | 'developer'
   | 'notes';
 
 const SECTIONS: Array<{ id: SettingsTab; labelKey: I18nKey; d: string }> = [
@@ -45,8 +37,6 @@ const SECTIONS: Array<{ id: SettingsTab; labelKey: I18nKey; d: string }> = [
   { id: 'modes', labelKey: 'settings.section.modes', d: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z' },
   { id: 'keybinds', labelKey: 'settings.section.keybinds', d: 'M2 6h20v12H2z|M6 10h.01M10 10h.01M14 10h.01M18 10h.01|M7 14h10' },
   { id: 'billing', labelKey: 'settings.section.billing', d: 'M2 6h20v12H2z|M2 10h20' },
-  { id: 'privacy', labelKey: 'settings.section.privacy', d: 'M12 2 4 5v6c0 5 3.4 9.4 8 11 4.6-1.6 8-6 8-11V5z' },
-  { id: 'developer', labelKey: 'settings.section.developer', d: 'm8 8-4 4 4 4|m16 8 4 4-4 4|m12 4-2 16' },
   { id: 'notes', labelKey: 'settings.section.notes', d: 'M4 4h16v14H8l-4 4z|M8 9h8|M8 13h5' },
 ];
 
@@ -105,11 +95,11 @@ function SettingRow({
     // flex-wrap: на минимальной ширине окна контрол уходит под текст,
     // а не давит колонку заголовка до нечитаемой ширины.
     <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-surface-border/60 py-3.5 last:border-b-0">
-      <div className="min-w-[200px] flex-1">
+      <div className="min-w-0 basis-[200px] flex-1">
         <p className="text-[13px] font-semibold text-ink">{title}</p>
         <p className="mt-0.5 text-xs text-ink-faint">{desc}</p>
       </div>
-      <div className="shrink-0">{children}</div>
+      <div className="max-w-full min-w-0 shrink-0 overflow-x-auto">{children}</div>
     </div>
   );
 }
@@ -642,13 +632,37 @@ function ReleaseNotesSection() {
   );
 }
 
+function AiQuotaNotice() {
+  const [assistantState, setAssistantState] = useState<HhAssistantState | null>(null);
+  useEffect(() => {
+    const assistant = window.electronAPI?.hhAssistant;
+    if (!assistant) return;
+    let active = true;
+    void assistant.getState().then((next) => { if (active) setAssistantState(next); }).catch(() => {});
+    const unsubscribe = assistant.onState((next) => { if (active) setAssistantState(next); });
+    return () => { active = false; unsubscribe(); };
+  }, []);
+  const summary = summarizePendingHhScreening(assistantState?.queue ?? []);
+  if (summary.quotaLimitedCount === 0) return null;
+  const resetAt = new Date();
+  resetAt.setMonth(resetAt.getMonth() + 1, 1);
+  resetAt.setHours(0, 0, 0, 0);
+  return (
+    <div className="mb-4 rounded-xl border border-amber-400/30 bg-amber-400/[0.06] p-4 text-sm text-amber-100" role="status">
+      <b className="block">Месячный лимит онлайн-ИИ исчерпан</b>
+      <p className="mt-1 text-xs leading-relaxed text-ink-muted">
+        Обновится {resetAt.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })}. До этого SkillCue продолжит автоотклики, подстановку данных из резюме и сохранённых ответов; новые личные факты попросит подтвердить вручную.
+      </p>
+    </div>
+  );
+}
+
 /* ---------------- Страница ---------------- */
 
 export default function SettingsPage() {
-  const navigate = useNavigate();
   const { t } = useI18n();
   // Deep link: /settings?tab=speech открывает нужный раздел из предупреждений.
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
   const requestedTab = params.get('tab') as SettingsTab | null;
   const [tab, setTab] = useState<SettingsTab>(
     requestedTab && SECTIONS.some((s) => s.id === requestedTab) ? requestedTab : 'general',
@@ -660,72 +674,14 @@ export default function SettingsPage() {
   useEffect(() => {
     if (activateKey) setTab('billing');
   }, [activateKey]);
-  const [message, setMessage] = useState('');
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const [reporting, setReporting] = useState(false);
-  const [errorLogOn, setErrorLogOn] = useState(isErrorLogEnabled);
-  const [errorLogCount, setErrorLogCount] = useState(() => getErrorLog().length);
-
-  // «Сообщить о проблеме»: main собирает zip (логи бэкенда + system info +
-  // эти prefs), показывает его в проводнике, а мы открываем чат @SkillCue с готовым текстом.
-  const reportProblem = async () => {
-    const collect = window.electronAPI?.collectDiagnostics;
-    if (!collect) {
-      openSupportLink(`${SUPPORT_TELEGRAM_URL}?text=${encodeURIComponent(t('settings.report.subject'))}`);
-      return;
-    }
-    setReporting(true);
-    try {
-      const prefs: Record<string, string> = {};
-      for (const key of [
-        'skillcue.theme',
-        'skillcue.lang',
-        'skillcue.answerLanguage',
-        'copilot-live-prefs',
-        'fast-answer',
-        'skillcue:lastTimings',
-      ]) {
-        const v = localStorage.getItem(key);
-        if (v !== null) prefs[key] = v;
-      }
-      const extras = [{ name: 'prefs.json', content: JSON.stringify(prefs, null, 2) }];
-      // Журнал ошибок — самое ценное в отчёте: реальные стеки крашей, а не «не работает».
-      const errors = getErrorLog();
-      if (errors.length) {
-        extras.push({ name: 'errors.json', content: JSON.stringify(errors, null, 2) });
-      }
-      // Воронка активации — докуда дошёл пользователь (разбор/mock/live).
-      extras.push({ name: 'activation.json', content: JSON.stringify(getActivation(), null, 2) });
-      await collect(extras);
-      const reportMessage = `${t('settings.report.subject')}\n\n${t('settings.report.body')}`;
-      openSupportLink(`${SUPPORT_TELEGRAM_URL}?text=${encodeURIComponent(reportMessage)}`);
-    } finally {
-      setReporting(false);
-    }
-  };
-
   // Реагируем на навигацию из оверлея («Управлять режимами» и т.п.).
   useEffect(() => {
     if (requestedTab && SECTIONS.some((s) => s.id === requestedTab)) setTab(requestedTab);
   }, [requestedTab]);
-
-
-  const deleteData = async () => {
-    try {
-      await api.deleteAllData();
-      clearSessionKnowledge();
-      setMessage(t('settings.data.deleted'));
-    } catch (err) {
-      setMessage(err instanceof Error ? err.message : t('common.error'));
-    } finally {
-      setConfirmDelete(false);
-    }
-  };
-
   return (
-    <div className="flex max-w-6xl gap-6">
+    <div className="flex max-w-6xl flex-col gap-6 lg:flex-row">
       {/* Сайдбар разделов (как панель Cluely, но в нашем стиле). */}
-      <aside className="w-52 shrink-0">
+      <aside className="w-full shrink-0 lg:w-52">
         <div className="sticky top-4 rounded-2xl border border-surface-border bg-surface-light/70 p-2">
           <p className="px-2.5 pb-1.5 pt-2 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
             {t('nav.settings')}
@@ -734,7 +690,13 @@ export default function SettingsPage() {
             <button
               key={s.id}
               type="button"
-              onClick={() => setTab(s.id)}
+              aria-pressed={tab === s.id}
+              onClick={() => {
+                setTab(s.id);
+                const next = new URLSearchParams(params);
+                next.set('tab', s.id);
+                setParams(next, { replace: true });
+              }}
               className={`flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-[13px] font-semibold transition-colors ${
                 tab === s.id
                   ? 'bg-surface-elevated text-ink shadow-soft'
@@ -746,28 +708,13 @@ export default function SettingsPage() {
             </button>
           ))}
 
-          {/* Справка и выход — как нижний блок настроек Cluely. */}
+          {/* Единый публичный канал для связи и сообщений об ошибках. */}
           <div className="mt-2 border-t border-surface-border/60 pt-2">
-            <SidebarLink
-              icon="M12 8v4|M12 16h.01|M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z"
-              label={reporting ? t('settings.report.collecting') : t('settings.report.link')}
-              onClick={() => void reportProblem()}
-            />
             <SidebarLink
               icon="m22 2-7 20-4-9-9-4z|M22 2 11 13"
               label={t('settings.support.telegram')}
               onClick={() => openSupportLink(SUPPORT_TELEGRAM_URL)}
             />
-            {!!window.electronAPI?.quit && (
-              <button
-                type="button"
-                onClick={() => void window.electronAPI?.quit?.()}
-                className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-[13px] font-semibold text-ink-muted transition-colors hover:bg-red-500/10 hover:text-red-400"
-              >
-                <Icon d="M12 2v10|M18.36 6.64a9 9 0 1 1-12.72 0" />
-                {t('settings.quit')}
-              </button>
-            )}
           </div>
         </div>
       </aside>
@@ -780,12 +727,7 @@ export default function SettingsPage() {
 
         {tab === 'general' && <GeneralSection />}
 
-        {tab === 'speech' && (
-          <>
-            <SpeechRecognitionSettings />
-            <MicrophoneSettings />
-          </>
-        )}
+        {tab === 'speech' && <MicrophoneSettings />}
 
         {tab === 'modes' && <AnswerModesSettings />}
 
@@ -793,121 +735,14 @@ export default function SettingsPage() {
 
         {tab === 'billing' && (
           <>
+            <AiQuotaNotice />
             <PlanPicker />
             <LicenseCard autoActivateKey={activateKey} />
           </>
         )}
 
-        {tab === 'privacy' && (
-          <>
-            <div className="card mb-5 flex items-center justify-between gap-4 p-5">
-              <div>
-                <h3 className="text-sm font-semibold text-ink">{t('settings.privacy.oss.title')}</h3>
-                <p className="mt-0.5 text-sm text-ink-muted">{t('settings.privacy.oss.desc')}</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => navigate('/licenses')}
-                className="btn-secondary btn-sm"
-              >
-                {t('common.open')}
-              </button>
-            </div>
-
-            <div className="card mb-5 flex items-center justify-between gap-4 p-5">
-              <div className="min-w-0">
-                <h3 className="text-sm font-semibold text-ink">
-                  {t('settings.privacy.errlog.title')}
-                </h3>
-                <p className="mt-0.5 text-sm text-ink-muted">
-                  {t('settings.privacy.errlog.desc')} {errorLogCount}.
-                </p>
-              </div>
-              <Toggle
-                on={errorLogOn}
-                label={t('settings.privacy.errlog.aria')}
-                onChange={(v) => {
-                  setErrorLogEnabled(v);
-                  setErrorLogOn(v);
-                  if (!v) setErrorLogCount(0);
-                }}
-              />
-            </div>
-
-            <div className="rounded-2xl border border-red-900/40 bg-red-950/10 p-5">
-              <h3 className="mb-1 text-sm font-semibold text-red-300">
-                {t('settings.privacy.delete.title')}
-              </h3>
-              <p className="mb-4 text-sm text-ink-muted">{t('settings.privacy.delete.desc')}</p>
-              <button onClick={() => setConfirmDelete(true)} className="btn-danger">
-                {t('settings.privacy.delete.btn')}
-              </button>
-              {message && <p className="mt-3 text-sm text-emerald-400">{message}</p>}
-            </div>
-          </>
-        )}
-
-        {tab === 'developer' && (
-          <>
-            <div className="card mb-5 p-5">
-              <h3 className="text-sm font-semibold text-ink">{t('settings.dev.title')}</h3>
-              <p className="mt-0.5 mb-3 text-sm text-ink-muted">{t('settings.dev.desc')}</p>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => navigate('/test-lab')}
-                  className="btn-secondary btn-sm"
-                >
-                  {t('settings.dev.testLab')}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => navigate('/benchmark')}
-                  className="btn-secondary btn-sm"
-                >
-                  {t('settings.dev.benchmark')}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => navigate('/diagnostics')}
-                  className="btn-secondary btn-sm"
-                >
-                  {t('settings.dev.diagnostics')}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => navigate('/meeting')}
-                  className="btn-secondary btn-sm"
-                >
-                  {t('settings.dev.meeting')}
-                </button>
-              </div>
-            </div>
-            <DiagnosticsPanel />
-          </>
-        )}
-
         {tab === 'notes' && <ReleaseNotesSection />}
       </div>
-
-      <Modal
-        open={confirmDelete}
-        onClose={() => setConfirmDelete(false)}
-        title={t('settings.deleteModal.title')}
-        subtitle={t('settings.deleteModal.subtitle')}
-        footer={
-          <>
-            <button onClick={() => setConfirmDelete(false)} className="btn-secondary btn-sm">
-              {t('common.cancel')}
-            </button>
-            <button onClick={() => void deleteData()} className="btn-danger btn-sm">
-              {t('common.delete')}
-            </button>
-          </>
-        }
-      >
-        <p className="text-sm text-ink-muted">{t('settings.deleteModal.body')}</p>
-      </Modal>
     </div>
   );
 }

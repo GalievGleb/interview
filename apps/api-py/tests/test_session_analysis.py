@@ -10,6 +10,7 @@ from app.db import models
 from app.services import model_router, provider_adapter, quota
 
 VALID_ANALYSIS = {
+    "analysisVersion": 2,
     "interviewType": "technical",
     "overallLevel": "Middle",
     "overallScore": 58,
@@ -24,6 +25,19 @@ VALID_ANALYSIS = {
         }
     ],
     "topicAssessments": [{"topic": "Техники тест-дизайна", "score": 42, "confidence": 0.9}],
+    "answerReviews": [
+        {
+            "question": "Какие техники тест-дизайна?",
+            "candidateAnswer": "Классы эквивалентности.",
+            "topic": "Техники тест-дизайна",
+            "score": 42,
+            "confidence": 0.9,
+            "whatWasGood": ["Названа одна подходящая техника."],
+            "problems": ["Ответ не объясняет применение техники."],
+            "missingPoints": ["Граничные значения и pairwise."],
+            "betterAnswer": "Использую классы эквивалентности и граничные значения.",
+        }
+    ],
     "markdown": "## Итог\nНужно усилить техники тест-дизайна.",
 }
 
@@ -58,7 +72,61 @@ def test_session_analysis_is_validated_persisted_and_reused(client, monkeypatch)
     assert first.status_code == 200, first.text
     assert second.status_code == 200, second.text
     assert second.json()["weaknesses"][0]["topic"] == "Техники тест-дизайна"
+    assert second.json()["analysisLanguage"] == "ru"
+    assert second.json()["sourceFingerprint"].startswith("sha256:")
     assert calls == 1
+
+
+def test_legacy_saved_analysis_gets_fingerprint_without_model_reanalysis(client, db_session):
+    session_id = _completed_session(client)
+    db_session.add(
+        models.SessionAssessment(
+            session_id=session_id,
+            language="ru",
+            analysis_json=json.dumps(VALID_ANALYSIS, ensure_ascii=False),
+            markdown=VALID_ANALYSIS["markdown"],
+        )
+    )
+    db_session.commit()
+
+    response = client.get(f"/sessions/{session_id}/analysis")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["analysisLanguage"] == "ru"
+    assert response.json()["sourceFingerprint"].startswith("sha256:")
+    db_session.expire_all()
+    saved = db_session.query(models.SessionAssessment).filter_by(session_id=session_id).one()
+    assert (
+        json.loads(saved.analysis_json)["sourceFingerprint"] == response.json()["sourceFingerprint"]
+    )
+
+
+def test_changed_transcript_invalidates_saved_analysis_and_rebuilds_once(client, monkeypatch):
+    calls = 0
+
+    async def fake_complete(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return json.dumps(VALID_ANALYSIS, ensure_ascii=False)
+
+    monkeypatch.setattr(provider_adapter, "complete", fake_complete)
+    session_id = _completed_session(client)
+    first = client.post(f"/sessions/{session_id}/analysis", json={"language": "ru"})
+    first_fingerprint = first.json()["sourceFingerprint"]
+
+    client.post(
+        f"/sessions/{session_id}/transcript",
+        json={"speaker": "me", "text": "Также применяю граничные значения."},
+    )
+    stale = client.get(f"/sessions/{session_id}/analysis")
+    rebuilt = client.post(f"/sessions/{session_id}/analysis", json={"language": "ru"})
+    reused = client.post(f"/sessions/{session_id}/analysis", json={"language": "ru"})
+
+    assert stale.status_code == 409, stale.text
+    assert rebuilt.status_code == 200, rebuilt.text
+    assert rebuilt.json()["sourceFingerprint"] != first_fingerprint
+    assert reused.json()["sourceFingerprint"] == rebuilt.json()["sourceFingerprint"]
+    assert calls == 2
 
 
 def test_session_analysis_uses_ordered_transcript_roles_and_deep_router(client, monkeypatch):
@@ -88,9 +156,36 @@ def test_session_analysis_uses_ordered_transcript_roles_and_deep_router(client, 
     assert "Пиши весь обычный текст по-русски" in prompt
     assert "Classify the interview as technical, hr, mixed, or unknown" in prompt
     assert "Do not score missing technical topics in an HR interview" in prompt
+    assert '"Кандидат"/"Candidate" lines' in prompt
+    assert "Build answerReviews" in prompt
     assert captured["provider"]
     assert captured["model"] == "test/deep-model"
     assert resolved_modes == ["deep"]
+
+
+def test_force_reanalysis_replaces_the_saved_report(client, monkeypatch):
+    first = deepcopy(VALID_ANALYSIS)
+    second = deepcopy(VALID_ANALYSIS)
+    second["overallScore"] = 77
+    replies = iter([first, second])
+
+    async def fake_complete(*args, **kwargs):
+        return json.dumps(next(replies), ensure_ascii=False)
+
+    monkeypatch.setattr(provider_adapter, "complete", fake_complete)
+    session_id = _completed_session(client)
+    assert (
+        client.post(f"/sessions/{session_id}/analysis", json={"language": "ru"}).status_code == 200
+    )
+
+    response = client.post(
+        f"/sessions/{session_id}/analysis",
+        json={"language": "ru", "force": True},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["overallScore"] == 77
+    assert client.get(f"/sessions/{session_id}/analysis").json()["overallScore"] == 77
 
 
 def test_invalid_analysis_gets_one_repair_attempt(client, monkeypatch):

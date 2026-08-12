@@ -20,7 +20,11 @@ from app.prompts.interview_fast import (
     RESUME_PLACEHOLDER_NONE,
     VACANCY_CONTEXT_LIMIT,
 )
-from app.prompts.meeting import build_interview_review_prompt, build_meeting_prompt
+from app.prompts.meeting import (
+    build_interview_outcome_prompt,
+    build_interview_review_prompt,
+    build_meeting_prompt,
+)
 from app.prompts.system import SYSTEM_PROMPT
 from app.services import model_router, provider_adapter, rag_service
 from app.services.candidate_profile import get_profile_block
@@ -123,6 +127,37 @@ class MeetingPayload(BaseModel):
     model_override: str | None = Field(default=None, alias="modelOverride")
 
     model_config = {"populate_by_name": True}
+
+
+class InterviewOutcomePayload(MeetingPayload):
+    interview_type: str = "other"
+    vacancy_title: str = ""
+    company_name: str = ""
+
+
+def _normalize_interview_outcome(raw: str) -> dict:
+    text = raw.strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.IGNORECASE)
+    try:
+        parsed = json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        parsed = {"headline": text[:400]}
+
+    def items(key: str) -> list[str]:
+        values = parsed.get(key) if isinstance(parsed, dict) else []
+        if not isinstance(values, list):
+            return []
+        return [str(value).strip()[:300] for value in values if str(value).strip()][:5]
+
+    headline = str(parsed.get("headline", "")).strip()[:400] if isinstance(parsed, dict) else ""
+    return {
+        "headline": headline or "Итог созвона сохранён.",
+        "facts": items("facts"),
+        "conditions": items("conditions"),
+        "nextSteps": items("nextSteps"),
+        "openQuestions": items("openQuestions"),
+    }
 
 
 class AnswerVariantPayload(BaseModel):
@@ -704,6 +739,41 @@ async def meeting_summary(payload: MeetingPayload, db: Session = Depends(get_db)
     return {"summary": summary, "model": model, "model_source": source}
 
 
+@router.post("/chat/interview-outcome")
+async def interview_outcome(payload: InterviewOutcomePayload, db: Session = Depends(get_db)) -> dict:
+    """Compact structured notes attached to a scheduled HR/technical calendar event."""
+    _ensure_quota(db)
+    provider, model, source = _resolve_chat(
+        "fast",
+        provider=payload.provider,
+        model=payload.model,
+        model_override=payload.model_override,
+    )
+    prompt = build_interview_outcome_prompt(
+        payload.transcript,
+        payload.interview_type,
+        payload.vacancy_title,
+        payload.company_name,
+        payload.answer_language,
+    )
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": prompt},
+    ]
+    raw = await provider_adapter.complete(
+        messages,
+        provider,
+        model,
+        max_tokens=650,
+        temperature=0.15,
+        response_format={"type": "json_object"},
+    )
+    outcome = _normalize_interview_outcome(raw)
+    db.add(_chat_usage(provider, prompt, raw))
+    db.commit()
+    return {**outcome, "model": model, "modelSource": source}
+
+
 @router.post("/chat/interview-review")
 async def interview_review(payload: MeetingPayload, db: Session = Depends(get_db)) -> dict:
     _ensure_quota(db)
@@ -803,7 +873,7 @@ async def meeting_summary_stream(payload: MeetingPayload, db: Session = Depends(
 
 
 # Скриншот в base64: ~8 МБ достаточно для FullHD JPEG, больше — защита от абьюза.
-MAX_SCREEN_IMAGE_CHARS = 8_000_000
+MAX_SCREEN_IMAGE_CHARS = 1_500_000
 
 SCREEN_ASSIST_PROMPT = (
     "Ты — ассистент кандидата на техническом собеседовании. Тебе дают скриншот "
@@ -853,7 +923,7 @@ async def screen_assist_stream(payload: ScreenAssistPayload, db: Session = Depen
             "role": "user",
             "content": [
                 {"type": "text", "text": user_text},
-                {"type": "image_url", "image_url": {"url": image}},
+                {"type": "image_url", "image_url": {"url": image, "detail": "low"}},
             ],
         },
     ]

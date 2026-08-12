@@ -5,12 +5,16 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   InterviewCalendarStore,
   analyzeInterviewMessage,
+  canLinkSessionToInterview,
   chooseThreadSlot,
   findNextInterviewSlots,
+  findRecruiterInterviewSlots,
+  formatRecruiterInterviewSlotRu,
   isInterviewSlotAvailable,
   parseInterviewSlots,
   type InterviewCalendarEvent,
   type InterviewCalendarSettings,
+  type InterviewCalendarState,
 } from './interviewCalendar';
 
 const tempRoots: string[] = [];
@@ -129,6 +133,51 @@ describe('availability and conflicts', () => {
     expect(slots[2].getDate()).toBe(17);
   });
 
+  it('prefers concrete free alternatives today and tomorrow for a recruiter', () => {
+    const now = new Date(2026, 7, 10, 9, 10);
+    const recruiterSettings = settings({
+      availability: [
+        { id: 'mon', weekday: 1, startMinutes: 10 * 60, endMinutes: 14 * 60 },
+        { id: 'tue', weekday: 2, startMinutes: 11 * 60, endMinutes: 14 * 60 },
+      ],
+    });
+
+    const slots = findRecruiterInterviewSlots(recruiterSettings, [], now, 3);
+    expect(slots).toHaveLength(3);
+    expect(slots.map((slot) => [slot.getDate(), slot.getHours()])).toEqual([
+      [10, 10],
+      [10, 11],
+      [11, 11],
+    ]);
+    expect(formatRecruiterInterviewSlotRu(slots[0], now)).toBe('сегодня в 10:00');
+    expect(formatRecruiterInterviewSlotRu(slots[2], now)).toBe('завтра в 11:00');
+  });
+
+  it('adds the configured timezone to recruiter-facing slots', () => {
+    const value = new Date('2026-08-10T04:00:00.000Z');
+    const now = new Date('2026-08-09T04:00:00.000Z');
+    expect(formatRecruiterInterviewSlotRu(value, now, 'Asia/Krasnoyarsk'))
+      .toContain('UTC+7, Красноярск');
+  });
+
+  it('offers several times on the nearest later workday when the weekend is unavailable', () => {
+    const saturday = new Date(2026, 7, 8, 18, 30);
+    const weekdaySettings = settings({
+      availability: [
+        { id: 'mon', weekday: 1, startMinutes: 7 * 60, endMinutes: 14 * 60 },
+      ],
+      defaultDurationMin: 30,
+      minimumNoticeMin: 24 * 60,
+    });
+
+    const slots = findRecruiterInterviewSlots(weekdaySettings, [], saturday, 3);
+    expect(slots.map((slot) => [slot.getDate(), slot.getHours()])).toEqual([
+      [10, 7],
+      [10, 8],
+      [10, 9],
+    ]);
+  });
+
   it('matches an ordinal confirmation to the alternatives previously sent by the bot', () => {
     const offered = [
       new Date(2026, 7, 10, 11, 0).toISOString(),
@@ -165,5 +214,113 @@ describe('InterviewCalendarStore', () => {
     expect(restored.settings.availabilityConfigured).toBe(true);
     expect(restored.events).toHaveLength(1);
     expect(restored.events[0].status).toBe('confirmed');
+  });
+
+  it('deletes an event and keeps a linked session outcome on the same event', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'skillcue-calendar-link-'));
+    tempRoots.push(root);
+    const store = new InterviewCalendarStore(root);
+    const created = store.upsertEvent({
+      vacancyTitle: 'QA Automation',
+      companyName: 'Acme',
+      type: 'hr',
+      status: 'confirmed',
+      startAt: new Date(2026, 7, 10, 11, 0).toISOString(),
+      endAt: new Date(2026, 7, 10, 12, 0).toISOString(),
+      source: 'manual',
+    }).events[0];
+
+    const sessionTime = new Date(2026, 7, 10, 10, 30);
+    store.attachSession(created.id, 'session-one', sessionTime);
+    store.saveOutcome(created.id, {
+      sessionId: 'session-one',
+      headline: 'Обсудили роль и следующий этап.',
+      facts: ['Команда из пяти человек'],
+      conditions: ['Удалённая работа'],
+      nextSteps: ['Техническое интервью'],
+      openQuestions: ['Вилка зарплаты'],
+      createdAt: sessionTime.toISOString(),
+    }, sessionTime);
+
+    const restored = new InterviewCalendarStore(root);
+    expect(restored.getEvent(created.id)?.sessionId).toBe('session-one');
+    expect(restored.getEvent(created.id)?.outcome?.conditions).toEqual(['Удалённая работа']);
+    expect(restored.removeEvent(created.id).events).toHaveLength(0);
+  });
+
+  it('does not let an early practice session complete tomorrow\'s interview', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'skillcue-calendar-practice-'));
+    tempRoots.push(root);
+    const store = new InterviewCalendarStore(root);
+    const scheduled = store.upsertEvent({
+      vacancyTitle: 'QA AUTO',
+      companyName: 'MTC',
+      type: 'technical',
+      status: 'confirmed',
+      startAt: '2026-08-10T04:00:00.000Z',
+      endAt: '2026-08-10T05:00:00.000Z',
+      source: 'manual',
+    }).events[0];
+    const practiceTime = new Date('2026-08-09T11:22:00.635Z');
+
+    expect(canLinkSessionToInterview(scheduled, practiceTime)).toBe(false);
+    store.attachSession(scheduled.id, 'practice-session', practiceTime);
+    store.saveOutcome(scheduled.id, {
+      sessionId: 'practice-session',
+      headline: 'Проверка оверлея',
+      facts: [],
+      conditions: [],
+      nextSteps: [],
+      openQuestions: [],
+      createdAt: practiceTime.toISOString(),
+    }, practiceTime);
+
+    expect(store.getEvent(scheduled.id)).toMatchObject({
+      startAt: scheduled.startAt,
+      status: 'confirmed',
+    });
+    expect(store.getEvent(scheduled.id)?.sessionId).toBeUndefined();
+    expect(store.getEvent(scheduled.id)?.completedAt).toBeUndefined();
+    expect(store.getEvent(scheduled.id)?.outcome).toBeUndefined();
+  });
+
+  it('repairs a prematurely completed future interview while loading persisted data', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'skillcue-calendar-repair-'));
+    tempRoots.push(root);
+    const store = new InterviewCalendarStore(root);
+    const state = store.upsertEvent({
+      vacancyTitle: 'QA AUTO',
+      companyName: 'MTC',
+      type: 'technical',
+      status: 'confirmed',
+      startAt: '2026-08-10T04:00:00.000Z',
+      endAt: '2026-08-10T05:00:00.000Z',
+      source: 'manual',
+    });
+    state.events[0] = {
+      ...state.events[0],
+      sessionId: 'practice-session',
+      completedAt: '2026-08-09T11:22:00.635Z',
+      outcome: {
+        sessionId: 'practice-session',
+        headline: 'Проверка оверлея',
+        facts: [],
+        conditions: [],
+        nextSteps: [],
+        openQuestions: [],
+        createdAt: '2026-08-09T11:22:00.635Z',
+      },
+    };
+    const persistedPath = path.join(root, 'interview-calendar.json');
+    fs.writeFileSync(persistedPath, JSON.stringify(state, null, 2), 'utf8');
+
+    const restored = new InterviewCalendarStore(root);
+    expect(restored.getEvent(state.events[0].id)?.sessionId).toBeUndefined();
+    expect(restored.getEvent(state.events[0].id)?.completedAt).toBeUndefined();
+    expect(restored.getEvent(state.events[0].id)?.outcome).toBeUndefined();
+
+    const repairedOnDisk = JSON.parse(fs.readFileSync(persistedPath, 'utf8')) as InterviewCalendarState;
+    expect(repairedOnDisk.events[0].completedAt).toBeUndefined();
+    expect(repairedOnDisk.events[0].outcome).toBeUndefined();
   });
 });

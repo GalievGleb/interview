@@ -3,6 +3,27 @@ import OpenAI, { toFile } from 'openai';
 
 export const STT_MODEL = 'gpt-4o-mini-transcribe';
 export const ANSWER_STT_MODEL = 'gpt-transcribe';
+export const LIVE_STT_REQUEST_OPTIONS = { maxRetries: 3, timeout: 30_000 } as const;
+
+export interface ManagedSttCredentials {
+  apiKey: string;
+  baseURL: string;
+}
+
+/** Keep an OpenAI-compatible base URL paired with the key issued by that service. */
+export function resolveManagedSttCredentials(
+  environment: NodeJS.ProcessEnv = process.env,
+): ManagedSttCredentials {
+  const explicitBase = String(environment.OPENAI_STT_BASE_URL ?? '').trim();
+  const sharedBase = String(environment.GATEWAY_UPSTREAM_BASE ?? '').trim();
+  const baseURL = explicitBase || sharedBase || 'https://api.openai.com/v1';
+  const explicitKey = String(environment.OPENAI_STT_API_KEY ?? '').trim();
+  const openAiKey = String(environment.OPENAI_API_KEY ?? '').trim();
+  const sharedKey = String(environment.OPENROUTER_API_KEY ?? '').trim();
+  const directOpenAi = /^https:\/\/api\.openai\.com(?:\/|$)/i.test(baseURL);
+  const apiKey = explicitKey || (directOpenAi ? openAiKey || sharedKey : sharedKey || openAiKey);
+  return { apiKey, baseURL };
+}
 export const ANSWER_UPLOAD_LIMITS = {
   fileSize: 25 * 1024 * 1024,
   files: 1,
@@ -195,7 +216,11 @@ export class GatewaySttService {
     audio: Buffer,
     language = 'ru',
   ): Promise<{ text: string; model: string }> {
-    const client = new OpenAI({ apiKey, baseURL: baseURL.replace(/\/+$/, '') });
+    const client = new OpenAI({
+      apiKey,
+      baseURL: baseURL.replace(/\/+$/, ''),
+      ...LIVE_STT_REQUEST_OPTIONS,
+    });
     const file = await toFile(audio, 'utterance.wav', { type: 'audio/wav' });
     const normalizedLanguage =
       language.toLowerCase().startsWith('ru')

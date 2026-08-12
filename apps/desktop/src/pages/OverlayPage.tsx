@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { api, type SessionAssessment } from '../lib/api';
+import {
+  api,
+  type InterviewOutcomeResult,
+  type SessionAssessment,
+} from '../lib/api';
 import { useLiveCopilot } from '../hooks/useLiveCopilot';
 import { useLiveCopilotPrefs } from '../hooks/useLiveCopilotPrefs';
 import { useApp } from '../context/AppContext';
@@ -24,7 +28,12 @@ import {
 } from '../lib/overlayPointerPolicy';
 import { useI18n, type I18nKey } from '../lib/i18n';
 import { refreshSessionKnowledge } from '../lib/sessionKnowledge';
+import { resolveSessionEvidenceLayout } from '../lib/sessionAnalysisPresentation';
 import { answerLanguageParam } from '../lib/answerLanguage';
+import type {
+  InterviewCalendarEvent,
+  InterviewOutcome,
+} from '../types/electron';
 
 /**
  * Плавающий оверлей SkillCue (вдохновлён Cluely, но в навы+зелёном стиле):
@@ -95,6 +104,7 @@ interface RecapSnapshot {
   lines: TranscriptLine[];
   at: number;
   sessionId: string | null;
+  interviewEvent: InterviewCalendarEvent | null;
 }
 
 interface Exchange {
@@ -180,6 +190,26 @@ function buildTranscript(ls: TranscriptLine[], me: string, other: string): strin
     .join('\n');
 }
 
+function interviewSessionTitle(event: InterviewCalendarEvent): string {
+  const stage = event.type === 'hr' ? 'HR' : event.type === 'technical' ? 'Техническое' : 'Собеседование';
+  return `${event.companyName} · ${event.vacancyTitle} · ${stage}`;
+}
+
+function outcomeMarkdown(outcome: InterviewOutcomeResult): string {
+  const sections: Array<[string, string[]]> = [
+    ['Что узнали', outcome.facts],
+    ['Условия', outcome.conditions],
+    ['Что дальше', outcome.nextSteps],
+    ['Что уточнить', outcome.openQuestions],
+  ];
+  return [
+    `## Подытог\n${outcome.headline}`,
+    ...sections
+      .filter(([, items]) => items.length > 0)
+      .map(([title, items]) => `## ${title}\n${items.map((item) => `- ${item}`).join('\n')}`),
+  ].join('\n\n');
+}
+
 export default function OverlayPage() {
   const { t, lang } = useI18n();
   const { hasStt, license, refreshLicense } = useApp();
@@ -231,6 +261,14 @@ export default function OverlayPage() {
   const [analysis, setAnalysis] = useState<SessionAssessment | null>(null);
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [analysisError, setAnalysisError] = useState('');
+  const [interviewContext, setInterviewContext] = useState<InterviewCalendarEvent | null>(null);
+  const [recapOutcome, setRecapOutcome] = useState<InterviewOutcome | null>(null);
+  const [outcomeLoading, setOutcomeLoading] = useState(false);
+  const [outcomeError, setOutcomeError] = useState('');
+  const analysisEvidenceLayout = resolveSessionEvidenceLayout(
+    analysis?.strengths.length ?? 0,
+    analysis?.weaknesses.length ?? 0,
+  );
 
   const cancelRef = useRef<(() => void) | null>(null);
   const summaryCancelRef = useRef<(() => void) | null>(null);
@@ -245,6 +283,9 @@ export default function OverlayPage() {
   const menuPanelRef = useRef<HTMLDivElement>(null);
   const hideMenuRef = useRef<HTMLDivElement>(null);
   const answerBodyRef = useRef<HTMLDivElement>(null);
+  const transcriptScrollRef = useRef<HTMLDivElement>(null);
+  const transcriptFollowsTailRef = useRef(true);
+  const transcriptWasOpenRef = useRef(false);
   const lastForceHotkeyRef = useRef<ForceHotkeyEvent | null>(null);
   const pointerControllerRef = useRef<OverlayPointerController | null>(null);
   const [menuPosition, setMenuPosition] = useState({ left: 8, top: 8 });
@@ -261,6 +302,21 @@ export default function OverlayPage() {
     return () => {
       document.body.style.background = prevBody;
       document.documentElement.style.background = prevHtml;
+    };
+  }, []);
+
+  useEffect(() => {
+    const overlay = window.electronAPI?.overlay;
+    let alive = true;
+    void overlay?.getInterviewContext?.().then((event) => {
+      if (alive) setInterviewContext(event);
+    });
+    const unsubscribe = overlay?.onInterviewContext?.((event) => {
+      if (alive) setInterviewContext(event);
+    });
+    return () => {
+      alive = false;
+      unsubscribe?.();
     };
   }, []);
 
@@ -334,6 +390,26 @@ export default function OverlayPage() {
       .map((l) => `${l.speaker === 'me' ? t('overlay.me') : t('overlay.interviewer')}: ${l.text}`)
       .join('\n');
   }, [lines, t]);
+
+  const handleTranscriptScroll = useCallback(() => {
+    const scroller = transcriptScrollRef.current;
+    if (!scroller) return;
+    const distanceFromBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
+    transcriptFollowsTailRef.current = distanceFromBottom <= 24;
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!showTranscript) {
+      transcriptWasOpenRef.current = false;
+      return;
+    }
+    const scroller = transcriptScrollRef.current;
+    if (!scroller) return;
+    const justOpened = !transcriptWasOpenRef.current;
+    transcriptWasOpenRef.current = true;
+    if (justOpened) transcriptFollowsTailRef.current = true;
+    if (transcriptFollowsTailRef.current) scroller.scrollTop = scroller.scrollHeight;
+  }, [lines, showTranscript]);
 
   const runScreenAssist = useCallback(
     async (customText: string, mode: 'general' | 'deep') => {
@@ -586,6 +662,60 @@ export default function OverlayPage() {
     );
   }, [lang, t]);
 
+  const generateInterviewOutcome = useCallback(async (
+    ls: TranscriptLine[],
+    linkedSessionId: string,
+    event: InterviewCalendarEvent,
+  ) => {
+    setOutcomeLoading(true);
+    setOutcomeError('');
+    setRecapOutcome(null);
+    setRecapSummary('');
+    setRecapSummaryStreaming(false);
+    try {
+      let transcript = buildTranscript(ls, t('overlay.me'), t('overlay.interviewer'));
+      try {
+        const detail = await api.getSession(linkedSessionId);
+        const fullTranscript = detail.transcripts
+          .map((line) => `${line.speaker === 'me' ? t('overlay.me') : t('overlay.interviewer')}: ${line.text}`)
+          .join('\n');
+        if (fullTranscript.trim()) transcript = fullTranscript;
+      } catch {
+        // The just-finished in-memory transcript is still enough for the outcome.
+      }
+
+      const result = await api.interviewOutcome({
+        transcript,
+        interviewType: event.type,
+        vacancyTitle: event.vacancyTitle,
+        companyName: event.companyName,
+        answerLanguage: (answerLanguageParam() ?? lang) as 'ru' | 'en',
+      });
+      const saved: InterviewOutcome = {
+        sessionId: linkedSessionId,
+        headline: result.headline,
+        facts: result.facts,
+        conditions: result.conditions,
+        nextSteps: result.nextSteps,
+        openQuestions: result.openQuestions,
+        createdAt: new Date().toISOString(),
+      };
+      const state = await window.electronAPI?.interviewCalendar?.saveOutcome(event.id, saved);
+      const updated = state?.events.find((item) => item.id === event.id);
+      if (updated) setInterviewContext(updated);
+      setRecapOutcome(saved);
+      setRecapSummary(outcomeMarkdown(result));
+      void api.endSession(linkedSessionId, outcomeMarkdown(result)).catch(() => {
+        // Calendar outcome is already durable; session summary is a secondary copy.
+      });
+    } catch (reason) {
+      setOutcomeError(reason instanceof Error ? reason.message : String(reason));
+      generateSummary(ls);
+    } finally {
+      setOutcomeLoading(false);
+    }
+  }, [generateSummary, lang, t]);
+
   const requestRecapAnalysis = useCallback(async (requestSessionId: string) => {
     const requestGeneration = ++analysisRequestGenerationRef.current;
     setAnalysisLoading(true);
@@ -613,17 +743,32 @@ export default function OverlayPage() {
   }, [lang, t]);
 
   const openRecap = useCallback(
-    (snapshot: TranscriptLine[], endedSessionId: string | null) => {
+    (
+      snapshot: TranscriptLine[],
+      endedSessionId: string | null,
+      linkedEvent: InterviewCalendarEvent | null,
+    ) => {
       analysisRequestGenerationRef.current += 1;
-      setRecap({ lines: snapshot, at: Date.now(), sessionId: endedSessionId });
-      setRecapTab(endedSessionId ? 'analysis' : 'summary');
+      setRecap({
+        lines: snapshot,
+        at: Date.now(),
+        sessionId: endedSessionId,
+        interviewEvent: linkedEvent,
+      });
+      setRecapTab('summary');
       setAnalysis(null);
       setAnalysisError('');
       setAnalysisLoading(false);
-      generateSummary(snapshot);
+      setRecapOutcome(null);
+      setOutcomeError('');
+      if (linkedEvent && endedSessionId) {
+        void generateInterviewOutcome(snapshot, endedSessionId, linkedEvent);
+      } else {
+        generateSummary(snapshot);
+      }
       if (endedSessionId) void requestRecapAnalysis(endedSessionId);
     },
-    [generateSummary, requestRecapAnalysis],
+    [generateInterviewOutcome, generateSummary, requestRecapAnalysis],
   );
 
   const closeRecap = useCallback(() => {
@@ -635,16 +780,42 @@ export default function OverlayPage() {
     setAnalysis(null);
     setAnalysisError('');
     setAnalysisLoading(false);
+    setRecapOutcome(null);
+    setOutcomeLoading(false);
+    setOutcomeError('');
   }, []);
+
+  const resetInactiveOverlay = useCallback(() => {
+    closeRecap();
+    closeExchange();
+    setUsageLog([]);
+    setNotice('');
+    setInput('');
+    setShowTranscript(false);
+    setMenuOpen(false);
+    setHideMenuOpen(false);
+    setModesOpen(false);
+    setCollapsed(false);
+  }, [closeExchange, closeRecap]);
+
+  useEffect(
+    () => window.electronAPI?.overlay.onOpenRequested?.(() => {
+      // Скрытый активный созвон нужно просто вернуть на экран. Завершённый
+      // разбор, напротив, не должен становиться стартовым экраном новой тренировки.
+      if (!active) resetInactiveOverlay();
+    }),
+    [active, resetInactiveOverlay],
+  );
 
   const stopSession = useCallback(() => {
     if (!active) return;
     const snapshot = lines.slice();
     const endedSessionId = sessionId;
+    const linkedEvent = interviewContext;
     void stop().then(() => {
-      if (snapshot.some((l) => l.isFinal)) openRecap(snapshot, endedSessionId);
+      if (snapshot.some((l) => l.isFinal)) openRecap(snapshot, endedSessionId, linkedEvent);
     });
-  }, [active, lines, sessionId, stop, openRecap]);
+  }, [active, interviewContext, lines, sessionId, stop, openRecap]);
 
   const analyzeRecap = useCallback(async () => {
     if (!recap?.sessionId) {
@@ -655,7 +826,7 @@ export default function OverlayPage() {
     await requestRecapAnalysis(recap.sessionId);
   }, [recap, requestRecapAnalysis, t]);
 
-  const startSession = () => {
+  const startSession = async () => {
     if (liveBlocked) {
       setNotice(t('overlay.rec.needLicense'));
       void window.electronAPI?.overlay.openSettings?.('billing');
@@ -664,15 +835,29 @@ export default function OverlayPage() {
     closeRecap();
     setUsageLog([]);
     setNotice('');
-    void start(sources, sttOptions);
+    const linkedEvent = interviewContext;
+    const startedSessionId = await start(sources, sttOptions, {
+      sessionId: linkedEvent?.sessionId,
+      title: linkedEvent ? interviewSessionTitle(linkedEvent) : undefined,
+    });
+    if (linkedEvent && startedSessionId) {
+      const state = await window.electronAPI?.interviewCalendar?.attachSession(
+        linkedEvent.id,
+        startedSessionId,
+      );
+      const updated = state?.events.find((event) => event.id === linkedEvent.id);
+      if (updated) setInterviewContext(updated);
+    }
   };
 
   const toggleSession = () => {
     if (active) stopSession();
-    else startSession();
+    else void startSession();
   };
 
-  const resumeFromRecap = () => {
+  const resumeFromRecap = async () => {
+    const recapSessionId = recap?.sessionId ?? undefined;
+    const linkedEvent = recap?.interviewEvent ?? interviewContext;
     closeRecap();
     if (liveBlocked) {
       setNotice(t('overlay.rec.needLicense'));
@@ -680,7 +865,18 @@ export default function OverlayPage() {
       return;
     }
     setNotice('');
-    void start(sources, sttOptions);
+    const startedSessionId = await start(sources, sttOptions, {
+      sessionId: recapSessionId ?? linkedEvent?.sessionId,
+      title: linkedEvent ? interviewSessionTitle(linkedEvent) : undefined,
+    });
+    if (linkedEvent && startedSessionId) {
+      const state = await window.electronAPI?.interviewCalendar?.attachSession(
+        linkedEvent.id,
+        startedSessionId,
+      );
+      const updated = state?.events.find((event) => event.id === linkedEvent.id);
+      if (updated) setInterviewContext(updated);
+    }
   };
 
   // ---------- Тумблеры ----------
@@ -973,7 +1169,9 @@ export default function OverlayPage() {
               ? t('overlay.rec.stopAria')
               : liveBlocked
                 ? t('overlay.rec.needLicense')
-                : t('overlay.rec.startAria')
+                : !hasStt
+                  ? t('overlay.rec.needStt')
+                  : t('overlay.rec.startAria')
           }
           disabled={!hasStt && !active}
           onClick={toggleSession}
@@ -987,9 +1185,20 @@ export default function OverlayPage() {
       </div>
 
       {/* ---------- Экран итогов сессии ---------- */}
+      {interviewContext && interviewContext.type !== 'technical' && !collapsed && (
+        <div className="mb-2 flex items-center gap-2 rounded-xl border border-emerald-400/20 bg-emerald-400/[0.07] px-3 py-2 text-[11px] text-emerald-100" data-overlay-hit="true">
+          <Icon d="M4 7h16v13H4z|M9 7V4h6v3" size={14} />
+          <span className="min-w-0 flex-1 truncate">
+            <strong>{interviewContext.companyName}</strong> · {interviewContext.vacancyTitle}
+          </span>
+          <span className="shrink-0 rounded-full border border-emerald-300/20 px-2 py-0.5 text-[10px] uppercase">
+            {interviewContext.type === 'hr' ? 'HR' : 'этап'}
+          </span>
+        </div>
+      )}
       <div className="ovl-stack">
       {recap ? (
-        <div className="ovl-card ovl-recap animate-scale-in" data-overlay-hit="true">
+        <div className="ovl-card ovl-recap motion-safe:animate-scale-in" data-overlay-hit="true">
           <div className="mb-3 flex items-start justify-between gap-3">
             <div>
               <p className="text-[15px] font-semibold text-ink">{t('overlay.recap.title')}</p>
@@ -1039,11 +1248,37 @@ export default function OverlayPage() {
           <div ref={answerBodyRef} className="ovl-recap-body">
             {recapTab === 'summary' && (
               <div className="text-[14px] leading-relaxed text-ink">
-                {recapSummary ? (
+                {outcomeLoading ? (
+                  <div className="flex items-center gap-2 rounded-xl border border-emerald-400/15 bg-emerald-400/[0.05] p-3 text-sm text-ink-muted">
+                    <span className="ovl-analysis-spinner" aria-hidden="true" />
+                    Собираю короткий подытог и привязываю его к вакансии…
+                  </div>
+                ) : recapOutcome ? (
+                  <div className="space-y-3">
+                    <div className="rounded-xl border border-emerald-400/20 bg-emerald-400/[0.06] p-3">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-emerald-300">Подытог созвона</p>
+                      <p className="mt-1.5 font-medium leading-relaxed text-ink">{recapOutcome.headline}</p>
+                    </div>
+                    {([
+                      ['Что узнали', recapOutcome.facts],
+                      ['Условия', recapOutcome.conditions],
+                      ['Что дальше', recapOutcome.nextSteps],
+                      ['Что уточнить', recapOutcome.openQuestions],
+                    ] as Array<[string, string[]]>).filter(([, items]) => items.length > 0).map(([title, items]) => (
+                      <section key={title} className="rounded-xl border border-white/10 bg-white/[0.025] p-3">
+                        <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-faint">{title}</h3>
+                        <ul className="mt-2 space-y-1.5">
+                          {items.map((item) => <li key={item} className="flex gap-2"><span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-emerald-300" /> <span>{item}</span></li>)}
+                        </ul>
+                      </section>
+                    ))}
+                  </div>
+                ) : recapSummary ? (
                   <MarkdownText text={recapSummary} />
                 ) : (
                   <span className="ovl-think-dot" aria-label={t('overlay.recap.preparing')} />
                 )}
+                {outcomeError && <p className="mt-2 text-xs text-amber-300">Не удалось сохранить структурированный итог: {outcomeError}</p>}
                 {recapSummaryStreaming && recapSummary && <span className="sc-caret" />}
               </div>
             )}
@@ -1074,52 +1309,71 @@ export default function OverlayPage() {
                       <p>{analysis.conclusion}</p>
                     </section>
 
-                    <div className="ovl-analysis-columns">
-                      <section className="ovl-analysis-section ovl-analysis-section--strong">
-                        <h3>{t('overlay.recap.strengths')}</h3>
-                        {analysis.strengths.map((item, index) => (
-                          <article key={`${item.topic}-${index}`} className="ovl-analysis-evidence">
-                            <strong>{item.topic}</strong>
-                            <p>{item.evidence}</p>
-                          </article>
-                        ))}
-                      </section>
+                    {analysisEvidenceLayout.hasAny && (
+                      <div className={`ovl-analysis-columns${analysisEvidenceLayout.isSplit ? '' : ' ovl-analysis-columns--single'}`}>
+                        {analysisEvidenceLayout.hasStrengths && (
+                          <section className="ovl-analysis-section ovl-analysis-section--strong">
+                            <h3>{t('overlay.recap.strengths')}</h3>
+                            {analysis.strengths.map((item, index) => (
+                              <article key={`${item.topic}-${index}`} className="ovl-analysis-evidence">
+                                <strong>{item.topic}</strong>
+                                <p>{item.evidence}</p>
+                              </article>
+                            ))}
+                          </section>
+                        )}
 
-                      <section className="ovl-analysis-section ovl-analysis-section--weak">
-                        <h3>{t('overlay.recap.weaknesses')}</h3>
-                        {analysis.weaknesses.map((item, index) => (
-                          <article key={`${item.topic}-${index}`} className="ovl-analysis-evidence">
-                            <strong>{item.topic}</strong>
-                            <p>{item.evidence}</p>
-                            <div className="ovl-analysis-action-note">
-                              <span>{t('overlay.recap.learningAction')}</span>
-                              {item.learningAction}
+                        {analysisEvidenceLayout.hasWeaknesses && (
+                          <section className="ovl-analysis-section ovl-analysis-section--weak">
+                            <h3>{t('overlay.recap.weaknesses')}</h3>
+                            {analysis.weaknesses.map((item, index) => (
+                              <article key={`${item.topic}-${index}`} className="ovl-analysis-evidence">
+                                <strong>{item.topic}</strong>
+                                <p>{item.evidence}</p>
+                                <div className="ovl-analysis-action-note">
+                                  <span>{t('overlay.recap.learningAction')}</span>
+                                  {item.learningAction}
+                                </div>
+                              </article>
+                            ))}
+                          </section>
+                        )}
+                      </div>
+                    )}
+
+                    {analysis.topicAssessments.length > 0 && (
+                      <section className="ovl-analysis-topics">
+                        <h3>{t('overlay.recap.topicScores')}</h3>
+                        {analysis.topicAssessments.map((item) => (
+                          <div key={item.topic} className="ovl-analysis-score">
+                            <div className="ovl-analysis-score-head">
+                              <span>{item.topic}</span>
+                              <strong>{item.score}/100</strong>
                             </div>
-                          </article>
+                            <div className="ovl-analysis-score-track" aria-hidden="true">
+                              <span
+                                className="ovl-analysis-score-fill"
+                                style={{ width: `${Math.max(0, Math.min(100, item.score))}%` }}
+                              />
+                            </div>
+                            <span className="ovl-analysis-confidence">
+                              {t('overlay.recap.confidence')} {Math.round(item.confidence * 100)}%
+                            </span>
+                          </div>
                         ))}
                       </section>
-                    </div>
-
-                    <section className="ovl-analysis-topics">
-                      <h3>{t('overlay.recap.topicScores')}</h3>
-                      {analysis.topicAssessments.map((item) => (
-                        <div key={item.topic} className="ovl-analysis-score">
-                          <div className="ovl-analysis-score-head">
-                            <span>{item.topic}</span>
-                            <strong>{item.score}/100</strong>
-                          </div>
-                          <div className="ovl-analysis-score-track" aria-hidden="true">
-                            <span
-                              className="ovl-analysis-score-fill"
-                              style={{ width: `${Math.max(0, Math.min(100, item.score))}%` }}
-                            />
-                          </div>
-                          <span className="ovl-analysis-confidence">
-                            {t('overlay.recap.confidence')} {Math.round(item.confidence * 100)}%
-                          </span>
-                        </div>
-                      ))}
-                    </section>
+                    )}
+                    {recap.sessionId && (
+                      <button
+                        type="button"
+                        className="ovl-analysis-action"
+                        onClick={() =>
+                          void window.electronAPI?.overlay.openSessionAnalysis?.(recap.sessionId!)
+                        }
+                      >
+                        {t('overlay.recap.openFullAnalysis')}
+                      </button>
+                    )}
                   </div>
                 ) : analysisError ? (
                   <div className="ovl-analysis-error" role="alert">
@@ -1245,7 +1499,7 @@ export default function OverlayPage() {
             {/* ---------- Панель ответа ---------- */}
             {exchange && (
               <div
-                className="ovl-card ovl-response animate-scale-in"
+                className="ovl-card ovl-response motion-safe:animate-scale-in"
                 data-overlay-hit="true"
               >
                 <div className="mb-2 flex items-start justify-between gap-3">
@@ -1275,7 +1529,7 @@ export default function OverlayPage() {
                 )}
                 <div ref={answerBodyRef} className="ovl-answer-body">
                   {exchange.text ? (
-                    <MarkdownText text={exchange.text} />
+                    <MarkdownText text={exchange.text} size="inherit" />
                   ) : (
                     <span className="ovl-think-dot" aria-label={t('overlay.thinking')} />
                   )}
@@ -1326,12 +1580,6 @@ export default function OverlayPage() {
                   rows={1}
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
-                      e.preventDefault();
-                      runAction('assist', input);
-                    }
-                  }}
                   placeholder={t('overlay.inputPlaceholder')}
                   className="ovl-input"
                 />
@@ -1496,7 +1744,26 @@ export default function OverlayPage() {
                               setSources(src);
                               setMenuOpen(false);
                               if (active) {
-                                void stop().then(() => void start(src, sttOptions));
+                                const linkedEvent = interviewContext;
+                                const linkedSessionId = sessionId ?? linkedEvent?.sessionId;
+                                void stop().then(async () => {
+                                  const restartedSessionId = await start(src, sttOptions, {
+                                    sessionId: linkedSessionId,
+                                    title: linkedEvent
+                                      ? interviewSessionTitle(linkedEvent)
+                                      : undefined,
+                                  });
+                                  if (linkedEvent && restartedSessionId) {
+                                    const state = await window.electronAPI?.interviewCalendar?.attachSession(
+                                      linkedEvent.id,
+                                      restartedSessionId,
+                                    );
+                                    const updated = state?.events.find(
+                                      (event) => event.id === linkedEvent.id,
+                                    );
+                                    if (updated) setInterviewContext(updated);
+                                  }
+                                });
                               }
                             }}
                           >
@@ -1529,7 +1796,7 @@ export default function OverlayPage() {
                         lines.length === 0 &&
                         !window.electronAPI?.overlay.captureScreen)
                     }
-                    onClick={() => runAction('assist', input)}
+                    onClick={() => submitForcedAnswer('button')}
                   >
                     {exchange?.streaming && manualBusyRef.current ? (
                       <span className="ovl-send-spinner" />
@@ -1551,8 +1818,10 @@ export default function OverlayPage() {
             {/* ---------- Транскрипт (по запросу) ---------- */}
             {showTranscript && (
               <div
-                className="ovl-card mt-2 max-h-[30vh] overflow-y-auto p-3"
+                ref={transcriptScrollRef}
+                className="ovl-card ovl-transcript mt-2 max-h-[30vh] overflow-y-auto p-3"
                 data-overlay-hit="true"
+                onScroll={handleTranscriptScroll}
               >
                 <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-ink-faint">
                   {t('overlay.kb.transcript')}
