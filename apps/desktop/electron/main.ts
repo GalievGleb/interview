@@ -22,6 +22,7 @@ import { HhBrowserAssistant } from './hhBrowserAssistant';
 import {
   buildGroundedLocalHhCoverLetter,
   type HhCoverLetterResponse,
+  validateGeneratedHhCoverLetter,
 } from './hhCoverLetter';
 import type { HhScreeningAnswersResponse } from './hhScreeningQuestions';
 import type { HhAssistantConfig } from './hhAssistantPolicy';
@@ -1227,7 +1228,16 @@ if (!hasSingleInstanceLock) {
           throw error;
         }
         if (response.ok) {
-          return await response.json() as HhCoverLetterResponse;
+          const generated = await response.json() as HhCoverLetterResponse;
+          if (validateGeneratedHhCoverLetter(generated)) return generated;
+
+          // The model may occasionally return an unfinished template even
+          // though the HTTP request succeeded. Never pass it to HH: use the
+          // grounded local writer when possible, otherwise let the desktop
+          // guard stop the application.
+          const local = buildGroundedLocalHhCoverLetter(request);
+          if (validateGeneratedHhCoverLetter(local)) return local;
+          return generated;
         }
         const payload = await response.json().catch(() => null) as { detail?: unknown } | null;
         const detail = typeof payload?.detail === 'string'

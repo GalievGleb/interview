@@ -295,7 +295,18 @@ async def cover_letter(payload: CoverLetterPayload, db=Depends(get_db)) -> dict:
         else bool(re.match(r"^(?:Hello|Dear)\b", letter, re.IGNORECASE))
     )
     has_placeholder = bool(
-        re.search(r"\{[^{}]{1,80}\}|\[(?:встав|укаж|имя|назван|пример|метрик)[^\]]*\]", letter, re.I)
+        re.search(
+            r"\{[^{}\n]{1,120}\}|\[[^\[\]\n]{1,120}\]|<(?:your\s+name|name|company|имя|компания)>",
+            letter,
+            re.I,
+        )
+    )
+    has_formal_signoff = bool(
+        re.search(
+            r"(?:^|\n)\s*(?:с\s+уважением|уважительно|best\s+regards|kind\s+regards|sincerely|respectfully)(?:\s*[,!.]|\s*$)",
+            letter,
+            re.I | re.M,
+        )
     )
     has_markdown_list = bool(re.search(r"^(?:\s*[-*]\s+|\s*\d+[.)]\s+)", letter, re.M))
     can_auto_fill = (
@@ -304,6 +315,7 @@ async def cover_letter(payload: CoverLetterPayload, db=Depends(get_db)) -> dict:
         and len(matches) >= 2
         and expected_greeting
         and not has_placeholder
+        and not has_formal_signoff
         and not has_markdown_list
     )
     if not can_auto_fill:

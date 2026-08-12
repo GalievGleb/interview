@@ -1097,6 +1097,11 @@ export function normalizePersistedQueue(
         .filter(Boolean))].slice(0, 20)
       : [];
     const coverLetterAdded = Boolean(item.coverLetterAdded);
+    const recentUnconfirmedLetter = rawStatus === 'sent'
+      && !coverLetterAdded
+      && Boolean(sentAt)
+      && Date.now() - Date.parse(sentAt as string) <= 7 * 24 * 60 * 60 * 1_000
+      && /^отклик отправлен\.?$/i.test(reason ?? '');
     const needsScreeningInput = pendingQuestions.length > 0
       && rawStatus !== 'sent'
       && rawStatus !== 'already_applied'
@@ -1104,7 +1109,7 @@ export function normalizePersistedQueue(
     const coverLetterPending = rawStatus !== 'skipped'
       && !needsScreeningInput
       && !coverLetterAdded
-      && Boolean(item.coverLetterPending);
+      && (Boolean(item.coverLetterPending) || recentUnconfirmedLetter);
     result.push({
       key: jobKey(platform, id),
       id,
@@ -1130,6 +1135,8 @@ export function normalizePersistedQueue(
                 : QUEUE_STATUSES.has(rawStatus) ? rawStatus : 'new',
       reason: stalePreSubmissionCoverLetterState
         ? 'Предыдущая попытка не подтвердила отправку отклика. Вакансия возвращена в очередь для проверки на странице HH.'
+        : recentUnconfirmedLetter
+          ? 'Отклик отправлен без подтверждённого письма. Добавлю и проверю сопроводительное письмо в чате HH.'
         : reason,
       addedAt: Number.isNaN(Date.parse(addedAt)) ? nowIso() : addedAt,
       sentAt,
@@ -2953,8 +2960,10 @@ export class HhBrowserAssistant {
 
   private buildApplyContext(): HhApplyContext {
     return {
-      hasCoverLetter: Boolean(this.generateCoverLetter)
-        || this.state.config.coverLetterTemplate.trim().length > 0,
+      // Product invariant: every new automatic HH application must include a
+      // confirmed cover letter. If generation is unavailable, preparation
+      // blocks the application instead of silently sending it without text.
+      hasCoverLetter: true,
       resumeTitleContains: (this.state.config.resumeTitles[0] ?? this.state.config.resumeTitleContains).trim(),
       resumeSelected: false,
       letterFilled: false,
@@ -3620,18 +3629,10 @@ export class HhBrowserAssistant {
       .first();
     const actionVisible = await addLetter.isVisible().catch(() => false);
     const initialBody = await readChatBody();
-    if (!actionVisible) {
-      if (/отклик на вакансию/i.test(initialBody) && !/без сопроводительного письма/i.test(initialBody)) {
-        return {
-          attached: true,
-          reason: 'HH уже показывает сопроводительное письмо в чате отклика.',
-        };
-      }
+    if (!actionVisible && /без сопроводительного письма/i.test(initialBody)) {
       return {
         attached: false,
-        reason: /без сопроводительного письма/i.test(initialBody)
-          ? 'HH показывает отклик без письма, но ещё не отдал кнопку добавления. Повторю автоматически.'
-          : 'HH ещё не загрузил карточку отклика в чате. Повторю добавление письма автоматически.',
+        reason: 'HH показывает отклик без письма, но ещё не отдал кнопку добавления. Повторю автоматически.',
       };
     }
 
@@ -3640,6 +3641,26 @@ export class HhBrowserAssistant {
       return {
         attached: false,
         reason: `Не удалось подготовить сопроводительное письмо: ${generated.reason}`,
+      };
+    }
+    const expected = compactHhText(generated.letter).slice(0, 100);
+
+    if (!actionVisible) {
+      const messageTexts = await frame
+        .locator(CHAT_MESSAGE_TEXT_SELECTOR)
+        .allInnerTexts()
+        .catch(() => [] as string[]);
+      const exactLetterRendered = messageTexts.some((text) =>
+        compactHhText(text).includes(expected));
+      if (exactLetterRendered || initialBody.includes(expected)) {
+        return {
+          attached: true,
+          reason: 'HH уже показывает подготовленное сопроводительное письмо в чате отклика.',
+        };
+      }
+      return {
+        attached: false,
+        reason: 'HH не показал ни кнопку добавления, ни текст подготовленного письма. Повторю проверку автоматически.',
       };
     }
 
@@ -3680,7 +3701,6 @@ export class HhBrowserAssistant {
     await send.waitFor({ state: 'visible', timeout: 5_000 });
     await send.click({ timeout: 5_000 });
 
-    const expected = compactHhText(generated.letter).slice(0, 100);
     const verifyDeadline = Date.now() + 12_000;
     while (Date.now() < verifyDeadline) {
       const messageTexts = await frame
@@ -3689,13 +3709,9 @@ export class HhBrowserAssistant {
         .catch(() => [] as string[]);
       const exactLetterRendered = messageTexts.some((text) =>
         compactHhText(text).includes(expected));
-      const missingLetterActionStillVisible = await addLetter.isVisible().catch(() => false);
-      const coverLetterEditorStillVisible = await preview.isVisible().catch(() => false);
       const body = await readChatBody();
-      const applicationCardUpdated = !missingLetterActionStillVisible
-        && !coverLetterEditorStillVisible
-        && !/без сопроводительного письма/i.test(body);
-      if (exactLetterRendered || applicationCardUpdated) {
+      const bodyHasExactLetter = body.includes(expected);
+      if (exactLetterRendered || bodyHasExactLetter) {
         return {
           attached: true,
           reason: 'Отклик и сопроводительное письмо подтверждены в чате HH.',
@@ -3827,6 +3843,20 @@ export class HhBrowserAssistant {
           });
           return this.finishPendingCoverLetter(page, vacancy);
         case 'mark_sent': {
+          if (
+            baseCtx.hasCoverLetter
+            && !baseCtx.letterFilled
+            && (baseCtx.responseClicked || baseCtx.responseSubmitted)
+          ) {
+            vacancy.coverLetterPending = true;
+            this.patchQueue(vacancy.id, {
+              status: 'opened',
+              reason: 'Отклик принят HH, но письмо ещё не подтверждено. Проверяю и добавляю его отдельно.',
+              coverLetterPending: true,
+              coverLetterAdded: false,
+            });
+            return this.finishPendingCoverLetter(page, vacancy);
+          }
           if (situation === 'already_applied') {
             if (baseCtx.letterFilled) {
               this.patchQueue(vacancy.id, {
@@ -4035,8 +4065,22 @@ export class HhBrowserAssistant {
           break;
         }
         case 'click_confirm': {
+          if (baseCtx.hasCoverLetter && !baseCtx.letterFilled) {
+            const generated = await this.prepareCoverLetter(page, vacancy);
+            if (!generated.ok) {
+              const reason = `Отклик не отправлен: ${generated.reason}`;
+              this.patchQueue(vacancy.id, {
+                status: 'opened',
+                reason,
+                coverLetterPending: false,
+                coverLetterAdded: false,
+              });
+              return { sent: false, blocked: false, reason };
+            }
+          }
           const clicked = await this.clickFirstVisible(page, RESPONSE_SUBMIT_SELECTOR);
           if (!clicked) throw new Error('HH не показал финальную кнопку отклика.');
+          baseCtx.responseSubmitted = true;
           await page.waitForTimeout(jitterMs(1));
           break;
         }

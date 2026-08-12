@@ -49,14 +49,18 @@ export function decideNextAction(
 ): HhApplyAction {
   switch (situation) {
     case 'success':
-      return ctx.hasCoverLetter && !ctx.letterFilled && ctx.responseClicked
+      return ctx.hasCoverLetter
+        && !ctx.letterFilled
+        && (ctx.responseClicked || ctx.responseSubmitted)
         ? {
             action: 'wait_letter',
             reason: 'Дожидаюсь формы сопроводительного письма; отклик пока не считаю завершённым.',
           }
         : { action: 'mark_sent' };
     case 'already_applied':
-      return ctx.hasCoverLetter && !ctx.letterFilled && ctx.responseSubmitted
+      return ctx.hasCoverLetter
+        && !ctx.letterFilled
+        && (ctx.responseClicked || ctx.responseSubmitted)
         ? {
             action: 'wait_letter',
             reason: 'Дожидаюсь формы сопроводительного письма; отклик пока не считаю завершённым.',

@@ -89,6 +89,27 @@ describe('HH login navigation recovery', () => {
     });
   });
 
+  it('repairs a recent response that the old flow marked sent without confirming a letter', () => {
+    const [vacancy] = normalizePersistedQueue([{
+      id: '136200001',
+      platform: 'hh',
+      title: 'QA Engineer',
+      url: 'https://hh.ru/vacancy/136200001',
+      status: 'sent',
+      reason: 'Отклик отправлен',
+      addedAt: new Date().toISOString(),
+      sentAt: new Date().toISOString(),
+      coverLetterAdded: false,
+    }]);
+
+    expect(vacancy).toMatchObject({
+      status: 'opened',
+      coverLetterPending: true,
+      coverLetterAdded: undefined,
+    });
+    expect(vacancy.reason).toContain('без подтверждённого письма');
+  });
+
   it('restores vacancies hidden by the old pre-submission cover-letter marker', () => {
     const [vacancy] = normalizePersistedQueue([{
       id: '136143010',

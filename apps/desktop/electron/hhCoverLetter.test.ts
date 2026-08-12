@@ -52,6 +52,26 @@ describe('HH generated cover-letter guard', () => {
     ).toBeNull();
     expect(
       validateGeneratedHhCoverLetter({
+        coverLetter: `${strongLetter}\n\nС уважением,\n[Ваше имя]`,
+        canAutoFill: true,
+        matches: [
+          { vacancyNeed: 'Python', resumeEvidence: 'Python' },
+          { vacancyNeed: 'API', resumeEvidence: 'API' },
+        ],
+      }),
+    ).toBeNull();
+    expect(
+      validateGeneratedHhCoverLetter({
+        coverLetter: `${strongLetter}\n\nBest regards,\nIvan`,
+        canAutoFill: true,
+        matches: [
+          { vacancyNeed: 'Python', resumeEvidence: 'Python' },
+          { vacancyNeed: 'API', resumeEvidence: 'API' },
+        ],
+      }),
+    ).toBeNull();
+    expect(
+      validateGeneratedHhCoverLetter({
         coverLetter: strongLetter,
         canAutoFill: false,
         reason: 'Недостаточно подтверждённого опыта',

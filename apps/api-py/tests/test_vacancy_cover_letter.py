@@ -90,6 +90,7 @@ def test_cover_letter_matches_vacancy_to_saved_resume(client, monkeypatch):
     assert "Clearway Integration" in captured["prompt"]
     assert "Python, Pytest, Playwright, HTTPX" in captured["prompt"]
     assert "Never invent or inflate metrics" in captured["prompt"]
+    assert "never write \"С уважением\"" in captured["prompt"]
     assert captured["kwargs"]["response_format"] == {"type": "json_object"}
     assert captured["kwargs"]["max_tokens"] <= 1200
 
@@ -110,6 +111,36 @@ def test_cover_letter_blocks_generic_or_unsubstantiated_output(client, monkeypat
                 "matches": [
                     {"vacancyNeed": "Python", "resumeEvidence": "Python"},
                     {"vacancyNeed": "Pytest", "resumeEvidence": "Pytest"},
+                ],
+                "canAutoFill": True,
+            },
+            ensure_ascii=False,
+        )
+
+    monkeypatch.setattr(provider_adapter, "complete", fake_complete)
+    response = client.post("/vacancy/cover-letter", json=_payload())
+
+    assert response.status_code == 200, response.text
+    assert response.json()["canAutoFill"] is False
+    assert response.json()["coverLetter"] == ""
+
+
+def test_cover_letter_blocks_template_signature_and_name_placeholder(client, monkeypatch):
+    monkeypatch.setattr(
+        rag_service,
+        "get_context_text",
+        lambda _db, kind: "QA Automation Engineer с опытом Python, Pytest, API и CI/CD. " * 3
+        if kind == "resume"
+        else "",
+    )
+
+    async def fake_complete(*_args, **_kwargs):
+        return json.dumps(
+            {
+                "coverLetter": f"{_strong_letter()}\n\nС уважением,\n[Ваше имя]",
+                "matches": [
+                    {"vacancyNeed": "Python", "resumeEvidence": "Python"},
+                    {"vacancyNeed": "API", "resumeEvidence": "API"},
                 ],
                 "canAutoFill": True,
             },

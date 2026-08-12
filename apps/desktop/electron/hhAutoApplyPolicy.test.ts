@@ -50,6 +50,14 @@ describe('hhAutoApplyPolicy', () => {
       }).action).toBe('wait_letter');
       expect(decideNextAction('success', {
         ...ctx,
+        responseSubmitted: true,
+      }).action).toBe('wait_letter');
+      expect(decideNextAction('already_applied', {
+        ...ctx,
+        responseClicked: true,
+      }).action).toBe('wait_letter');
+      expect(decideNextAction('success', {
+        ...ctx,
         responseClicked: true,
         letterFilled: true,
       })).toEqual({ action: 'mark_sent' });

@@ -151,7 +151,11 @@ export function buildGroundedLocalHhCoverLetter(
   };
 }
 
-const PLACEHOLDER_PATTERN = /\{[^{}]{1,80}\}|\[(?:встав|укаж|имя|назван|пример|метрик)[^\]]*\]/iu;
+// A finished cover letter has no template fields at all. Be deliberately
+// strict here: square/curly brackets in prose are not worth the risk of
+// sending `[Ваше имя]`, `[Company]`, or a similar unfinished token to HH.
+const PLACEHOLDER_PATTERN = /\{[^{}\n]{1,120}\}|\[[^[\]\n]{1,120}\]|<(?:your\s+name|name|company|имя|компания)>/iu;
+const FORMAL_SIGNOFF_PATTERN = /(?:^|\n)\s*(?:с\s+уважением|уважительно|best\s+regards|kind\s+regards|sincerely|respectfully)(?:\s*[,!.]|\s*$)/imu;
 const MARKDOWN_LIST_PATTERN = /^(?:\s*[-*]\s+|\s*\d+[.)]\s+)/mu;
 
 /**
@@ -167,7 +171,11 @@ export function validateGeneratedHhCoverLetter(
   const letter = String(response.coverLetter ?? '').replace(/\r\n/g, '\n').trim();
   if (letter.length < 350 || letter.length > 4_000) return null;
   if (!/^(?:Здравствуйте!|Hello[!,])/iu.test(letter)) return null;
-  if (PLACEHOLDER_PATTERN.test(letter) || MARKDOWN_LIST_PATTERN.test(letter)) return null;
+  if (
+    PLACEHOLDER_PATTERN.test(letter)
+    || FORMAL_SIGNOFF_PATTERN.test(letter)
+    || MARKDOWN_LIST_PATTERN.test(letter)
+  ) return null;
 
   const matches = response.matches
     .filter((item) => item && item.vacancyNeed?.trim() && item.resumeEvidence?.trim())

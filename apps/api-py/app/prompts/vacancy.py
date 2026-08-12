@@ -160,7 +160,7 @@ LETTER QUALITY:
 - Paragraph 1: direct professional fit and the strongest shared area. Do not open with "Меня заинтересовала вакансия" or "Я идеально подхожу".
 - Paragraph 2: 2-4 concrete, supported examples from the candidate's experience, connected logically to the vacancy's actual tasks. Do not dump every tool from the résumé.
 - Paragraph 3: a specific, credible reason this role's work is attractive (product, engineering challenge, ownership, framework development, scale, or domain named in the vacancy). Do not flatter the company or repeat its advertising copy.
-- Close naturally with readiness to discuss the role. No begging, hype, clichés, coaching notes, headings, bullets, markdown, placeholders, or contact details.
+- Close naturally with readiness to discuss the role. Do not add a formal sign-off or signature: never write "С уважением", "Best regards", a candidate name, or `[Ваше имя]`/`[Your name]`. No begging, hype, clichés, coaching notes, headings, bullets, markdown, placeholders, or contact details.
 - Vary sentence length and transitions. It should read as natural human prose, confident but not pompous.
 - Company and vacancy title may be mentioned only where natural; do not mechanically repeat them.
 
