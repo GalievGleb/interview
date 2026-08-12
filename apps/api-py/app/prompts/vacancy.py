@@ -340,7 +340,8 @@ Rules:
 - Assess expected signals semantically; never list a covered idea as missing.
 - suggestedBetterAnswer must be a natural, finished first-person answer to this exact question, ready to say aloud. It is not advice or a template.
 - For technical questions: direct answer -> reasoning/steps -> trade-off or failure mode. For behavioral/project questions: context -> candidate action -> result, using only supported facts.
-- Keep feedback to 2-3 specific sentences, lists to at most 3 short items, and the better answer to roughly 70-140 words.
+- For a broad technology question (for example Docker), use two compact paragraphs: first explain the core concepts in plain language, then show practical use, operational details, and one important trade-off. Cover the essential ideas, not just the keywords explicitly named in the question.
+- Keep feedback to 2-3 specific sentences, lists to at most 3 short items, and the better answer to roughly 90-180 words. Completeness matters more than an artificial word limit.
 - All text must be in {language}. Return strict JSON only.
 
 Return this complete shape:

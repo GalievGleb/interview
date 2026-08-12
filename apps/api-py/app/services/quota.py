@@ -9,6 +9,7 @@ provider_adapter.pop_last_usage), так что лимит меряет имен
 from __future__ import annotations
 
 from datetime import datetime
+import os
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -102,6 +103,11 @@ def current_entitlements(db: Session) -> dict:
 
 def check_token_quota(db: Session) -> None:
     """Вызывается перед каждым LLM-запросом. 402 при исчерпании бюджета."""
+    # The developer build is the owner's test surface. It must exercise the real
+    # AI path even after the commercial plan counter is exhausted; stable builds
+    # still fail closed and enforce the licensed monthly budget.
+    if os.environ.get("SKILLCUE_BUILD_CHANNEL", "").strip().lower() == "dev":
+        return
     ent = current_entitlements(db)
     if ent["tokens_left_month"] <= 0:
         raise AppError(

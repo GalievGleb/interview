@@ -234,6 +234,78 @@ describe('evaluation + report', () => {
     }
   });
 
+  it('returns a complete interview-ready Docker answer even in local fallback', () => {
+    const analysis = analyzeVacancyMock({
+      vacancyText: QA_VACANCY,
+      language: 'ru',
+      resumeText: 'QA Automation Engineer: Python, pytest, Docker, GitLab CI.',
+    });
+    const question = buildSmokePlan(analysis).find((item) => item.topicId === 'docker');
+    expect(question).toBeDefined();
+
+    const evaluation = evaluateAnswerMock(
+      question!,
+      'Docker использовал для запуска автотестов в одинаковом окружении.',
+      analysis,
+    );
+
+    expect(evaluation.suggestedBetterAnswer).toContain('Image');
+    expect(evaluation.suggestedBetterAnswer).toContain('container');
+    expect(evaluation.suggestedBetterAnswer).toContain('Dockerfile');
+    expect(evaluation.suggestedBetterAnswer).toContain('Docker Compose');
+    expect(evaluation.suggestedBetterAnswer).toContain('registry');
+    expect(evaluation.suggestedBetterAnswer).toContain('CI');
+    expect(evaluation.suggestedBetterAnswer).toContain('\n\n');
+    expect(evaluation.suggestedBetterAnswer).not.toMatch(/добавьте|можно сказать|ответьте по/i);
+  });
+
+  it('does not hide the finished better answer when quota forces local evaluation', async () => {
+    const analysis = analyzeVacancyMock({ vacancyText: QA_VACANCY, language: 'ru' });
+    const question = buildSmokePlan(analysis).find((item) => item.topicId === 'docker');
+    expect(question).toBeDefined();
+    const spy = vi
+      .spyOn(api, 'vacancyEvaluate')
+      .mockRejectedValueOnce(new Error('402 token_quota_exceeded'));
+
+    try {
+      const evaluation = await evaluateAnswer(
+        question!,
+        'Docker помогает воспроизводимо запускать тесты.',
+        analysis,
+      );
+      expect(evaluation.evaluationSource).toBe('heuristic');
+      expect(evaluation.evaluationError).toBe('quota');
+      expect(evaluation.suggestedBetterAnswer).toContain('Dockerfile');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('turns flaky-test advice into a concrete diagnostic and recovery answer', () => {
+    const analysis = analyzeVacancyMock({
+      vacancyText: QA_VACANCY,
+      language: 'ru',
+      resumeText: 'Python, Playwright, Allure, GitLab CI.',
+    });
+    const question = {
+      id: 'flaky-ui',
+      topicId: 'ui-automation',
+      question: 'Как борешься с flaky UI-тестами?',
+      expectedSignals: ['Locators', 'waits', 'page objects', 'flaky-test handling'],
+      redFlags: [],
+      relatedResumeEvidence: [],
+      level: 'middle' as const,
+      difficulty: 'medium' as const,
+    };
+
+    const evaluation = evaluateAnswerMock(question, 'Использую явные ожидания и карантин.', analysis);
+    expect(evaluation.suggestedBetterAnswer).toContain('Page Object');
+    expect(evaluation.suggestedBetterAnswer).toContain('Retry');
+    expect(evaluation.suggestedBetterAnswer).toContain('карантин');
+    expect(evaluation.suggestedBetterAnswer).toContain('CI');
+    expect(evaluation.suggestedBetterAnswer).toContain('\n\n');
+  });
+
   it('keeps the answer logic, rationale, and delivery coaching from AI feedback', async () => {
     const analysis = analyzeVacancyMock({ vacancyText: QA_VACANCY, language: 'ru' });
     const [question] = buildSmokePlan(analysis);

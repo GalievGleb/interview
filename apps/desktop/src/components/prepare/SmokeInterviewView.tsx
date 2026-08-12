@@ -435,7 +435,7 @@ export default function SmokeInterviewView({
             </div>
           )}
 
-          {evaluation.suggestedBetterAnswer && evaluation.evaluationSource !== 'heuristic' && (
+          {evaluation.suggestedBetterAnswer && (
             <div className="prep-strong-answer">
               <p className="prep-eyebrow">{t('prep.smoke.strongVersion')}</p>
               <p className="mt-2 whitespace-pre-wrap">{evaluation.suggestedBetterAnswer}</p>

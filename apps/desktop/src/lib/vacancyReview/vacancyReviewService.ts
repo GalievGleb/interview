@@ -1181,12 +1181,31 @@ function isFlakyUiQuestion(text: string): boolean {
 }
 
 function buildFlakyUiAnswer(analysis: VacancyAnalysis, answerText: string): string {
-  const corpus = `${analysis.resumeText ?? ''}\n${analysis.vacancyText ?? ''}\n${answerText}`;
+  const corpus = `${analysis.resumeText ?? ''}\n${answerText}`;
   const tools = mentionedToolsFrom(corpus).filter((t) => ['Playwright', 'Selenium', 'Allure'].includes(t));
-  const toolText = tools.length ? ` В моём стеке для этого использовал ${tools.join(', ')}.` : '';
+  const toolText = tools.length ? ` В моём стеке для диагностики использовал ${tools.join(', ')}.` : '';
   return (
-    `С flaky UI-тестами я сначала разбираю причину, а не просто добавляю retry. Проверяю локаторы, убираю sleep, добавляю явные ожидания нужного состояния элемента или запроса, смотрю скриншоты, логи и traceback падения. Если тест нестабилен из-за данных или окружения, фиксирую это отдельно и временно могу вынести его из критичного smoke-запуска.${toolText}`
+    `С flaky UI-тестами я сначала воспроизвожу падение и определяю его источник: нестабильный локатор, неверное ожидание, общие тестовые данные, зависимость между тестами, окружение или реальный дефект продукта. Смотрю trace, скриншоты, видео, сетевые запросы и логи. Затем устраняю причину: использую устойчивые role- или test-id-локаторы, убираю sleep, жду конкретное состояние элемента или ответа API, изолирую данные и возвращаю окружение в исходное состояние. Page Object помогает держать локаторы и ожидания в одном месте, но сам по себе flaky-тест не исправляет.${toolText}\n\nRetry использую только как диагностическую страховку, а не как способ спрятать проблему. Если быстро исправить тест нельзя, временно отправляю его в карантин с владельцем и сроком возврата, чтобы он не блокировал критичный pipeline. После исправления несколько раз прогоняю сценарий локально и в CI. Критерий готовности — тест стабилен по понятной причине, а не просто случайно прошёл три раза.`
   );
+}
+
+function isDockerQuestion(text: string): boolean {
+  return /docker|докер|dockerfile|image|образ|контейнер|compose/.test(norm(text));
+}
+
+function buildDockerAnswer(analysis: VacancyAnalysis, answerText: string): string {
+  const resume = analysis.resumeText ?? '';
+  const answer = answerText.trim();
+  const hasResumeEvidence = /docker|докер|dockerfile|docker compose|контейнер/i.test(resume);
+  const hasAnswerEvidence =
+    /(?:я|мы).{0,100}(?:использовал|применял|запускал|собирал|настраивал).{0,80}(?:docker|докер|контейнер)|(?:docker|докер|контейнер).{0,100}(?:я|мы).{0,80}(?:использовал|применял|запускал|собирал|настраивал)/i.test(
+      answer,
+    );
+  const practiceLead = hasResumeEvidence || hasAnswerEvidence
+    ? 'На практике я использую Docker так'
+    : 'На практике Docker можно использовать так';
+
+  return `Docker нужен, чтобы приложение и его зависимости одинаково запускались локально, в CI и на тестовом стенде. Image — это неизменяемый шаблон файловой системы и настроек, который собирается по Dockerfile; container — запущенный из этого image изолированный процесс. Image можно хранить в registry и версионировать тегами. Контейнер легче виртуальной машины: он не содержит отдельную ОС, а использует ядро хоста, поэтому быстро стартует, но полной изоляции виртуальной машины не даёт.\n\n${practiceLead}: упаковать test runner, поднять через Docker Compose приложение, базу и дополнительные сервисы, а затем выполнить один и тот же набор тестов на ноутбуке и в pipeline. Конфигурацию передаю через переменные окружения, сервисы связываю общей сетью, а отчёты и логи сохраняю через volumes или CI-артефакты. Важно фиксировать версии базовых images, не класть секреты внутрь image, проверять healthcheck и удалять контейнеры после прогона. Так Docker делает окружение воспроизводимым и заметно упрощает разбор ошибок вида «у меня локально работает».`;
 }
 
 function isPlaywrightVsSeleniumQuestion(text: string): boolean {
@@ -1235,6 +1254,9 @@ function buildBridgeAnswer(
   }
   if (isFlakyUiQuestion(topicText)) {
     return buildFlakyUiAnswer(analysis, answerText);
+  }
+  if (isDockerQuestion(topicText)) {
+    return buildDockerAnswer(analysis, answerText);
   }
   if (isPlatformSupportQuestionText(topicText)) {
     const platformAnswer = buildPlatformSupportAnswer(analysis, answerText);
