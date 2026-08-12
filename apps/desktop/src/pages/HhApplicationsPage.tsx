@@ -954,7 +954,7 @@ export default function HhApplicationsPage() {
             </label>
             <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-surface-border bg-surface-light p-3">
               <input type="checkbox" className="mt-0.5 h-4 w-4 accent-emerald-500" checked={draft.includeRelatedQueries} onChange={(e) => setDraft({ ...draft, includeRelatedQueries: e.target.checked })} />
-              <span><b className="block text-sm font-medium text-ink">Искать близкие названия роли</b><span className="mt-1 block text-xs leading-relaxed text-ink-faint">Для QA/Python добавятся AQA, SDET, QA Automation и Fullstack QA.</span></span>
+              <span><b className="block text-sm font-medium text-ink">Искать близкие названия роли</b><span className="mt-1 block text-xs leading-relaxed text-ink-faint">SkillCue сверит их с выбранным резюме: manual QA не расширяется до автоматизации.</span></span>
             </label>
             <label className="block md:col-span-2">
               <span className="label">Дополнительные направления</span>

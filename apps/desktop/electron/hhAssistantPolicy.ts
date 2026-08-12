@@ -194,13 +194,50 @@ function rememberSearchQuery(target: string[], seen: Set<string>, value: string)
   target.push(query);
 }
 
+type QaSearchProfile = 'not_qa' | 'manual' | 'automation';
+
+const QA_INTENT_RE = /(?:^|\W)(?:qa|aqa|sdet)(?:\W|$)|quality assurance|тестир|автотест/i;
+const EXPLICIT_AUTOMATION_RE =
+  /(?:^|\W)(?:aqa|sdet)(?:\W|$)|qa\s+automation|automation\s+qa|автоматизатор|автоматизац\S*\s+тест|автотест/i;
+const EXPLICIT_MANUAL_RE =
+  /manual\s+qa|qa\s+manual|ручн\S*\s+тест|мануальн\S*\s+тест/i;
+
+/**
+ * A broad "QA engineer" title is not an automation role by itself. Infer
+ * automation only from an explicit search request or strong evidence in the
+ * selected resume; otherwise fail closed to manual QA.
+ */
+export function detectQaSearchProfile(query: string, resumeContext = ''): QaSearchProfile {
+  const normalizedQuery = query.toLocaleLowerCase('ru');
+  if (!QA_INTENT_RE.test(normalizedQuery)) return 'not_qa';
+  if (EXPLICIT_MANUAL_RE.test(normalizedQuery)) return 'manual';
+  if (EXPLICIT_AUTOMATION_RE.test(normalizedQuery)) return 'automation';
+
+  const resume = resumeContext.toLocaleLowerCase('ru');
+  if (EXPLICIT_MANUAL_RE.test(resume) && !EXPLICIT_AUTOMATION_RE.test(resume)) return 'manual';
+  if (EXPLICIT_AUTOMATION_RE.test(resume)) return 'automation';
+
+  const automationTools = [
+    /(?:^|\W)pytest(?:\W|$)/i,
+    /(?:^|\W)playwright(?:\W|$)/i,
+    /(?:^|\W)selenium(?:\W|$)/i,
+    /(?:^|\W)cypress(?:\W|$)/i,
+    /(?:^|\W)appium(?:\W|$)/i,
+    /(?:^|\W)(?:junit|testng|rest\s*assured)(?:\W|$)/i,
+  ];
+  const toolCount = automationTools.filter((pattern) => pattern.test(resume)).length;
+  const writesAutomatedTests =
+    /(?:писал|разрабатывал|создавал|поддерживал|внедрял|writing|developed|maintained)\S*(?:[^.\n]{0,60})(?:автотест|automated test|test automation)/i.test(resume);
+  return writesAutomatedTests || toolCount >= 2 ? 'automation' : 'manual';
+}
+
 /**
  * HH interprets a multi-word query quite literally. A person searching for
  * "QA FULLSTACK PYTHON" should therefore also see the same role advertised as
  * AQA, SDET, QA Automation, or an automation-test engineer. Keep expansion
  * conservative: it may rephrase a role, but must not invent another profession.
  */
-export function buildHhSearchQueries(config: HhAssistantConfig): string[] {
+export function buildHhSearchQueries(config: HhAssistantConfig, resumeContext = ''): string[] {
   const queries: string[] = [];
   const seen = new Set<string>();
   const base = config.query.replace(/\s+/g, ' ').trim();
@@ -208,11 +245,11 @@ export function buildHhSearchQueries(config: HhAssistantConfig): string[] {
 
   if (config.includeRelatedQueries) {
     const normalized = base.toLocaleLowerCase('ru');
-    const isQa = /(?:^|\W)(?:qa|aqa|sdet)(?:\W|$)|тестир|автотест/i.test(normalized);
+    const qaProfile = detectQaSearchProfile(base, resumeContext);
     const isPython = /(?:^|\W)python(?:\W|$)|питон/i.test(normalized);
     const isFullstack = /full[\s-]?stack|фулл[\s-]?ст[еэ]к/i.test(normalized);
 
-    if (isQa && isPython) {
+    if (qaProfile === 'automation' && isPython) {
       rememberSearchQuery(queries, seen, 'QA Automation Python');
       rememberSearchQuery(queries, seen, 'AQA Python');
       rememberSearchQuery(queries, seen, 'SDET Python');
@@ -225,11 +262,16 @@ export function buildHhSearchQueries(config: HhAssistantConfig): string[] {
       rememberSearchQuery(queries, seen, 'автоматизация тестирования Python');
       rememberSearchQuery(queries, seen, 'Python QA');
       rememberSearchQuery(queries, seen, 'QA Engineer Python');
-    } else if (isQa) {
+    } else if (qaProfile === 'automation') {
       rememberSearchQuery(queries, seen, 'QA Automation');
       rememberSearchQuery(queries, seen, 'AQA');
       rememberSearchQuery(queries, seen, 'SDET');
       rememberSearchQuery(queries, seen, 'инженер по автоматизации тестирования');
+    } else if (qaProfile === 'manual') {
+      rememberSearchQuery(queries, seen, 'Manual QA');
+      rememberSearchQuery(queries, seen, 'QA Engineer');
+      rememberSearchQuery(queries, seen, 'тестировщик');
+      rememberSearchQuery(queries, seen, 'инженер по тестированию');
     }
   }
 
@@ -280,6 +322,7 @@ export function isVacancyRelevantToSearchProfile(
   vacancy: HhVacancy,
   query: string,
   description = '',
+  resumeContext = '',
 ): boolean {
   if (!isVacancyRelevantToSearchQuery(vacancy, query)) return false;
   const normalizedQuery = query.toLocaleLowerCase('ru');
@@ -287,11 +330,32 @@ export function isVacancyRelevantToSearchProfile(
   const pythonIntent = /(?:^|\W)python(?:\W|$)|питон/i.test(normalizedQuery);
   if (pythonIntent && !/(?:^|\W)python(?:\W|$)|питон/i.test(candidate)) return false;
 
-  const qaIntent = /(?:^|\W)(?:qa|aqa|sdet)(?:\W|$)|тестиров|автотест/i.test(normalizedQuery);
-  if (qaIntent && pythonIntent) {
+  const qaProfile = detectQaSearchProfile(query, resumeContext);
+  if (qaProfile === 'automation') {
     const automationEvidence =
       /(?:^|\W)(?:aqa|sdet)(?:\W|$)|automation|автоматиз|автотест|pytest|playwright|selenium|locust|jmeter|(?:^|\W)k6(?:\W|$)|нагрузочн\S*\s+тест/i.test(candidate);
     if (!automationEvidence) return false;
+  }
+  if (qaProfile === 'manual') {
+    const title = vacancy.title.toLocaleLowerCase('ru');
+    const specialisedTitle =
+      /(?:^|\W)(?:aqa|sdet)(?:\W|$)|qa\s+automation|automation\s+qa|автоматизатор|автотест|data\s+(?:qa|quality)|(?:qa|quality)\s+data|нагрузочн\S*\s+тест|performance\s+(?:qa|test)|(?:qa|test)\s+performance/i.test(title);
+    if (specialisedTitle) return false;
+
+    // Generic "QA Engineer" titles are checked again after the vacancy body
+    // is loaded. Do not admit a role whose actual responsibility is writing
+    // automated tests merely because the title itself is broad.
+    const automationResponsibility =
+      /(?:разработ|писать|написан|созда|поддерж|внедр)\S*(?:[^.\n]{0,70})(?:автотест|автоматизац\S*\s+тест)|(?:develop|write|maintain|implement)\S*(?:[^.\n]{0,70})(?:automated test|test automation)/i.test(candidate);
+    const automationStack = [
+      /(?:^|\W)pytest(?:\W|$)/i,
+      /(?:^|\W)playwright(?:\W|$)/i,
+      /(?:^|\W)selenium(?:\W|$)/i,
+      /(?:^|\W)cypress(?:\W|$)/i,
+      /(?:^|\W)appium(?:\W|$)/i,
+      /(?:^|\W)(?:junit|testng|rest\s*assured)(?:\W|$)/i,
+    ].filter((pattern) => pattern.test(candidate)).length;
+    if (description && (automationResponsibility || automationStack >= 2)) return false;
   }
   return true;
 }

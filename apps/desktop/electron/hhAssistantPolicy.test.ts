@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildHhSearchQueries,
   buildHhSearchUrl,
+  detectQaSearchProfile,
   isVacancyCompatibleWithSearchSchedule,
   isVacancyRelevantToSearchProfile,
   isVacancyRelevantToSearchQuery,
@@ -44,7 +45,10 @@ describe('HH browser assistant policy', () => {
       additionalQueries: [' Junior Game Developer C# ', 'qa fullstack python'],
     });
 
-    expect(buildHhSearchQueries(config)).toEqual([
+    expect(buildHhSearchQueries(
+      config,
+      'QA Automation Engineer\nPython, Pytest, Playwright, API автотесты',
+    )).toEqual([
       'QA FULLSTACK PYTHON',
       'QA Automation Python',
       'AQA Python',
@@ -59,7 +63,73 @@ describe('HH browser assistant policy', () => {
     ]);
   });
 
+  it('keeps a broad QA search manual when the selected resume is for manual testing', () => {
+    const config = normalizeHhAssistantConfig({
+      query: 'QA-инженер',
+      includeRelatedQueries: true,
+    });
+    const manualResume = [
+      'QA-инженер',
+      'Ручное функциональное и регрессионное тестирование.',
+      'Тест-кейсы, баг-репорты, Postman, SQL, DevTools.',
+    ].join('\n');
+
+    expect(detectQaSearchProfile(config.query, manualResume)).toBe('manual');
+    expect(buildHhSearchQueries(config, manualResume)).toEqual([
+      'QA-инженер',
+      'Manual QA',
+      'QA Engineer',
+      'тестировщик',
+      'инженер по тестированию',
+    ]);
+    expect(buildHhSearchQueries(config, manualResume)).not.toContain('QA Automation');
+    expect(buildHhSearchQueries(config, manualResume)).not.toContain('AQA');
+  });
+
+  it('filters specialised automation, data and performance roles out of a manual QA search', () => {
+    const vacancy = (title: string) => ({
+      id: title,
+      title,
+      company: 'Example',
+      salary: '',
+      url: 'https://hh.ru/vacancy/1',
+    });
+    const resume = 'Manual QA инженер. Ручное тестирование, тест-кейсы, Postman и SQL.';
+
+    expect(isVacancyRelevantToSearchProfile(
+      vacancy('QA Automation Engineer'),
+      'QA-инженер',
+      '',
+      resume,
+    )).toBe(false);
+    expect(isVacancyRelevantToSearchProfile(
+      vacancy('Data QA Engineer'),
+      'QA-инженер',
+      '',
+      resume,
+    )).toBe(false);
+    expect(isVacancyRelevantToSearchProfile(
+      vacancy('Performance QA Engineer'),
+      'QA-инженер',
+      '',
+      resume,
+    )).toBe(false);
+    expect(isVacancyRelevantToSearchProfile(
+      vacancy('QA Engineer'),
+      'QA-инженер',
+      'Написание и поддержка автотестов на Pytest и Playwright.',
+      resume,
+    )).toBe(false);
+    expect(isVacancyRelevantToSearchProfile(
+      vacancy('QA Engineer / Тестировщик'),
+      'QA-инженер',
+      'Ручное тестирование web и mobile, регресс, API в Postman.',
+      resume,
+    )).toBe(true);
+  });
+
   it('keeps Python automation vacancies from the HH home feed even when the title is generic', () => {
+    const automationResume = 'QA Automation Engineer: Python, Pytest, Playwright, API автотесты.';
     const genericQa = {
       id: '136143010',
       title: 'Тестировщик-автоматизатор / QA',
@@ -74,22 +144,25 @@ describe('HH browser assistant policy', () => {
       url: 'https://hh.ru/vacancy/136144274',
     };
 
-    expect(isVacancyRelevantToSearchProfile(explicitPython, 'QA FULLSTACK PYTHON')).toBe(true);
-    expect(isVacancyRelevantToSearchProfile(genericQa, 'QA FULLSTACK PYTHON')).toBe(false);
+    expect(isVacancyRelevantToSearchProfile(explicitPython, 'QA FULLSTACK PYTHON', '', automationResume)).toBe(true);
+    expect(isVacancyRelevantToSearchProfile(genericQa, 'QA FULLSTACK PYTHON', '', automationResume)).toBe(false);
     expect(isVacancyRelevantToSearchProfile(
       genericQa,
       'QA FULLSTACK PYTHON',
       'Разработка автотестов на Python, Playwright и Docker.',
+      automationResume,
     )).toBe(true);
     expect(isVacancyRelevantToSearchProfile(
       genericQa,
       'QA FULLSTACK PYTHON',
       'Ручное тестирование и написание тест-кейсов без автоматизации.',
+      automationResume,
     )).toBe(false);
     expect(isVacancyRelevantToSearchProfile(
       genericQa,
       'QA FULLSTACK PYTHON',
       'Нагрузочное тестирование на Locust и k6; базовый Python для модификации тестов.',
+      automationResume,
     )).toBe(true);
     expect(isVacancyCompatibleWithSearchSchedule(
       explicitPython,

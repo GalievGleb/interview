@@ -2482,13 +2482,16 @@ export class HhBrowserAssistant {
 
     try {
       this.state.config = normalizeHhAssistantConfig({ ...this.state.config, platform });
-      const queries = platform === 'hh'
-        ? buildHhSearchQueries(this.state.config)
-        : [this.state.config.query];
       const openingMessage = `Открываю ${info.label} и проверяю сессию…`;
       this.update({ phase: 'scanning', lastScanSummary: null, message: openingMessage });
       this.progressRun(runId, { message: openingMessage });
       const page = await this.ensureBrowser('background');
+      const searchResumeContext = platform === 'hh'
+        ? await this.getConfiguredSearchResumeContext()
+        : '';
+      const queries = platform === 'hh'
+        ? buildHhSearchQueries(this.state.config, searchResumeContext)
+        : [this.state.config.query];
       const collected = new Map<string, HhVacancy & {
         description?: string;
         easyApply?: boolean;
@@ -2545,7 +2548,12 @@ export class HhBrowserAssistant {
             alreadyApplied?: boolean;
           } = { ...recommendation, description: '', easyApply: false };
           if (
-            !isVacancyRelevantToSearchProfile(candidate, this.state.config.query)
+            !isVacancyRelevantToSearchProfile(
+              candidate,
+              this.state.config.query,
+              '',
+              searchResumeContext,
+            )
             || !isVacancyCompatibleWithSearchSchedule(
               candidate,
               this.state.config.schedule,
@@ -2569,6 +2577,7 @@ export class HhBrowserAssistant {
             candidate,
             this.state.config.query,
             candidate.description,
+            searchResumeContext,
           )) continue;
           if (!isVacancyCompatibleWithSearchSchedule(
             candidate,
@@ -2641,7 +2650,15 @@ export class HhBrowserAssistant {
               excludedKeys.add(key);
               continue;
             }
-            if (platform === 'hh' && !isVacancyRelevantToSearchQuery(vacancy, searchQuery)) {
+            if (platform === 'hh' && (
+              !isVacancyRelevantToSearchQuery(vacancy, searchQuery)
+              || !isVacancyRelevantToSearchProfile(
+                vacancy,
+                this.state.config.query,
+                vacancy.description,
+                searchResumeContext,
+              )
+            )) {
               excludedKeys.add(key);
               continue;
             }
@@ -3164,6 +3181,28 @@ export class HhBrowserAssistant {
     return preferredTitle
       ? this.applicantResumes.find((resume) => resumeTitleMatches(resume.title, preferredTitle))
       : undefined;
+  }
+
+  /**
+   * Search belongs to the resume selected in settings, not to whichever resume
+   * might later rank best for one particular vacancy.
+   */
+  private async getConfiguredSearchResumeContext(): Promise<string> {
+    const fallback = this.state.config.resumeTitles.join('\n').trim();
+    if (!this.context) return fallback;
+    if (this.applicantResumes.length === 0) {
+      const result = await this.readApplicantResumesFromSession().catch(() => null);
+      if (result && !result.loginRequired) this.applicantResumes = result.resumes;
+    }
+    const configuredTitle = this.state.config.resumeTitles[0]?.trim() ?? '';
+    const selected = configuredTitle
+      ? this.applicantResumes.find((resume) => resumeTitleMatches(resume.title, configuredTitle))
+      : this.applicantResumes[0];
+    if (!selected) return fallback;
+    const text = await this.getApplicantResumeContent(selected.id)
+      .then((result) => result.text)
+      .catch(() => '');
+    return [selected.title, text].filter(Boolean).join('\n').trim() || fallback;
   }
 
   /** Best matching HH résumé for this vacancy, reused by forms, letters and recruiter chat. */
@@ -3726,9 +3765,17 @@ export class HhBrowserAssistant {
       });
     }
     const vacancyDescription = await this.captureVacancyDescription(page, vacancy);
+    const searchResumeContext = options.explicitUserSelection
+      ? ''
+      : await this.getConfiguredSearchResumeContext();
     if (!options.explicitUserSelection
-      && !isVacancyRelevantToSearchProfile(vacancy, this.state.config.query, vacancyDescription)) {
-      const reason = 'Пропущено перед откликом: вакансия не соответствует выбранному QA/Python-профилю.';
+      && !isVacancyRelevantToSearchProfile(
+        vacancy,
+        this.state.config.query,
+        vacancyDescription,
+        searchResumeContext,
+      )) {
+      const reason = 'Пропущено перед откликом: вакансия не соответствует выбранному резюме и направлению поиска.';
       this.patchQueue(vacancy.id, {
         status: 'skipped',
         reason,
