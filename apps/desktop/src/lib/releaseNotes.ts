@@ -12,7 +12,7 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
-    version: '0.0.26',
+    version: '0.0.28',
     date: '2026-08-12',
     title: 'Понятный рабочий стол и спокойный интерфейс',
     points: [
