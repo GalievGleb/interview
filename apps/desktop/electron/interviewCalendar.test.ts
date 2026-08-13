@@ -12,6 +12,7 @@ import {
   formatRecruiterInterviewSlotRu,
   isInterviewSlotAvailable,
   parseInterviewSlots,
+  requestsCandidateInterviewAvailability,
   type InterviewCalendarEvent,
   type InterviewCalendarSettings,
   type InterviewCalendarState,
@@ -82,6 +83,18 @@ describe('interview message parsing', () => {
   it('does not treat an ordinary recruiter question as scheduling', () => {
     const analysis = analyzeInterviewMessage('Расскажите, пожалуйста, о вашем опыте с Playwright.');
     expect(analysis.isSchedulingMessage).toBe(false);
+  });
+
+  it('offers own slots only after an explicit request for candidate availability', () => {
+    expect(requestsCandidateInterviewAvailability(
+      'Приглашаем вас на техническое интервью. Будем рады знакомству!',
+    )).toBe(false);
+    expect(requestsCandidateInterviewAvailability(
+      'Приглашаем вас на техническое интервью. Подскажите, пожалуйста, удобные дату и время.',
+    )).toBe(true);
+    expect(analyzeInterviewMessage(
+      'Приглашаем вас на техническое интервью. Будем рады знакомству!',
+    ).requestsCandidateAvailability).toBe(false);
   });
 });
 

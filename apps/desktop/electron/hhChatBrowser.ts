@@ -169,6 +169,7 @@ const OUTGOING_SELECTOR = '[class*="message_my"], [class*="chat-bubble_outgoing"
 const CHAT_BATCH_SIZE = 4;
 const CHAT_OPEN_TIMEOUT_MS = 5_000;
 const CHAT_RECOVERY_PAGE_LIMIT = 3;
+const QUESTIONNAIRE_ROUTE_VERSION = 2;
 
 interface PersistedChatState {
   config: HhChatConfig;
@@ -841,10 +842,18 @@ export class HhChatBrowser {
         const frameLabel = compactText(await frame.locator('body').innerText({ timeout: 1_500 }).catch(() => ''));
         const previousConversation = conversations.get(negotiation.key)!;
         const verifiedBot = isBotRecruiterLabel(frameLabel);
-        const hasInboundMessage = messages.some((message) => !message.isMine && !message.isSystem);
+        const hasInboundMessage = messages.some((message) => (
+          !message.isMine &&
+          !message.isSystem &&
+          !isHhPlatformAssistantMessage(message.text)
+        ));
         const lastRecruiterMessage = [...messages]
           .reverse()
-          .find((message) => !message.isMine && !message.isSystem)?.text ?? '';
+          .find((message) => (
+            !message.isMine &&
+            !message.isSystem &&
+            !isHhPlatformAssistantMessage(message.text)
+          ))?.text ?? '';
         conversations.set(negotiation.key, {
           ...previousConversation,
           stage: verifiedBot ? 'bot' : hasInboundMessage ? 'hr' : 'waiting',
@@ -858,8 +867,17 @@ export class HhChatBrowser {
         this.unreadMessages += 1;
         const questionnaire = isRecruiterQuestionnaire(lastMessage.text);
         const messageId = questionnaire
-          ? `${negotiation.key}:${lastMessage.id}:questionnaire-v1`
+          ? `${negotiation.key}:${lastMessage.id}:questionnaire-v${QUESTIONNAIRE_ROUTE_VERSION}`
           : `${negotiation.key}:${lastMessage.id}`;
+        if (questionnaire) {
+          // v1 could already contain a calendar answer produced by the old
+          // routing order. The v2 id retries the real questionnaire while this
+          // removes only calendar state derived from that exact bad message.
+          this.interviewCalendar?.discardMistakenQuestionnaireScheduling(
+            negotiation.key,
+            lastMessage.text,
+          );
+        }
         if (this.seenMessageIds.has(messageId)) {
           if (this.replyHistory.some((item) => item.messageId === messageId)) continue;
           // Legacy versions could mark an inbound message as seen even when HH
@@ -892,7 +910,11 @@ export class HhChatBrowser {
         if (!chatInputVisible && !quickReplyVisible) continue;
         const invitation = analyzeInterviewMessage(lastMessage.text, new Date());
         const telegramHandoff = isTelegramHandoffMessage(lastMessage.text);
-        if ((invitation.isSchedulingMessage || telegramHandoff) && !this.notifiedInterviewMessageIds.has(messageId)) {
+        if (
+          !questionnaire &&
+          (invitation.isSchedulingMessage || telegramHandoff) &&
+          !this.notifiedInterviewMessageIds.has(messageId)
+        ) {
           this.notifiedInterviewMessageIds.add(messageId);
           try {
             this.onInterviewInvitation?.({
@@ -908,11 +930,16 @@ export class HhChatBrowser {
           }
           shouldPersist = true;
         }
-        const scheduling = this.handleSchedulingMessage(
-          negotiation,
-          lastMessage.text,
-          this.repliesToday < this.config.dailyReplyLimit,
-        );
+        // A numbered questionnaire may contain words such as "интервью",
+        // "дата" or "время". It still has to reach the questionnaire prompt
+        // and be answered point by point instead of becoming a calendar reply.
+        const scheduling = questionnaire
+          ? { handled: false }
+          : this.handleSchedulingMessage(
+            negotiation,
+            lastMessage.text,
+            this.repliesToday < this.config.dailyReplyLimit,
+          );
         if (scheduling.handled) {
           if (!scheduling.reply) {
             if (scheduling.consume) {
@@ -1173,10 +1200,19 @@ export class HhChatBrowser {
     canReply: boolean,
   ): { handled: boolean; reply?: string; consume?: boolean } {
     if (!this.interviewCalendar) return { handled: false };
+    if (isRecruiterQuestionnaire(message)) return { handled: false };
     const now = new Date();
     const analysis = analyzeInterviewMessage(message, now);
     const previous = this.interviewCalendar.getThread(negotiation.key);
     if (!analysis.isSchedulingMessage) return { handled: false };
+    if (
+      !analysis.isCancellation &&
+      !analysis.isConfirmation &&
+      analysis.slots.length === 0 &&
+      !analysis.requestsCandidateAvailability
+    ) {
+      return { handled: false };
+    }
 
     const type: InterviewType =
       analysis.type !== 'other' ? analysis.type : previous?.type ?? 'other';
@@ -1528,7 +1564,10 @@ export class HhChatBrowser {
   ): Promise<ChatMessage | null> {
     const messages = snapshot ?? await this.scrapeMessages(frame);
     for (let index = messages.length - 1; index >= 0; index -= 1) {
-      if (!messages[index].isSystem) return messages[index];
+      if (
+        !messages[index].isSystem &&
+        !isHhPlatformAssistantMessage(messages[index].text)
+      ) return messages[index];
     }
     return null;
   }

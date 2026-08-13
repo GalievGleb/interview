@@ -94,6 +94,7 @@ interface TimeToken {
 
 export interface InterviewMessageAnalysis {
   isSchedulingMessage: boolean;
+  requestsCandidateAvailability: boolean;
   type: InterviewType;
   slots: Date[];
   isConfirmation: boolean;
@@ -299,6 +300,24 @@ export function detectInterviewType(text: string): InterviewType {
   return 'other';
 }
 
+/**
+ * True only when the recruiter explicitly asks the candidate to choose or
+ * provide a date/time. A generic interview invitation is not enough to make
+ * the bot volunteer calendar slots.
+ */
+export function requestsCandidateInterviewAvailability(text: string): boolean {
+  const lower = text.toLocaleLowerCase('ru');
+  const schedulingTopic = /собесед|интервью|созвон|встреч|звонок|пообщаться|этап отбора/i.test(lower);
+  if (!schedulingTopic) return false;
+  return (
+    /(?:когда|в\s+какой\s+день|на\s+какую\s+дату)[^.!?\n]{0,100}(?:удоб|смож|готов|подойд)/i.test(lower) ||
+    /(?:подскажите|напишите|сообщите|предложите|пришлите|выберите)[^.!?\n]{0,120}(?:дат|день|врем|слот)/i.test(lower) ||
+    /(?:какие|какой|какое)[^.!?\n]{0,80}(?:дат|дни|врем|слот)[^.!?\n]{0,80}(?:удоб|подойд|можете|готов)/i.test(lower) ||
+    /(?:удобн\w*|подходящ\w*)[^.!?\n]{0,60}(?:дат|день|врем|слот)/i.test(lower) ||
+    /(?:согласу(?:ем|йте)|подбер[её]м)[^.!?\n]{0,80}(?:дат|врем|слот)/i.test(lower)
+  );
+}
+
 export function analyzeInterviewMessage(text: string, now = new Date()): InterviewMessageAnalysis {
   const lower = text.toLocaleLowerCase('ru');
   const slots = parseInterviewSlots(text, now);
@@ -310,6 +329,7 @@ export function analyzeInterviewMessage(text: string, now = new Date()): Intervi
   const meetingUrl = text.match(/https?:\/\/[^\s<>()]+/i)?.[0]?.replace(/[.,!?]+$/, '');
   return {
     isSchedulingMessage: (schedulingTopic && (schedulingAction || slots.length > 0)) || implicitSlotQuestion || isConfirmation || isCancellation,
+    requestsCandidateAvailability: requestsCandidateInterviewAvailability(text),
     type: detectInterviewType(text),
     slots,
     isConfirmation,
@@ -692,6 +712,29 @@ export class InterviewCalendarStore {
     const thread = this.getThread(negotiationKey);
     if (thread) this.upsertThread({ ...thread, stage: 'cancelled', updatedAt: now });
     else this.commit();
+    return this.getState();
+  }
+
+  /** Remove only calendar state that was created from a questionnaire mistaken for scheduling. */
+  discardMistakenQuestionnaireScheduling(
+    negotiationKey: string,
+    recruiterMessage: string,
+  ): InterviewCalendarState {
+    const eventsBefore = this.state.events.length;
+    const threadsBefore = this.state.scheduling.length;
+    this.state.events = this.state.events.filter((event) => !(
+      event.negotiationKey === negotiationKey &&
+      event.source === 'hh' &&
+      event.status === 'proposed' &&
+      event.notes === recruiterMessage
+    ));
+    this.state.scheduling = this.state.scheduling.filter((thread) => !(
+      thread.negotiationKey === negotiationKey &&
+      thread.recruiterMessage === recruiterMessage
+    ));
+    if (this.state.events.length !== eventsBefore || this.state.scheduling.length !== threadsBefore) {
+      this.commit();
+    }
     return this.getState();
   }
 

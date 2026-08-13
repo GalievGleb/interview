@@ -24,8 +24,20 @@ import {
   prepareRecruiterReply,
   stripTrailingChatTimestamp,
 } from './hhChatBrowser';
+import { InterviewCalendarStore } from './interviewCalendar';
 
 const source = fs.readFileSync(path.resolve(__dirname, 'hhChatBrowser.ts'), 'utf8');
+const exactSevenQuestionRecruiterMessage = [
+  'Екатерина Собеседование Галиев Русланович, здравствуйте! Благодарим вас за отклик на вакансию Старший инженер-тестировщик! Ваше резюме показалось нам очень интересным. Хотели бы уточнить у вас несколько вопросов:',
+  '1) Для чего в роли QA используются такие инструменты как Charles, Proxyman, Fiddler? Что такое Map Local, Breakpoint и Rewrite и в чём недостатки и преимущество каждого из методов?',
+  '2) Назовите все возможные причины ошибки Request Timeout',
+  '3) Какие инструменты полезны для снятия логов браузера и мобильных приложений на iOS и Android?',
+  '4) С какими типами тестирования вы работал на практике?',
+  '5) Что позволяет вам оценить качество тестирования?',
+  '6) Использовали ли вы в работе LLM инструменты? Если да, то какие и в основном для каких целей?',
+  '7) Какие у вас зарплатные ожидания?',
+  'Мы рассмотрим Ваше резюме в ближайшее время. Если оно заинтересует нас, мы обязательно свяжемся с Вами для обсуждения деталей. С наилучшими пожеланиями, Центр подбора персонала Правительства Москвы 10:32',
+].join(' ');
 
 describe('HhChatBrowser current HH contract', () => {
   it('uses the current applicant negotiations route', () => {
@@ -504,28 +516,28 @@ describe('HhChatBrowser current HH contract', () => {
     try {
       await expect(internals.scrapeLastMessage({}, [
         { id: 'question', text: 'Рассматриваете ИП/СМЗ?', isMine: false },
-        { id: 'notice', text: 'Пользователь Робот-рекрутер покинул чат', isMine: false, isSystem: true },
+      {
+        id: 'haddy',
+        text: 'Бот-помощник Хэдди. Ответьте на приглашение — так мы сможем рекомендовать вам более подходящие вакансии.',
+        isMine: false,
+        isSystem: false,
+      },
+      { id: 'notice', text: 'Пользователь Робот-рекрутер покинул чат', isMine: false, isSystem: true },
       ])).resolves.toMatchObject({ id: 'question' });
     } finally {
       fs.rmSync(userDataDir, { recursive: true, force: true });
     }
-    expect(source).toContain('if (!messages[index].isSystem) return messages[index]');
+    expect(source).toContain('!isHhPlatformAssistantMessage(messages[index].text)');
     expect(source).toContain('if (!lastMessage || (!unansweredQuestionnaire && lastMessage.isMine)) continue');
   });
 
-  it('repairs the exact missed questionnaire even after Haddy and a generic applicant reply', async () => {
+  it('repairs a persisted v1 scheduling reply and answers the exact questionnaire point by point', async () => {
     const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skillcue-hh-chat-questionnaire-'));
     const negotiationKey = 'Старший инженер-тестировщик\u0000Правительство Москвы';
-    const questionnaire = [
-      'Хотели бы уточнить у вас несколько вопросов:',
-      '1) Для чего в роли QA используются такие инструменты как Charles, Proxyman, Fiddler? Что такое Map Local, Breakpoint и Rewrite?',
-      '2) Назовите все возможные причины ошибки Request Timeout',
-      '3) Какие инструменты полезны для снятия логов браузера и мобильных приложений на iOS и Android?',
-      '4) С какими типами тестирования вы работали на практике?',
-      '5) Что позволяет вам оценить качество тестирования?',
-      '6) Использовали ли вы в работе LLM инструменты? Если да, то какие и для каких целей?',
-      '7) Какие у вас зарплатные ожидания?',
-    ].join('\n');
+    const questionnaire = exactSevenQuestionRecruiterMessage;
+    const inboundId = 'chatik-chat-message-15043774851';
+    const legacyMessageId = `${negotiationKey}:${inboundId}:questionnaire-v1`;
+    const legacySchedulingReply = 'Спасибо за приглашение! Мне удобно: пн 17 авг. 07:00, пн 17 авг. 08:00 или пн 17 авг. 09:00. Подойдёт ли один из вариантов?';
     const generated = [
       '1) Использую прокси для анализа и модификации HTTP/HTTPS-трафика.',
       '2) Проверяю клиент, сеть, прокси и время обработки на сервере.',
@@ -536,6 +548,66 @@ describe('HhChatBrowser current HH contract', () => {
       '7) Ожидаю 250 000 ₽ на руки.',
     ].join('\n');
     try {
+      const now = new Date();
+      const today = [
+        now.getFullYear(),
+        String(now.getMonth() + 1).padStart(2, '0'),
+        String(now.getDate()).padStart(2, '0'),
+      ].join('-');
+      fs.writeFileSync(path.join(userDataDir, 'hh-chat-browser.json'), JSON.stringify({
+        config: { ...DEFAULT_CHAT_CONFIG, replyDelaySec: 0 },
+        seenMessageIds: [legacyMessageId],
+        repliesToday: 1,
+        replyDate: today,
+        replyHistoryVersion: 1,
+        replyHistory: [{
+          id: 'legacy-scheduling-reply',
+          negotiationKey,
+          messageId: legacyMessageId,
+          vacancyTitle: 'Старший инженер-тестировщик',
+          companyName: 'Правительство Москвы',
+          recruiterMessage: questionnaire,
+          reply: legacySchedulingReply,
+          sentAt: now.toISOString(),
+          recordedAt: now.toISOString(),
+          source: 'scheduling',
+          status: 'sent',
+        }],
+        pendingDecisions: [],
+        confirmedFacts: [],
+        notifiedInterviewMessageIds: [legacyMessageId],
+        pollCursor: 0,
+      }, null, 2));
+      const calendar = new InterviewCalendarStore(userDataDir);
+      calendar.saveSettings({
+        availabilityConfigured: true,
+        availability: Array.from({ length: 7 }, (_, weekday) => ({
+          id: `weekday-${weekday}`,
+          weekday,
+          startMinutes: 7 * 60,
+          endMinutes: 19 * 60,
+        })),
+        minimumNoticeMin: 0,
+      });
+      calendar.scheduleFromNegotiation({
+        negotiationKey,
+        vacancyTitle: 'Старший инженер-тестировщик',
+        companyName: 'Правительство Москвы',
+        type: 'technical',
+        start: new Date(now.getTime() + 24 * 60 * 60_000),
+        status: 'proposed',
+        notes: questionnaire,
+      });
+      calendar.upsertThread({
+        negotiationKey,
+        vacancyTitle: 'Старший инженер-тестировщик',
+        companyName: 'Правительство Москвы',
+        type: 'technical',
+        recruiterMessage: questionnaire,
+        stage: 'awaiting_recruiter',
+        offeredSlots: [new Date(now.getTime() + 24 * 60 * 60_000).toISOString()],
+      });
+      const onInterviewInvitation = vi.fn();
       const page = {
         isClosed: () => false,
         url: () => HH_NEGOTIATIONS_URL,
@@ -563,8 +635,8 @@ describe('HhChatBrowser current HH contract', () => {
         userDataDir,
         async () => page as never,
         llmCall,
-        undefined,
-        undefined,
+        calendar,
+        onInterviewInvitation,
         getCandidateProfile,
       );
       chat.saveConfig({ replyDelaySec: 0 });
@@ -583,14 +655,14 @@ describe('HhChatBrowser current HH contract', () => {
       vi.spyOn(internals, 'scrapeNegotiations').mockResolvedValue([negotiation]);
       vi.spyOn(internals, 'openNegotiation').mockResolvedValue(frame);
       vi.spyOn(internals, 'scrapeMessages').mockResolvedValue([
-        { id: 'chatik-chat-message-questionnaire', text: questionnaire, isMine: false },
+        { id: inboundId, text: questionnaire, isMine: false },
         {
           id: 'chatik-chat-message-haddy',
           text: 'Бот-помощник Хэдди. Ответьте на приглашение — так мы сможем рекомендовать вам более подходящие вакансии.',
           isMine: false,
-          isSystem: true,
+          isSystem: false,
         },
-        { id: 'chatik-chat-message-generic', text: 'Спасибо за приглашение! Буду рад рекомендациям.', isMine: true },
+        { id: 'chatik-chat-message-legacy-reply', text: legacySchedulingReply, isMine: true },
       ]);
       const sendChatMessage = vi.spyOn(internals, 'sendChatMessage').mockResolvedValue();
 
@@ -600,11 +672,20 @@ describe('HhChatBrowser current HH contract', () => {
       expect(llmCall.mock.calls[0][0]).toContain('Ответь на КАЖДЫЙ пункт');
       expect(llmCall.mock.calls[0][0]).toContain('250 000 ₽ на руки');
       expect(sendChatMessage).toHaveBeenCalledWith(frame, generated);
-      expect(chat.getState().replyHistory[0]).toMatchObject({
+      expect(onInterviewInvitation).not.toHaveBeenCalled();
+      expect(chat.getState().replyHistory).toContainEqual(expect.objectContaining({
         recruiterMessage: questionnaire,
         reply: generated,
+        messageId: `${negotiationKey}:${inboundId}:questionnaire-v2`,
         source: 'generated',
-      });
+      }));
+      expect(chat.getState().replyHistory).toContainEqual(expect.objectContaining({
+        messageId: legacyMessageId,
+        reply: legacySchedulingReply,
+        source: 'scheduling',
+      }));
+      expect(calendar.getState().scheduling).toEqual([]);
+      expect(calendar.getState().events).toEqual([]);
     } finally {
       fs.rmSync(userDataDir, { recursive: true, force: true });
     }
