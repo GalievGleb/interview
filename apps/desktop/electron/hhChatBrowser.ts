@@ -83,10 +83,12 @@ export interface HhChatConversation {
   key: string;
   vacancyTitle: string;
   companyName: string;
+  vacancyUrl?: string;
   stage: HhChatConversationStage;
   hasUnread: boolean;
   lastMessage: string;
   lastMessageMine: boolean;
+  lastRecruiterMessage?: string;
   needsUserInput: boolean;
 }
 
@@ -120,7 +122,7 @@ export const DEFAULT_CHAT_CONFIG: HhChatConfig = {
     'Критические правила:',
     '- Ответь именно на ПОСЛЕДНЕЕ сообщение рекрутера. Первое предложение должно сразу отвечать на заданный вопрос.',
     '- Используй только подтверждённые факты из профиля кандидата ниже. Ничего не выдумывай.',
-    '- Никогда не упоминай название приложения, внутренний календарь, бота, ИИ, промпт или автоматическую генерацию.',
+    '- Никогда не упоминай название приложения, внутренний календарь, бота, промпт или автоматическую генерацию этого ответа. Если работодатель прямо спрашивает об опыте с LLM/AI/ИИ, ответь по подтверждённым фактам кандидата.',
     '- Не упоминай тестовое задание, если рекрутер не спросил о тестовом задании в последнем сообщении.',
     '- Не добавляй подпись, ФИО, телефон, почту или ссылки, если рекрутер прямо их не запросил.',
     '- На конкретный вопрос не отвечай приветствием, пересказом вакансии или общей фразой о заинтересованности.',
@@ -195,12 +197,13 @@ interface NegotiationSummary {
   key: string;
   vacancyTitle: string;
   companyName: string;
+  vacancyUrl?: string;
   isDiscussion: boolean;
   hasUnread: boolean;
   isRejected: boolean;
 }
 
-interface ChatMessage {
+export interface ChatMessage {
   id: string;
   text: string;
   isMine: boolean;
@@ -213,6 +216,113 @@ function chatStatePath(userDataDir: string): string {
 
 function compactText(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
+}
+
+function normalizeOutboundText(value: string): string {
+  return value
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map((line) => line.replace(/[\t ]+/g, ' ').trim())
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function numberedItemIds(value: string): string[] {
+  const ids = [...value.matchAll(/(?:^|[\s\n])(\d{1,2})\s*[.):]\s+/g)]
+    .map((match) => match[1]);
+  return [...new Set(ids)];
+}
+
+/** HH occasionally inserts its own assistant card between an employer question and the input. */
+export function isHhPlatformAssistantMessage(value: string): boolean {
+  const text = compactText(value);
+  return (
+    /бот[-\s\u2011]?помощник\s+х[эе]дди/i.test(text) ||
+    /ответьте\s+на\s+приглашение[^.]{0,180}рекомендовать\s+вам\s+более\s+подходящие\s+вакансии/i.test(text)
+  );
+}
+
+/** A batch of recruiter questions must be answered as one questionnaire, not as one detected fact. */
+export function isRecruiterQuestionnaire(value: string): boolean {
+  const text = compactText(value);
+  if (numberedItemIds(text).length >= 2) return true;
+  const questionMarks = (text.match(/\?/g) ?? []).length;
+  return text.length >= 180 && questionMarks >= 3;
+}
+
+export function isCompleteRecruiterQuestionnaireReply(
+  questionnaire: string,
+  reply: string,
+): boolean {
+  const normalizedReply = compactText(reply);
+  if (!normalizedReply || /^NEEDS_USER_INPUT\s*:/i.test(normalizedReply)) return false;
+  const questionIds = numberedItemIds(questionnaire);
+  if (questionIds.length > 0) {
+    const replyIds = new Set(numberedItemIds(reply));
+    return questionIds.every((id) => replyIds.has(id));
+  }
+  return normalizedReply.length >= 240;
+}
+
+function isHhRecommendationAcknowledgement(value: string): boolean {
+  const text = compactText(value);
+  return (
+    /спасибо\s+за\s+приглашение/i.test(text) &&
+    /(?:друг(?:ие|ую)\s+ваканси|рекомендац)/i.test(text)
+  );
+}
+
+/**
+ * Repair a recent missed questionnaire even when a later HH assistant card and
+ * an unrelated generic applicant reply made the newest bubble look handled.
+ */
+export function findLatestUnansweredRecruiterQuestionnaire(
+  messages: ChatMessage[],
+): ChatMessage | null {
+  const recentStart = Math.max(0, messages.length - 16);
+  for (let index = messages.length - 1; index >= recentStart; index -= 1) {
+    const message = messages[index];
+    if (
+      message.isMine ||
+      message.isSystem ||
+      isHhPlatformAssistantMessage(message.text) ||
+      !isRecruiterQuestionnaire(message.text)
+    ) continue;
+    const laterMessages = messages.slice(index + 1);
+    // Once the employer has continued the conversation, do not resurrect an
+    // older questionnaire: the applicant may have answered it in several
+    // natural messages without preserving the original numbering.
+    if (laterMessages.some((candidate) => (
+      !candidate.isMine &&
+      !candidate.isSystem &&
+      !isHhPlatformAssistantMessage(candidate.text)
+    ))) continue;
+    const outgoingReplies = laterMessages.filter((candidate) => (
+      candidate.isMine && !isHhRecommendationAcknowledgement(candidate.text)
+    ));
+    if (outgoingReplies.some((candidate) => (
+      isCompleteRecruiterQuestionnaireReply(message.text, candidate.text)
+    ))) continue;
+    const combinedReply = outgoingReplies.map((candidate) => candidate.text).join('\n');
+    if (outgoingReplies.length >= 2 || compactText(combinedReply).length >= 240) continue;
+    return message;
+  }
+  return null;
+}
+
+export function stripTrailingChatTimestamp(value: string): string {
+  return value.replace(/(?:\r?\n|\r)\s*(?:[01]\d|2[0-3]):[0-5]\d\s*$/, '').trim();
+}
+
+export function normalizeHhNegotiationVacancyUrl(value: string): string | undefined {
+  try {
+    const url = new URL(value, 'https://hh.ru');
+    if (!/(?:^|\.)hh\.ru$/i.test(url.hostname) || !/^\/vacancy\/\d+\/?$/i.test(url.pathname)) return undefined;
+    return `https://hh.ru${url.pathname.replace(/\/$/, '')}`;
+  } catch {
+    return undefined;
+  }
 }
 
 function formatRussianList(items: string[]): string {
@@ -283,15 +393,22 @@ export function buildGroundedRecruiterReply(
 
 /** Final outbound gate: unsafe or obviously irrelevant text is never sent to HH. */
 export function prepareRecruiterReply(rawReply: string, recruiterMessage: string): string | null {
-  const reply = compactText(rawReply)
+  const questionnaire = isRecruiterQuestionnaire(recruiterMessage);
+  const asksAboutAi = /(?:\bLLM\b|\bAI\b|(?:^|[^\p{L}])ИИ(?:$|[^\p{L}])|искусственн\w*\s+интеллект)/iu
+    .test(recruiterMessage);
+  const reply = normalizeOutboundText(rawReply)
     .replace(/^```(?:text)?\s*/i, '')
     .replace(/\s*```$/i, '')
     .replace(/^(?:ответ|сообщение)\s*:\s*/i, '')
-    .replace(/\s+(?:с уважением|с наилучшими пожеланиями)[,!]?\s+.*$/i, '')
+    .replace(/\s+(?:с уважением|с наилучшими пожеланиями)[,!]?[\s\S]*$/i, '')
     .trim();
-  if (!reply || reply.length > 800) return null;
+  if (!reply || reply.length > (questionnaire ? 6_000 : 800)) return null;
+  if (questionnaire && !isCompleteRecruiterQuestionnaireReply(recruiterMessage, reply)) return null;
   if (/skill\s*cue|skillcue|внутренн\w*\s+календар|через\s+(?:наш|мой)\s+календар/i.test(reply)) return null;
-  if (/\b(?:бот|нейросет|промпт)\b|искусственн\w*\s+интеллект|автоматическ\w*\s+генерац/i.test(reply)) return null;
+  if (
+    !asksAboutAi &&
+    (/\b(?:бот|нейросет|промпт)\b|искусственн\w*\s+интеллект|автоматическ\w*\s+генерац/i.test(reply))
+  ) return null;
   if (
     !/тестов(?:ое|ого|ому|ым|ом)\s+задани/i.test(recruiterMessage) &&
     /тестов(?:ое|ого|ому|ым|ом)\s+задани/i.test(reply)
@@ -393,7 +510,7 @@ export function isOutgoingChatClassName(value: string): boolean {
   return /(?:message_my|chat-bubble_outgoing|(?:^|[_-])outgoing(?:[_-]|$))/i.test(value);
 }
 
-export type GetPageFn = () => Promise<Page | null>;
+export type GetPageFn = (purpose?: 'background' | 'explicit') => Promise<Page | null>;
 export type GetCandidateProfileFn = (vacancyTitle: string) => Promise<string>;
 
 export class HhChatBrowser {
@@ -531,7 +648,7 @@ export class HhChatBrowser {
   }
 
   async pollNow(): Promise<HhChatState> {
-    await this.pollOnce();
+    await this.pollOnce(true);
     return this.getState();
   }
 
@@ -545,7 +662,7 @@ export class HhChatBrowser {
     if (this.polling) throw new Error('Дождитесь завершения текущей проверки сообщений.');
     const pending = this.pendingDecisions.find((item) => item.id === decisionId);
     if (!pending) throw new Error('Этот вопрос уже обработан или больше не найден.');
-    const page = await this.getPage();
+    const page = await this.getPage('explicit');
     if (!page || page.isClosed()) throw new Error('Браузер HH не открыт. Подключите HH ещё раз.');
     if (!this.isNegotiationsPage(page.url())) {
       await page.goto(HH_NEGOTIATIONS_URL, { waitUntil: 'domcontentloaded', timeout: 30_000 });
@@ -630,7 +747,7 @@ export class HhChatBrowser {
     }, this.config.pollIntervalSec * 1000);
   }
 
-  private async pollOnce(): Promise<void> {
+  private async pollOnce(explicit = false): Promise<void> {
     if (this.polling) return;
     this.polling = true;
     this.error = null;
@@ -639,8 +756,9 @@ export class HhChatBrowser {
     this.rollDailyCounter();
 
     try {
-      const page = await this.getPage();
+      const page = await this.getPage(explicit ? 'explicit' : 'background');
       if (!page || page.isClosed()) {
+        if (!explicit) return;
         throw new Error('Браузер HH не открыт. Сначала подключите HH в разделе автооткликов.');
       }
 
@@ -700,10 +818,12 @@ export class HhChatBrowser {
         key: item.key,
         vacancyTitle: item.vacancyTitle,
         companyName: item.companyName,
+        vacancyUrl: item.vacancyUrl,
         stage: 'waiting',
         hasUnread: item.hasUnread,
         lastMessage: '',
         lastMessageMine: false,
+        lastRecruiterMessage: '',
         needsUserInput: this.pendingDecisions.some((pending) => pending.negotiationKey === item.key),
       }]));
       let shouldPersist = negotiations.length > 0 ||
@@ -715,22 +835,31 @@ export class HhChatBrowser {
         try {
           const frame = await this.openNegotiation(page, negotiation);
         const messages = await this.scrapeMessages(frame);
-        const lastMessage = await this.scrapeLastMessage(frame, messages);
+        const latestMessage = await this.scrapeLastMessage(frame, messages);
+        const unansweredQuestionnaire = findLatestUnansweredRecruiterQuestionnaire(messages);
+        const lastMessage = unansweredQuestionnaire ?? latestMessage;
         const frameLabel = compactText(await frame.locator('body').innerText({ timeout: 1_500 }).catch(() => ''));
         const previousConversation = conversations.get(negotiation.key)!;
         const verifiedBot = isBotRecruiterLabel(frameLabel);
-        const hasInboundMessage = messages.some((message) => !message.isMine);
+        const hasInboundMessage = messages.some((message) => !message.isMine && !message.isSystem);
+        const lastRecruiterMessage = [...messages]
+          .reverse()
+          .find((message) => !message.isMine && !message.isSystem)?.text ?? '';
         conversations.set(negotiation.key, {
           ...previousConversation,
           stage: verifiedBot ? 'bot' : hasInboundMessage ? 'hr' : 'waiting',
-          lastMessage: lastMessage?.text ?? '',
-          lastMessageMine: lastMessage?.isMine ?? false,
+          lastMessage: latestMessage?.text ?? '',
+          lastMessageMine: latestMessage?.isMine ?? false,
+          lastRecruiterMessage,
         });
         if (this.recoverReplyHistory(negotiation, messages)) shouldPersist = true;
-        if (!lastMessage || lastMessage.isMine) continue;
+        if (!lastMessage || (!unansweredQuestionnaire && lastMessage.isMine)) continue;
 
         this.unreadMessages += 1;
-        const messageId = `${negotiation.key}:${lastMessage.id}`;
+        const questionnaire = isRecruiterQuestionnaire(lastMessage.text);
+        const messageId = questionnaire
+          ? `${negotiation.key}:${lastMessage.id}:questionnaire-v1`
+          : `${negotiation.key}:${lastMessage.id}`;
         if (this.seenMessageIds.has(messageId)) {
           if (this.replyHistory.some((item) => item.messageId === messageId)) continue;
           // Legacy versions could mark an inbound message as seen even when HH
@@ -809,7 +938,9 @@ export class HhChatBrowser {
         }
         if (this.repliesToday >= this.config.dailyReplyLimit) continue;
 
-        const decisionKind = detectChatDecisionKind(lastMessage.text);
+        // A salary or experience question inside a larger questionnaire must
+        // never short-circuit the remaining questions.
+        const decisionKind = questionnaire ? null : detectChatDecisionKind(lastMessage.text);
         if (decisionKind) {
           let resumeAnswer = '';
           if ((decisionKind === 'salary' || decisionKind === 'experience') && this.getCandidateProfile) {
@@ -899,25 +1030,39 @@ export class HhChatBrowser {
         const unknownFactRule = this.config.replyPrompt.includes('NEEDS_USER_INPUT:')
           ? ''
           : '\n\nЕсли для ответа нужен неизвестный личный факт кандидата, верни только: NEEDS_USER_INPUT: <короткий вопрос кандидату>.';
-        const prompt = (this.config.replyPrompt + confirmedFacts + unknownFactRule)
+        const questionnaireRule = questionnaire
+          ? [
+            '',
+            'Это анкета работодателя из нескольких вопросов.',
+            'Для неё правило «максимум 2 предложения» НЕ применяется.',
+            'Ответь на КАЖДЫЙ пункт по порядку и сохрани исходную нумерацию в формате 1), 2), 3). Не пропускай ни одного номера.',
+            'Технические вопросы объясняй конкретно и по существу. Личный опыт подтверждай только профилем кандидата; знание инструмента не выдавай за практический опыт.',
+            'Если в одном из пунктов спрашивают зарплату, возьми сумму из выбранного резюме, но обязательно ответь и на все остальные пункты.',
+            'Можно дать по 1–4 коротких предложения на пункт. Не добавляй вступление, подпись и заключение.',
+          ].join('\n')
+          : '';
+        const prompt = (this.config.replyPrompt + confirmedFacts + unknownFactRule + questionnaireRule)
           .replaceAll('{vacancy}', negotiation.vacancyTitle)
           .replaceAll('{company}', negotiation.companyName)
           .replaceAll('{candidateProfile}', candidateProfile || '(подтверждённый профиль пока недоступен)')
           .replaceAll('{message}', lastMessage.text);
         const groundedReply = buildGroundedRecruiterReply(lastMessage.text, candidateProfile);
-        let rawReply = groundedReply ?? compactText(
-          await this.settleWithin(this.llmCall(prompt), 20_000, ''),
-        ).slice(0, 3_000);
+        let rawReply = groundedReply ?? (await this.settleWithin(this.llmCall(prompt), 20_000, ''))
+          .trim()
+          .slice(0, 6_000);
         let reply = prepareRecruiterReply(rawReply, lastMessage.text);
         if (!reply && !groundedReply) {
-          rawReply = compactText(await this.settleWithin(
+          rawReply = (await this.settleWithin(
             this.llmCall(
               `${prompt}\n\nПредыдущий вариант не прошёл проверку безопасности или релевантности. ` +
-              'Перепиши ответ: сразу ответь на вопрос, не упоминай приложение, календарь, тестовое без вопроса о нём, подпись или общие фразы.',
+              (questionnaire
+                ? 'Перепиши ответ полностью: сохрани все номера исходной анкеты и ответь на каждый пункт. '
+                : 'Перепиши ответ: сразу ответь на вопрос. ') +
+              'Не упоминай приложение, календарь, тестовое без вопроса о нём, подпись или общие фразы.',
             ),
             20_000,
             '',
-          )).slice(0, 3_000);
+          )).trim().slice(0, 6_000);
           reply = prepareRecruiterReply(rawReply, lastMessage.text);
         }
         if (!reply) {
@@ -1256,6 +1401,12 @@ export class HhChatBrowser {
       const vacancyTitle = compactText(
         await item.locator(NEGOTIATION_VACANCY_SELECTOR).first().innerText({ timeout: 1_500 }).catch(() => ''),
       );
+      const vacancyHref = await item
+        .locator(NEGOTIATION_VACANCY_SELECTOR)
+        .first()
+        .getAttribute('href', { timeout: 1_500 })
+        .catch(() => null);
+      const vacancyUrl = normalizeHhNegotiationVacancyUrl(vacancyHref ?? '');
       const companyName = compactText(
         await item.locator(NEGOTIATION_COMPANY_SELECTOR).first().innerText({ timeout: 1_500 }).catch(() => ''),
       );
@@ -1279,6 +1430,7 @@ export class HhChatBrowser {
         key: `${vacancyTitle}\u0000${companyName}`,
         vacancyTitle,
         companyName,
+        vacancyUrl,
         isDiscussion,
         hasUnread,
         isRejected,
@@ -1339,11 +1491,11 @@ export class HhChatBrowser {
       if (!/^chatik-chat-message-\d+$/.test(dataQa)) continue;
       if (!(await message.isVisible().catch(() => false))) continue;
       const textNode = message.locator(`[data-qa="${dataQa}-text"]`).first();
-      const text = compactText(
-        (await textNode.count().catch(() => 0)) > 0
-          ? await textNode.innerText({ timeout: 1_000 }).catch(() => '')
-          : await message.innerText({ timeout: 1_000 }).catch(() => ''),
-      );
+      const hasDedicatedText = (await textNode.count().catch(() => 0)) > 0;
+      const rawText = hasDedicatedText
+        ? await textNode.innerText({ timeout: 1_000 }).catch(() => '')
+        : await message.innerText({ timeout: 1_000 }).catch(() => '');
+      const text = compactText(hasDedicatedText ? rawText : stripTrailingChatTimestamp(rawText));
       if (!text) continue;
       const ownClass = await message
         .evaluate((element) => {
@@ -1358,7 +1510,8 @@ export class HhChatBrowser {
       const hasOutgoingDescendant =
         (await message.locator(OUTGOING_SELECTOR).count().catch(() => 0)) > 0;
       const isSystem =
-        (await message.locator('[data-qa^="participant-action-message-"]').count().catch(() => 0)) > 0;
+        (await message.locator('[data-qa^="participant-action-message-"]').count().catch(() => 0)) > 0 ||
+        isHhPlatformAssistantMessage(text);
       result.push({
         id: dataQa,
         text,

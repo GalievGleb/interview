@@ -1,8 +1,8 @@
 .interview-next-banner {
   position: relative;
-  display: flex;
+  display: grid;
   flex: 0 0 auto;
-  flex-wrap: wrap;
+  grid-template-columns: auto minmax(260px, 1fr) minmax(260px, auto);
   align-items: center;
   gap: 16px;
   overflow: hidden;
@@ -45,8 +45,7 @@
 .interview-next-banner__copy {
   position: relative;
   z-index: 1;
-  min-width: 220px;
-  flex: 1 1 330px;
+  min-width: 0;
 }
 
 .interview-next-banner__heading {
@@ -123,11 +122,11 @@
   position: relative;
   z-index: 1;
   display: flex;
-  flex: 0 1 auto;
   flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
   gap: 9px;
+  max-width: 430px;
 }
 
 :root[data-theme='light'] .interview-next-banner {
@@ -144,13 +143,15 @@
 
 @media (max-width: 760px) {
   .interview-next-banner {
+    grid-template-columns: auto minmax(0, 1fr);
     align-items: flex-start;
   }
 
   .interview-next-banner__actions {
+    grid-column: 1 / -1;
+    max-width: none;
     width: 100%;
     justify-content: flex-start;
-    padding-left: 62px;
   }
 }
 
@@ -160,7 +161,7 @@
   }
 
   .interview-next-banner__actions {
-    padding-left: 0;
+    grid-column: 1 / -1;
   }
 
   .interview-next-banner__title {

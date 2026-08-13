@@ -42,6 +42,7 @@ export default function CommandPalette() {
         },
         { id: 'calendar', label: t('nav.calendar'), run: () => navigate('/calendar') },
         { id: 'documents', label: t('cmd.documents'), run: () => navigate('/documents') },
+        { id: 'practice', label: t('nav.practice'), run: () => navigate('/practice') },
         { id: 'history', label: t('cmd.history'), run: () => navigate('/history') },
         { id: 'settings', label: t('cmd.settings'), run: () => navigate('/settings') },
         {

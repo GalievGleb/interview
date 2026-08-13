@@ -31,12 +31,11 @@ export const PLANS: PlanInfo[] = [
     monthlyRub: 1490,
     yearlyRub: 14900,
     features: [
-      { textKey: 'billing.feat.mock', included: true },
-      { textKey: 'billing.feat.vacancy', included: true },
-      { textKey: 'billing.feat.kb', included: true },
-      { textKey: 'billing.feat.aiPrep', included: true },
+      { textKey: 'billing.feat.fullCycle', included: true },
+      { textKey: 'billing.feat.vacancyPractice', included: true },
+      { textKey: 'billing.feat.appExceptOverlay', included: true },
       { textKey: 'billing.feat.live', included: false },
-      { textKey: 'billing.feat.screen', included: false },
+      { textKey: 'billing.feat.stealth', included: false },
     ],
   },
   {
@@ -47,10 +46,10 @@ export const PLANS: PlanInfo[] = [
     popular: true,
     features: [
       { textKey: 'billing.feat.allBasic', included: true },
-      { textKey: 'billing.feat.liveDuring', included: true },
       { textKey: 'billing.feat.overlay', included: true },
+      { textKey: 'billing.feat.liveDuring', included: true },
       { textKey: 'billing.feat.screenshot', included: true },
-      { textKey: 'billing.feat.aiMax', included: true },
+      { textKey: 'billing.feat.stealth', included: true },
     ],
   },
 ];

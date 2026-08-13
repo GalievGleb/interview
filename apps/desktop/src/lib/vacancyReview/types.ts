@@ -69,6 +69,8 @@ export interface InterviewTopic extends QuestionMeta {
 export interface VacancyAnalysis {
   id: string;
   vacancyText: string;
+  /** A role-based practice has no real vacancy and must not be treated as one in navigation. */
+  contextKind?: 'vacancy' | 'role';
   /** Original vacancy link when the text was imported from a supported job board. */
   vacancyUrl?: string;
   vacancyCompany?: string;
@@ -232,6 +234,7 @@ export interface ReadinessReport {
 
 export interface VacancyReviewInput {
   vacancyText: string;
+  contextKind?: 'vacancy' | 'role';
   vacancyUrl?: string;
   vacancyCompany?: string;
   targetRole?: string;

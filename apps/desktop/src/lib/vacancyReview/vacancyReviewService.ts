@@ -160,6 +160,7 @@ export async function analyzeVacancy(input: VacancyReviewInput): Promise<Vacancy
       return {
         id: uid(),
         vacancyText: input.vacancyText,
+        contextKind: input.contextKind ?? 'vacancy',
         vacancyUrl: input.vacancyUrl,
         vacancyCompany: input.vacancyCompany,
         targetRole: r.targetRole || detectRole(input.vacancyText, input.targetRole),
@@ -256,6 +257,7 @@ export function analyzeVacancyMock(input: VacancyReviewInput): VacancyAnalysis {
   return {
     id: uid(),
     vacancyText: input.vacancyText,
+    contextKind: input.contextKind ?? 'vacancy',
     vacancyUrl: input.vacancyUrl,
     vacancyCompany: input.vacancyCompany,
     targetRole,

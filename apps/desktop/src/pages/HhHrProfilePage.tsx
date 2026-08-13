@@ -422,7 +422,7 @@ export default function HhHrProfilePage() {
               </label>
               <select
                 id="screening-vacancy-select"
-                className="min-w-[260px] flex-1 rounded-lg border border-surface-border bg-surface-light px-3 py-2.5 text-sm text-ink outline-none transition-colors focus:border-violet-400/55"
+                className="min-w-[260px] flex-1 rounded-lg border border-surface-border bg-surface-light px-3 py-2.5 text-sm text-ink outline-none transition-colors focus:border-violet-400/55 focus-visible:ring-2 focus-visible:ring-accent-ring"
                 value={activeVacancy?.key ?? ''}
                 onChange={(event) => {
                   const vacancy = pendingVacancies.find((item) => item.key === event.target.value);
@@ -457,7 +457,7 @@ export default function HhHrProfilePage() {
                   <button
                     key={vacancy.key}
                     type="button"
-                    className={`min-w-[190px] flex-1 rounded-xl border px-3.5 py-3 text-left transition-all ${selected ? 'border-violet-400/45 bg-violet-400/[0.08] shadow-[0_8px_30px_rgba(124,58,237,.08)]' : 'border-surface-border bg-surface-light hover:border-surface-border-strong hover:bg-surface-hover'}`}
+                    className={`min-w-[190px] flex-1 rounded-xl border px-3.5 py-3 text-left transition-[color,background-color,border-color,box-shadow] ${selected ? 'border-violet-400/45 bg-violet-400/[0.08] shadow-[0_8px_30px_rgba(124,58,237,.08)]' : 'border-surface-border bg-surface-light hover:border-surface-border-strong hover:bg-surface-hover'}`}
                     onClick={() => selectVacancy(vacancy)}
                   >
                     <span className="block truncate text-xs font-semibold text-ink">{vacancy.title}</span>
@@ -544,7 +544,7 @@ export default function HhHrProfilePage() {
                       {currentQuestion.options.map((option) => {
                         const selected = drafts[draftKey(activeVacancy.key, currentQuestion.id)]?.selectedOptions.includes(option) ?? false;
                         return (
-                          <label key={option} className={`flex cursor-pointer items-start gap-2.5 rounded-xl border p-3.5 text-sm transition-all ${selected ? 'border-emerald-400/40 bg-emerald-400/[0.07] text-ink' : 'border-surface-border bg-surface-light text-ink-muted hover:bg-surface-hover'}`}>
+                          <label key={option} className={`flex cursor-pointer items-start gap-2.5 rounded-xl border p-3.5 text-sm transition-[color,background-color,border-color] ${selected ? 'border-emerald-400/40 bg-emerald-400/[0.07] text-ink' : 'border-surface-border bg-surface-light text-ink-muted hover:bg-surface-hover'}`}>
                             <input
                               type={currentQuestion.kind === 'multiple' ? 'checkbox' : 'radio'}
                               name={`${activeVacancy.key}-${currentQuestion.id}`}

@@ -8,6 +8,7 @@ import {
   ChevronRight,
   EyeOff,
   FileUser,
+  Dumbbell,
   History,
   House,
   Mic2,
@@ -36,6 +37,7 @@ const NAV_ITEMS: Array<{
   { to: '/applications', label: 'nav.applications', icon: Send },
   { to: '/calendar', label: 'nav.calendar', icon: CalendarDays },
   { to: '/documents', label: 'nav.documents', icon: FileUser },
+  { to: '/practice', label: 'nav.practice', icon: Dumbbell },
   { to: '/history', label: 'nav.history', icon: History },
 ];
 
@@ -161,6 +163,8 @@ export default function Sidebar() {
         <img
           src={skillCueAppIcon}
           alt=""
+          width={36}
+          height={36}
           className="skillcue-logo"
           aria-hidden="true"
           draggable={false}
@@ -224,18 +228,19 @@ export default function Sidebar() {
         {backendStatus?.state === 'failed' && !visuallyCollapsed && (
           <p className="skillcue-sidebar__error">{t('sidebar.unavailable')}</p>
         )}
-        {isDeveloperBuild ? (
-          <div className="flex items-center gap-1">
-            <NavLink
-              to="/settings"
-              className={({ isActive }) =>
-                `skillcue-sidebar__icon-button ${isActive ? 'is-active' : ''}`
-              }
-              aria-label={t('nav.settings')}
-              title={t('nav.settings')}
-            >
-              <Settings size={16} aria-hidden="true" />
-            </NavLink>
+        <div className="skillcue-sidebar__utility-row" aria-label="Служебные действия">
+          <NavLink
+            to="/settings"
+            className={({ isActive }) =>
+              `skillcue-sidebar__icon-button ${isActive ? 'is-active' : ''}`
+            }
+            aria-label={t('nav.settings')}
+            title={t('nav.settings')}
+          >
+            <Settings size={17} aria-hidden="true" />
+          </NavLink>
+          {isDeveloperBuild && (
+            <>
             <button
               type="button"
               className={`skillcue-sidebar__icon-button ${undetected ? 'is-active' : ''}`}
@@ -276,20 +281,9 @@ export default function Sidebar() {
             >
               <EyeOff size={16} aria-hidden="true" />
             </button>
-          </div>
-        ) : (
-          <NavLink
-            to="/settings"
-            className={({ isActive }) =>
-              `skillcue-sidebar__settings ${isActive ? 'is-active' : ''}`
-            }
-            aria-label={t('nav.settings')}
-            title={visuallyCollapsed ? t('nav.settings') : undefined}
-          >
-            <Settings size={17} aria-hidden="true" />
-            {!visuallyCollapsed && <span>{t('nav.settings')}</span>}
-          </NavLink>
-        )}
+            </>
+          )}
+        </div>
       </div>
     </aside>
   );

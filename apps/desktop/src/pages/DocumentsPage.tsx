@@ -1,17 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRight, CheckCircle2, LoaderCircle, Mic, Square } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import CandidateJourneyStrip from '../components/candidate/CandidateJourneyStrip';
 import GrowthProfileSetup from '../components/candidate/GrowthProfileSetup';
 import { api, DocumentItem } from '../lib/api';
-import {
-  buildCandidateJourney,
-  readCandidatePath,
-} from '../lib/candidateJourney';
 import { readGrowthProfile, type GrowthProfileSetup as GrowthProfileSetupValue } from '../lib/growthProfile';
 import { useI18n, type I18nKey } from '../lib/i18n';
 import { listSessions } from '../lib/vacancyReview/vacancyReviewStore';
 import { useVoiceAnswer } from '../lib/vacancyReview/useVoiceAnswer';
+import Modal from '../components/Modal';
 
 const KINDS: Array<{ value: string; labelKey: I18nKey }> = [
   { value: 'resume', labelKey: 'docs.kind.resume' },
@@ -70,10 +66,11 @@ interface PillarProps {
   title: string;
   connectedTitle: string;
   count: number;
+  primary: boolean;
   onAdd: () => void;
 }
 
-function SourcePillar({ icon, variant, title, connectedTitle, count, onAdd }: PillarProps) {
+function SourcePillar({ icon, variant, title, connectedTitle, count, primary, onAdd }: PillarProps) {
   const { t } = useI18n();
   const on = count > 0;
   const docWord = count === 1 ? t('docs.doc.one') : t('docs.doc.many');
@@ -93,7 +90,11 @@ function SourcePillar({ icon, variant, title, connectedTitle, count, onAdd }: Pi
         </span>
       </div>
       <div className="mt-4 flex items-center gap-3">
-        <button type="button" className="prep-btn prep-btn-sm" onClick={onAdd}>
+        <button
+          type="button"
+          className={`prep-btn prep-btn-sm ${primary ? '' : 'prep-btn-secondary'}`}
+          onClick={onAdd}
+        >
           {on
             ? t('docs.pillar.addMore')
             : variant === 'resume'
@@ -120,7 +121,6 @@ export default function DocumentsPage() {
   const returnSessionId = params.get('session')?.trim() ?? '';
   const [docs, setDocs] = useState<DocumentItem[]>([]);
   const [hhResumeCount, setHhResumeCount] = useState(0);
-  const [hasRealInterviewEvidence, setHasRealInterviewEvidence] = useState(false);
   const [kind, setKind] = useState('resume');
   const [title, setTitle] = useState('');
   const [text, setText] = useState('');
@@ -128,6 +128,8 @@ export default function DocumentsPage() {
   const [error, setError] = useState('');
   const [textError, setTextError] = useState('');
   const [savedKind, setSavedKind] = useState('');
+  const [composerOpen, setComposerOpen] = useState(returnToPreparation);
+  const [documentToDelete, setDocumentToDelete] = useState<DocumentItem | null>(null);
   const [growthProfile, setGrowthProfile] = useState(readGrowthProfile);
   const uploadInFlightRef = useRef(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -161,18 +163,12 @@ export default function DocumentsPage() {
     void window.electronAPI?.hhAssistant?.getResumes()
       .then((resumes) => setHhResumeCount(resumes.length))
       .catch(() => setHhResumeCount(0));
-    void api.getDevelopmentProfile()
-      .then((profile) => setHasRealInterviewEvidence(
-        profile.analyzedSessions > 0
-        || profile.technical.evidenceCount > 0
-        || profile.hr.evidenceCount > 0,
-      ))
-      .catch(() => setHasRealInterviewEvidence(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const focusComposer = (into: string) => {
     setKind(into);
+    setComposerOpen(true);
     requestAnimationFrame(() => {
       composerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       composerRef.current?.focus();
@@ -229,6 +225,7 @@ export default function DocumentsPage() {
   const remove = async (id: string) => {
     await api.deleteDocument(id);
     await load();
+    setDocumentToDelete(null);
   };
 
   const counts = useMemo(() => {
@@ -246,21 +243,6 @@ export default function DocumentsPage() {
   const returnSession = returnSessionId
     ? sessions.find((session) => session.id === returnSessionId)
     : undefined;
-  const journey = buildCandidateJourney({
-    selectedPath: returnToPreparation ? 'vacancy' : baselineMode ? 'profile' : readCandidatePath(),
-    hasVacancy: returnToPreparation
-      || sessions.length > 0
-      || (counts.vacancy ?? 0) > 0,
-    hasResume: hasResumeSource,
-    hasAnalysis: sessions.length > 0,
-    practiceAnswers: sessions.find((session) => session.status === 'in_progress')?.answers.length ?? 0,
-    practiceQuestions: sessions.find((session) => session.status === 'in_progress')?.questions.length ?? 0,
-    practiceCompleted: sessions.some((session) => session.status === 'completed'),
-    hasGrowthRole: Boolean(growthProfile.role),
-    hasGrowthProfile: Boolean(growthProfile.completed),
-    hasEvidence: sessions.some((session) => session.status === 'completed') || hasRealInterviewEvidence,
-    activeSessionId: sessions[0]?.id,
-  });
   const nextAfterResume = returnToPreparation
     ? {
         title: 'Резюме добавлено — теперь сопоставьте его с вакансией.',
@@ -272,14 +254,6 @@ export default function DocumentsPage() {
   return (
     <div className="prep h-full overflow-y-auto">
       <div className="prep-wrap prep-rise prep-home">
-        {journey.steps.length > 0 && (
-          <CandidateJourneyStrip
-            compact
-            steps={journey.steps}
-            ariaLabel={`Путь: ${journey.pathLabel}`}
-          />
-        )}
-
         <section>
           <p className="prep-eyebrow">{baselineMode ? 'ОТПРАВНАЯ ТОЧКА' : t('docs.eyebrow')}</p>
           <h1 className="prep-h1 mt-1">
@@ -319,6 +293,7 @@ export default function DocumentsPage() {
             title={t('docs.pillar.resumeOff')}
             connectedTitle={t('docs.pillar.resumeOn')}
             count={resumeSourceCount}
+            primary={!hasResumeSource}
             onAdd={() => focusComposer('resume')}
           />
           <SourcePillar
@@ -327,6 +302,7 @@ export default function DocumentsPage() {
             title={t('docs.pillar.legendOff')}
             connectedTitle={t('docs.pillar.legendOn')}
             count={counts.legend ?? 0}
+            primary={hasResumeSource && (counts.legend ?? 0) === 0}
             onAdd={() => focusComposer('legend')}
           />
         </section>
@@ -342,24 +318,36 @@ export default function DocumentsPage() {
           <section className="candidate-next-step" aria-labelledby="profile-next-step-title">
             <CheckCircle2 size={21} aria-hidden="true" />
             <div>
-              <strong id="profile-next-step-title">Исходные данные готовы — теперь нужна конкретная практика.</strong>
-              <p>Найдите подходящую вакансию или добавьте её вручную. Результаты появятся в «Практике и интервью».</p>
+              <strong id="profile-next-step-title">Профиль готов — можно проверить навыки.</strong>
+              <p>Начните по выбранной роли или добавьте вакансию для более точных вопросов.</p>
             </div>
             <div className="candidate-journey-actions">
-              <button type="button" className="prep-btn" onClick={() => navigate('/applications?mode=settings')}>
-                Найти вакансии на HH <ArrowRight size={15} aria-hidden="true" />
+              <button type="button" className="prep-btn" onClick={() => navigate('/practice')}>
+                Начать практику <ArrowRight size={15} aria-hidden="true" />
               </button>
               <button type="button" className="prep-btn prep-btn-ghost" onClick={() => navigate('/prepare')}>
-                Добавить вакансию вручную
+                Добавить вакансию
               </button>
             </div>
           </section>
         )}
 
-        <section className="prep-doc-grid mt-5">
-          <div className="prep-action-card">
+        {composerOpen && <section className="prep-doc-grid mt-5" aria-labelledby="document-composer-title">
+          <form
+            className="prep-action-card"
+            onSubmit={(event) => { event.preventDefault(); void addText(); }}
+            onKeyDown={(event) => {
+              if (event.ctrlKey && event.key === 'Enter') {
+                event.preventDefault();
+                void addText();
+              }
+            }}
+          >
             <p className="prep-eyebrow">{t('docs.add.eyebrow')}</p>
-            <h2 className="prep-h2 prep-card-title">{t('docs.add.title')}</h2>
+            <div className="prep-section-head">
+              <h2 id="document-composer-title" className="prep-h2 prep-card-title">{t('docs.add.title')}</h2>
+              <button type="button" className="prep-btn prep-btn-ghost prep-btn-sm" onClick={() => setComposerOpen(false)}>Закрыть</button>
+            </div>
             <div className="mt-4 grid gap-3 sm:grid-cols-[180px_1fr]">
               <label className="prep-field-label" htmlFor="document-kind">
                 <span>Тип материала</span>
@@ -425,8 +413,7 @@ export default function DocumentsPage() {
                 </button>
               )}
               <button
-                type="button"
-                onClick={addText}
+                type="submit"
                 disabled={busyKind !== null}
                 className="prep-btn"
               >
@@ -470,26 +457,16 @@ export default function DocumentsPage() {
                 {error}
               </p>
             )}
-          </div>
+          </form>
 
-        </section>
+        </section>}
 
-        <section>
-          <div className="prep-section-head">
-            <div>
-              <p className="prep-eyebrow">{t('docs.library.eyebrow')}</p>
-              <h2 className="prep-h2 prep-section-title">{t('docs.library.title')}</h2>
-            </div>
-            {docs.length > 0 && <span className="prep-faint">{docs.length} {t('home.analytics.total')}</span>}
-          </div>
-
-          <div className="prep-doc-list">
-            {docs.length === 0 && (
-              <div className="prep-empty-state">
-                <p className="prep-h2">{t('docs.empty.title')}</p>
-                <p className="prep-sub mt-1">{t('docs.empty.sub')}</p>
-              </div>
-            )}
+        {docs.length > 0 && <details className="prep-disclosure docs-library-disclosure">
+          <summary>
+            <span>{t('docs.library.title')} · {docs.length}</span>
+            <span className="prep-faint">Показать</span>
+          </summary>
+          <div className="prep-disclosure__body prep-doc-list">
             {docs.map((doc) => {
               const style = KIND_STYLE[doc.kind];
               const label = style ? t(style.labelKey) : doc.kind.toUpperCase();
@@ -506,7 +483,7 @@ export default function DocumentsPage() {
                   </div>
                   <button
                     type="button"
-                    onClick={() => void remove(doc.id)}
+                    onClick={() => setDocumentToDelete(doc)}
                     className="prep-btn prep-btn-ghost prep-btn-sm shrink-0"
                   >
                     {t('common.delete')}
@@ -515,8 +492,22 @@ export default function DocumentsPage() {
               );
             })}
           </div>
-        </section>
+        </details>}
       </div>
+      <Modal
+        open={Boolean(documentToDelete)}
+        onClose={() => setDocumentToDelete(null)}
+        title="Удалить материал?"
+        subtitle={documentToDelete?.title}
+        footer={(
+          <>
+            <button type="button" className="btn-secondary" onClick={() => setDocumentToDelete(null)}>Отмена</button>
+            <button type="button" className="btn-danger" onClick={() => documentToDelete && void remove(documentToDelete.id)}>Удалить</button>
+          </>
+        )}
+      >
+        <p className="text-sm text-ink-muted">Материал перестанет использоваться в ответах и подготовке.</p>
+      </Modal>
     </div>
   );
 }

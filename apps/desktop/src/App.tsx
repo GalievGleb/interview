@@ -8,6 +8,7 @@ import { useBuildChannel } from './lib/buildChannel';
 // Route-level code splitting — keeps the initial bundle small and cold start fast.
 const HomePage = lazy(() => import('./pages/HomePage'));
 const PreparePage = lazy(() => import('./pages/PreparePage'));
+const PracticePage = lazy(() => import('./pages/PracticePage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const DocumentsPage = lazy(() => import('./pages/DocumentsPage'));
 const DemoPage = lazy(() => import('./pages/DemoPage'));
@@ -56,7 +57,7 @@ function LegacyProgressRedirect() {
   if (start === 'goal' || start === 'assessment') {
     return <Navigate to={`/documents?mode=baseline&section=${start === 'goal' ? 'goal' : 'baseline'}`} replace />;
   }
-  return <Navigate to="/history?view=growth" replace />;
+  return <Navigate to="/practice" replace />;
 }
 
 /** Lets the main window respond to navigation requested from the overlay. */
@@ -101,6 +102,7 @@ function NavigationBridge() {
     const prefetch = () => {
       void import('./pages/HomePage');
       void import('./pages/PreparePage');
+      void import('./pages/PracticePage');
       void import('./pages/HistoryPage');
       void import('./pages/SessionAnalysisPage');
       void import('./pages/HhApplicationsPage');
@@ -136,6 +138,9 @@ export default function App() {
           <Route path="/overlay" element={<OverlayPage />} />
           <Route path="/home" element={<Gate><HomePage /></Gate>} />
           <Route path="/prepare" element={<Gate><PreparePage /></Gate>} />
+          <Route path="/practice" element={<Gate><PracticePage /></Gate>} />
+          <Route path="/practice/new" element={<Gate><PreparePage /></Gate>} />
+          <Route path="/practice/session" element={<Gate><PreparePage /></Gate>} />
           <Route path="/demo" element={<Gate><DemoPage /></Gate>} />
           <Route path="/meeting" element={<DeveloperGate><MeetingPage /></DeveloperGate>} />
           <Route path="/documents" element={<Gate><DocumentsPage /></Gate>} />

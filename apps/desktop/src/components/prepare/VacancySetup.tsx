@@ -316,17 +316,26 @@ export default function VacancySetup({
         <p className="prep-eyebrow">{t('prep.setup.eyebrow')}</p>
         <h1 className="prep-h1 mt-1">{t('prep.title')}</h1>
         <p className="prep-sub mt-2 max-w-2xl">
-          Выберите резюме и вставьте ссылку HH — SkillCue сам прочитает вакансию и разберёт её относительно вашего опыта.
+          Вставьте ссылку HH или описание. Отклик при разборе не отправляется.
         </p>
       </header>
 
-      <section className="prep-setup-shell">
+      <form
+        className="prep-setup-shell"
+        onSubmit={(event) => { event.preventDefault(); void submit(); }}
+        onKeyDown={(event) => {
+          if (event.ctrlKey && event.key === 'Enter') {
+            event.preventDefault();
+            void submit();
+          }
+        }}
+      >
         <div className="prep-setup-main">
           <div className="prep-field-heading">
             <span className="prep-field-heading__icon" aria-hidden="true"><Link2 size={18} /></span>
             <div>
               <label htmlFor="vacancy-url" className="prep-h2">Ссылка на вакансию HH</label>
-              <p className="prep-faint mt-0.5">Вставьте ссылку — полное описание загрузится в фоне, без новых вкладок и без отклика.</p>
+              <p className="prep-faint mt-0.5">SkillCue загрузит описание без открытия формы отклика.</p>
             </div>
           </div>
 
@@ -388,7 +397,7 @@ export default function VacancySetup({
                     : 'Разбор запустится без сравнения с резюме.'
                   : t('prep.needText')}
             </p>
-            <button type="button" className="prep-btn" disabled={!canAnalyze} onClick={() => void submit()}>
+            <button type="submit" className="prep-btn" disabled={!canAnalyze}>
               {detectedVacancyUrl ? 'Загрузить с HH и разобрать' : t('home.action.reviewVacancy')}
               <ArrowRight size={16} aria-hidden="true" />
             </button>
@@ -519,7 +528,7 @@ export default function VacancySetup({
             Управлять локальными документами<ArrowRight size={14} />
           </Link>
         </aside>
-      </section>
+      </form>
     </div>
   );
 }

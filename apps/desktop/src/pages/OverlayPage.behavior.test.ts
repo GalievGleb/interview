@@ -118,10 +118,9 @@ describe('overlay request behavior', () => {
     expect(cssSource).toMatch(/\.ovl-transcript\s*\{[^}]*overscroll-behavior:\s*contain/s);
   });
 
-  it('hides vacancy context during a technical interview', () => {
-    expect(overlaySource).toContain(
-      "interviewContext && interviewContext.type !== 'technical' && !collapsed",
-    );
+  it('keeps calendar context internal instead of covering the call with its title', () => {
+    expect(overlaySource).toContain('const linkedEvent = interviewContext');
+    expect(overlaySource).not.toContain('<strong>{interviewContext.companyName}</strong>');
   });
 
   it('uses deep screen analysis for forced fallback when Smart is enabled', () => {
@@ -144,9 +143,15 @@ describe('overlay request behavior', () => {
     expect(overlaySource).toContain("onClick={() => submitForcedAnswer('button')}");
   });
 
-  it('treats typed Ctrl+Enter as the newest forced generation', () => {
-    expect(overlaySource).toContain('forceAnswer(input)');
-    expect(overlaySource).not.toContain("if (input.trim()) {\n      runAction('assist', input)");
+  it('keeps typed instructions instead of replacing them with an empty screen fallback', () => {
+    expect(overlaySource).toContain("runAction('assist', custom)");
+    expect(overlaySource).toContain('const custom = input.trim()');
+    expect(overlaySource).not.toContain('forceAnswer(input)');
+  });
+
+  it('uses native global movement without a duplicate renderer move', () => {
+    expect(overlaySource).not.toContain("mod && !e.shiftKey && e.key.startsWith('Arrow')");
+    expect(mainSource).toContain('move: moveOverlay');
   });
 
   it('distinguishes renderer and global shortcut duplicates', () => {
@@ -200,6 +205,14 @@ describe('overlay request behavior', () => {
     expect(overlaySource).toContain("position: 'fixed'");
   });
 
+  it('keeps a dismissible quick guide available after first launch', () => {
+    expect(overlaySource).toContain('skillcue.overlayQuickGuideSeen.v1');
+    expect(overlaySource).toContain('Ctrl+Enter');
+    expect(overlaySource).toContain('Ctrl+Shift+H');
+    expect(overlaySource).toContain('setShowQuickGuide(true)');
+    expect(overlaySource).toContain('localStorage.setItem(QUICK_GUIDE_KEY');
+  });
+
   it('offers explicit persisted analysis after the session ends', () => {
     expect(overlaySource).toContain("['analysis', t('overlay.recap.tab.analysis')]");
     expect(overlaySource).toContain('api.createSessionAnalysis(requestSessionId');
@@ -249,7 +262,35 @@ describe('overlay request behavior', () => {
     expect(overlaySource).toContain('if (!active) resetInactiveOverlay()');
     expect(overlaySource).toContain('setRecap(null)');
     expect(overlaySource).toContain('setUsageLog([])');
-    expect(overlaySource).toContain('setCollapsed(false)');
+    expect(overlaySource).not.toContain('setCollapsed(');
+  });
+
+  it('starts at sixty-percent opacity and ships without floating shadows', () => {
+    expect(overlaySource).toContain('return saved === null ? 60');
+    const shadows = [...cssSource.matchAll(/box-shadow:\s*([^;]+);/g)].map((match) => match[1].trim());
+    expect(shadows.length).toBeGreaterThan(0);
+    expect(shadows.every((value) => value === 'none')).toBe(true);
+  });
+
+  it('keeps the top pill limited to app identity and recording', () => {
+    expect(overlaySource).toContain('className="ovl-logo tip"');
+    expect(overlaySource).toContain('className={`ovl-rec tip');
+    expect(overlaySource).not.toContain('className="ovl-pill-btn tip"');
+    expect(overlaySource).not.toContain('className="ovl-hide-caret');
+  });
+
+  it('receives global answer scrolling from the native window', () => {
+    expect(overlaySource).toContain('overlay.onScroll?.((direction) => scrollOverlayContent(direction))');
+    expect(preloadSource).toContain("ipcRenderer.on('overlay:scroll', handler)");
+    expect(mainSource).toContain("win.webContents.send('overlay:scroll', direction)");
+  });
+
+  it('restores the same renderer state after the global visibility toggle', () => {
+    const toggleAt = mainSource.indexOf('function toggleOverlay(): void');
+    const retryAt = mainSource.indexOf('function scheduleToggleOverlayShortcutRetry', toggleAt);
+    const toggleSource = mainSource.slice(toggleAt, retryAt);
+    expect(toggleSource).toContain('else showOverlayWindow(win);');
+    expect(toggleSource).not.toContain('prepareOverlayForOpen(win)');
   });
 
   it('does not create an analysis without a persisted session id', () => {

@@ -111,6 +111,7 @@ const api = {
   },
   overlay: {
     toggle: () => ipcRenderer.invoke('overlay:toggle'),
+    getWindowState: () => ipcRenderer.invoke('overlay:get-window-state'),
     show: () => ipcRenderer.invoke('overlay:show'),
     showForInterviewEvent: (eventId: string) =>
       ipcRenderer.invoke('overlay:showForInterviewEvent', eventId),
@@ -148,6 +149,11 @@ const api = {
       const handler = () => cb();
       ipcRenderer.on('overlay:force-answer', handler);
       return () => ipcRenderer.removeListener('overlay:force-answer', handler);
+    },
+    onScroll: (cb: (direction: -1 | 1) => void) => {
+      const handler = (_event: unknown, direction: -1 | 1) => cb(direction);
+      ipcRenderer.on('overlay:scroll', handler);
+      return () => ipcRenderer.removeListener('overlay:scroll', handler);
     },
   },
   window: {

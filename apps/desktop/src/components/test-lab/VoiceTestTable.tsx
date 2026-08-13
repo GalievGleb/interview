@@ -51,7 +51,7 @@ export default function VoiceTestTable({
             return (
               <tr
                 key={row.caseId}
-                className={`cursor-pointer border-b border-surface-border/70 transition hover:bg-surface ${
+                className={`cursor-pointer border-b border-surface-border/70 transition-colors hover:bg-surface ${
                   active ? 'bg-accent/5' : ''
                 }`}
                 onClick={() => onSelectRow(row.caseId)}

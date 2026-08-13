@@ -40,6 +40,8 @@ export interface InterviewOutcome {
 export interface InterviewCalendarEvent {
   id: string;
   negotiationKey?: string;
+  /** Stable path across HR, technical and final calls for the same vacancy. */
+  journeyId?: string;
   vacancyTitle: string;
   companyName: string;
   type: InterviewType;
@@ -614,10 +616,25 @@ export class InterviewCalendarStore {
         ? this.state.events.find((item) => item.negotiationKey === input.negotiationKey && item.status !== 'cancelled')
         : undefined;
     const id = existing?.id ?? input.id ?? `interview-${crypto.randomUUID()}`;
+    const normalizedVacancyUrl = input.vacancyUrl?.trim();
+    const related = this.state.events
+      .filter((event) => event.id !== id && event.status !== 'cancelled')
+      .filter((event) => {
+        if (normalizedVacancyUrl && event.vacancyUrl?.trim() === normalizedVacancyUrl) return true;
+        return event.companyName.trim().toLocaleLowerCase('ru') === input.companyName.trim().toLocaleLowerCase('ru')
+          && event.vacancyTitle.trim().toLocaleLowerCase('ru') === input.vacancyTitle.trim().toLocaleLowerCase('ru');
+      })
+      .sort((left, right) => +new Date(right.updatedAt) - +new Date(left.updatedAt))[0];
     const next: InterviewCalendarEvent = {
       ...existing,
       ...input,
       id,
+      journeyId: input.journeyId ?? existing?.journeyId ?? related?.journeyId ?? related?.id ?? id,
+      // A journey may contain HR, technical and final calls. They share the
+      // vacancy context, but every real call keeps its own recording/session.
+      sessionId: input.sessionId ?? existing?.sessionId,
+      vacancyUrl: normalizedVacancyUrl || existing?.vacancyUrl || related?.vacancyUrl,
+      vacancyDescription: input.vacancyDescription?.trim() || existing?.vacancyDescription || related?.vacancyDescription,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     };

@@ -1,6 +1,6 @@
 export const OVERLAY_HIT_SELECTOR = '[data-overlay-hit="true"]';
 
-export type FloatingPlacement = 'top' | 'bottom';
+export type FloatingPlacement = 'top' | 'bottom' | 'left' | 'right';
 
 export function shouldCaptureOverlayPointer(
   element: Pick<Element, 'closest'> | null,
@@ -50,6 +50,26 @@ export function clampFloatingPanel(
   preferred: FloatingPlacement,
   margin = 8,
 ): { left: number; top: number } {
+  if (preferred === 'left' || preferred === 'right') {
+    const preferredLeft = preferred === 'right'
+      ? anchor.right + margin
+      : anchor.left - panel.width - margin;
+    const oppositeLeft = preferred === 'right'
+      ? anchor.left - panel.width - margin
+      : anchor.right + margin;
+    const preferredFits = preferredLeft >= margin
+      && preferredLeft + panel.width <= viewport.width - margin;
+    const left = Math.min(
+      Math.max(preferredFits ? preferredLeft : oppositeLeft, margin),
+      Math.max(margin, viewport.width - panel.width - margin),
+    );
+    const top = Math.min(
+      Math.max(anchor.bottom - panel.height, margin),
+      Math.max(margin, viewport.height - panel.height - margin),
+    );
+    return { left: Math.round(left), top: Math.round(top) };
+  }
+
   const left = Math.min(
     Math.max(anchor.left + anchor.width / 2 - panel.width / 2, margin),
     Math.max(margin, viewport.width - panel.width - margin),

@@ -8,7 +8,7 @@ const appSource = fs.readFileSync(path.resolve(__dirname, '../App.tsx'), 'utf8')
 
 describe('history analysis and privacy behavior', () => {
   it('opens backend sessions on a dedicated review route', () => {
-    expect(source).toContain('navigate(`/history/${encodeURIComponent(row.id)}`)');
+    expect(source).toContain('navigate(`/history/${encodeURIComponent(session.id)}`)');
     expect(appSource).toContain('path="/history/:sessionId"');
     expect(analysisSource).toContain('api.getSessionAnalysis(sessionId)');
   });
@@ -21,18 +21,23 @@ describe('history analysis and privacy behavior', () => {
   });
 
   it('reviews actual candidate answers and keeps generated hints separate', () => {
-    expect(analysisSource).toContain("const reviews = analysis?.answerReviews ?? []");
+    expect(analysisSource).toContain("(analysis?.answerReviews ?? []).filter");
     expect(analysisSource).toContain('review.candidateAnswer');
     expect(analysisSource).toContain('review.problems');
     expect(analysisSource).toContain('review.missingPoints');
-    expect(analysisSource).toContain('Подсказки ИИ во время созвона — не учитываются в оценке');
+    expect(analysisSource).toContain("ru ? 'Подсказки помощника' : 'Assistant hints'");
+    expect(analysisSource).toContain("ru ? 'Не учитываются в оценке.' : 'Excluded from the assessment.'");
   });
 
   it('does not render empty strength or growth columns for a short call', () => {
     expect(analysisSource).toContain('evidenceLayout.hasAny &&');
     expect(analysisSource).toContain('evidenceLayout.hasStrengths &&');
     expect(analysisSource).toContain('evidenceLayout.hasWeaknesses &&');
-    expect(analysisSource).toContain("evidenceLayout.isSplit ? 'lg:grid-cols-2' : ''");
+    expect(analysisSource).toContain("evidenceLayout.isSplit ? 'is-split' : ''");
+    expect(analysisSource).toContain('Недостаточно данных для оценки');
+    expect(analysisSource).toContain('reliableScore &&');
+    expect(analysisSource).toContain('hasRoleSeparationWarning');
+    expect(analysisSource).toContain('!roleSeparationWarning');
   });
 
   it('updates cached knowledge after deleting one or all sessions', () => {
@@ -40,18 +45,15 @@ describe('history analysis and privacy behavior', () => {
     expect(source).toContain('clearSessionKnowledge');
   });
 
-  it('invalidates an in-flight session open before deleting one or all sessions', () => {
-    const removeAt = source.indexOf('const remove = async');
-    const removeAllAt = source.indexOf('const removeAll = async');
-    expect(source.slice(removeAt, removeAllAt)).toContain('invalidatePendingOpen();');
-    expect(source.slice(removeAllAt, source.indexOf('const exportData'))).toContain(
-      'invalidatePendingOpen();',
-    );
+  it('confirms destructive deletion for one or all interviews', () => {
+    expect(source).toContain("title={deleteTarget === 'all' ? 'Очистить историю?' : 'Удалить интервью?'}");
+    expect(source).not.toContain('window.confirm');
+    expect(source).toContain('api.deleteAllSessions()');
   });
 
   it('uses one focused empty state before the first saved session', () => {
-    expect(source).toContain('!loading && rows.length === 0');
-    expect(source).toContain('className="prep-history-zero"');
-    expect(source).toContain('ПЕРВАЯ СЕССИЯ');
+    expect(source).toContain('sessions.length === 0');
+    expect(source).toContain('className="practice-empty"');
+    expect(source).toContain('Истории пока нет');
   });
 });

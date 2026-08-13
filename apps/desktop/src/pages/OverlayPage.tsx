@@ -37,7 +37,7 @@ import type {
 
 /**
  * Плавающий оверлей SkillCue (вдохновлён Cluely, но в навы+зелёном стиле):
- * — пилл сверху: логотип (открывает приложение), «Скрыть» с дропдауном, запись;
+ * — пилл сверху: логотип (открывает приложение) и запись;
  * — командная панель: Подсказка · Что сказать? · Доп. вопросы · Резюме · Экран,
  *   поле ввода (Ctrl+Enter = Подсказка), Smart, меню «…» с keybinds/тумблерами;
  * — панель ответа: синий пузырь запроса + стримящийся ответ + копирование;
@@ -90,12 +90,12 @@ const ACTIONS: Record<
 const SMART_KEY = 'skillcue.overlaySmart';
 const STEALTH_KEY = 'skillcue.overlayStealth';
 const AVOID_FOCUS_KEY = 'skillcue.overlayAvoidFocus';
-const HIDE_WIDGET_KEY = 'skillcue.overlayHideWidget';
 const USE_SCREEN_KEY = 'skillcue.overlayUseScreen';
 const OPACITY_KEY = 'skillcue.overlayOpacity';
+const QUICK_GUIDE_KEY = 'skillcue.overlayQuickGuideSeen.v1';
 
 function clampOpacity(v: number): number {
-  return Number.isFinite(v) && v >= 40 && v <= 100 ? v : 100;
+  return Number.isFinite(v) && v >= 40 && v <= 100 ? v : 60;
 }
 
 type RecapTab = 'summary' | 'analysis' | 'transcript' | 'usage';
@@ -235,7 +235,9 @@ export default function OverlayPage() {
   const [exchange, setExchange] = useState<Exchange | null>(null);
   const [smart, setSmart] = useState(() => localStorage.getItem(SMART_KEY) === '1');
   const [menuOpen, setMenuOpen] = useState(false);
-  const [hideMenuOpen, setHideMenuOpen] = useState(false);
+  const [showQuickGuide, setShowQuickGuide] = useState(
+    () => localStorage.getItem(QUICK_GUIDE_KEY) !== '1',
+  );
   const [modesOpen, setModesOpen] = useState(false);
   const [showTranscript, setShowTranscript] = useState(false);
   const [notice, setNotice] = useState('');
@@ -244,13 +246,10 @@ export default function OverlayPage() {
   // Cluely-подобные тумблеры.
   const [stealth, setStealth] = useState(() => localStorage.getItem(STEALTH_KEY) === '1');
   const [avoidFocus, setAvoidFocus] = useState(() => localStorage.getItem(AVOID_FOCUS_KEY) === '1');
-  const [hideHidesWidget, setHideHidesWidget] = useState(
-    () => localStorage.getItem(HIDE_WIDGET_KEY) !== '0',
-  );
-  const [opacity, setOpacity] = useState(() =>
-    clampOpacity(Number(localStorage.getItem(OPACITY_KEY))),
-  );
-  const [collapsed, setCollapsed] = useState(false);
+  const [opacity, setOpacity] = useState(() => {
+    const saved = localStorage.getItem(OPACITY_KEY);
+    return saved === null ? 60 : clampOpacity(Number(saved));
+  });
 
   // Итоги сессии.
   const [usageLog, setUsageLog] = useState<UsageEntry[]>([]);
@@ -281,7 +280,6 @@ export default function OverlayPage() {
   const menuRef = useRef<HTMLDivElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const menuPanelRef = useRef<HTMLDivElement>(null);
-  const hideMenuRef = useRef<HTMLDivElement>(null);
   const answerBodyRef = useRef<HTMLDivElement>(null);
   const transcriptScrollRef = useRef<HTMLDivElement>(null);
   const transcriptFollowsTailRef = useRef(true);
@@ -290,6 +288,26 @@ export default function OverlayPage() {
   const pointerControllerRef = useRef<OverlayPointerController | null>(null);
   const [menuPosition, setMenuPosition] = useState({ left: 8, top: 8 });
   const liveBlocked = license?.live_allowed === false;
+  const guideCopy = lang === 'ru'
+    ? {
+        title: 'Как пользоваться',
+        record: 'Нажмите красную кнопку — начнутся запись и транскрипция.',
+        answer: 'Ctrl+Enter — ответ по разговору; без голоса SkillCue посмотрит на экран.',
+        move: 'Ctrl+Shift+H скрывает панель, Ctrl+стрелки перемещают её.',
+        done: 'Понятно',
+      }
+    : {
+        title: 'How it works',
+        record: 'Press the red button to start recording and transcription.',
+        answer: 'Ctrl+Enter answers from the conversation; without audio SkillCue checks the screen.',
+        move: 'Ctrl+Shift+H hides the panel; Ctrl+arrows move it.',
+        done: 'Got it',
+      };
+
+  const dismissQuickGuide = () => {
+    localStorage.setItem(QUICK_GUIDE_KEY, '1');
+    setShowQuickGuide(false);
+  };
 
   // Прозрачный фон окна: панели «плавают» над рабочим столом.
   // Оверлей всегда тёмный, независимо от темы приложения.
@@ -324,7 +342,6 @@ export default function OverlayPage() {
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
       if (e.key === STEALTH_KEY) setStealth(e.newValue === '1');
-      if (e.key === HIDE_WIDGET_KEY) setHideHidesWidget(e.newValue !== '0');
     };
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
@@ -793,9 +810,7 @@ export default function OverlayPage() {
     setInput('');
     setShowTranscript(false);
     setMenuOpen(false);
-    setHideMenuOpen(false);
     setModesOpen(false);
-    setCollapsed(false);
   }, [closeExchange, closeRecap]);
 
   useEffect(
@@ -894,22 +909,10 @@ export default function OverlayPage() {
     void window.electronAPI?.overlay.setFocusable?.(!next);
   };
 
-  const toggleHideHidesWidget = () => {
-    const next = !hideHidesWidget;
-    setHideHidesWidget(next);
-    localStorage.setItem(HIDE_WIDGET_KEY, next ? '1' : '0');
-  };
-
   const changeOpacity = (v: number) => {
     const next = clampOpacity(v);
     setOpacity(next);
     localStorage.setItem(OPACITY_KEY, String(next));
-  };
-
-  const onHide = () => {
-    setHideMenuOpen(false);
-    if (hideHidesWidget) void window.electronAPI?.overlay.hide();
-    else setCollapsed((v) => !v);
   };
 
   const submitForcedAnswer = useCallback((source: ForceHotkeySource = 'button') => {
@@ -917,38 +920,41 @@ export default function OverlayPage() {
     if (!acceptForceHotkey(lastForceHotkeyRef.current, event)) return;
     lastForceHotkeyRef.current = event;
 
+    const custom = input.trim();
+    if (custom) {
+      runAction('assist', custom);
+      return;
+    }
+
     forceScreenFallbackOwnerRef.current = 0;
     screenAssistGenerationRef.current += 1;
     cancelRef.current?.();
     cancelRef.current = null;
     manualBusyRef.current = false;
     setNotice('');
-    const status = input.trim() ? forceAnswer(input) : forceAnswer();
-    if (input.trim()) setInput('');
+    const status = forceAnswer();
     if (status === 'started' || status === 'finalizing') return;
     void runScreenAssist('', smart ? 'deep' : 'general');
-  }, [forceAnswer, input, runScreenAssist, smart]);
+  }, [forceAnswer, input, runAction, runScreenAssist, smart]);
+
+  const scrollOverlayContent = useCallback((direction: -1 | 1) => {
+    const candidates = [
+      answerBodyRef.current,
+      transcriptScrollRef.current,
+      rootRef.current?.querySelector<HTMLElement>('.ovl-stack') ?? null,
+    ];
+    const body = candidates.find(
+      (candidate): candidate is HTMLElement => Boolean(
+        candidate && candidate.scrollHeight > candidate.clientHeight + 2,
+      ),
+    );
+    body?.scrollBy({ top: direction * 180, behavior: 'smooth' });
+  }, []);
 
   // ---------- Горячие клавиши ----------
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey;
-      // Перемещение окна: Ctrl+стрелки (как «Move Cluely»).
-      if (mod && !e.shiftKey && e.key.startsWith('Arrow')) {
-        const step = 40;
-        const delta: Record<string, [number, number]> = {
-          ArrowUp: [0, -step],
-          ArrowDown: [0, step],
-          ArrowLeft: [-step, 0],
-          ArrowRight: [step, 0],
-        };
-        const d = delta[e.key];
-        if (d && window.electronAPI?.overlay.move) {
-          e.preventDefault();
-          void window.electronAPI.overlay.move(d[0], d[1]);
-          return;
-        }
-      }
       // Размер панели: Ctrl+= (больше) / Ctrl+- (меньше).
       if (mod && !e.shiftKey && (e.key === '=' || e.key === '+')) {
         e.preventDefault();
@@ -962,12 +968,9 @@ export default function OverlayPage() {
       }
       // Прокрутка ответа: Ctrl+Shift+↑/↓.
       if (mod && e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
-        const body = answerBodyRef.current;
-        if (body) {
-          e.preventDefault();
-          body.scrollBy({ top: e.key === 'ArrowDown' ? 140 : -140, behavior: 'smooth' });
-          return;
-        }
+        e.preventDefault();
+        scrollOverlayContent(e.key === 'ArrowDown' ? 1 : -1);
+        return;
       }
       if (mod && e.key === 'Enter') {
         e.preventDefault();
@@ -993,7 +996,6 @@ export default function OverlayPage() {
       }
       if (e.key === 'Escape') {
         if (menuOpen) setMenuOpen(false);
-        else if (hideMenuOpen) setHideMenuOpen(false);
         else if (recap) closeRecap();
         else if (exchange) closeExchange();
         else void window.electronAPI?.overlay.hide();
@@ -1002,25 +1004,28 @@ export default function OverlayPage() {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [menuOpen, hideMenuOpen, exchange, recap, submitForcedAnswer, closeExchange, stopSession]);
+  }, [menuOpen, exchange, recap, submitForcedAnswer, closeExchange, scrollOverlayContent, stopSession]);
 
   useEffect(
     () => window.electronAPI?.overlay.onForceAnswer?.(() => submitForcedAnswer('global')),
     [submitForcedAnswer],
   );
 
+  useEffect(
+    () => window.electronAPI?.overlay.onScroll?.((direction) => scrollOverlayContent(direction)),
+    [scrollOverlayContent],
+  );
+
   // Клик мимо меню — закрыть.
   useEffect(() => {
-    if (!menuOpen && !hideMenuOpen) return;
+    if (!menuOpen) return;
     const onClick = (e: MouseEvent) => {
       const target = e.target as Node;
       if (menuOpen && menuRef.current && !menuRef.current.contains(target)) setMenuOpen(false);
-      if (hideMenuOpen && hideMenuRef.current && !hideMenuRef.current.contains(target))
-        setHideMenuOpen(false);
     };
     document.addEventListener('mousedown', onClick);
     return () => document.removeEventListener('mousedown', onClick);
-  }, [menuOpen, hideMenuOpen]);
+  }, [menuOpen]);
 
   const positionMainMenu = useCallback(() => {
     if (!menuButtonRef.current || !menuPanelRef.current) return;
@@ -1029,7 +1034,7 @@ export default function OverlayPage() {
         menuButtonRef.current.getBoundingClientRect(),
         menuPanelRef.current.getBoundingClientRect(),
         { width: window.innerWidth, height: window.innerHeight },
-        'top',
+        'right',
       ),
     );
   }, []);
@@ -1080,78 +1085,6 @@ export default function OverlayPage() {
           )}
         </button>
 
-        {/* «Скрыть» с дропдауном (как ⌄ Hide в референсе). */}
-        <div className="ovl-hide-group" ref={hideMenuRef}>
-          <button
-            type="button"
-            className="ovl-hide-caret overlay-no-drag tip"
-            data-tip={t('overlay.pill.hideMenuTip')}
-            aria-label={t('overlay.pill.hideMenuAria')}
-            onClick={() => setHideMenuOpen((v) => !v)}
-          >
-            <Icon d="m6 9 6 6 6-6" size={12} />
-          </button>
-          <button
-            type="button"
-            className="ovl-pill-btn tip"
-            data-tip={
-              hideHidesWidget
-                ? t('overlay.pill.hideTip')
-                : collapsed
-                  ? t('overlay.pill.expandTip')
-                  : t('overlay.pill.collapseTip')
-            }
-            onClick={onHide}
-          >
-            <Icon d="M18 6 6 18|M6 6l12 12" size={12} />
-            {collapsed ? t('overlay.pill.show') : t('overlay.pill.hide')}
-          </button>
-
-          {hideMenuOpen && (
-            <div
-              className="overlay-menu ovl-hide-menu left-0 top-full mt-1.5"
-              data-overlay-hit="true"
-            >
-              <button
-                type="button"
-                className="ovl-menu-toggle"
-                onClick={() => {
-                  toggleHideHidesWidget();
-                }}
-              >
-                <Icon d="M2 4h20v13H2z|M8 20h8" />
-                <span className="flex-1 text-left">{t('overlay.hideHidesWidget')}</span>
-                <Switch on={hideHidesWidget} label={t('overlay.hideHidesWidget')} />
-              </button>
-              <div className="ovl-menu-sep" />
-              <button
-                type="button"
-                className="btn-ghost w-full justify-start rounded-lg px-2 py-2 text-xs"
-                onClick={() => {
-                  setHideMenuOpen(false);
-                  void window.electronAPI?.overlay.hide();
-                }}
-              >
-                {t('overlay.hideOverlay')}
-                <span className="ovl-kbd ml-auto">Ctrl+Shift+H</span>
-              </button>
-              {active && (
-                <button
-                  type="button"
-                  className="btn-ghost w-full justify-start rounded-lg px-2 py-2 text-xs"
-                  onClick={() => {
-                    setHideMenuOpen(false);
-                    stopSession();
-                  }}
-                >
-                  {t('overlay.stopSession')}
-                  <span className="ovl-kbd ml-auto">Ctrl+Shift+\</span>
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-
         <button
           type="button"
           className={`ovl-rec tip ${active ? 'ovl-rec--live' : ''}`}
@@ -1184,18 +1117,26 @@ export default function OverlayPage() {
         </button>
       </div>
 
-      {/* ---------- Экран итогов сессии ---------- */}
-      {interviewContext && interviewContext.type !== 'technical' && !collapsed && (
-        <div className="mb-2 flex items-center gap-2 rounded-xl border border-emerald-400/20 bg-emerald-400/[0.07] px-3 py-2 text-[11px] text-emerald-100" data-overlay-hit="true">
-          <Icon d="M4 7h16v13H4z|M9 7V4h6v3" size={14} />
-          <span className="min-w-0 flex-1 truncate">
-            <strong>{interviewContext.companyName}</strong> · {interviewContext.vacancyTitle}
-          </span>
-          <span className="shrink-0 rounded-full border border-emerald-300/20 px-2 py-0.5 text-[10px] uppercase">
-            {interviewContext.type === 'hr' ? 'HR' : 'этап'}
-          </span>
-        </div>
+      {showQuickGuide && !recap && (
+        <section className="ovl-quick-guide" data-overlay-hit="true" aria-labelledby="overlay-quick-guide-title">
+          <div className="ovl-quick-guide__head">
+            <strong id="overlay-quick-guide-title">{guideCopy.title}</strong>
+            <button type="button" className="overlay-icon-btn" onClick={dismissQuickGuide} aria-label={guideCopy.done}>
+              <Icon d="M18 6 6 18|M6 6l12 12" size={13} />
+            </button>
+          </div>
+          <div className="ovl-quick-guide__steps">
+            <p><span className="ovl-quick-guide__record" aria-hidden="true" />{guideCopy.record}</p>
+            <p><span className="ovl-kbd">Ctrl+Enter</span>{guideCopy.answer}</p>
+            <p><span className="ovl-kbd">Ctrl+Shift+H</span>{guideCopy.move}</p>
+          </div>
+          <button type="button" className="ovl-quick-guide__done" onClick={dismissQuickGuide}>{guideCopy.done}</button>
+        </section>
       )}
+
+      {/* Calendar context stays linked internally but is intentionally not
+          rendered here: the overlay must not cover a call with repeated job
+          and company metadata. */}
       <div className="ovl-stack">
       {recap ? (
         <div className="ovl-card ovl-recap motion-safe:animate-scale-in" data-overlay-hit="true">
@@ -1494,7 +1435,6 @@ export default function OverlayPage() {
           </div>
         </div>
       ) : (
-        !collapsed && (
           <>
             {/* ---------- Панель ответа ---------- */}
             {exchange && (
@@ -1519,7 +1459,12 @@ export default function OverlayPage() {
                   <span className="ovl-viewed ovl-answer-label">
                     {t('overlay.viewedScreen')}
                     <span className="ovl-shot-pop">
-                      <img src={exchange.image} alt={t('overlay.screenshotAlt')} />
+                      <img
+                        src={exchange.image}
+                        alt={t('overlay.screenshotAlt')}
+                        width={320}
+                        height={180}
+                      />
                     </span>
                   </span>
                 ) : (
@@ -1775,6 +1720,17 @@ export default function OverlayPage() {
                         <div className="ovl-menu-sep" />
                         <button
                           type="button"
+                          className="ovl-menu-toggle"
+                          onClick={() => {
+                            setMenuOpen(false);
+                            setShowQuickGuide(true);
+                          }}
+                        >
+                          <Icon d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20|M9.5 9a2.5 2.5 0 0 1 5 0c0 2-2.5 2-2.5 4|M12 17h.01" />
+                          <span className="flex-1 text-left">{guideCopy.title}</span>
+                        </button>
+                        <button
+                          type="button"
                           className="btn-ghost w-full justify-start rounded-lg px-2 py-2 text-xs"
                           onClick={() => void window.electronAPI?.overlay.openSettings?.()}
                         >
@@ -1849,7 +1805,6 @@ export default function OverlayPage() {
               </div>
             )}
           </>
-        )
       )}
       </div>
       <OverlayTooltipLayer rootRef={rootRef} />

@@ -74,12 +74,17 @@ describe('PersistentGlobalShortcut', () => {
     expect(registry.unregister).toHaveBeenCalledWith('Control+Enter');
   });
 
-  it('is wired at application startup and delivers without focusing the overlay', () => {
+  it('is wired at startup but never creates or reveals a hidden developer overlay', () => {
     const registerShortcutsAt = mainSource.indexOf('function registerShortcuts');
     const createTrayAt = mainSource.indexOf('function createTray', registerShortcutsAt);
     const startupSource = mainSource.slice(registerShortcutsAt, createTrayAt);
     expect(startupSource).toContain('registerForceAnswerShortcut();');
-    expect(mainSource).toContain('if (!win.isVisible()) win.showInactive();');
+    expect(mainSource).toContain('scheduleToggleOverlayShortcutRetry');
+    expect(mainSource).toContain('toggleOverlayShortcutBinding?.ensureRegistered()');
+    expect(mainSource).toContain(
+      'if (isDeveloperBuild && (!existingOverlay || !existingOverlay.isVisible())) return;',
+    );
+    expect(mainSource).toContain("if (!win.isVisible()) showOverlayWindow(win, 'inactive');");
     expect(mainSource).toContain("win.webContents.send('overlay:force-answer')");
   });
 });

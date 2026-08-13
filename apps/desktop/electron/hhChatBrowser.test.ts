@@ -11,12 +11,18 @@ import {
   detectChatDecisionKind,
   extractCandidateCoreStack,
   extractChatUserInputQuestion,
+  findLatestUnansweredRecruiterQuestionnaire,
   formatChatPollError,
   isBotRecruiterLabel,
+  isCompleteRecruiterQuestionnaireReply,
+  isHhPlatformAssistantMessage,
   isOutgoingChatClassName,
+  isRecruiterQuestionnaire,
   isRejectedNegotiationStatus,
   isTerminalChatText,
+  normalizeHhNegotiationVacancyUrl,
   prepareRecruiterReply,
+  stripTrailingChatTimestamp,
 } from './hhChatBrowser';
 
 const source = fs.readFileSync(path.resolve(__dirname, 'hhChatBrowser.ts'), 'utf8');
@@ -25,6 +31,28 @@ describe('HhChatBrowser current HH contract', () => {
   it('uses the current applicant negotiations route', () => {
     expect(HH_NEGOTIATIONS_URL).toBe('https://hh.ru/applicant/negotiations');
     expect(source).not.toContain("https://hh.ru/negotiations'");
+  });
+
+  it('normalizes vacancy links from negotiations and drops a standalone HH timestamp', () => {
+    expect(normalizeHhNegotiationVacancyUrl('/vacancy/136064787?from=negotiations'))
+      .toBe('https://hh.ru/vacancy/136064787');
+    expect(normalizeHhNegotiationVacancyUrl('https://evil.example/vacancy/136064787')).toBeUndefined();
+    expect(stripTrailingChatTimestamp('Буду рад знакомству!\n19:53')).toBe('Буду рад знакомству!');
+    expect(stripTrailingChatTimestamp('Созвон в 19:53')).toBe('Созвон в 19:53');
+  });
+
+  it('quietly defers a scheduled poll when an invisible HH page is unavailable', async () => {
+    const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skillcue-hh-chat-deferred-'));
+    try {
+      const getPage = vi.fn(async () => null);
+      const chat = new HhChatBrowser(userDataDir, getPage, async () => '');
+      const internals = chat as unknown as { pollOnce: (explicit?: boolean) => Promise<void> };
+      await internals.pollOnce(false);
+      expect(getPage).toHaveBeenCalledWith('background');
+      expect(chat.getState().error).toBeNull();
+    } finally {
+      fs.rmSync(userDataDir, { recursive: true, force: true });
+    }
   });
 
   it('uses the current list, Chatik frame, input, and send selectors', () => {
@@ -139,6 +167,56 @@ describe('HhChatBrowser current HH contract', () => {
       ),
     ).toBe('Основной стек — Python, Pytest и Playwright. Пишу UI- и API-автотесты.');
     expect(DEFAULT_CHAT_CONFIG.replyPrompt).not.toMatch(/SkillCue/i);
+  });
+
+  it('treats the seven recruiter questions as one questionnaire and ignores Haddy', () => {
+    const questionnaire = [
+      'Хотели бы уточнить у вас несколько вопросов:',
+      '1) Для чего QA использует Charles, Proxyman и Fiddler?',
+      '2) Назовите причины ошибки Request Timeout',
+      '3) Какие инструменты полезны для снятия логов браузера и мобильных приложений?',
+      '4) С какими типами тестирования вы работали?',
+      '5) Что позволяет оценить качество тестирования?',
+      '6) Использовали ли вы LLM инструменты?',
+      '7) Какие у вас зарплатные ожидания?',
+    ].join('\n');
+    const haddy = [
+      'Бот-помощник Хэдди',
+      'Ответьте на приглашение, даже если оно вам не интересно.',
+      'Так мы сможем рекомендовать вам более подходящие вакансии.',
+    ].join(' ');
+    const fullReply = Array.from({ length: 7 }, (_, index) => (
+      `${index + 1}) Конкретный ответ на пункт работодателя с достаточным пояснением.`
+    )).join('\n');
+
+    expect(isRecruiterQuestionnaire(questionnaire)).toBe(true);
+    expect(isHhPlatformAssistantMessage(haddy)).toBe(true);
+    expect(isCompleteRecruiterQuestionnaireReply(questionnaire, 'Ожидаю 250 000 ₽ на руки.'))
+      .toBe(false);
+    expect(isCompleteRecruiterQuestionnaireReply(questionnaire, fullReply)).toBe(true);
+    expect(findLatestUnansweredRecruiterQuestionnaire([
+      { id: 'questionnaire', text: questionnaire, isMine: false },
+      { id: 'haddy', text: haddy, isMine: false, isSystem: true },
+      { id: 'generic', text: 'Спасибо за приглашение! Буду рад рекомендациям.', isMine: true },
+    ])).toMatchObject({ id: 'questionnaire' });
+    expect(findLatestUnansweredRecruiterQuestionnaire([
+      { id: 'questionnaire', text: questionnaire, isMine: false },
+      { id: 'answer', text: fullReply, isMine: true },
+    ])).toBeNull();
+    expect(findLatestUnansweredRecruiterQuestionnaire([
+      { id: 'questionnaire', text: questionnaire, isMine: false },
+      { id: 'answer-1', text: '1) Подробно ответил на первые вопросы, описал инструменты и диагностику.', isMine: true },
+      { id: 'answer-2', text: 'Остальные пункты отправил вторым сообщением, включая зарплатные ожидания.', isMine: true },
+    ])).toBeNull();
+    expect(findLatestUnansweredRecruiterQuestionnaire([
+      { id: 'questionnaire', text: questionnaire, isMine: false },
+      { id: 'follow-up', text: 'Спасибо, ответы получили. Когда готовы созвониться?', isMine: false },
+    ])).toBeNull();
+
+    const prepared = prepareRecruiterReply(fullReply, questionnaire);
+    expect(prepared).toContain('\n2)');
+    expect(prepared).toContain('\n7)');
+    expect(prepareRecruiterReply('7) Ожидаю 250 000 ₽ на руки.', questionnaire)).toBeNull();
   });
 
   it('migrates a persisted unsafe reply prompt instead of keeping it after an update', () => {
@@ -432,7 +510,104 @@ describe('HhChatBrowser current HH contract', () => {
       fs.rmSync(userDataDir, { recursive: true, force: true });
     }
     expect(source).toContain('if (!messages[index].isSystem) return messages[index]');
-    expect(source).toContain('if (!lastMessage || lastMessage.isMine) continue');
+    expect(source).toContain('if (!lastMessage || (!unansweredQuestionnaire && lastMessage.isMine)) continue');
+  });
+
+  it('repairs the exact missed questionnaire even after Haddy and a generic applicant reply', async () => {
+    const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skillcue-hh-chat-questionnaire-'));
+    const negotiationKey = 'Старший инженер-тестировщик\u0000Правительство Москвы';
+    const questionnaire = [
+      'Хотели бы уточнить у вас несколько вопросов:',
+      '1) Для чего в роли QA используются такие инструменты как Charles, Proxyman, Fiddler? Что такое Map Local, Breakpoint и Rewrite?',
+      '2) Назовите все возможные причины ошибки Request Timeout',
+      '3) Какие инструменты полезны для снятия логов браузера и мобильных приложений на iOS и Android?',
+      '4) С какими типами тестирования вы работали на практике?',
+      '5) Что позволяет вам оценить качество тестирования?',
+      '6) Использовали ли вы в работе LLM инструменты? Если да, то какие и для каких целей?',
+      '7) Какие у вас зарплатные ожидания?',
+    ].join('\n');
+    const generated = [
+      '1) Использую прокси для анализа и модификации HTTP/HTTPS-трафика.',
+      '2) Проверяю клиент, сеть, прокси и время обработки на сервере.',
+      '3) Для браузера использую DevTools, для Android — adb logcat, для iOS — Xcode и Console.',
+      '4) Работал с функциональным, регрессионным, smoke, интеграционным, API, UI и e2e-тестированием.',
+      '5) Оцениваю качество по рискам, покрытию, дефектам и стабильности прогонов.',
+      '6) Использую ChatGPT и Codex для анализа логов и черновиков тестов с обязательной проверкой результата.',
+      '7) Ожидаю 250 000 ₽ на руки.',
+    ].join('\n');
+    try {
+      const page = {
+        isClosed: () => false,
+        url: () => HH_NEGOTIATIONS_URL,
+        locator: () => ({ first: () => ({ waitFor: () => Promise.resolve() }) }),
+      };
+      const frame = {
+        locator: (selector: string) => selector === 'body'
+          ? { innerText: () => Promise.resolve('Обычный активный чат') }
+          : { first: () => ({ isVisible: () => Promise.resolve(true) }) },
+      };
+      const negotiation = {
+        index: 0,
+        key: negotiationKey,
+        vacancyTitle: 'Старший инженер-тестировщик',
+        companyName: 'Правительство Москвы',
+        isDiscussion: true,
+        hasUnread: false,
+        isRejected: false,
+      };
+      const llmCall = vi.fn(async () => generated);
+      const getCandidateProfile = vi.fn(async () => (
+        'Старший QA Automation Engineer, 4 года. Python, Pytest, Playwright, Charles Proxy. 250 000 ₽ на руки.'
+      ));
+      const chat = new HhChatBrowser(
+        userDataDir,
+        async () => page as never,
+        llmCall,
+        undefined,
+        undefined,
+        getCandidateProfile,
+      );
+      chat.saveConfig({ replyDelaySec: 0 });
+      const internals = chat as unknown as {
+        scrapeNegotiations: () => Promise<typeof negotiation[]>;
+        openNegotiation: () => Promise<typeof frame>;
+        scrapeMessages: () => Promise<Array<{
+          id: string;
+          text: string;
+          isMine: boolean;
+          isSystem?: boolean;
+        }>>;
+        sendChatMessage: (currentFrame: typeof frame, answer: string) => Promise<void>;
+        pollOnce: (explicit?: boolean) => Promise<void>;
+      };
+      vi.spyOn(internals, 'scrapeNegotiations').mockResolvedValue([negotiation]);
+      vi.spyOn(internals, 'openNegotiation').mockResolvedValue(frame);
+      vi.spyOn(internals, 'scrapeMessages').mockResolvedValue([
+        { id: 'chatik-chat-message-questionnaire', text: questionnaire, isMine: false },
+        {
+          id: 'chatik-chat-message-haddy',
+          text: 'Бот-помощник Хэдди. Ответьте на приглашение — так мы сможем рекомендовать вам более подходящие вакансии.',
+          isMine: false,
+          isSystem: true,
+        },
+        { id: 'chatik-chat-message-generic', text: 'Спасибо за приглашение! Буду рад рекомендациям.', isMine: true },
+      ]);
+      const sendChatMessage = vi.spyOn(internals, 'sendChatMessage').mockResolvedValue();
+
+      await internals.pollOnce(true);
+
+      expect(llmCall).toHaveBeenCalledOnce();
+      expect(llmCall.mock.calls[0][0]).toContain('Ответь на КАЖДЫЙ пункт');
+      expect(llmCall.mock.calls[0][0]).toContain('250 000 ₽ на руки');
+      expect(sendChatMessage).toHaveBeenCalledWith(frame, generated);
+      expect(chat.getState().replyHistory[0]).toMatchObject({
+        recruiterMessage: questionnaire,
+        reply: generated,
+        source: 'generated',
+      });
+    } finally {
+      fs.rmSync(userDataDir, { recursive: true, force: true });
+    }
   });
 
   it('counts a reply only after HH renders a new matching outgoing message', () => {

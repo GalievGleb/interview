@@ -86,16 +86,19 @@ export default function PlanPicker() {
                   {period === 'monthly' ? t('plan.perMonth') : t('plan.perYear')}
                 </span>
               </p>
+              <p className="mb-3 text-xs leading-relaxed text-ink-muted">
+                {t(plan.id === 'basic' ? 'billing.plan.basic.summary' : 'billing.plan.max.summary')}
+              </p>
               <ul className="mb-4 space-y-1.5">
                 {plan.features.map((f) => (
                   <li
                     key={f.textKey}
                     className={`flex items-start gap-2 text-xs ${
-                      f.included ? 'text-ink-muted' : 'text-ink-faint line-through'
+                      f.included ? 'text-ink-muted' : 'text-ink-faint'
                     }`}
                   >
                     <span className={f.included ? 'text-accent' : 'text-ink-faint'}>
-                      {f.included ? '✓' : '—'}
+                      {f.included ? '✓' : '×'}
                     </span>
                     {t(f.textKey)}
                   </li>

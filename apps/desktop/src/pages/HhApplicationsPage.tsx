@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AlertTriangle, ArrowRight, CalendarDays, Check, ChevronDown, Clock3, ExternalLink, FileText, Link2, Loader2, Mail, MessageCircle, RefreshCw, Search, Send, Settings2, Square, Trash2 } from 'lucide-react';
 import AvailabilityEditor, { formatAvailabilitySummary } from '../components/interview/AvailabilityEditor';
+import Modal from '../components/Modal';
 import { countUnansweredHhScreeningQuestions, readHhScreeningDrafts, summarizePendingHhScreening } from '../lib/hhScreening';
+import { compactHhResumeTitle } from '../lib/hhResumeTitle';
 import { pluralRu } from '../lib/pluralRu';
 import type { HhAssistantConfig, HhAssistantState, HhChatState, HhQueueItem, InterviewCalendarSettings, InterviewCalendarState } from '../types/electron';
 
@@ -79,7 +81,7 @@ export default function HhApplicationsPage() {
   const chat = window.electronAPI?.hhChat;
   const calendar = window.electronAPI?.interviewCalendar;
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [state, setState] = useState<HhAssistantState | null>(null);
   const [draft, setDraft] = useState(EMPTY_CONFIG);
   const [excludedKeywords, setExcludedKeywords] = useState('');
@@ -107,12 +109,37 @@ export default function HhApplicationsPage() {
   const [vacancyUrl, setVacancyUrl] = useState('');
   const [vacancyUrlError, setVacancyUrlError] = useState('');
   const [directApplyConfirmed, setDirectApplyConfirmed] = useState(false);
-  const [queueView, setQueueView] = useState<'active' | 'sent' | 'dialogs' | 'replies' | 'archive'>('active');
+  const [queueItemToApply, setQueueItemToApply] = useState<HhQueueItem | null>(null);
+  const [queueView, setQueueView] = useState<'active' | 'sent' | 'dialogs' | 'replies' | 'archive'>('dialogs');
   const [conversationStage, setConversationStage] = useState<'all' | 'waiting' | 'bot' | 'hr'>('all');
   const [visibleLimit, setVisibleLimit] = useState(25);
   const [pageMode, setPageMode] = useState<'activity' | 'settings'>(
     () => searchParams.get('mode') === 'settings' ? 'settings' : 'activity',
   );
+
+  const selectPageMode = (next: 'activity' | 'settings') => {
+    setPageMode(next);
+    const params = new URLSearchParams(searchParams);
+    if (next === 'settings') params.set('mode', 'settings');
+    else params.delete('mode');
+    setSearchParams(params, { replace: true });
+  };
+
+  const openVacancyInBrowser = (vacancy: Pick<HhQueueItem, 'url'>) => {
+    void window.electronAPI?.openExternal(vacancy.url).catch((error) => {
+      setAutomationError(errorMessage(error, 'Не удалось открыть вакансию HH.'));
+    });
+  };
+
+  const selectQueueView = (next: typeof queueView) => {
+    setPageMode('activity');
+    setQueueView(next);
+    const params = new URLSearchParams(searchParams);
+    params.delete('mode');
+    if (next === 'dialogs') params.delete('view');
+    else params.set('view', next);
+    setSearchParams(params, { replace: true });
+  };
 
   useEffect(() => {
     if (!assistant) return;
@@ -377,7 +404,7 @@ export default function HhApplicationsPage() {
     );
     setShowSearchRequirement(!missingConnection && !missingResume && !draft.query.trim());
     const targetId = missingConnection ? 'hh-platform-connection' : missingResume ? 'hh-resume-selection' : 'hh-search-query';
-    setPageMode('settings');
+    selectPageMode('settings');
     window.setTimeout(() => {
       const target = document.getElementById(targetId);
       target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -406,24 +433,6 @@ export default function HhApplicationsPage() {
       await run('stop', () => assistant.stopApply());
     } catch (error) {
       setAutomationError(errorMessage(error, 'Не удалось остановить текущий поиск.'));
-    }
-  };
-
-  const saveSchedule = async () => {
-    if (!assistant) return;
-    if (draft.autoRunDaily && startRequirement) {
-      focusMissingRequirement();
-      return;
-    }
-    setAutomationError('');
-    try {
-      await run('schedule', async () => {
-        const next = await assistant.saveConfig(config());
-        setDraft(next.config);
-        return next;
-      });
-    } catch (error) {
-      setAutomationError(errorMessage(error, 'Не удалось сохранить расписание.'));
     }
   };
 
@@ -482,10 +491,7 @@ export default function HhApplicationsPage() {
 
   const applyQueueItem = async (item: HhQueueItem) => {
     if (!assistant) return;
-    const confirmed = window.confirm(
-      `Отправить отклик на «${item.title}» в ${item.company}? SkillCue использует резюме «${item.selectedResumeTitle || draft.resumeTitles[0] || 'выбранное в настройках'}» и остановится, если понадобится ваш ответ.`,
-    );
-    if (!confirmed) return;
+    setQueueItemToApply(null);
     setAutomationError('');
     try {
       await run(`apply:${item.key}`, () => assistant.applyOne(item.key));
@@ -593,7 +599,7 @@ export default function HhApplicationsPage() {
   const pollChat = async () => {
     if (!chat) return;
     if (!hhConnected) {
-      setPageMode('settings');
+      selectPageMode('settings');
       return;
     }
     setChatBusy(true);
@@ -644,7 +650,7 @@ export default function HhApplicationsPage() {
   };
 
   const revealReplyHistory = () => {
-    setQueueView('replies');
+    selectQueueView('replies');
     window.setTimeout(() => {
       document.getElementById('hh-conversations-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, 0);
@@ -655,7 +661,7 @@ export default function HhApplicationsPage() {
   };
 
   const openChatSettings = () => {
-    setPageMode('settings');
+    selectPageMode('settings');
     window.setTimeout(() => {
       document.getElementById('hh-chat-settings')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, 40);
@@ -695,21 +701,21 @@ export default function HhApplicationsPage() {
         title: 'Очередь в работе пуста',
         detail: 'Выберите площадку и направление — SkillCue соберёт подходящие вакансии.',
         actionLabel: 'Настроить поиск',
-        action: () => setPageMode('settings'),
+        action: () => selectPageMode('settings'),
       }
     : queueView === 'sent'
       ? {
           title: 'Отправленных откликов пока нет',
           detail: 'После подтверждённой отправки вакансии появятся здесь.',
           actionLabel: 'Настроить поиск',
-          action: () => setPageMode('settings'),
+          action: () => selectPageMode('settings'),
         }
       : queueView === 'dialogs'
         ? {
             title: 'Новых диалогов пока нет',
             detail: hhConnected ? 'Новые сообщения появятся здесь.' : 'Подключите HH, чтобы проверить новые сообщения.',
             actionLabel: hhConnected ? 'Проверить сообщения' : 'Подключить HH',
-            action: hhConnected ? () => void pollChat() : () => setPageMode('settings'),
+            action: hhConnected ? () => void pollChat() : () => selectPageMode('settings'),
           }
         : queueView === 'replies'
           ? {
@@ -718,7 +724,7 @@ export default function HhApplicationsPage() {
                 ? 'Синхронизируйте диалоги HH, чтобы восстановить точные ответы.'
                 : 'Здесь появятся вопросы HR и ответы, отправленные от вашего имени.',
               actionLabel: hhConnected ? 'Проверить сообщения' : 'Подключить HH',
-              action: hhConnected ? () => void pollChat() : () => setPageMode('settings'),
+              action: hhConnected ? () => void pollChat() : () => selectPageMode('settings'),
             }
           : {
               title: 'Пропущенных вакансий нет',
@@ -776,7 +782,7 @@ export default function HhApplicationsPage() {
                 ? 'Последний запуск завершён; результат и история доступны ниже.'
                 : 'Параметры сохраняются — перед запуском достаточно проверить направление.',
             label: startRequirement ? 'Проверить настройки' : 'Запустить поиск',
-            action: startRequirement ? () => setPageMode('settings') : () => void launchAutomation(),
+            action: startRequirement ? () => selectPageMode('settings') : () => void launchAutomation(),
             tone: 'ready',
           };
 
@@ -787,13 +793,12 @@ export default function HhApplicationsPage() {
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="page-title text-2xl">Отклики</h1>
-          <p className="page-subtitle mt-1">Поиск вакансий, отправленные отклики и сообщения работодателей в одном месте.</p>
         </div>
         <nav className="hh-view-switcher" aria-label="Разделы откликов">
-          <button type="button" className={pageMode === 'activity' ? 'is-active' : ''} aria-pressed={pageMode === 'activity'} onClick={() => setPageMode('activity')}>
+          <button type="button" className={pageMode === 'activity' ? 'is-active' : ''} aria-pressed={pageMode === 'activity'} onClick={() => selectPageMode('activity')}>
             <Send size={15} />Активность{userActionCount > 0 && <span>{userActionCount}</span>}
           </button>
-          <button type="button" className={pageMode === 'settings' ? 'is-active' : ''} aria-pressed={pageMode === 'settings'} onClick={() => setPageMode('settings')}>
+          <button type="button" className={pageMode === 'settings' ? 'is-active' : ''} aria-pressed={pageMode === 'settings'} onClick={() => selectPageMode('settings')}>
             <Settings2 size={15} />Настройки
           </button>
         </nav>
@@ -822,6 +827,38 @@ export default function HhApplicationsPage() {
         </div>
         {activeRun && <div className="hh-run-progress mt-4" role="progressbar" aria-label="Прогресс поиска и откликов" aria-valuenow={applyPercent ?? undefined}><span className={applyPercent == null ? 'is-indeterminate' : ''} style={applyPercent == null ? undefined : { width: `${applyPercent}%` }} /></div>}
       </section>}
+
+      {pageMode === 'activity' && draft.platform === 'hh' && connected && <details className="hh-direct-vacancy panel-card shrink-0">
+        <summary><Link2 size={16} /> <span>Есть конкретная вакансия?</span><small>Открыть по ссылке</small><ChevronDown size={15} /></summary>
+        <div className="hh-direct-vacancy__body">
+          <input
+            className={`field min-w-0 flex-1 ${vacancyUrlError ? 'border-amber-400/70' : ''}`}
+            value={vacancyUrl}
+            onChange={(event) => { setVacancyUrl(event.target.value); setVacancyUrlError(''); setDirectApplyConfirmed(false); }}
+            onKeyDown={(event) => { if (event.key === 'Enter') prepareDirectVacancy(); }}
+            placeholder="https://hh.ru/vacancy/135995132"
+            aria-label="Ссылка на конкретную вакансию HH"
+            aria-invalid={Boolean(vacancyUrlError)}
+            aria-describedby="hh-direct-vacancy-help"
+          />
+          <button type="button" className="btn-primary shrink-0" disabled={busy !== ''} onClick={prepareDirectVacancy}>
+            <Search size={15} />Разобрать
+          </button>
+          <details className="hh-direct-vacancy__send">
+            <summary>Отправить сразу</summary>
+            <div>
+              <label>
+                <input type="checkbox" checked={directApplyConfirmed} onChange={(event) => { setDirectApplyConfirmed(event.target.checked); setVacancyUrlError(''); }} />
+                <span>Использовать подходящее резюме и сопроводительное</span>
+              </label>
+              <button type="button" className="btn-secondary btn-sm" disabled={busy !== ''} onClick={() => void applyDirectVacancy()}>
+                {busy === 'direct' ? <Loader2 className="animate-spin" size={14} /> : <Send size={14} />}Отправить отклик
+              </button>
+            </div>
+          </details>
+          <p id="hh-direct-vacancy-help" className={`hh-direct-vacancy__help ${vacancyUrlError ? 'text-amber-200' : 'text-ink-faint'}`} role={vacancyUrlError ? 'alert' : undefined}>{vacancyUrlError}</p>
+        </div>
+      </details>}
 
       {pageMode === 'settings' && <>
       <section className="grid shrink-0 gap-3 md:grid-cols-3" aria-label="Площадки для откликов">
@@ -878,39 +915,6 @@ export default function HhApplicationsPage() {
           {!resumeLoading && !resumeLoadError && resumes.length === 0 && <div className="rounded-xl border border-amber-400/20 bg-amber-400/[0.04] p-3 text-sm text-ink-muted"><p>Для отклика нужно опубликованное резюме в HH. Локальное резюме подходит для анализа, но HH не сможет отправить его работодателю.</p><button type="button" className="btn-secondary btn-sm mt-3" onClick={() => void window.electronAPI?.openExternal('https://hh.ru/applicant/resumes')}><ExternalLink size={14} />Открыть резюме в HH</button></div>}
           {resumes.length > 0 && <label className="flex items-center gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/[0.04] p-3"><FileText size={18} className="shrink-0 text-emerald-300" /><select className="field min-w-0 flex-1" aria-label="Резюме HH по умолчанию" value={draft.resumeTitles[0] ?? resumes[0].title} onChange={(event) => setDraft({ ...draft, resumeTitles: [event.target.value], resumeTitleContains: '' })}>{resumes.map((resume) => <option key={resume.id} value={resume.title}>{resume.title}</option>)}</select><span className="hidden text-xs text-emerald-300 sm:inline">Автовыбор включён</span></label>}
         </div>
-      </section>}
-
-      {draft.platform === 'hh' && <section className="panel-card shrink-0 p-5">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-[240px] flex-1">
-            <div className="flex items-center gap-2"><Link2 size={17} className="text-emerald-300" /><h2 className="panel-title">Есть конкретная вакансия?</h2></div>
-            <p className="mt-1 text-xs text-ink-faint">Вставьте ссылку HH. Сначала можно разобрать требования и подготовиться; немедленная отправка вынесена в отдельное подтверждаемое действие.</p>
-            {searchParams.get('session') && <p className="mt-2 flex items-center gap-1.5 text-xs font-medium text-emerald-300"><Check size={14} />Открыто из готового разбора вакансии</p>}
-          </div>
-          <div className="grid w-full min-w-0 gap-2 lg:w-auto lg:min-w-[560px] lg:grid-cols-[minmax(0,1fr)_auto]">
-            <input
-              className={`field min-w-0 flex-1 ${vacancyUrlError ? 'border-amber-400/70' : ''}`}
-              value={vacancyUrl}
-              onChange={(event) => { setVacancyUrl(event.target.value); setVacancyUrlError(''); setDirectApplyConfirmed(false); }}
-              onKeyDown={(event) => { if (event.key === 'Enter') prepareDirectVacancy(); }}
-              placeholder="https://hh.ru/vacancy/135995132"
-              aria-label="Ссылка на конкретную вакансию HH"
-              aria-invalid={Boolean(vacancyUrlError)}
-              aria-describedby="hh-direct-vacancy-help"
-            />
-            <button type="button" className="btn-primary shrink-0" disabled={busy !== ''} onClick={prepareDirectVacancy}>
-              <Search size={15} />Разобрать и подготовиться
-            </button>
-            <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-amber-400/20 bg-amber-400/[0.04] px-3 py-2 text-xs text-ink-muted lg:col-span-2">
-              <input type="checkbox" className="mt-0.5 h-4 w-4 shrink-0 accent-amber-400" checked={directApplyConfirmed} onChange={(event) => { setDirectApplyConfirmed(event.target.checked); setVacancyUrlError(''); }} />
-              <span>Отправить без дополнительного разбора. SkillCue использует выбранное резюме и остановится, если понадобится мой ответ.</span>
-            </label>
-            <button type="button" className="btn-secondary justify-center lg:col-span-2" disabled={busy !== ''} onClick={() => void applyDirectVacancy()}>
-              {busy === 'direct' ? <Loader2 className="animate-spin" size={15} /> : <Send size={15} />}Отправить отклик сейчас
-            </button>
-          </div>
-        </div>
-        <p id="hh-direct-vacancy-help" className={`mt-2 min-h-4 text-xs ${vacancyUrlError ? 'text-amber-200' : 'text-ink-faint'}`} role={vacancyUrlError ? 'alert' : undefined}>{vacancyUrlError}</p>
       </section>}
 
       <section
@@ -995,58 +999,54 @@ export default function HhApplicationsPage() {
         </div>
       </section>
 
-      <section className="panel-card shrink-0 p-5">
-        <div className="flex flex-wrap items-start justify-between gap-5">
-          <span className="min-w-[240px] flex-1">
-            <b className="block text-sm text-ink">3. Выбрать действие и запустить</b>
-            <span className="text-xs text-ink-faint">
-              {draft.autoSend
-                ? `SkillCue найдёт вакансии и может отправить до ${draft.dailyLimit} откликов за день.`
-                : 'SkillCue только найдёт вакансии и добавит их в очередь. Отправлять их вы будете по одной после проверки.'}
-            </span>
-            {startRequirement && <span id="auto-apply-requirement" className="mt-2 flex flex-wrap items-center gap-1.5 text-xs font-medium text-amber-200"><AlertTriangle size={14} />Для запуска: {startRequirement}<button type="button" className="rounded-md px-1.5 py-0.5 font-semibold text-amber-100 underline decoration-amber-300/60 underline-offset-2 hover:bg-amber-400/10" onClick={focusMissingRequirement}>Перейти к полю</button></span>}
-            {!startRequirement && <span id="auto-apply-requirement" aria-live="polite" className={`mt-2 flex items-center gap-1.5 text-xs font-medium ${searchLaunchBusy ? 'text-sky-200' : 'text-emerald-300'}`}>{searchLaunchBusy ? <Loader2 className="animate-spin" size={14} /> : <Check size={14} />}{searchLaunchBusy ? searchLaunchLabel : draft.autoSend ? 'Подходящие отклики будут отправляться автоматически' : 'Отклики не будут отправлены автоматически'}</span>}
-            {automationError && <span role="alert" className="mt-2 block text-xs text-red-300">{automationError}</span>}
-          </span>
-          {draft.platform === 'hh' && <fieldset className="min-w-[300px] rounded-xl border border-surface-border bg-surface-light p-3">
-            <legend className="px-1 text-xs font-semibold text-ink">Что делать с найденными вакансиями</legend>
-            <label className={`mt-1 flex cursor-pointer items-start gap-2 rounded-lg border p-2.5 ${!draft.autoSend ? 'border-emerald-400/35 bg-emerald-400/[0.06]' : 'border-transparent'}`}>
-              <input type="radio" name="hh-run-mode" className="mt-0.5 accent-emerald-500" checked={!draft.autoSend} onChange={() => setDraft({ ...draft, autoSend: false })} />
-              <span><b className="block text-xs text-ink">Добавить в очередь</b><span className="text-[11px] leading-relaxed text-ink-faint">Рекомендуется: сначала проверить соответствие и письмо.</span></span>
-            </label>
-            <label className={`mt-1 flex cursor-pointer items-start gap-2 rounded-lg border p-2.5 ${draft.autoSend ? 'border-amber-400/35 bg-amber-400/[0.06]' : 'border-transparent'}`}>
-              <input type="radio" name="hh-run-mode" className="mt-0.5 accent-amber-400" checked={draft.autoSend} onChange={() => setDraft({ ...draft, autoSend: true })} />
-              <span><b className="block text-xs text-ink">Отправлять автоматически</b><span className="text-[11px] leading-relaxed text-ink-faint">SkillCue остановится на неизвестных вопросах.</span></span>
-            </label>
-            {draft.autoSend && <label className="mt-2 block border-t border-surface-border pt-2">
-              <span className="label">Максимум откликов в день</span>
-              <input type="number" min={1} max={200} className="field mt-1 w-28 py-1.5" value={draft.dailyLimit} onChange={(event) => setDraft({ ...draft, dailyLimit: Math.max(1, Math.min(200, Number(event.target.value) || 1)) })} />
-            </label>}
-          </fieldset>}
-          {draft.platform === 'hh' && <div className="min-w-[280px] rounded-xl border border-surface-border bg-surface-light p-3">
-            <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-ink">
-              <input type="checkbox" className="h-4 w-4 accent-emerald-500" checked={draft.autoRunDaily} onChange={(event) => setDraft({ ...draft, autoRunDaily: event.target.checked })} />
-              <Clock3 size={16} />Повторять поиск каждый день
-            </label>
-            <div className="mt-2 flex flex-wrap items-center gap-2 pl-6 text-xs text-ink-muted">
-              <span>Время:</span>
-              <select className="field w-24 py-1.5" value={draft.autoRunHour} onChange={(e) => setDraft({ ...draft, autoRunHour: Number(e.target.value) })}>{Array.from({ length: 24 }, (_, hour) => <option key={hour} value={hour}>{String(hour).padStart(2, '0')}:00</option>)}</select>
-              {scheduleDirty && <button type="button" className="btn-ghost btn-sm" disabled={busy !== ''} onClick={() => void saveSchedule()}>{busy === 'schedule' && <Loader2 className="animate-spin" size={13} />}Сохранить</button>}
-            </div>
-            <p className="mt-2 pl-6 text-[11px] leading-relaxed text-ink-faint">
-              {draft.autoRunDaily
-                ? state?.nextRunAt && !scheduleDirty
-                  ? `Следующий автоматический запуск: ${new Date(state.nextRunAt).toLocaleString('ru-RU')}. Запуск сейчас его не отменяет.`
-                  : `После сохранения SkillCue будет запускать поиск ежедневно в ${String(draft.autoRunHour).padStart(2, '0')}:00.`
-                : 'Расписание выключено. Кнопка выполнит только один запуск сейчас.'}
-            </p>
-          </div>}
-          <div className="flex flex-wrap justify-end gap-2">
-            <button type="button" className="btn-secondary" disabled={busy !== ''} onClick={() => void saveSettingsOnly()}>{busy === 'settings' ? <Loader2 className="animate-spin" size={15} /> : <Check size={15} />}Сохранить без запуска</button>
-            {activeRun
-              ? <button type="button" className="btn-danger min-w-[220px] justify-center" aria-busy={stoppingRun} disabled={stoppingRun} onClick={() => void stopAutomation()}>{stoppingRun ? <Loader2 className="animate-spin" size={16} /> : <Square size={15} />}{stoppingRun ? 'Останавливаем…' : 'Остановить поиск и отклики'}</button>
-              : <button type="button" className="btn-primary min-w-[220px] justify-center" aria-describedby="auto-apply-requirement" disabled={busy !== ''} onClick={() => void launchAutomation()}><Search size={16} />{searchLaunchLabel}</button>}
+      <section className="hh-launch-panel panel-card shrink-0 p-5">
+        <div className="hh-launch-panel__header">
+          <div>
+            <p className="text-xs font-semibold text-ink-faint">Шаг 3</p>
+            <h2 className="mt-1 text-base font-semibold text-ink">Запуск</h2>
           </div>
+          {startRequirement
+            ? <span id="auto-apply-requirement" className="hh-launch-panel__status is-warning"><AlertTriangle size={14} />{startRequirement}<button type="button" onClick={focusMissingRequirement}>Исправить</button></span>
+            : <span id="auto-apply-requirement" aria-live="polite" className={`hh-launch-panel__status ${searchLaunchBusy ? 'is-busy' : ''}`}>{searchLaunchBusy ? <Loader2 className="animate-spin" size={14} /> : <Check size={14} />}{searchLaunchBusy ? searchLaunchLabel : draft.autoSend ? 'Автоотправка включена' : 'Сначала в очередь'}</span>}
+        </div>
+
+        {draft.platform === 'hh' && <div className="hh-launch-panel__controls">
+          <fieldset className="hh-run-mode-selector">
+            <legend>Режим</legend>
+            <div>
+              <label className={!draft.autoSend ? 'is-active' : ''}>
+                <input type="radio" name="hh-run-mode" checked={!draft.autoSend} onChange={() => setDraft({ ...draft, autoSend: false })} />
+                <span><b>В очередь</b><small>Проверять вручную</small></span>
+              </label>
+              <label className={draft.autoSend ? 'is-active' : ''}>
+                <input type="radio" name="hh-run-mode" checked={draft.autoSend} onChange={() => setDraft({ ...draft, autoSend: true })} />
+                <span><b>Автоматически</b><small>Стоп на неизвестном вопросе</small></span>
+              </label>
+            </div>
+          </fieldset>
+
+          {draft.autoSend && <label className="hh-launch-limit">
+            <span>Откликов в день</span>
+            <input type="number" min={1} max={200} className="field" value={draft.dailyLimit} onChange={(event) => setDraft({ ...draft, dailyLimit: Math.max(1, Math.min(200, Number(event.target.value) || 1)) })} />
+          </label>}
+
+          <div className="hh-run-schedule">
+            <label>
+              <input type="checkbox" checked={draft.autoRunDaily} onChange={(event) => setDraft({ ...draft, autoRunDaily: event.target.checked })} />
+              <Clock3 size={15} />
+              <span>Каждый день</span>
+            </label>
+            {draft.autoRunDaily && <select aria-label="Время ежедневного запуска" className="field" value={draft.autoRunHour} onChange={(event) => setDraft({ ...draft, autoRunHour: Number(event.target.value) })}>{Array.from({ length: 24 }, (_, hour) => <option key={hour} value={hour}>{String(hour).padStart(2, '0')}:00</option>)}</select>}
+            {draft.autoRunDaily && state?.nextRunAt && !scheduleDirty && <small>Следующий: {new Date(state.nextRunAt).toLocaleString('ru-RU')}</small>}
+          </div>
+        </div>}
+
+        {automationError && <p role="alert" className="mt-3 text-xs text-red-300">{automationError}</p>}
+        <div className="hh-launch-panel__actions">
+          <button type="button" className="btn-secondary" disabled={busy !== ''} onClick={() => void saveSettingsOnly()}>{busy === 'settings' ? <Loader2 className="animate-spin" size={15} /> : <Check size={15} />}Сохранить настройки</button>
+          {activeRun
+            ? <button type="button" className="btn-danger" aria-busy={stoppingRun} disabled={stoppingRun} onClick={() => void stopAutomation()}>{stoppingRun ? <Loader2 className="animate-spin" size={16} /> : <Square size={15} />}{stoppingRun ? 'Останавливаем…' : 'Остановить'}</button>
+            : <button type="button" className="btn-primary" aria-describedby="auto-apply-requirement" disabled={busy !== ''} onClick={() => void launchAutomation()}><Search size={16} />{searchLaunchLabel}</button>}
         </div>
       </section>
 
@@ -1182,7 +1182,7 @@ export default function HhApplicationsPage() {
                   {busy === `screening-${vacancy.key}` ? <Loader2 className="animate-spin" size={15} /> : <Send size={15} />}
                   Заполнить на HH и продолжить отклик
                 </button>
-                <button type="button" className="btn-ghost" disabled={busy !== ''} onClick={() => void run('open', () => assistant.openVacancy(vacancy.key))}>
+                <button type="button" className="btn-ghost" onClick={() => openVacancyInBrowser(vacancy)}>
                   <ExternalLink size={14} />Открыть вакансию
                 </button>
               </div>
@@ -1224,81 +1224,45 @@ export default function HhApplicationsPage() {
       </>}
 
       {pageMode === 'activity' && <>
-      {state && featuredRun && <section id="hh-run-panel" className="panel-card shrink-0 scroll-mt-5 overflow-hidden">
-        <div className="panel-header flex-wrap gap-3">
-          <div className="flex items-center gap-2.5">
-            <span className={`hh-run-orbit grid h-9 w-9 place-items-center rounded-xl ${activeRun ? 'is-active bg-sky-500/10 text-sky-200' : 'bg-surface-elevated text-ink-muted'}`}>
-              {activeRun ? <Search size={17} /> : <Check size={17} />}
-            </span>
-            <div><h2 className="panel-title">Поиск вакансий</h2><p className="text-xs text-ink-faint">{runTriggerLabel(featuredRun.trigger)} · {new Date(featuredRun.startedAt).toLocaleString('ru-RU')}</p></div>
+      {state && featuredRun && <details id="hh-run-panel" className="group panel-card shrink-0 scroll-mt-5 overflow-hidden">
+        <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-3.5 hover:bg-surface-hover/35">
+          <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${activeRun ? 'bg-sky-300' : featuredRun.status === 'failed' ? 'bg-red-400' : featuredRun.status === 'attention' ? 'bg-amber-300' : 'bg-emerald-400'}`} />
+          <span className="min-w-0 flex-1">
+            <strong className="block text-sm text-ink">{activeRun ? 'Текущий поиск' : 'Последний поиск'}</strong>
+            <small className="mt-0.5 block text-xs text-ink-muted">
+              {featuredRun.found} найдено · {featuredRun.sent} отправлено{featuredRun.needsAttention > 0 ? ` · ${featuredRun.needsAttention} требуют внимания` : ''}
+            </small>
+          </span>
+          <span className={`rounded-full px-2.5 py-1 text-xs ${runStatusMeta(featuredRun.status).tone}`}>{runStatusMeta(featuredRun.status).label}</span>
+          <ChevronDown className="shrink-0 text-ink-faint transition-transform group-open:rotate-180" size={14} />
+        </summary>
+        <div className="border-t border-surface-border px-4 py-3">
+          <p className="text-xs leading-relaxed text-ink-muted">{featuredRun.message || 'Подробности запуска сохранены.'}</p>
+          {state.lastScanSummary && state.lastScanSummary.platform === draft.platform && (
+            <p className="mt-2 text-xs text-ink-faint">
+              {state.lastScanSummary.queries.length} направлений · {state.lastScanSummary.newVacancies} новых · {state.lastScanSummary.alreadyProcessed} уже обработано
+            </p>
+          )}
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+            <span className="text-xs text-ink-faint">{runTriggerLabel(featuredRun.trigger)} · {new Date(featuredRun.startedAt).toLocaleString('ru-RU')}</span>
+            <button type="button" className="btn-ghost btn-sm" aria-label="Собрать диагностику запуска" disabled={busy !== ''} onClick={() => void collectAutomationDiagnostics()}>{busy === 'diagnostics' ? <Loader2 className="animate-spin" size={14} /> : <FileText size={14} />}Диагностика</button>
           </div>
-          <div className="ml-auto flex items-center gap-2">
-            <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs ${runStatusMeta(featuredRun.status).tone}`}>{activeRun && <Loader2 className="animate-spin" size={12} />}{stoppingRun ? 'Останавливается' : runStatusMeta(featuredRun.status).label}</span>
-            {activeRun && <button type="button" className="btn-danger btn-sm" disabled={stoppingRun} onClick={() => void stopAutomation()}>{stoppingRun ? <Loader2 className="animate-spin" size={13} /> : <Square size={12} />}{stoppingRun ? 'Ждём текущий шаг' : 'Остановить'}</button>}
-          </div>
+          {previousRuns.length > 0 && <p className="mt-2 text-xs text-ink-faint">Предыдущих запусков: {previousRuns.length}</p>}
         </div>
-        <details className="group border-t border-surface-border" open={activeRun ? true : undefined}>
-          <summary className="flex cursor-pointer list-none items-center gap-4 px-4 py-3.5 hover:bg-surface-hover/35">
-            <div className="min-w-0 flex-1" aria-live="polite">
-              <p className={`text-sm font-medium ${featuredRun.status === 'failed' ? 'text-red-300' : featuredRun.status === 'attention' ? 'text-amber-200' : 'text-ink'}`}>{activeRun ? 'Текущий запуск' : 'Последний запуск'}</p>
-              <p className="mt-1 text-xs text-ink-muted">
-                {featuredRun.found} найдено · <span className="text-emerald-300">{featuredRun.sent} отправлено</span>{featuredRun.alreadyApplied > 0 ? ` · ${featuredRun.alreadyApplied} уже было` : ''}{featuredRun.needsAttention > 0 ? <span className="text-amber-200"> · {featuredRun.needsAttention} требуют внимания</span> : null}
-              </p>
-            </div>
-            <span className="flex shrink-0 items-center gap-1.5 text-xs font-medium text-ink-muted">
-              {activeRun ? 'Ход выполнения' : 'Подробнее'}<ChevronDown className="transition-transform group-open:rotate-180" size={14} />
-            </span>
-          </summary>
-          <div className="border-t border-surface-border p-4">
-            {activeRun && <div className="hh-run-progress" role="progressbar" aria-label="Прогресс поиска и откликов" aria-valuenow={applyPercent ?? undefined}><span className={applyPercent == null ? 'is-indeterminate' : ''} style={applyPercent == null ? undefined : { width: `${applyPercent}%` }} /></div>}
-            <p className={`${activeRun ? 'mt-3' : ''} text-sm leading-relaxed ${featuredRun.status === 'failed' ? 'text-red-300' : featuredRun.status === 'attention' ? 'text-amber-200' : 'text-ink-muted'}`}>{featuredRun.message || (activeRun ? 'Запуск выполняется…' : 'Запуск завершён.')}</p>
-            {state.lastScanSummary && state.lastScanSummary.platform === draft.platform && <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-xl border border-surface-border bg-surface-light/60 px-3 py-2 text-xs text-ink-muted">
-              <span>Направлений: <b className="text-ink">{state.lastScanSummary.queries.length}</b></span>
-              <span>Новых: <b className="text-emerald-300">{state.lastScanSummary.newVacancies}</b></span>
-              <span>Уже обработано: <b className="text-ink">{state.lastScanSummary.alreadyProcessed}</b></span>
-              <span>Страниц: <b className="text-ink">{state.lastScanSummary.pagesScanned}</b></span>
-              <details className="group/queries ml-auto"><summary className="cursor-pointer text-sky-200">Какие запросы</summary><div className="mt-2 flex max-w-2xl flex-wrap gap-1.5">{state.lastScanSummary.queries.map((query) => <span key={query} className="rounded-full bg-sky-500/10 px-2 py-1 text-sky-100">{query}</span>)}</div></details>
-            </div>}
-            <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
-              {([
-                ['Найдено', featuredRun.found, 'text-sky-200'],
-                ['Проверено', featuredRun.attempted, 'text-ink'],
-                ['Отправлено', featuredRun.sent, 'text-emerald-300'],
-                ['Уже было', featuredRun.alreadyApplied, 'text-sky-200'],
-                ['Внимание', featuredRun.needsAttention, featuredRun.needsAttention ? 'text-amber-200' : 'text-ink-muted'],
-              ] as const).map(([label, value, tone]) => <div key={label} className="hh-run-stat rounded-xl border border-surface-border bg-surface/35 px-3 py-2.5"><span className="block text-xs font-semibold uppercase tracking-[0.1em] text-ink-faint">{label}</span><strong className={`mt-0.5 block text-xl tabular-nums ${tone}`}>{value}</strong></div>)}
-            </div>
-            <div className="mt-3 flex justify-end">
-              <button type="button" className="btn-ghost btn-sm tip" data-tip="Сохранить технический отчёт" aria-label="Собрать диагностику" disabled={busy !== ''} onClick={() => void collectAutomationDiagnostics()}>{busy === 'diagnostics' ? <Loader2 className="animate-spin" size={14} /> : <FileText size={14} />}Диагностика</button>
-            </div>
-            {previousRuns.length > 0 && <details className="group mt-3 overflow-hidden rounded-xl border border-surface-border">
-              <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2.5 text-xs font-medium text-ink-muted hover:bg-surface-hover/40 hover:text-ink"><ChevronDown className="transition-transform group-open:rotate-180" size={14} />История запусков · {previousRuns.length}</summary>
-              <div className="divide-y divide-surface-border border-t border-surface-border">{previousRuns.map((item) => {
-                const meta = runStatusMeta(item.status);
-                return <div key={item.id} className="flex flex-wrap items-center gap-3 px-3 py-2.5 text-xs">
-                  <span className={`h-2 w-2 rounded-full ${item.status === 'completed' ? 'bg-emerald-400' : item.status === 'attention' ? 'bg-amber-300' : item.status === 'stopped' ? 'bg-ink-faint' : 'bg-red-400'}`} />
-                  <span className="min-w-[165px] text-ink-muted">{runTriggerLabel(item.trigger)} · {new Date(item.startedAt).toLocaleString('ru-RU')}</span>
-                  <span className="ml-auto text-ink-faint">{item.found} найдено</span><span className="text-emerald-300">{item.sent} отправлено</span>{item.alreadyApplied > 0 && <span className="text-sky-200">{item.alreadyApplied} уже было</span>}
-                  <span className={`rounded-full px-2 py-0.5 ${meta.tone}`}>{meta.label}</span>
-                </div>;
-              })}</div>
-            </details>}
-          </div>
-        </details>
-      </section>}
+      </details>}
 
       <section id="hh-conversations-panel" className="panel-card shrink-0 scroll-mt-5 overflow-hidden">
         <div className="panel-header flex-wrap gap-3"><div><h2 className="panel-title">{queuePanelMeta.title}</h2><p className="mt-0.5 text-xs text-ink-faint">{queuePanelMeta.detail}</p></div>{queueView === 'active' && draft.platform === 'hh' && platformMatches && state?.queuePaused ? <span className="ml-auto flex items-center gap-1.5 text-xs text-ink-muted"><Square size={11} /> Очередь приостановлена</span> : queueView === 'active' && draft.platform === 'hh' && platformMatches && state?.config.autoRunDaily ? <span className="ml-auto flex items-center gap-1.5 text-xs text-emerald-300"><span className="sc-dot sc-dot--live" /> Автоочередь включена</span> : null}</div>
         <div className="flex flex-wrap gap-2 border-b border-surface-border px-5 py-3" aria-label="Фильтры вакансий">
           {([
-            ['active', 'В работе', activeVacancyCount],
-            ['sent', 'Отправлено', sentVacancyCount],
             ...(draft.platform === 'hh' ? [
               ['dialogs', 'Диалоги', conversationCount],
               ['replies', 'Ответы', chatState?.replyHistory.length ?? 0],
             ] as const : []),
+            ['active', 'В работе', activeVacancyCount],
+            ['sent', 'Отправлено', sentVacancyCount],
             ['archive', 'Пропущено', archivedVacancyCount],
-          ] as const).map(([id, label, count]) => <button key={id} type="button" aria-pressed={queueView === id} onClick={() => setQueueView(id)} className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${queueView === id ? 'bg-emerald-500/15 text-emerald-200' : 'bg-surface-light text-ink-muted hover:bg-surface-hover'}`}>{label} · {count}</button>)}
+          ] as const).map(([id, label, count]) => <button key={id} type="button" aria-pressed={queueView === id} onClick={() => selectQueueView(id)} className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${queueView === id ? 'bg-emerald-500/15 text-emerald-200' : 'bg-surface-light text-ink-muted hover:bg-surface-hover'}`}>{label} · {count}</button>)}
         </div>
         {queueView === 'dialogs' && <div className="flex flex-wrap items-center gap-2 border-b border-surface-border bg-surface/25 px-5 py-2.5" aria-label="Этапы диалогов">
           <span className="mr-1 text-xs font-medium text-ink-faint">Показать:</span>
@@ -1324,26 +1288,27 @@ export default function HhApplicationsPage() {
             const expanded = selectedConversationKey === conversation.key;
             const replies = (chatState?.replyHistory ?? []).filter((entry) => entry.negotiationKey === conversation.key);
             const decision = (chatState?.pendingDecisions ?? []).find((entry) => entry.negotiationKey === conversation.key);
+            const recruiterMessage = conversation.lastRecruiterMessage ?? (!conversation.lastMessageMine ? conversation.lastMessage : '');
+            const openConversationVacancy = (event: React.MouseEvent<HTMLAnchorElement>) => {
+              if (!conversation.vacancyUrl) return;
+              event.preventDefault();
+              void window.electronAPI?.openExternal(conversation.vacancyUrl).catch((error) => setChatError(errorMessage(error, 'Не удалось открыть вакансию HH.')));
+            };
             return <article key={conversation.key} className="hh-queue-row">
-              <button
-                type="button"
-                className="flex w-full items-start gap-3 px-5 py-3 text-left transition-colors hover:bg-surface-hover/35"
-                aria-expanded={expanded}
-                onClick={() => setSelectedConversationKey(expanded ? '' : conversation.key)}
-              >
+              <div className="flex w-full items-start gap-3 px-5 py-3 transition-colors hover:bg-surface-hover/35">
                 <MessageCircle size={17} className={conversation.stage === 'bot' ? 'text-violet-300' : conversation.stage === 'hr' ? 'text-sky-300' : 'text-ink-faint'} />
                 <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-medium text-ink">{conversation.vacancyTitle}</span>
-                  <span className="block text-xs text-ink-faint">{conversation.companyName}</span>
-                  {conversation.lastMessage && <span className="mt-1 block truncate text-xs text-ink-muted">{conversation.lastMessageMine ? 'SkillCue: ' : 'Работодатель: '}{conversation.lastMessage}</span>}
+                  {conversation.vacancyUrl ? <a className="block w-fit text-sm font-medium text-ink underline-offset-4 hover:text-emerald-300 hover:underline" href={conversation.vacancyUrl} target="_blank" rel="noreferrer" onClick={openConversationVacancy}>{conversation.vacancyTitle}</a> : <span className="block text-sm font-medium text-ink">{conversation.vacancyTitle}</span>}
+                  {conversation.vacancyUrl ? <a className="block w-fit text-xs text-ink-faint underline-offset-4 hover:text-ink hover:underline" href={conversation.vacancyUrl} target="_blank" rel="noreferrer" onClick={openConversationVacancy}>{conversation.companyName}</a> : <span className="block text-xs text-ink-faint">{conversation.companyName}</span>}
+                  {recruiterMessage && <span className="mt-1 block truncate text-xs text-ink-muted">Работодатель: {recruiterMessage}</span>}
                 </span>
                 {conversation.needsUserInput ? <span className="rounded-full bg-violet-400/10 px-2.5 py-1 text-xs text-violet-100">Нужен ответ</span> : conversation.stage === 'waiting' ? <span className="rounded-full bg-surface-elevated px-2.5 py-1 text-xs text-ink-muted">Сообщений ещё нет</span> : <span className="rounded-full bg-sky-500/10 px-2.5 py-1 text-xs text-sky-200">{conversation.lastMessageMine ? 'SkillCue ответил' : 'Ждёт ответа'}</span>}
-                <ChevronDown size={15} className={`mt-1 shrink-0 text-ink-faint transition-transform ${expanded ? 'rotate-180' : ''}`} />
-              </button>
+                <button type="button" className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-ink-faint hover:bg-surface-hover hover:text-ink" aria-label={expanded ? 'Свернуть диалог' : 'Показать диалог'} aria-expanded={expanded} onClick={() => setSelectedConversationKey(expanded ? '' : conversation.key)}><ChevronDown size={15} className={`transition-transform ${expanded ? 'rotate-180' : ''}`} /></button>
+              </div>
               {expanded && <div className="border-t border-surface-border bg-surface/25 px-5 py-4">
-                {conversation.lastMessage && <div className="rounded-xl border border-surface-border bg-surface-light/45 p-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-faint">Последнее сообщение</p>
-                  <p className="mt-1.5 whitespace-pre-wrap text-sm leading-relaxed text-ink">{conversation.lastMessage}</p>
+                {recruiterMessage && <div className="rounded-xl border border-surface-border bg-surface-light/45 p-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-faint">Сообщение работодателя</p>
+                  <p className="mt-1.5 whitespace-pre-wrap text-sm leading-relaxed text-ink">{recruiterMessage}</p>
                 </div>}
                 {decision && <div className="mt-3 rounded-xl border border-violet-400/20 bg-violet-400/[0.04] p-3">
                   <p className="text-xs font-semibold text-violet-100">Нужен ваш ответ</p>
@@ -1356,25 +1321,32 @@ export default function HhApplicationsPage() {
                     <p className="text-ink">SkillCue: {entry.reply}</p>
                   </div>)}
                 </div>}
-                <div className="mt-3 flex justify-end"><button type="button" className="btn-ghost btn-sm" onClick={() => void window.electronAPI?.openExternal('https://hh.ru/applicant/negotiations').catch((error) => setChatError(errorMessage(error, 'Не удалось открыть диалоги HH.')))}><ExternalLink size={14} />Открыть в HH</button></div>
+                <div className="mt-3 flex flex-wrap justify-end gap-2">{conversation.vacancyUrl && <button type="button" className="btn-ghost btn-sm" onClick={() => void window.electronAPI?.openExternal(conversation.vacancyUrl!).catch((error) => setChatError(errorMessage(error, 'Не удалось открыть вакансию HH.')))}><ExternalLink size={14} />Вакансия</button>}<button type="button" className="btn-ghost btn-sm" onClick={() => void window.electronAPI?.openExternal('https://hh.ru/applicant/negotiations').catch((error) => setChatError(errorMessage(error, 'Не удалось открыть диалоги HH.')))}><MessageCircle size={14} />Чат HH</button></div>
               </div>}
             </article>;
           })) : visibleQueue.length === 0 ? <div className="flex min-h-[180px] items-center justify-center p-8 text-center"><div className="max-w-sm"><Send className="mx-auto text-ink-faint" size={22} /><p className="mt-3 text-sm font-semibold text-ink">{emptyQueueCopy.title}</p><p className="mt-1 text-xs leading-relaxed text-ink-muted">{emptyQueueCopy.detail}</p>{emptyQueueCopy.action && <button type="button" className="btn-secondary btn-sm mt-4" onClick={emptyQueueCopy.action}>{emptyQueueCopy.actionLabel}</button>}</div></div> : shownQueue.map((item) => {
             const status = queueStatus(item);
             const actionable = item.status === 'new' || item.status === 'opened' || item.status === 'prepared';
-            return <div key={item.key} className="hh-queue-row flex flex-wrap items-start gap-3 px-5 py-3 transition-colors hover:bg-surface-hover/35">
-              <div className="min-w-[220px] flex-1">
+            return <div key={item.key} className="hh-queue-row hh-vacancy-row">
+              <div className="hh-vacancy-row__main">
                 <p className="break-words text-sm font-medium text-ink">{item.title}</p>
                 <p className="break-words text-xs text-ink-faint">{item.company}{item.salary ? ` · ${item.salary}` : ''}</p>
-                {item.selectedResumeTitle && <p className="mt-1 flex items-center gap-1.5 text-[11px] text-sky-200"><FileText size={12} />Резюме: {item.selectedResumeTitle}</p>}
-                {item.reason && <p className="mt-1 line-clamp-1 break-words text-xs text-ink-muted" title={item.reason}>{item.reason}</p>}
-                {(item.preparationNotes?.length ?? 0) > 0 && <details className="mt-1.5 text-xs"><summary className="cursor-pointer text-violet-200">Подготовка · {item.preparationNotes?.length}</summary><ul className="mt-1 space-y-0.5 text-ink-muted">{item.preparationNotes?.map((note) => <li key={note}>• {note}</li>)}</ul></details>}
+                {item.selectedResumeTitle && <p className="hh-vacancy-row__resume"><FileText size={12} />{compactHhResumeTitle(item.selectedResumeTitle)}</p>}
               </div>
               <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs ${status.tone}`}>{status.label}</span>
-              <div className="flex flex-wrap justify-end gap-2">
-                <button type="button" className="btn-ghost btn-sm shrink-0" onClick={() => prepareQueueItem(item)}><Search size={14} />Подготовиться</button>
-                <button type="button" className="btn-ghost btn-sm shrink-0" onClick={() => void run('open', () => assistant.openVacancy(item.key)).catch(() => undefined)}><ExternalLink size={14} />Открыть</button>
-                {actionable && <button type="button" className="btn-primary btn-sm shrink-0" disabled={busy !== ''} onClick={() => void applyQueueItem(item)}>{busy === `apply:${item.key}` ? <Loader2 className="animate-spin" size={14} /> : <Send size={14} />}Отправить отклик</button>}
+              <div className="flex flex-wrap items-start justify-end gap-2">
+                <button type="button" className="btn-ghost btn-sm shrink-0" onClick={() => openVacancyInBrowser(item)}><ExternalLink size={14} />Открыть</button>
+                {actionable && (
+                  <button type="button" className="btn-primary btn-sm shrink-0" disabled={busy !== ''} onClick={() => setQueueItemToApply(item)}>{busy === `apply:${item.key}` ? <Loader2 className="animate-spin" size={14} /> : <Send size={14} />}Отклик</button>
+                )}
+                <details className="hh-row-more">
+                  <summary>Ещё <ChevronDown size={13} /></summary>
+                  <div>
+                    {item.reason && <p className="hh-row-more__note is-warning">{item.reason}</p>}
+                    {(item.preparationNotes?.length ?? 0) > 0 && <ul className="hh-row-more__note block">{item.preparationNotes?.map((note) => <li key={note}>• {note}</li>)}</ul>}
+                    <button type="button" onClick={() => prepareQueueItem(item)}><Search size={14} />Подготовиться</button>
+                  </div>
+                </details>
               </div>
             </div>;
           })}
@@ -1382,7 +1354,7 @@ export default function HhApplicationsPage() {
         </div>
       </section>
 
-      {draft.platform === 'hh' && chat && hhConnected && <section id="hh-hr-responses" className="panel-card shrink-0 scroll-mt-5 p-5">
+      {draft.platform === 'hh' && chat && hhConnected && (chatState?.pendingDecisions.length ?? 0) > 0 && <section id="hh-hr-responses" className="panel-card shrink-0 scroll-mt-5 p-5">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3"><div className={`grid h-10 w-10 place-items-center rounded-full ${chatState?.enabled ? 'bg-emerald-500/10 text-emerald-300' : 'bg-surface-elevated text-ink-muted'}`}><MessageCircle size={19} /></div><div><h2 className="panel-title">Диалоги HR</h2><p className="text-xs text-ink-faint">{chatState?.enabled ? 'Автоответы включены' : 'Автоответы выключены'}</p></div></div>
           <div className="flex flex-wrap gap-2"><button type="button" className="btn-ghost" onClick={openChatSettings}><Settings2 size={14} />Настройки</button><button type="button" className="btn-ghost" disabled={chatBusy || chatState?.polling} onClick={() => void pollChat()}>{chatBusy || chatState?.polling ? <Loader2 className="animate-spin" size={14} /> : <RefreshCw size={14} />}Проверить сейчас</button></div>
@@ -1400,6 +1372,20 @@ export default function HhApplicationsPage() {
         {chatPanelError && <p className="mt-3 rounded-lg border border-red-500/25 bg-red-500/5 p-3 text-xs text-red-300">{chatPanelError}</p>}
       </section>}
       </>}
+      <Modal
+        open={Boolean(queueItemToApply)}
+        onClose={() => setQueueItemToApply(null)}
+        title="Отправить отклик?"
+        subtitle={queueItemToApply ? `${queueItemToApply.title} · ${queueItemToApply.company}` : undefined}
+        footer={(
+          <>
+            <button type="button" className="btn-secondary" onClick={() => setQueueItemToApply(null)}>Отмена</button>
+            <button type="button" className="btn-primary" disabled={!queueItemToApply || busy !== ''} onClick={() => queueItemToApply && void applyQueueItem(queueItemToApply)}><Send size={14} />Отправить</button>
+          </>
+        )}
+      >
+        <p className="text-sm leading-relaxed text-ink-muted">Будет использовано резюме «{compactHhResumeTitle(queueItemToApply?.selectedResumeTitle || draft.resumeTitles[0] || 'выбранное в настройках')}». Если HH задаст неизвестный вопрос, SkillCue остановится и попросит только недостающий факт.</p>
+      </Modal>
     </div>
   );
 }

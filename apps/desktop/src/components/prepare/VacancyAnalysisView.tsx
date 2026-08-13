@@ -94,12 +94,13 @@ export default function VacancyAnalysisView({
     [allSelected, analysis, selected, questionCount],
   );
   const competencies = analysis.competencies ?? [];
+  const rolePractice = analysis.contextKind === 'role';
 
   return (
     <div className="prep-rise space-y-5">
       <header className="prep-analysis-heading">
         <div className="min-w-0">
-          <p className="prep-eyebrow">{t('prep.analysis.basedOn')}</p>
+          <p className="prep-eyebrow">{rolePractice ? 'ПРАКТИКА ПО РОЛИ' : t('prep.analysis.basedOn')}</p>
           <h1 className="prep-h1 mt-1">{analysis.targetRole}</h1>
           <div className="mt-2 flex flex-wrap gap-2">
             <span className="prep-chip prep-tone-violet">
@@ -129,7 +130,7 @@ export default function VacancyAnalysisView({
         </div>
         <button type="button" className="prep-btn-ghost prep-btn-sm" onClick={onBack}>
           <Pencil size={14} aria-hidden="true" />
-          {t('prep.analysis.changeVacancy')}
+          {rolePractice ? 'Изменить роль' : t('prep.analysis.changeVacancy')}
         </button>
       </header>
 
@@ -150,9 +151,11 @@ export default function VacancyAnalysisView({
         <div className="prep-analysis-main">
           <div className="prep-analysis-section-heading">
             <div>
-              <p className="prep-eyebrow">{t('prep.analysis.planEyebrow')}</p>
-              <h2 className="prep-h2 mt-1">{t('prep.analysis.readinessMap')}</h2>
-              <p className="prep-faint mt-1">{t('prep.analysis.readinessDesc')}</p>
+              <p className="prep-eyebrow">{rolePractice ? 'ТЕМЫ' : t('prep.analysis.planEyebrow')}</p>
+              <h2 className="prep-h2 mt-1">{rolePractice ? 'Что потренировать' : t('prep.analysis.readinessMap')}</h2>
+              <p className="prep-faint mt-1">
+                {rolePractice ? 'Оставьте только темы, которые хотите проверить сейчас.' : t('prep.analysis.readinessDesc')}
+              </p>
             </div>
             <button
               type="button"
@@ -199,8 +202,8 @@ export default function VacancyAnalysisView({
 
         <aside className="prep-analysis-aside">
           <div>
-            <p className="prep-eyebrow">{t('prep.analysis.riskEyebrow')}</p>
-            <h2 className="prep-h2 mt-1">{t('prep.analysis.beforeStart')}</h2>
+            <p className="prep-eyebrow">{rolePractice ? 'КОНТЕКСТ' : t('prep.analysis.riskEyebrow')}</p>
+            <h2 className="prep-h2 mt-1">{rolePractice ? 'Перед началом' : t('prep.analysis.beforeStart')}</h2>
           </div>
 
           {analysis.riskAreas.length > 0 ? (
@@ -282,7 +285,7 @@ export default function VacancyAnalysisView({
           </strong>
           <span>
             {selected.size} {t('home.report.of')} {analysis.interviewTopics.length}{' '}
-            {t('prep.analysis.topicsWord')} · ~20–30 {t('prep.analysis.min')}
+            {t('prep.analysis.topicsWord')}
           </span>
         </div>
         <button

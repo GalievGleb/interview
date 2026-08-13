@@ -30,8 +30,11 @@ const DEV_IDENTITY: AppIdentity = {
   deepLinkProtocol: 'skillcue-dev',
   apiPort: 8001,
   userDataDirectoryName: 'SkillCue Dev',
-  defaultToggleShortcut: 'CommandOrControl+Shift+D',
-  forceAnswerShortcut: 'CommandOrControl+Shift+Enter',
+  // Keyboard behavior is a user-facing contract, not part of build isolation.
+  // Dev already has a separate process identity, data directory and API port;
+  // changing the shortcuts made the labels lie and broke use from other apps.
+  defaultToggleShortcut: 'CommandOrControl+Shift+H',
+  forceAnswerShortcut: 'CommandOrControl+Enter',
 };
 
 export function resolveBuildChannel(

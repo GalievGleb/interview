@@ -49,4 +49,18 @@ describe('overlay pointer policy', () => {
     expect(result.left).toBe(372);
     expect(result.top).toBe(172);
   });
+
+  it('places a tall menu beside its trigger so it never covers the trigger', () => {
+    const anchor = { left: 90, top: 640, right: 122, bottom: 672, width: 32, height: 32 };
+    const result = clampFloatingPanel(
+      anchor,
+      { width: 240, height: 600 },
+      { width: 680, height: 780 },
+      'right',
+    );
+
+    expect(result.left).toBe(130);
+    expect(result.top).toBe(72);
+    expect(result.left).toBeGreaterThan(anchor.right);
+  });
 });

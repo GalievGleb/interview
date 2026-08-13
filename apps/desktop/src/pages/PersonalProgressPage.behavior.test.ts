@@ -8,6 +8,7 @@ const layout = fs.readFileSync(path.resolve(__dirname, '../components/Layout.tsx
 const documents = fs.readFileSync(path.resolve(__dirname, 'DocumentsPage.tsx'), 'utf8');
 const growthSetup = fs.readFileSync(path.resolve(__dirname, '../components/candidate/GrowthProfileSetup.tsx'), 'utf8');
 const history = fs.readFileSync(path.resolve(__dirname, 'HistoryPage.tsx'), 'utf8');
+const practice = fs.readFileSync(path.resolve(__dirname, 'PracticePage.tsx'), 'utf8');
 
 describe('personal progress migration', () => {
   it('removes personal progress as a separate navigation destination', () => {
@@ -15,7 +16,7 @@ describe('personal progress migration', () => {
     expect(layout).not.toContain("'/progress': 'nav.progress'");
     expect(app).not.toContain("import('./pages/PersonalProgressPage')");
     expect(app).toContain('function LegacyProgressRedirect()');
-    expect(app).toContain('to="/history?view=growth"');
+    expect(app).toContain('to="/practice"');
   });
 
   it('moves the professional goal and baseline into profile and experience', () => {
@@ -23,7 +24,15 @@ describe('personal progress migration', () => {
     expect(documents).toContain("section=goal");
     expect(growthSetup).toContain('ПРОФЕССИОНАЛЬНАЯ ЦЕЛЬ');
     expect(growthSetup).toContain('Другая специализация');
-    expect(growthSetup).toContain('Стартовая самооценка');
+    expect(growthSetup).toContain('Добавить стартовую самооценку');
+    expect(growthSetup).toContain('<details className="growth-baseline-disclosure">');
+  });
+
+  it('keeps role-based setup and saved attempts inside the Practice navigation context', () => {
+    expect(app).toContain('path="/practice/new"');
+    expect(app).toContain('path="/practice/session"');
+    expect(practice).toContain("'/practice/new'");
+    expect(practice).toContain('`/practice/session?session=');
   });
 
   it('uses native form semantics and keeps save discoverable', () => {
@@ -35,11 +44,10 @@ describe('personal progress migration', () => {
     expect(growthSetup).not.toMatch(/Сохранить цель[^]*disabled=/);
   });
 
-  it('shows practice and real interview evidence together without mixing them', () => {
-    expect(history).toContain('buildCareerProgress(mockSessions, developmentProfile)');
-    expect(history).toContain('ПРАКТИКА');
-    expect(history).toContain('РЕАЛЬНЫЕ ИНТЕРВЬЮ');
-    expect(history).toContain('ЛИЧНЫЙ ПРОГРЕСС');
-    expect(history).toContain('СЛЕДУЮЩИЙ ШАГ');
+  it('moves progress into practice results and leaves History for real interviews', () => {
+    expect(practice).toContain('listSessions()');
+    expect(practice).toContain('Последние попытки');
+    expect(history).toContain('Реальные разговоры');
+    expect(history).not.toContain('buildCareerProgress');
   });
 });

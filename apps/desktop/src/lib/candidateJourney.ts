@@ -131,7 +131,7 @@ function vacancyJourney(input: CandidateJourneySignals): CandidateJourney {
       pathLabel: 'Есть вакансия',
       headline: started ? 'Продолжите с вопроса, на котором остановились.' : 'Проверьте найденные разрывы на практике.',
       body: started
-        ? `Пройдено ${input.practiceAnswers} из ${input.practiceQuestions} вопросов. После завершения ответы и оценка останутся в разделе «Практика и интервью».`
+        ? `Пройдено ${input.practiceAnswers} из ${input.practiceQuestions} вопросов. После завершения ответы и оценка останутся в разделе «Практика».`
         : 'Вопросы уже собраны из требований вакансии и сопоставления с резюме. Ответы покажут реальную отправную точку, а не абстрактный процент.',
       action: {
         label: started ? 'Продолжить практику' : 'Начать практику',
@@ -169,7 +169,7 @@ function vacancyJourney(input: CandidateJourneySignals): CandidateJourney {
       body: 'В разделе откликов видны сообщения HR и вопросы, где требуется ваше решение. Результат подготовки уже сохранён в истории.',
       action: { label: 'Проверить ответы работодателей', to: '/applications?view=dialogs' },
       secondaryAction: input.hasEvidence
-        ? { label: 'Посмотреть результаты практики', to: '/history?view=growth' }
+        ? { label: 'Посмотреть результаты практики', to: '/practice' }
         : undefined,
       steps,
       currentStep: 5,
@@ -182,7 +182,7 @@ function vacancyJourney(input: CandidateJourneySignals): CandidateJourney {
     body: 'Продолжите диалог с HR или добавьте назначенный созвон в календарь. Результаты подготовки остаются в истории отдельно от реальных интервью.',
     action: { label: 'Открыть диалоги с HR', to: '/applications?view=dialogs' },
     secondaryAction: input.activeSessionId
-      ? { label: 'Открыть результаты практики', to: '/history?view=growth' }
+      ? { label: 'Открыть результаты практики', to: '/practice' }
       : { label: 'Открыть календарь интервью', to: '/calendar' },
     steps,
     currentStep: 5,
@@ -200,17 +200,17 @@ function profileJourney(input: CandidateJourneySignals): CandidateJourney {
   const steps: CandidateJourneyStep[] = [
     { id: 'resume', label: 'Резюме', description: 'Факты о текущем опыте', status: stepStatuses[0] },
     { id: 'goal', label: 'Цель', description: 'Направление и стартовая точка', status: stepStatuses[1] },
-    { id: 'evidence', label: 'Практика и интервью', description: 'Ответы и результаты', status: stepStatuses[2] },
+    { id: 'evidence', label: 'Подготовка', description: 'Практика и интервью', status: stepStatuses[2] },
   ];
 
   if (!input.hasResume) {
     return {
       path: 'profile',
       pathLabel: 'Вакансии пока нет',
-      headline: 'Начните с резюме — это ваша исходная точка.',
-      body: 'Резюме даст SkillCue факты о проектах и инструментах. Оно не станет оценкой само по себе: уровень будет подтверждаться только вашими ответами.',
+      headline: 'Добавьте резюме',
+      body: 'SkillCue использует ваш опыт, проекты и инструменты, чтобы точнее готовить вас к собеседованиям.',
       action: { label: 'Добавить резюме', to: '/documents?mode=baseline' },
-      secondaryAction: { label: 'Продолжить без резюме', to: '/documents?mode=baseline&section=goal' },
+      secondaryAction: { label: 'Пропустить', to: '/documents?mode=baseline&section=goal' },
       steps,
       currentStep,
     };
@@ -242,10 +242,10 @@ function profileJourney(input: CandidateJourneySignals): CandidateJourney {
     return {
       path: 'profile',
       pathLabel: 'Вакансии пока нет',
-      headline: 'Подтвердите навыки на практике.',
-      body: 'Выберите вакансию или разберите реальное интервью.',
-      action: { label: 'Найти вакансии на HH', to: '/applications?mode=settings' },
-      secondaryAction: { label: 'Добавить вакансию вручную', to: '/prepare' },
+      headline: 'Проверьте навыки на практике.',
+      body: 'Можно начать по выбранной роли — конкретная вакансия не обязательна.',
+      action: { label: 'Начать практику', to: '/practice' },
+      secondaryAction: { label: 'Добавить вакансию', to: '/prepare' },
       steps,
       currentStep,
     };
@@ -253,9 +253,9 @@ function profileJourney(input: CandidateJourneySignals): CandidateJourney {
   return {
     path: 'profile',
     pathLabel: 'Вакансии пока нет',
-    headline: 'Результаты практики сохранены — сравните попытки и выберите следующую тему.',
-    body: 'В истории практика отделена от реальных интервью, а изменение балла показывается только для сопоставимых попыток по одной роли.',
-    action: { label: 'Посмотреть результаты практики', to: '/history?view=growth' },
+    headline: 'Результаты сохранены — выберите следующую тему.',
+    body: 'В разделе практики можно продолжить незавершённую попытку или повторить слабую тему.',
+    action: { label: 'Открыть практику', to: '/practice' },
     secondaryAction: { label: 'Разобрать новую вакансию', to: '/prepare' },
     steps,
     currentStep: 2,

@@ -45,6 +45,11 @@ import { getTitleBarOverlayTheme } from './titleBarTheme';
 import { preparePersistentBackendData, sqliteDatabaseUrl } from './backendData';
 import { getAppIdentity, resolveBuildChannel } from './buildChannel';
 import { screenCaptureDataUrl, SCREEN_CAPTURE_THUMBNAIL_SIZE } from './screenCapture';
+import {
+  enforceOverlayWindowPrivacy,
+  showOverlayWindowPrivately,
+  type OverlayShowMode,
+} from './overlayWindowPrivacy';
 
 const isDev = !app.isPackaged;
 
@@ -103,11 +108,14 @@ if (process.platform === 'win32') {
 
 let mainWindow: BrowserWindow | null = null;
 let overlayWindow: BrowserWindow | null = null;
+let overlayContentProtectionEnabled = false;
 let tray: Tray | null = null;
 let backendProcess: ChildProcess | null = null;
 let backendLogStream: fs.WriteStream | null = null;
 let backendRestartAttempts = 0;
 let backendRestartTimer: NodeJS.Timeout | null = null;
+let toggleOverlayShortcutBinding: PersistentGlobalShortcut | null = null;
+let toggleOverlayShortcutRetryTimer: NodeJS.Timeout | null = null;
 let forceAnswerShortcutBinding: PersistentGlobalShortcut | null = null;
 let forceAnswerShortcutRetryTimer: NodeJS.Timeout | null = null;
 let hhBrowserAssistant: HhBrowserAssistant | null = null;
@@ -424,6 +432,19 @@ function hideOverlay(): void {
   hideOverlayOnly(overlayWindow);
 }
 
+function moveOverlay(dx: number, dy: number): void {
+  if (!isLiveWindow(overlayWindow)) return;
+  const [x, y] = overlayWindow.getPosition();
+  overlayWindow.setPosition(Math.round(x + dx), Math.round(y + dy));
+}
+
+function showOverlayWindow(
+  win: BrowserWindow,
+  mode: OverlayShowMode = 'active',
+): void {
+  showOverlayWindowPrivately(win, overlayContentProtectionEnabled, mode);
+}
+
 function createOverlayWindow(): BrowserWindow {
   const win = new BrowserWindow({
     // Компактный плавающий ассистент: пилл + командная панель + ответ.
@@ -437,6 +458,10 @@ function createOverlayWindow(): BrowserWindow {
     resizable: true,
     show: false,
     focusable: true,
+    // A Windows toolbar is a native tool window: it is excluded from both the
+    // taskbar and Alt+Tab. skipTaskbar remains as an explicit cross-platform
+    // fallback and is re-applied every time the transparent window is shown.
+    ...(process.platform === 'win32' ? { type: 'toolbar' as const } : {}),
     // Первый клик по неактивному оверлею (когда пользователь работает в другом
     // приложении) сразу уходит в контент, а не тратится на активацию окна.
     acceptFirstMouse: true,
@@ -456,8 +481,18 @@ function createOverlayWindow(): BrowserWindow {
     win,
     globalShortcut,
     hideOverlay,
+    {
+      move: moveOverlay,
+      scroll: (direction) => {
+        if (!win.webContents.isDestroyed()) win.webContents.send('overlay:scroll', direction);
+      },
+      step: 40,
+    },
   );
   bindOverlayPointerRecovery(win);
+  win.on('show', () => {
+    enforceOverlayWindowPrivacy(win, overlayContentProtectionEnabled);
+  });
   void win.loadURL(overlayRoute);
   win.hide();
   win.once('closed', () => {
@@ -684,13 +719,15 @@ function registerIpc(): void {
       };
     }
     if (next === toggleOverlayShortcut) return { ok: true, shortcut: toggleOverlayShortcut };
-    globalShortcut.unregister(toggleOverlayShortcut);
+    const previous = toggleOverlayShortcut;
+    if (toggleOverlayShortcutRetryTimer) clearTimeout(toggleOverlayShortcutRetryTimer);
+    toggleOverlayShortcutRetryTimer = null;
     if (!registerToggleShortcut(next)) {
       // Откат: сочетание занято системой или другим приложением.
-      registerToggleShortcut(toggleOverlayShortcut);
+      registerToggleShortcut(previous, true);
       return {
         ok: false,
-        shortcut: toggleOverlayShortcut,
+        shortcut: previous,
         error: 'Сочетание занято другим приложением',
       };
     }
@@ -811,17 +848,22 @@ function registerIpc(): void {
     toggleOverlay();
   });
 
+  ipcMain.handle('overlay:get-window-state', () => {
+    const win = isLiveWindow(overlayWindow) ? overlayWindow : null;
+    return win ? { visible: win.isVisible(), bounds: win.getBounds() } : { visible: false, bounds: null };
+  });
+
   ipcMain.handle('overlay:show', () => {
     setActiveInterviewEvent(null);
     const win = getOrCreateOverlayWindow();
     prepareOverlayForOpen(win);
-    win.show();
+    showOverlayWindow(win);
   });
   ipcMain.handle('overlay:showForInterviewEvent', (_event, eventId: string) => {
     if (!setActiveInterviewEvent(eventId)) return false;
     const win = getOrCreateOverlayWindow();
     prepareOverlayForOpen(win);
-    win.show();
+    showOverlayWindow(win);
     publishInterviewContext();
     return true;
   });
@@ -867,15 +909,18 @@ function registerIpc(): void {
   });
 
   ipcMain.handle('overlay:setContentProtection', (_e, enable: boolean) => {
-    if (isLiveWindow(overlayWindow)) overlayWindow.setContentProtection(enable);
-    if (isLiveWindow(mainWindow)) mainWindow.setContentProtection(enable);
+    overlayContentProtectionEnabled = Boolean(enable);
+    if (isLiveWindow(overlayWindow)) {
+      enforceOverlayWindowPrivacy(overlayWindow, overlayContentProtectionEnabled);
+    }
+    if (isLiveWindow(mainWindow)) {
+      mainWindow.setContentProtection(overlayContentProtectionEnabled);
+    }
   });
 
   ipcMain.handle('overlay:move', (_e, dx: number, dy: number) => {
     // Перемещение окна оверлея с клавиатуры (Ctrl+стрелки), как «Move Cluely».
-    if (!isLiveWindow(overlayWindow)) return;
-    const [x, y] = overlayWindow.getPosition();
-    overlayWindow.setPosition(Math.round(x + dx), Math.round(y + dy));
+    moveOverlay(dx, dy);
   });
 
   ipcMain.handle('overlay:setFocusable', (_e, focusable: boolean) => {
@@ -990,24 +1035,47 @@ function saveMainSetting(key: string, value: unknown): void {
 function toggleOverlay(): void {
   const win = getOrCreateOverlayWindow();
   if (win.isVisible()) hideOverlay();
-  else {
-    prepareOverlayForOpen(win);
-    win.show();
-  }
+  // A keyboard hide/show is a visibility toggle, not a new session. Do not
+  // send overlay:open-requested here: the renderer must keep the current
+  // answer, transcript, scroll position and input exactly as the user left it.
+  else showOverlayWindow(win);
 }
 
-function registerToggleShortcut(acc: string): boolean {
+function scheduleToggleOverlayShortcutRetry(): void {
+  if (quitting || toggleOverlayShortcutRetryTimer) return;
+  toggleOverlayShortcutRetryTimer = setTimeout(() => {
+    toggleOverlayShortcutRetryTimer = null;
+    if (!toggleOverlayShortcutBinding?.ensureRegistered()) {
+      scheduleToggleOverlayShortcutRetry();
+    }
+  }, 2_000);
+}
+
+function registerToggleShortcut(acc: string, retry = false): boolean {
   if (isReservedOverlayShortcut(acc)) return false;
-  try {
-    return globalShortcut.register(acc, toggleOverlay);
-  } catch {
-    return false;
+  toggleOverlayShortcutBinding?.dispose();
+  toggleOverlayShortcutBinding = new PersistentGlobalShortcut(
+    globalShortcut,
+    acc,
+    toggleOverlay,
+    (accelerator) => {
+      console.warn(`[overlay] toggle shortcut unavailable${retry ? ', retrying' : ''}: ${accelerator}`);
+      if (retry) scheduleToggleOverlayShortcutRetry();
+    },
+  );
+  const registered = toggleOverlayShortcutBinding.ensureRegistered();
+  if (!registered && !retry) {
+    toggleOverlayShortcutBinding.dispose();
+    toggleOverlayShortcutBinding = null;
   }
+  return registered;
 }
 
 function deliverForcedAnswerToOverlay(): void {
-  const win = getOrCreateOverlayWindow();
-  if (!win.isVisible()) win.showInactive();
+  const existingOverlay = isLiveWindow(overlayWindow) ? overlayWindow : null;
+  if (isDeveloperBuild && (!existingOverlay || !existingOverlay.isVisible())) return;
+  const win = existingOverlay ?? getOrCreateOverlayWindow();
+  if (!win.isVisible()) showOverlayWindow(win, 'inactive');
   const send = () => {
     if (!isLiveWindow(win) || win.webContents.isDestroyed()) return;
     win.webContents.send('overlay:force-answer');
@@ -1042,10 +1110,10 @@ function registerForceAnswerShortcut(): void {
 
 function registerShortcuts(): void {
   const stored = loadMainSettings().toggleOverlayShortcut;
-  if (typeof stored === 'string' && stored.trim() && registerToggleShortcut(stored.trim())) {
+  if (typeof stored === 'string' && stored.trim() && registerToggleShortcut(stored.trim(), true)) {
     toggleOverlayShortcut = stored.trim();
   } else {
-    registerToggleShortcut(DEFAULT_TOGGLE_SHORTCUT);
+    registerToggleShortcut(DEFAULT_TOGGLE_SHORTCUT, true);
     toggleOverlayShortcut = DEFAULT_TOGGLE_SHORTCUT;
   }
   registerForceAnswerShortcut();
@@ -1067,7 +1135,7 @@ function createTray(): void {
         click: () => {
           const win = getOrCreateOverlayWindow();
           prepareOverlayForOpen(win);
-          win.show();
+          showOverlayWindow(win);
         },
       },
       { type: 'separator' },
@@ -1261,9 +1329,10 @@ if (!hasSingleInstanceLock) {
     const recruiterProfileCache = new Map<string, { content: string; expiresAt: number }>();
     hhChatBrowser = new HhChatBrowser(
       app.getPath('userData'),
-      // Фоновый чат работает в отдельной вкладке и не перехватывает поиск/отклик.
-      async () => {
-        return hhBrowserAssistant?.getChatPage() ?? null;
+      // Плановая проверка не создаёт видимую вкладку negotiations рядом с
+      // вакансией. Явное действие пользователя может открыть чат.
+      async (purpose) => {
+        return hhBrowserAssistant?.getChatPage({ explicit: purpose === 'explicit' }) ?? null;
       },
       // llmCall: вызываем LLM через локальный бэкенд
       async (prompt: string) => {
@@ -1414,6 +1483,10 @@ if (!hasSingleInstanceLock) {
 
   app.on('will-quit', () => {
     quitting = true;
+    if (toggleOverlayShortcutRetryTimer) clearTimeout(toggleOverlayShortcutRetryTimer);
+    toggleOverlayShortcutRetryTimer = null;
+    toggleOverlayShortcutBinding?.dispose();
+    toggleOverlayShortcutBinding = null;
     if (forceAnswerShortcutRetryTimer) clearTimeout(forceAnswerShortcutRetryTimer);
     forceAnswerShortcutRetryTimer = null;
     forceAnswerShortcutBinding?.dispose();

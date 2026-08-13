@@ -18,6 +18,7 @@ const modal = fs.readFileSync(path.resolve(__dirname, '../components/Modal.tsx')
 const palette = fs.readFileSync(path.resolve(__dirname, '../components/CommandPalette.tsx'), 'utf8');
 const tokens = fs.readFileSync(path.resolve(__dirname, 'tokens.css'), 'utf8');
 const calendar = fs.readFileSync(path.resolve(__dirname, '../pages/InterviewCalendarPage.tsx'), 'utf8');
+const ru = fs.readFileSync(path.resolve(__dirname, '../lib/i18n/ru.ts'), 'utf8');
 
 describe('desktop polish contracts', () => {
   it('keeps native and CSS title bars at 44px so title-bar hover stays bounded', () => {
@@ -27,8 +28,8 @@ describe('desktop polish contracts', () => {
   });
 
   it('uses neutral indigo focus for ordinary form controls', () => {
-    expect(indexCss).toContain('.field:focus,');
-    expect(indexCss).toContain('.select-compact:focus');
+    expect(indexCss).toContain('.field:focus-visible,');
+    expect(indexCss).toContain('.select-compact:focus-visible');
     expect(indexCss).toContain('border-color: rgba(99, 102, 241, 0.62)');
     expect(indexCss).not.toContain('focus:border-accent focus:ring-2 focus:ring-accent-ring');
     expect(prepareCss).not.toContain('border-color: rgba(52, 199, 123, 0.55)');
@@ -41,10 +42,11 @@ describe('desktop polish contracts', () => {
     expect(sidebar).not.toContain("t('sidebar.quickActions')");
     expect(sidebar).not.toContain('skillcue:open-palette');
     expect(sidebar).toContain('useBuildChannel');
-    expect(sidebar).toContain('{isDeveloperBuild ? (');
+    expect(sidebar).toContain('{isDeveloperBuild && (');
     expect(sidebar).toContain('setContentProtection');
     expect(sidebar).toContain('setSkipTaskbar');
-    expect(sidebar).toContain('skillcue-sidebar__settings');
+    expect(sidebar).toContain('skillcue-sidebar__utility-row');
+    expect(sidebar).toContain('aria-label={t(\'nav.settings\')}');
   });
 
   it('uses one edge control and Ctrl+Backslash to collapse the sidebar', () => {
@@ -79,12 +81,15 @@ describe('desktop polish contracts', () => {
     expect(home).toContain('home-radar-flow');
     expect(home).toContain('applicationFlow.reached[index]');
     expect(prepareCss).toContain('.home-radar-flow__step:not(:last-child)::after');
-    expect(prepareCss).toContain('right: calc(-50% + 22px)');
-    expect(prepareCss).toContain('left: calc(50% + 30px)');
+    expect(prepareCss).toContain('inset-inline-start: calc(50% + 28px)');
+    expect(prepareCss).toContain('inset-inline-end: calc(-50% + 28px)');
     expect(prepareCss).not.toContain('.home-radar-flow__rail');
+    expect(prepareCss).not.toContain('.home-radar-primary::after');
     expect(prepareCss).toContain('@container home-primary (max-width: 720px)');
     expect(prepareCss).toContain('grid-template-columns: repeat(3, minmax(0, 1fr))');
-    expect(home).toContain('Следующий шаг без догадок');
+    expect(home).toContain('Ваш следующий шаг');
+    expect(home).not.toContain('Следующий шаг без догадок');
+    expect(home).not.toContain('СЛЕДУЮЩИЙ ЛОГИЧЕСКИЙ ШАГ');
     expect(home).not.toContain('className="prep-eyebrow">СЕГОДНЯ');
   });
 
@@ -92,13 +97,18 @@ describe('desktop polish contracts', () => {
     expect(home).toContain('window.electronAPI?.hhAssistant');
     expect(home).toContain('window.electronAPI?.hhChat');
     expect(home).toContain('window.electronAPI?.interviewCalendar');
-    expect(home).toContain('С чего вы начинаете сегодня?');
-    expect(home).toContain('У меня есть вакансия');
-    expect(home).toContain('Вакансии пока нет');
+    expect(home).toContain('С чего начать?');
+    expect(home).toContain('Добавить вакансию');
+    expect(home).toContain('Добавить резюме');
+    expect(home).toContain('Начать практику');
+    expect(home).toContain('Без конкретной вакансии');
     expect(home).toContain('candidateJourney.action.label');
     expect(home).toContain('<CandidateJourneyStrip');
     expect(home).toContain('отправлено сегодня');
+    expect(home).toContain('Ближайших собеседований нет');
     expect(home).toContain('Нужно от вас');
+    expect(home).toContain('visibleAttentionItems.length > 0');
+    expect(home).toContain('home-radar-automatic-status');
     expect(home).toContain('formatHomeInterviewBadge');
   });
 
@@ -154,6 +164,9 @@ describe('desktop polish contracts', () => {
     );
     expect(liveRule).toContain('border-surface-border bg-transparent');
     expect(liveRule).not.toContain('bg-emerald-400/10');
+    expect(liveRule).toContain('border-surface-border-strong bg-surface-elevated text-ink');
+    expect(liveRule).toContain('transform: scale(0.96)');
+    expect(ru).toContain("'sidebar.openLiveOverlay': 'Открыть помощника'");
     expect(indexCss).toContain('background: rgb(14 165 233 / 0.14)');
     expect(indexCss).toContain(":root[data-theme='light'] .hh-view-switcher > button > span");
     expect(indexCss).toContain(":root[data-theme='light'] .text-violet-100");

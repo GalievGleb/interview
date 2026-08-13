@@ -610,7 +610,7 @@ function ReleaseNotesSection() {
                   </span>
                 </span>
                 <span
-                  className={`text-ink-faint transition-all ${
+                  className={`text-ink-faint transition-[transform,opacity] motion-reduce:transition-none ${
                     open ? 'rotate-90' : 'opacity-0 group-hover:opacity-100'
                   }`}
                 >

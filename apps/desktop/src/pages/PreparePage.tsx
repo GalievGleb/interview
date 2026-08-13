@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import CandidateJourneyStrip from '../components/candidate/CandidateJourneyStrip';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import VacancySetup from '../components/prepare/VacancySetup';
+import GeneralPracticeSetup from '../components/prepare/GeneralPracticeSetup';
 import VacancyAnalysisView from '../components/prepare/VacancyAnalysisView';
 import SmokeInterviewView from '../components/prepare/SmokeInterviewView';
 import ReadinessReportView from '../components/prepare/ReadinessReportView';
@@ -9,52 +9,20 @@ import { printReadinessReport } from '../lib/vacancyReview/reportPrint';
 import { useVacancyReview } from '../lib/vacancyReview/useVacancyReview';
 import { getSession, listSessions } from '../lib/vacancyReview/vacancyReviewStore';
 import { launchLive } from '../lib/launchLive';
-import type { CandidateJourneyStep } from '../lib/candidateJourney';
 
 export default function PreparePage() {
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const [params] = useSearchParams();
   const resumeId = params.get('session');
   const focusTopic = params.get('focusTopic');
   const initialVacancyUrl = params.get('vacancyUrl') ?? '';
   const initialResumeTitle = params.get('resumeTitle') ?? '';
+  const generalPractice = pathname === '/practice/new' || params.get('mode') === 'practice';
   const initial = useMemo(() => (resumeId ? getSession(resumeId) : null), [resumeId]);
 
   const review = useVacancyReview(initial);
   const { phase, session } = review;
-  const journeySteps = useMemo<CandidateJourneyStep[]>(() => {
-    const analysisReady = phase === 'analysis' || phase === 'interview' || phase === 'report';
-    const practiceDone = phase === 'report';
-    const current = phase === 'setup'
-      ? 'vacancy'
-      : phase === 'analyzing'
-        ? 'match'
-        : phase === 'report'
-          ? 'apply'
-          : 'practice';
-    const done = {
-      vacancy: phase !== 'setup',
-      resume: Boolean(session?.vacancyAnalysis.hasResume),
-      match: analysisReady,
-      practice: practiceDone,
-      apply: false,
-      response: false,
-    };
-    const step = (id: keyof typeof done, label: string, description: string): CandidateJourneyStep => ({
-      id,
-      label,
-      description,
-      status: done[id] ? 'done' : current === id ? 'current' : 'upcoming',
-    });
-    return [
-      step('vacancy', 'Вакансия', 'Требования роли'),
-      step('resume', 'Резюме', 'Ваш опыт'),
-      step('match', 'Сопоставление', 'Разрывы и сильные стороны'),
-      step('practice', 'Практика', 'Вопросы по разрывам'),
-      step('apply', 'Отклик', 'Проверка перед отправкой'),
-      step('response', 'Ответ HR', 'После отклика'),
-    ];
-  }, [phase, session?.vacancyAnalysis.hasResume]);
 
   // Deep link from HomePage's "Повторить тему": jump straight into practicing
   // that one topic instead of showing the report first.
@@ -83,20 +51,22 @@ export default function PreparePage() {
   return (
     <div className="prep h-full overflow-y-auto">
       <div className="prep-wrap">
-        <CandidateJourneyStrip
-          compact
-          steps={journeySteps}
-          ariaLabel="Путь подготовки по вакансии"
-        />
-
         {(phase === 'setup' || phase === 'analyzing') && (
-          <VacancySetup
-            onAnalyze={review.analyze}
-            analyzing={phase === 'analyzing'}
-            error={review.error}
-            initialVacancyUrl={initialVacancyUrl}
-            initialResumeTitle={initialResumeTitle}
-          />
+          generalPractice ? (
+            <GeneralPracticeSetup
+              onAnalyze={review.analyze}
+              analyzing={phase === 'analyzing'}
+              error={review.error}
+            />
+          ) : (
+            <VacancySetup
+              onAnalyze={review.analyze}
+              analyzing={phase === 'analyzing'}
+              error={review.error}
+              initialVacancyUrl={initialVacancyUrl}
+              initialResumeTitle={initialResumeTitle}
+            />
+          )
         )}
 
         {phase === 'analysis' && session && (
@@ -108,6 +78,7 @@ export default function PreparePage() {
             onRetry={() => {
               void review.analyze({
                 vacancyText: session.vacancyAnalysis.vacancyText,
+                contextKind: session.vacancyAnalysis.contextKind,
                 vacancyUrl: session.vacancyAnalysis.vacancyUrl,
                 vacancyCompany: session.vacancyAnalysis.vacancyCompany,
                 targetRole: session.vacancyAnalysis.targetRole,
@@ -140,7 +111,7 @@ export default function PreparePage() {
             onNewReview={review.restart}
             onFollowUpRound={() => review.startFollowUpRound()}
             onPracticeTopic={review.startFollowUpRound}
-            onApply={session.vacancyAnalysis.vacancyUrl ? () => {
+            onApply={session.vacancyAnalysis.contextKind !== 'role' && session.vacancyAnalysis.vacancyUrl ? () => {
               const query = new URLSearchParams({
                 vacancyUrl: session.vacancyAnalysis.vacancyUrl!,
                 session: session.id,

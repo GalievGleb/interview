@@ -248,6 +248,42 @@ describe('InterviewCalendarStore', () => {
     expect(restored.removeEvent(created.id).events).toHaveLength(0);
   });
 
+  it('links later stages to one vacancy journey without reusing the previous recording', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'skillcue-calendar-journey-'));
+    tempRoots.push(root);
+    const store = new InterviewCalendarStore(root);
+    const hr = store.upsertEvent({
+      vacancyTitle: 'QA Automation',
+      companyName: 'Acme',
+      type: 'hr',
+      status: 'completed',
+      startAt: '2026-08-10T04:00:00.000Z',
+      endAt: '2026-08-10T04:30:00.000Z',
+      source: 'manual',
+      vacancyUrl: 'https://hh.ru/vacancy/136064787',
+      vacancyDescription: 'Python, Playwright, API testing',
+      sessionId: 'hr-session',
+    }).events[0];
+
+    const technical = store.upsertEvent({
+      vacancyTitle: 'QA Automation',
+      companyName: 'Acme',
+      type: 'technical',
+      status: 'confirmed',
+      startAt: '2026-08-12T04:00:00.000Z',
+      endAt: '2026-08-12T05:00:00.000Z',
+      source: 'manual',
+      vacancyUrl: 'https://hh.ru/vacancy/136064787',
+    }).events.find((event) => event.type === 'technical');
+
+    expect(technical).toMatchObject({
+      journeyId: hr.journeyId,
+      vacancyDescription: 'Python, Playwright, API testing',
+      vacancyUrl: 'https://hh.ru/vacancy/136064787',
+    });
+    expect(technical?.sessionId).toBeUndefined();
+  });
+
   it('does not let an early practice session complete tomorrow\'s interview', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'skillcue-calendar-practice-'));
     tempRoots.push(root);

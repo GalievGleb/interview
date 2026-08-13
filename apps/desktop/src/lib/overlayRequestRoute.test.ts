@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { resolveOverlayRequestRoute } from './overlayRequestRoute';
 
 describe('resolveOverlayRequestRoute', () => {
-  it('routes a typed question to fast chat without looking at the screen', () => {
+  it('keeps a typed instruction attached to the screen when there is no conversation', () => {
     expect(
       resolveOverlayRequestRoute({
         action: 'assist',
@@ -12,10 +12,10 @@ describe('resolveOverlayRequestRoute', () => {
         useScreenFallback: true,
         smart: false,
       }),
-    ).toEqual({ kind: 'chat', mode: 'fast' });
+    ).toEqual({ kind: 'screen', mode: 'general' });
   });
 
-  it('keeps Smart typed questions on the explicit deep text route', () => {
+  it('keeps Smart typed screen instructions on the deep vision route', () => {
     expect(
       resolveOverlayRequestRoute({
         action: 'assist',
@@ -25,7 +25,20 @@ describe('resolveOverlayRequestRoute', () => {
         useScreenFallback: true,
         smart: true,
       }),
-    ).toEqual({ kind: 'chat', mode: 'deep' });
+    ).toEqual({ kind: 'screen', mode: 'deep' });
+  });
+
+  it('uses typed text with the live conversation when a transcript exists', () => {
+    expect(
+      resolveOverlayRequestRoute({
+        action: 'assist',
+        customText: 'Answer with the conversation context',
+        hasTranscript: true,
+        canCaptureScreen: true,
+        useScreenFallback: true,
+        smart: false,
+      }),
+    ).toEqual({ kind: 'chat', mode: 'fast' });
   });
 
   it('uses the screen only for an explicit screen action', () => {

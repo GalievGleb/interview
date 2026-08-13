@@ -46,7 +46,7 @@ describe('HH applications redesign', () => {
     expect(pageSource).toContain('Последний запуск завершён; результат и история доступны ниже.');
     expect(pageSource).toContain("? 'Нужно завершить настройку поиска'");
     expect(pageSource).toContain('? startRequirement');
-    expect(pageSource).toContain("activeRun ? 'Текущий запуск' : 'Последний запуск'");
+    expect(pageSource).toContain("activeRun ? 'Текущий поиск' : 'Последний поиск'");
     expect(pageSource).not.toContain("detail: featuredRun?.message");
   });
   it('uses the passwordless email and one-time-code flow end to end', () => {
@@ -199,10 +199,10 @@ describe('HH applications redesign', () => {
 
   it('keeps the redesigned compact search, schedule, and found-vacancies UI', () => {
     expect(pageSource).toContain('Что искать');
-    expect(pageSource).toContain('Повторять поиск каждый день');
+    expect(pageSource).toContain('Каждый день');
     expect(pageSource).toContain('Найти и добавить в очередь');
     expect(pageSource).toContain('Поиск вакансий');
-    expect(pageSource).toContain('История запусков');
+    expect(pageSource).toContain('Предыдущих запусков:');
     expect(pageSource).toContain('Вакансии в работе');
     expect(pageSource).toContain('{queuePanelMeta.title}');
     expect(pageSource).not.toContain('overflow-y-auto');
@@ -213,8 +213,26 @@ describe('HH applications redesign', () => {
     expect(pageSource).toContain("const [pageMode, setPageMode] = useState<'activity' | 'settings'>(");
     expect(pageSource).toContain("pageMode === 'activity'");
     expect(pageSource).toContain("pageMode === 'settings'");
-    expect(pageSource).toContain('Сохранить без запуска');
+    expect(pageSource).toContain('hh-launch-panel');
+    expect(pageSource).toContain('hh-run-mode-selector');
+    expect(pageSource).toContain('Сохранить настройки');
     expect(pageSource).not.toContain('const [settingsOpen');
+  });
+
+  it('opens a vacancy as a regular external link even when HH automation is disconnected', () => {
+    expect(pageSource).toContain('const openVacancyInBrowser');
+    expect(pageSource).toContain('window.electronAPI?.openExternal(vacancy.url)');
+    const queueAt = pageSource.indexOf('shownQueue.map((item) =>');
+    expect(queueAt).toBeGreaterThan(-1);
+    const queueSource = pageSource.slice(queueAt);
+    expect(queueSource).toContain('onClick={() => openVacancyInBrowser(item)}');
+    expect(queueSource).toContain('<ExternalLink size={14} />Открыть</button>');
+    expect(queueSource).not.toContain("run('open', () => assistant.openVacancy(item.key))");
+  });
+
+  it('shows only the concise role and salary for the selected résumé', () => {
+    expect(pageSource).toContain('compactHhResumeTitle(item.selectedResumeTitle)');
+    expect(pageSource).not.toContain('<FileText size={12} />{item.selectedResumeTitle}</p>');
   });
 
   it('filters description-only profession matches and continues the full saved queue', () => {
@@ -242,7 +260,8 @@ describe('HH applications redesign', () => {
     expect(actionEndAt).toBeGreaterThan(actionAt);
     expect(saveAt).toBeGreaterThan(-1);
     expect(runNowAt).toBeGreaterThan(saveAt);
-    expect(pageSource).toContain('только найдёт вакансии и добавит их в очередь');
+    expect(pageSource).toContain('Проверять вручную');
+    expect(pageSource).toContain('Стоп на неизвестном вопросе');
     expect(pageSource).toContain('Найти и отправить отклики');
   });
 
@@ -252,7 +271,7 @@ describe('HH applications redesign', () => {
     expect(pageSource).toContain('Ищем вакансии…');
     expect(pageSource).toContain('Обрабатываем отклики…');
     expect(pageSource).toContain('aria-busy={stoppingRun}');
-    expect(pageSource).toContain("activeRun\n              ? <button");
+    expect(pageSource).toContain('? <button type="button" className="btn-danger"');
     expect(pageSource).toContain('aria-live="polite"');
     expect(mainSource).toContain("void hhBrowserAssistant.runNow('manual')");
     expect(mainSource).toContain('return hhBrowserAssistant.getState()');
@@ -260,7 +279,8 @@ describe('HH applications redesign', () => {
 
   it('lets the user stop both scanning and applying without an automatic queue restart', () => {
     expect(pageSource).toContain('assistant.stopApply()');
-    expect(pageSource).toContain('Остановить поиск и отклики');
+    expect(pageSource).toContain("onClick={() => void stopAutomation()}");
+    expect(pageSource).toContain("'Остановить'");
     expect(pageSource).toContain('Останавливаем…');
     expect(pageSource).toContain('Очередь приостановлена');
     expect(mainSource).toContain("ipcMain.handle('hh-assistant:stop-apply'");
@@ -292,10 +312,10 @@ describe('HH applications redesign', () => {
 
   it('explains and navigates to missing auto-apply requirements instead of silently disabling start', () => {
     expect(pageSource).toContain('const startRequirement = useMemo(');
-    expect(pageSource).toContain('Для запуска: {startRequirement}');
+    expect(pageSource).toContain('{startRequirement}<button type="button" onClick={focusMissingRequirement}>Исправить</button>');
     expect(pageSource).toContain("target?.scrollIntoView({ behavior: 'smooth', block: 'center' })");
     expect(pageSource).toContain('onClick={focusMissingRequirement}');
-    expect(pageSource).toContain('Перейти к полю');
+    expect(pageSource).toContain('Исправить');
     expect(pageSource).toContain('loaded[0] ? [loaded[0].title] : []');
     expect(pageSource).toContain('disabled={busy !== \'\'}');
     expect(pageSource).not.toContain("disabled={busy !== '' || !draft.query.trim()");
@@ -339,7 +359,9 @@ describe('HH applications redesign', () => {
     expect(pageSource).toContain('chat.pollNow()');
     expect(pageSource).toContain('chat.setEnabled(');
     expect(pageSource).toContain("chatState?.enabled ? 'Автоответы включены'");
-    expect(pageSource).toContain("chat && hhConnected && <section id=\"hh-hr-responses\"");
+    expect(pageSource).toContain("queueView === 'dialogs'");
+    expect(pageSource).toContain('onClick={emptyQueueCopy.action}');
+    expect(pageSource).toContain("chat && hhConnected && (chatState?.pendingDecisions.length ?? 0) > 0");
     expect(pageSource).toContain("['replies', 'Ответы', chatState?.replyHistory.length ?? 0]");
     expect(pageSource).toContain('Сообщение HR');
     expect(pageSource).toContain('Ответ от вашего имени');
@@ -348,7 +370,7 @@ describe('HH applications redesign', () => {
     expect(pageSource).toContain('Ответы сегодня:');
     expect(pageSource).toContain("openExternal('https://hh.ru/applicant/negotiations')");
     expect(pageSource).toContain('aria-expanded={expanded}');
-    expect(pageSource).toContain('Последнее сообщение');
+    expect(pageSource).toContain('Сообщение работодателя');
     expect(mainSource).toContain('signal: AbortSignal.timeout(20_000)');
   });
 
@@ -406,8 +428,8 @@ describe('HH applications redesign', () => {
   });
 
   it('keeps chat polling on a dedicated browser page', () => {
-    expect(assistantSource).toContain('async getChatPage()');
-    expect(mainSource).toContain('hhBrowserAssistant?.getChatPage()');
+    expect(assistantSource).toContain('async getChatPage(options: { explicit?: boolean } = {})');
+    expect(mainSource).toContain("hhBrowserAssistant?.getChatPage({ explicit: purpose === 'explicit' })");
     expect(mainSource).not.toContain('hhBrowserAssistant?.getPage() ?? null');
   });
 
@@ -468,7 +490,7 @@ describe('HH applications redesign', () => {
     expect(assistantSource).toContain('[data-qa="open_chat"]');
     expect(assistantSource).toContain('negotiations-item-discard');
     expect(assistantSource).toContain('Работодатель уже отказал по этой вакансии');
-    expect(assistantSource).toContain('Отклик больше не найден в активных переговорах HH');
+    expect(assistantSource).toContain('HH не подтвердил отправку отклика. Возвращаю вакансию в очередь');
     expect(assistantSource).toContain("button.click({ timeout: 5_000, force: true })");
     expect(assistantSource).toContain("addLetter.click({ timeout: 5_000, force: true })");
     expect(assistantSource).toContain('HH не подтвердил появление сопроводительного письма в чате');
@@ -520,7 +542,7 @@ describe('HH applications redesign', () => {
     expect(mainSource).toContain("ipcMain.handle('hh-assistant:answer-screening-questions'");
     expect(preloadSource).toContain("ipcRenderer.invoke('hh-assistant:answer-screening-questions'");
     expect(electronTypesSource).toContain('screeningFacts: HhScreeningFact[]');
-    expect(pageSource).toContain('Подготовка · {item.preparationNotes?.length}');
+    expect(pageSource).toContain('item.preparationNotes');
     expect(assistantSource).toContain('preparationNotes?: string[]');
     expect(mainSource).toContain('Перед интервью повторите:');
   });
@@ -554,10 +576,10 @@ describe('HH applications redesign', () => {
     expect(actionAt).toBeGreaterThan(-1);
     expect(saveAt).toBeGreaterThan(-1);
     expect(runNowAt).toBeGreaterThan(saveAt);
-    expect(pageSource).toContain('Расписание выключено. Кнопка выполнит только один запуск сейчас.');
-    expect(pageSource).toContain('Следующий автоматический запуск:');
+    expect(pageSource).toContain('Каждый день');
+    expect(pageSource).toContain('Следующий:');
     expect(pageSource).toContain('saveSettingsOnly');
-    expect(pageSource).toContain('Сохранить без запуска');
+    expect(pageSource).toContain('Сохранить настройки');
     expect(pageSource).toContain('state.config.autoRunDaily !== draft.autoRunDaily');
     expect(pageSource).toContain("if (draft.resumeTitles.length === 0) return 'Выберите хотя бы одно резюме в шаге 1.'");
   });
@@ -565,11 +587,11 @@ describe('HH applications redesign', () => {
   it('accepts a concrete HH vacancy link and records every run outcome', () => {
     expect(pageSource).toContain('Есть конкретная вакансия?');
     expect(pageSource).toContain('assistant.applyVacancyUrl(normalized)');
-    expect(pageSource).toContain('Разобрать и подготовиться');
-    expect(pageSource).toContain('Отправить отклик сейчас');
+    expect(pageSource).toContain('Разобрать');
+    expect(pageSource).toContain('Отправить сразу');
     expect(pageSource).toContain("platformRuns.find((item) => item.status === 'running')");
-    expect(pageSource).toContain("['Найдено', featuredRun.found");
-    expect(pageSource).toContain('aria-label="Собрать диагностику"');
+    expect(pageSource).toContain('{featuredRun.found} найдено');
+    expect(pageSource).toContain('aria-label="Собрать диагностику запуска"');
     expect(assistantSource).toContain('async applyVacancyUrl(rawUrl: string)');
     expect(mainSource).toContain("ipcMain.handle('hh-assistant:apply-vacancy-url'");
     expect(preloadSource).toContain("ipcRenderer.invoke('hh-assistant:apply-vacancy-url', url)");

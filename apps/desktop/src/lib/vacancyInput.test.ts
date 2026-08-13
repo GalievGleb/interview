@@ -11,6 +11,11 @@ describe('vacancy input', () => {
       .toBe('https://hh.ru/vacancy/132327563');
   });
 
+  it('normalizes regional HH vacancy links used by shared vacancies', () => {
+    expect(hhVacancyUrlFromInput('https://tula.hh.ru/vacancy/132327563'))
+      .toBe('https://hh.ru/vacancy/132327563');
+  });
+
   it('does not treat a Telegram conversation containing an HH link as a standalone link', () => {
     const telegramText = [
       'HR, 12:41',

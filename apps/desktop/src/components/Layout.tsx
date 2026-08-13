@@ -9,7 +9,7 @@ import { getBackendBannerKind } from './layout/backendBanner';
 import { formatLiveElapsed } from '../lib/liveElapsed';
 
 const WIDE_ROUTES = new Set(['/meeting']);
-const PREP_ROUTES = new Set(['/home', '/prepare', '/documents', '/history']);
+const PREP_ROUTES = new Set(['/home', '/prepare', '/documents', '/practice', '/history']);
 const NO_TITLEBAR_ROUTES = new Set(['/meeting']);
 const ROUTE_TITLE_KEYS: Record<string, I18nKey> = {
   '/home': 'nav.home',
@@ -18,6 +18,7 @@ const ROUTE_TITLE_KEYS: Record<string, I18nKey> = {
   '/applications/hr-profile': 'nav.applications',
   '/calendar': 'nav.calendar',
   '/documents': 'nav.documents',
+  '/practice': 'nav.practice',
   '/history': 'nav.history',
   '/settings': 'nav.settings',
   '/test-lab': 'cmd.testlab',
@@ -83,7 +84,11 @@ export default function Layout({ children }: { children: ReactNode }) {
   const { pathname } = useLocation();
   const contentRef = useRef<HTMLDivElement>(null);
   const mainRef = useRef<HTMLElement>(null);
-  const routeKey = pathname.startsWith('/history/') ? '/history' : pathname;
+  const routeKey = pathname.startsWith('/history/')
+    ? '/history'
+    : pathname.startsWith('/practice/')
+      ? '/practice'
+      : pathname;
   const wide = WIDE_ROUTES.has(routeKey);
   const prep = PREP_ROUTES.has(routeKey);
   const showTitleBar = !NO_TITLEBAR_ROUTES.has(routeKey);

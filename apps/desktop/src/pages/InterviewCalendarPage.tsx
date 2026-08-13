@@ -7,6 +7,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { hhVacancyUrlFromInput } from '../lib/vacancyInput';
 import {
   AlertTriangle,
   BookOpen,
@@ -185,6 +186,8 @@ function InterviewOutcomeView({ event }: { event: InterviewCalendarEvent }) {
 interface EventForm {
   id?: string;
   negotiationKey?: string;
+  journeyId?: string;
+  sessionId?: string;
   source: 'hh' | 'manual';
   vacancyTitle: string;
   companyName: string;
@@ -256,6 +259,7 @@ export default function InterviewCalendarPage() {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [formError, setFormError] = useState('');
+  const [vacancyImporting, setVacancyImporting] = useState(false);
   const [eventToDelete, setEventToDelete] = useState<InterviewCalendarEvent | null>(null);
   const [briefModal, setBriefModal] = useState<InterviewBriefModalState | null>(null);
   const availabilityInitialized = useRef(false);
@@ -488,11 +492,58 @@ export default function InterviewCalendarPage() {
       setFormError('Календарь пока недоступен. Перезапустите приложение и попробуйте ещё раз.');
       return;
     }
-    if (!form.vacancyTitle.trim() || !form.companyName.trim() || !form.startAt) {
-      setFormError('Укажите вакансию, компанию и время.');
+    let resolvedForm = form;
+    const normalizedHhUrl = hhVacancyUrlFromInput([
+      form.vacancyUrl,
+      form.vacancyTitle,
+      form.companyName,
+    ].join('\n'));
+    const titleContainsHhUrl = Boolean(hhVacancyUrlFromInput(form.vacancyTitle));
+    const companyContainsHhUrl = Boolean(hhVacancyUrlFromInput(form.companyName));
+    const needsVacancyImport = Boolean(normalizedHhUrl && (
+      !form.vacancyTitle.trim()
+      || !form.companyName.trim()
+      || titleContainsHhUrl
+      || companyContainsHhUrl
+      || form.vacancyDescription.trim().length < 80
+    ));
+    if (needsVacancyImport && normalizedHhUrl) {
+      const assistant = window.electronAPI?.hhAssistant;
+      if (!assistant) {
+        if (!form.vacancyTitle.trim() || !form.companyName.trim() || titleContainsHhUrl || companyContainsHhUrl) {
+          setFormError('Не удалось загрузить данные вакансии. Попробуйте ещё раз или укажите название и компанию.');
+          return;
+        }
+      } else {
+        setVacancyImporting(true);
+        try {
+          const vacancy = await assistant.inspectVacancyUrl(normalizedHhUrl);
+          resolvedForm = {
+            ...form,
+            vacancyTitle: !form.vacancyTitle.trim() || titleContainsHhUrl ? vacancy.title : form.vacancyTitle,
+            companyName: !form.companyName.trim() || companyContainsHhUrl ? vacancy.company : form.companyName,
+            vacancyUrl: vacancy.url || normalizedHhUrl,
+            vacancyDescription: form.vacancyDescription.trim() || vacancy.description || vacancy.text,
+          };
+          setForm(resolvedForm);
+        } catch (reason) {
+          if (!form.vacancyTitle.trim() || !form.companyName.trim() || titleContainsHhUrl || companyContainsHhUrl) {
+            setFormError(reason instanceof Error ? reason.message : 'Не удалось загрузить вакансию с HH.');
+            return;
+          }
+          resolvedForm = { ...form, vacancyUrl: normalizedHhUrl };
+        } finally {
+          setVacancyImporting(false);
+        }
+      }
+    }
+    if (!resolvedForm.vacancyTitle.trim() || !resolvedForm.companyName.trim() || !resolvedForm.startAt) {
+      setFormError(normalizedHhUrl
+        ? 'Не удалось определить название или компанию. Заполните только недостающее поле.'
+        : 'Добавьте ссылку HH или укажите вакансию и компанию.');
       return;
     }
-    const start = new Date(form.startAt);
+    const start = new Date(resolvedForm.startAt);
     if (Number.isNaN(start.getTime())) {
       setFormError('Не удалось распознать дату встречи.');
       return;
@@ -502,15 +553,17 @@ export default function InterviewCalendarPage() {
     const draft: InterviewEventDraft = {
       id: form.id,
       negotiationKey: form.negotiationKey,
-      vacancyTitle: form.vacancyTitle.trim(),
-      companyName: form.companyName.trim(),
+      journeyId: form.journeyId,
+      sessionId: form.sessionId,
+      vacancyTitle: resolvedForm.vacancyTitle.trim(),
+      companyName: resolvedForm.companyName.trim(),
       type: form.type,
       status: form.status,
       startAt: start.toISOString(),
       endAt: new Date(start.getTime() + form.durationMin * 60_000).toISOString(),
       source: form.source,
-      vacancyUrl: form.vacancyUrl.trim() || undefined,
-      vacancyDescription: form.vacancyDescription.trim() || undefined,
+      vacancyUrl: resolvedForm.vacancyUrl.trim() || undefined,
+      vacancyDescription: resolvedForm.vacancyDescription.trim() || undefined,
       meetingUrl: form.meetingUrl.trim() || undefined,
       notes: form.notes.trim() || undefined,
     };
@@ -531,6 +584,8 @@ export default function InterviewCalendarPage() {
     setForm({
       id: event.id,
       negotiationKey: event.negotiationKey,
+      journeyId: event.journeyId,
+      sessionId: event.sessionId,
       source: event.source,
       vacancyTitle: event.vacancyTitle,
       companyName: event.companyName,
@@ -545,6 +600,20 @@ export default function InterviewCalendarPage() {
     });
   };
   editEventRef.current = editEvent;
+
+  const addNextStage = (event: InterviewCalendarEvent) => {
+    setFormError('');
+    setForm({
+      ...emptyEventForm(defaultStart(), state.settings.defaultDurationMin ?? EMPTY_SETTINGS.defaultDurationMin),
+      journeyId: event.journeyId ?? event.id,
+      source: event.source,
+      vacancyTitle: event.vacancyTitle,
+      companyName: event.companyName,
+      type: event.type === 'hr' ? 'technical' : 'other',
+      vacancyUrl: event.vacancyUrl ?? '',
+      vacancyDescription: event.vacancyDescription ?? '',
+    });
+  };
 
   const confirmRemoveEvent = async (event: InterviewCalendarEvent) => {
     if (!calendar) return;
@@ -707,7 +776,7 @@ export default function InterviewCalendarPage() {
   }
 
   return (
-    <div className="flex min-h-full flex-col gap-5 pb-8">
+    <div className="flex min-h-full flex-col gap-5 pb-14">
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-emerald-300">
@@ -1000,6 +1069,11 @@ export default function InterviewCalendarPage() {
           <div className="divide-y divide-surface-border">
             {completed.map((event) => {
               const meta = typeMeta(event.type);
+              const journeyKey = event.journeyId ?? event.id;
+              const journeyEvents = activeEvents
+                .filter((item) => (item.journeyId ?? item.id) === journeyKey)
+                .sort((left, right) => +new Date(left.startAt) - +new Date(right.startAt));
+              const journeyIndex = journeyEvents.findIndex((item) => item.id === event.id);
               return (
                 <article key={event.id} className="px-5 py-4">
                   <div className="flex flex-wrap items-start gap-3">
@@ -1008,8 +1082,12 @@ export default function InterviewCalendarPage() {
                         <h3 className="text-sm font-semibold text-ink">{event.companyName} · {event.vacancyTitle}</h3>
                         <span className={`rounded-full border px-2 py-0.5 text-[11px] ${meta.tone}`}>{meta.label}</span>
                       </div>
-                      <p className="mt-0.5 text-xs text-ink-faint">{formatFull(event.startAt)}</p>
+                      <p className="mt-0.5 text-xs text-ink-faint">
+                        {formatFull(event.startAt)}
+                        {journeyEvents.length > 1 && journeyIndex >= 0 ? ` · этап ${journeyIndex + 1} из ${journeyEvents.length}` : ''}
+                      </p>
                     </div>
+                    <button type="button" className="btn-ghost btn-sm" onClick={() => addNextStage(event)}><CirclePlus size={14} /> Следующий этап</button>
                     <button type="button" className="skillcue-sidebar__icon-button" onClick={() => editEvent(event)} aria-label="Изменить"><Pencil size={14} /></button>
                     <button type="button" className="skillcue-sidebar__icon-button hover:text-red-300" onClick={() => setEventToDelete(event)} aria-label="Удалить"><Trash2 size={14} /></button>
                   </div>
@@ -1135,13 +1213,19 @@ export default function InterviewCalendarPage() {
             if (event) setEventToDelete(event);
           }}><Trash2 size={14} /> Удалить</button>}
           <button type="button" className="btn-ghost" onClick={() => { setForm(null); setFormError(''); }}>Отмена</button>
-          <button type="button" className="btn-primary" disabled={busy === 'event'} onClick={() => void submitEvent()}>{busy === 'event' ? 'Сохраняю…' : 'Сохранить'}</button>
+          <button type="button" className="btn-primary" disabled={busy === 'event' || vacancyImporting} onClick={() => void submitEvent()}>{busy === 'event' || vacancyImporting ? 'Загружаю…' : 'Сохранить'}</button>
         </>}
       >
         {form && <div className="space-y-3" aria-describedby={formError ? 'interview-form-error' : undefined}>
           <span id="interview-form-error" className="sr-only">{formError}</span>
+          {!form.id && (
+            <label>
+              <span className="label">Ссылка HH <span className="font-normal text-ink-faint">· название и компания заполнятся сами</span></span>
+              <input autoFocus className="field" value={form.vacancyUrl} onChange={(event) => { setForm({ ...form, vacancyUrl: event.target.value }); setFormError(''); }} placeholder="https://hh.ru/vacancy/…" />
+            </label>
+          )}
           <div className="grid gap-3 sm:grid-cols-2">
-            <label><span className="label">Вакансия</span><input autoFocus={!readinessEditActive} className="field" value={form.vacancyTitle} aria-invalid={Boolean(formError && !form.vacancyTitle.trim())} onChange={(event) => { setForm({ ...form, vacancyTitle: event.target.value }); setFormError(''); }} placeholder="QA Automation Engineer" /></label>
+            <label><span className="label">Вакансия</span><input autoFocus={Boolean(form.id && !readinessEditActive)} className="field" value={form.vacancyTitle} aria-invalid={Boolean(formError && !form.vacancyTitle.trim())} onChange={(event) => { setForm({ ...form, vacancyTitle: event.target.value }); setFormError(''); }} placeholder="QA Automation Engineer" /></label>
             <label><span className="label">Компания</span><input className="field" value={form.companyName} aria-invalid={Boolean(formError && !form.companyName.trim())} onChange={(event) => { setForm({ ...form, companyName: event.target.value }); setFormError(''); }} placeholder="Название компании" /></label>
           </div>
           {readinessEditActive && !form.meetingUrl.trim() && (
@@ -1155,7 +1239,7 @@ export default function InterviewCalendarPage() {
           <details className="rounded-xl border border-surface-border bg-surface/25 px-3 py-2.5" open={readinessEditActive || undefined}>
             <summary className="cursor-pointer text-xs font-semibold text-ink-muted">Добавить ссылку или требования <span className="font-normal text-ink-faint">· необязательно</span></summary>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              <label><span className="label">Ссылка на вакансию</span><input className="field" value={form.vacancyUrl} onChange={(event) => setForm({ ...form, vacancyUrl: event.target.value })} placeholder="https://hh.ru/vacancy/…" /></label>
+              {form.id && <label><span className="label">Ссылка на вакансию</span><input className="field" value={form.vacancyUrl} onChange={(event) => { setForm({ ...form, vacancyUrl: event.target.value }); setFormError(''); }} placeholder="https://hh.ru/vacancy/…" /></label>}
               <label><span className="label">Описание / требования</span><textarea className="field min-h-10 resize-y" rows={1} value={form.vacancyDescription} onChange={(event) => setForm({ ...form, vacancyDescription: event.target.value })} placeholder="Стек, задачи, требования" /></label>
             </div>
           </details>

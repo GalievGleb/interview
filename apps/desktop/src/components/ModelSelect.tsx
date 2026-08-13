@@ -124,7 +124,7 @@ function OptionRow({
     <button
       type="button"
       onClick={onPick}
-      className={`w-full rounded-lg px-2.5 py-2 text-left transition ${
+      className={`w-full rounded-lg px-2.5 py-2 text-left transition-[color,background-color] ${
         active ? 'bg-accent/15 ring-1 ring-accent/40' : 'hover:bg-surface-hover'
       }`}
     >

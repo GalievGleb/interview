@@ -104,11 +104,14 @@ describe('packaged product surface', () => {
 
     expect(sidebarSource).toContain('useBuildChannel()');
     expect(sidebarSource).toContain("buildChannel === 'dev'");
-    expect(sidebarSource).toContain('isDeveloperBuild ? (');
+    expect(sidebarSource).toContain('{isDeveloperBuild && (');
+    expect(sidebarSource).toContain('skillcue-sidebar__utility-row');
     expect(sidebarSource).toContain('<ShieldCheck');
     expect(sidebarSource).toContain('<EyeOff');
     expect(preloadSource).toContain("ipcRenderer.invoke('app:getBuildChannel')");
     expect(mainSource).toContain("ipcMain.handle('app:getBuildChannel', () => BUILD_CHANNEL)");
+    expect(preloadSource).toContain("ipcRenderer.invoke('overlay:get-window-state')");
+    expect(mainSource).toContain("ipcMain.handle('overlay:get-window-state'");
   });
 
   it('fails closed for developer routes and commands in the stable product', () => {

@@ -11,6 +11,7 @@ def service_name(build_channel: str | None = None) -> str:
 
 
 SERVICE_NAME = service_name()
+STABLE_SERVICE_NAME = "interview-copilot"
 
 _VALID_KEYS = {
     "openai_api_key",
@@ -47,9 +48,17 @@ def get_secret(name: str) -> str:
 
     if _keyring_available:
         try:
-            value = keyring.get_password(SERVICE_NAME, name)
-            if value:
-                return value
+            # Dev is the owner's test surface. Prefer an explicitly configured
+            # Dev secret, but reuse the owner's stable BYOK key when Dev has not
+            # stored one yet. This keeps user data/profile isolation without
+            # silently sending Dev traffic through the commercial gateway quota.
+            services = [SERVICE_NAME]
+            if SERVICE_NAME != STABLE_SERVICE_NAME:
+                services.append(STABLE_SERVICE_NAME)
+            for keyring_service in services:
+                value = keyring.get_password(keyring_service, name)
+                if value:
+                    return value
         except Exception:
             pass
 

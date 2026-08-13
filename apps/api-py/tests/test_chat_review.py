@@ -204,7 +204,33 @@ def test_screen_assist_stream_builds_multimodal_message(client, monkeypatch):
     assert "реши задачу" in text_part  # транскрипт подмешан
     img = next(p for p in parts if p["type"] == "image_url")["image_url"]["url"]
     assert img.startswith("data:image/jpeg;base64,")
-    assert next(p for p in parts if p["type"] == "image_url")["image_url"]["detail"] == "low"
+    assert next(p for p in parts if p["type"] == "image_url")["image_url"]["detail"] == "high"
+    system_prompt = captured["messages"][0]["content"]
+    assert "Декоратор с args и kwargs" in system_prompt
+    assert "полный рабочий" in system_prompt
+    assert "ответ без исполняемого блока кода считается неправильным" in system_prompt
+    assert system_prompt.index("СНАЧАЛА решение одним блоком кода") < system_prompt.index("После кода")
+
+
+def test_screen_assist_default_question_demands_executable_code(client, monkeypatch):
+    captured: dict = {}
+
+    async def fake_stream(messages, provider=None, model=None, **kwargs):
+        captured["messages"] = messages
+        yield "```python\nprint('ok')\n```"
+
+    monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
+    res = client.post(
+        "/chat/screen/stream",
+        json={"image": "data:image/jpeg;base64,QUJD"},
+    )
+    assert res.status_code == 200, res.text
+    text_part = next(
+        part
+        for part in captured["messages"][-1]["content"]
+        if part["type"] == "text"
+    )["text"]
+    assert "обязательно дай полный рабочий код" in text_part
 
 
 def test_screen_assist_rejects_empty_and_huge_images(client, monkeypatch):

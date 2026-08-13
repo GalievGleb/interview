@@ -81,7 +81,7 @@ export function saveSession(session: SmokeReviewSession): void {
   writeAll(all);
   // Вехи активации: любая сохранённая сессия = вакансия разобрана; статус
   // completed = mock пройден. markMilestone фиксирует только первое прохождение.
-  markMilestone('vacancyAnalyzed');
+  if (session.vacancyAnalysis?.contextKind !== 'role') markMilestone('vacancyAnalyzed');
   if (session.status === 'completed') markMilestone('mockCompleted');
   // Пересохранение ранее удалённого id (тот же id снова в работе) снимает надгробие.
   const tombstones = readTombstones();

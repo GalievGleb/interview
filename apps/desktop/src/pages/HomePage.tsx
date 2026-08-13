@@ -255,8 +255,10 @@ export default function HomePage() {
   ].filter(Boolean);
 
   const growthProfile = readStoredGrowthProfile();
+  const vacancySessions = sessions.filter((session) => session.vacancyAnalysis.contextKind !== 'role');
+  const generalPracticeSessions = sessions.filter((session) => session.vacancyAnalysis.contextKind === 'role');
   const hasVacancy = Boolean(nearestInterview)
-    || sessions.length > 0
+    || vacancySessions.length > 0
     || candidateSources.documents.some((document) => document.kind === 'vacancy');
   const hasResume = candidateSources.hhResumeCount > 0
     || candidateSources.documents.some((document) => document.kind === 'resume')
@@ -267,7 +269,11 @@ export default function HomePage() {
     || (candidateSources.profile?.technical.evidenceCount ?? 0) > 0
     || (candidateSources.profile?.hr.evidenceCount ?? 0) > 0,
   );
-  const activePreparation = inProgress ?? completed ?? sessions[0];
+  const activePreparation = candidatePath === 'vacancy'
+    ? vacancySessions.find((session) => session.status === 'in_progress')
+      ?? vacancySessions.find((session) => session.status === 'completed')
+      ?? vacancySessions[0]
+    : inProgress ?? completed ?? generalPracticeSessions[0] ?? sessions[0];
   const activeVacancyId = hhVacancyId(activePreparation?.vacancyAnalysis.vacancyUrl);
   const hasApplication = Boolean(activeVacancyId && (assistantState?.queue ?? []).some((item) =>
     (item.status === 'sent' || item.status === 'already_applied')
@@ -277,10 +283,10 @@ export default function HomePage() {
     selectedPath: candidatePath,
     hasVacancy,
     hasResume,
-    hasAnalysis: sessions.length > 0,
-    practiceAnswers: inProgress?.answers.length ?? 0,
-    practiceQuestions: inProgress?.questions.length ?? 0,
-    practiceCompleted: Boolean(completed),
+    hasAnalysis: vacancySessions.length > 0,
+    practiceAnswers: activePreparation?.status === 'in_progress' ? activePreparation.answers.length : 0,
+    practiceQuestions: activePreparation?.status === 'in_progress' ? activePreparation.questions.length : 0,
+    practiceCompleted: Boolean(activePreparation?.status === 'completed'),
     hasApplication,
     hasEmployerResponse: activeHrDialogs > 0 || pendingHrDecisions > 0 || Boolean(nearestInterview),
     hasGrowthRole: Boolean(growthProfile.role),
@@ -296,35 +302,19 @@ export default function HomePage() {
     || hasEvidence;
   const pathChooserVisible = showPathChooser || candidateJourney.path === null;
 
-  const chooseCandidatePath = (path: CandidatePath) => {
+  const chooseCandidatePath = (path: CandidatePath, destination?: string) => {
     saveCandidatePath(path);
     setCandidatePath(path);
     setShowPathChooser(false);
-    navigate(path === 'vacancy' ? '/prepare' : '/documents?mode=baseline');
+    navigate(destination ?? (path === 'vacancy' ? '/prepare' : '/documents?mode=baseline'));
   };
 
-  const nextQueueRun = assistantState?.nextRunAt
-    ? new Date(assistantState.nextRunAt).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
-    : '';
-  const applicationsDetail = activeRun
-    ? assistantState?.applyProgress?.total
-      ? `Поиск идёт · ${assistantState.applyProgress.done} из ${assistantState.applyProgress.total}`
-      : 'Поиск вакансий выполняется'
-    : latestRun
-      ? queuedApplications > 0
-        ? `В очереди ${queuedApplications} · продолжение автоматически${nextQueueRun ? `, новый поиск ${nextQueueRun}` : ''}`
-        : `Последний запуск · ${latestRun.sent} отправлено`
-      : queuedApplications > 0
-        ? `В очереди ${queuedApplications} · продолжение автоматическое`
-        : 'Поиск ещё не запускался';
   const technicalReadinessPercent = Math.round((preflightReadyCount / preflightChecks.length) * 100);
   const primaryTitle = nearestInterview
     ? `${nearestInterview.companyName} · ${nearestInterview.vacancyTitle}`
     : candidateJourney.headline;
   const primaryBody = nearestInterview
-    ? vacancyContextReady
-      ? `Созвон ${formatHomeInterviewStart(nearestInterview.startAt, now)}. Требования вакансии сохранены — можно проверить сильные стороны и темы для повторения.`
-      : `Созвон ${formatHomeInterviewStart(nearestInterview.startAt, now)}. Добавьте требования вакансии, чтобы SkillCue не придумывал оценку готовности.`
+    ? ''
     : candidateJourney.body;
   const primaryAction = nearestInterview
     ? {
@@ -350,7 +340,7 @@ export default function HomePage() {
   const applicationFlowSteps = [
     { key: 'queue', value: queuedApplications, label: 'в очереди' },
     { key: 'sent', value: sentTodayCount, label: 'отправлено сегодня' },
-    { key: 'dialogs', value: activeHrDialogs, label: 'диалогов HR' },
+    { key: 'dialogs', value: activeHrDialogs, label: 'диалогов с HR' },
   ];
 
   const attentionItems: Array<{
@@ -397,6 +387,12 @@ export default function HomePage() {
     });
   }
   const visibleAttentionItems = attentionItems.slice(0, 3);
+  const showOperationalColumn = candidateContextExists
+    || Boolean(latestRun)
+    || queuedApplications > 0
+    || sentTodayCount > 0
+    || activeHrDialogs > 0
+    || visibleAttentionItems.length > 0;
 
   const closeReadinessAndNavigate = (path: string) => {
     setReadinessOpen(false);
@@ -473,9 +469,12 @@ export default function HomePage() {
         <header className="home-radar__heading">
           <div>
             <p className="prep-eyebrow">ВАШ ПУТЬ</p>
-            <h1>Следующий шаг без догадок</h1>
+            <h1>Ваш следующий шаг</h1>
           </div>
-          <p>{formatHomeDate(now)}</p>
+          <p className="home-radar-date">
+            <CalendarClock size={16} aria-hidden="true" />
+            <span>{formatHomeDate(now)}</span>
+          </p>
         </header>
 
         {pathChooserVisible ? (
@@ -486,68 +485,50 @@ export default function HomePage() {
           >
             <div className="candidate-path-entry__intro">
               <p className="prep-eyebrow">ОТПРАВНАЯ ТОЧКА</p>
-              <h2 id="candidate-path-title">С чего вы начинаете сегодня?</h2>
-              <p>
-                Не нужно заранее знать структуру SkillCue. Выберите ситуацию — приложение само выстроит
-                последовательность от исходных данных до измеримого прогресса.
-              </p>
+              <h2 id="candidate-path-title">С чего начать?</h2>
             </div>
             <div className="candidate-path-options">
-              <article className="candidate-path-option is-primary">
-                <span className="candidate-path-option__number" aria-hidden="true">01</span>
-                <div>
-                  <p className="prep-eyebrow">ЕСТЬ КОНКРЕТНАЯ РОЛЬ</p>
-                  <h3>У меня есть вакансия</h3>
-                  <p>Сначала разберём требования, затем сопоставим их с резюме и проверим разрывы на вопросах.</p>
-                </div>
-                <ol aria-label="Путь с вакансией">
-                  <li>Вакансия</li><li>Резюме</li><li>Сопоставление</li><li>Практика</li><li>Отклик</li><li>Ответ HR</li>
-                </ol>
-                <button type="button" className="prep-btn" onClick={() => chooseCandidatePath('vacancy')}>
-                  Начать с вакансии <ArrowRight size={16} aria-hidden="true" />
-                </button>
-              </article>
-              <article className="candidate-path-option">
-                <span className="candidate-path-option__number" aria-hidden="true">02</span>
-                <div>
-                  <p className="prep-eyebrow">ПОКА ИЗУЧАЮ РЫНОК</p>
-                  <h3>Вакансии пока нет</h3>
-                  <p>Начнём с резюме и профессиональной цели. Самооценку отделим от подтверждений реальными ответами.</p>
-                </div>
-                <ol aria-label="Путь без вакансии">
-                  <li>Резюме</li><li>Цель и стартовая точка</li><li>Практика и интервью</li>
-                </ol>
-                <button type="button" className="prep-btn prep-btn-secondary" onClick={() => chooseCandidatePath('profile')}>
-                  Начать без вакансии <ArrowRight size={16} aria-hidden="true" />
-                </button>
-              </article>
+              <button type="button" className="candidate-path-choice is-primary" onClick={() => chooseCandidatePath('vacancy')}>
+                <span><strong>Добавить вакансию</strong><small>Получить персональный разбор</small></span>
+                <ArrowRight size={17} aria-hidden="true" />
+              </button>
+              <button type="button" className="candidate-path-choice" onClick={() => chooseCandidatePath('profile')}>
+                <span><strong>Добавить резюме</strong><small>Сохранить факты об опыте</small></span>
+                <ArrowRight size={17} aria-hidden="true" />
+              </button>
+              <button type="button" className="candidate-path-choice" onClick={() => chooseCandidatePath('profile', '/practice')}>
+                <span><strong>Начать практику</strong><small>Без конкретной вакансии</small></span>
+                <ArrowRight size={17} aria-hidden="true" />
+              </button>
             </div>
-            <p className="candidate-path-entry__note">
-              Путь можно сменить в любой момент. Уже добавленные вакансии, резюме и результаты не потеряются.
-            </p>
           </section>
         ) : (
-        <section className="home-radar-grid" aria-label="Ваш путь и текущие задачи">
-          <article className={`home-radar-primary ${nearestInterview ? 'has-interview' : 'is-priority'} ${candidateContextExists ? '' : 'is-journey-only'}`}>
+        <section
+          className={`home-radar-grid ${showOperationalColumn && visibleAttentionItems.length === 0 ? 'has-no-attention' : ''}`}
+          aria-label="Ваш путь и текущие задачи"
+        >
+          <article className={`home-radar-primary ${nearestInterview ? 'has-interview' : 'is-priority'} ${showOperationalColumn ? '' : 'is-journey-only'}`}>
             <div className="home-radar-primary__copy">
               <div className="candidate-journey-heading">
-                <span>{candidateJourney.pathLabel} · этап {candidateJourney.currentStep + 1} из {candidateJourney.steps.length}</span>
+                <span>Шаг {candidateJourney.currentStep + 1}</span>
                 <button type="button" onClick={() => setShowPathChooser(true)}>Другой сценарий</button>
               </div>
-              {nearestInterview && (
+              {nearestInterview ? (
                 <span className="home-radar-event-badge">
                   <CalendarClock size={15} aria-hidden="true" />
-                  {formatHomeInterviewBadge(nearestInterview.startAt, now)}
+                  Ближайшее собеседование · {formatHomeInterviewBadge(nearestInterview.startAt, now)}
+                </span>
+              ) : (
+                <span className="home-radar-interview-status">
+                  <CalendarClock size={16} aria-hidden="true" />
+                  Ближайших собеседований нет
                 </span>
               )}
-              <p className="prep-eyebrow">
-                {nearestInterview ? 'БЛИЖАЙШИЙ СОЗВОН' : 'СЛЕДУЮЩИЙ ЛОГИЧЕСКИЙ ШАГ'}
-              </p>
               <h2>{primaryTitle}</h2>
               {nearestInterview && (
                 <p className="home-radar-primary__type">{interviewTypeLabel(nearestInterview.type)}</p>
               )}
-              <p className="home-radar-primary__body">{primaryBody}</p>
+              {primaryBody && <p className="home-radar-primary__body">{primaryBody}</p>}
               <div className="candidate-journey-actions">
                 <button type="button" className="prep-btn" onClick={primaryAction.onClick}>
                   {primaryAction.label}
@@ -584,7 +565,7 @@ export default function HomePage() {
             />
           </article>
 
-          {candidateContextExists && (
+          {showOperationalColumn && (
           <>
           <article className="home-radar-panel home-radar-applications">
             <div className="home-radar-panel__heading">
@@ -595,7 +576,7 @@ export default function HomePage() {
             </div>
             <div
               className={`home-radar-flow ${activeRun ? 'is-running' : ''}`}
-              aria-label={`Путь откликов: ${queuedApplications} в очереди, ${sentTodayCount} отправлено сегодня, ${activeHrDialogs} диалогов HR`}
+              aria-label={`Путь откликов: ${queuedApplications} в очереди, ${sentTodayCount} отправлено сегодня, ${activeHrDialogs} диалогов с HR`}
             >
               {applicationFlowSteps.map((step, index) => (
                 <div
@@ -609,35 +590,33 @@ export default function HomePage() {
             </div>
             <button type="button" className="home-radar-run-state" onClick={() => navigate('/applications')}>
               <span className={activeRun ? 'is-running' : ''} aria-hidden="true" />
-              <span>
-                <strong>{queueStatusTitle}</strong>
-                <small>{applicationsDetail}</small>
-              </span>
+              <strong>{queueStatusTitle}</strong>
               <ChevronRight size={15} aria-hidden="true" />
             </button>
+            {visibleAttentionItems.length === 0 && (
+              <div className="home-radar-automatic-status" role="status">
+                <CheckCircle2 size={16} aria-hidden="true" />
+                <span>Срочных действий нет</span>
+              </div>
+            )}
           </article>
 
+          {visibleAttentionItems.length > 0 && (
           <article className="home-radar-panel home-radar-attention">
             <div className="home-radar-panel__heading">
               <span><ListChecks size={16} aria-hidden="true" />Нужно от вас</span>
               <span className="home-radar-count">{attentionItems.length}</span>
             </div>
-            {visibleAttentionItems.length > 0 ? (
-              <div className="home-radar-actions">
-                {visibleAttentionItems.map((item) => (
-                  <button type="button" key={item.key} onClick={item.onClick}>
-                    <span><strong>{item.title}</strong><small>{item.detail}</small></span>
-                    <ChevronRight size={15} aria-hidden="true" />
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <div className="home-radar-clear">
-                <CheckCircle2 size={20} aria-hidden="true" />
-                <span><strong>Срочных действий нет</strong><small>SkillCue продолжает работу автоматически</small></span>
-              </div>
-            )}
+            <div className="home-radar-actions">
+              {visibleAttentionItems.map((item) => (
+                <button type="button" key={item.key} onClick={item.onClick}>
+                  <span><strong>{item.title}</strong><small>{item.detail}</small></span>
+                  <ChevronRight size={15} aria-hidden="true" />
+                </button>
+              ))}
+            </div>
           </article>
+          )}
           </>
           )}
         </section>

@@ -740,6 +740,15 @@ interface ProfileDebugInfo {
   mode: BrowserRunMode | null;
 }
 
+export function debugInfoFromBrowserCommandLine(commandLine: string): ProfileDebugInfo | null {
+  const port = Number(commandLine.match(/--remote-debugging-port(?:=|\s+)(\d+)/i)?.[1]);
+  if (!Number.isInteger(port) || port <= 0 || port >= 65536) return null;
+  return {
+    port,
+    mode: /--headless(?:=|\s|$)/i.test(commandLine) ? 'background' : 'interactive',
+  };
+}
+
 function profileDebugInfo(profileDir: string): ProfileDebugInfo | null {
   try {
     const customPath = path.join(profileDir, 'SkillCueDebugPort');
@@ -750,6 +759,39 @@ function profileDebugInfo(profileDir: string): ProfileDebugInfo | null {
     const mode = lines[1] === 'background' || lines[1] === 'interactive' ? lines[1] : null;
     return { port, mode };
   } catch { return null; }
+}
+
+
+export function profileBrowserCommandLineScript(): string {
+  return [
+    "$target = [IO.Path]::GetFullPath($env:SKILLCUE_AUTOMATION_PROFILE).TrimEnd('\\')",
+    // Keep the complete Where-Object expression in one PowerShell statement.
+    // Joining the old multiline form with semicolons produced `{; ... -and;`
+    // and silently made live-profile discovery fail on every retry.
+    "$browser = Get-CimInstance Win32_Process | Where-Object { ($_.Name -eq 'chrome.exe' -or $_.Name -eq 'msedge.exe') -and $_.CommandLine -and $_.CommandLine.IndexOf($target, [StringComparison]::OrdinalIgnoreCase) -ge 0 -and $_.CommandLine -notmatch '--type=' -and $_.CommandLine -match '--remote-debugging-port(?:=|\\s+)(\\d+)' } | Select-Object -First 1",
+    "if ($browser) { [Console]::Out.Write($browser.CommandLine) }",
+  ].join('; ');
+}
+
+async function runningProfileDebugInfo(profileDir: string): Promise<ProfileDebugInfo | null> {
+  if (process.platform !== 'win32') return null;
+  const script = profileBrowserCommandLineScript();
+  return new Promise((resolve) => {
+    let stdout = '';
+    const child = spawn(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-Command', script],
+      {
+        env: { ...process.env, SKILLCUE_AUTOMATION_PROFILE: path.resolve(profileDir) },
+        stdio: ['ignore', 'pipe', 'ignore'],
+        windowsHide: true,
+      },
+    );
+    child.stdout?.setEncoding('utf8');
+    child.stdout?.on('data', (chunk) => { stdout += String(chunk); });
+    child.once('error', () => resolve(null));
+    child.once('exit', () => resolve(debugInfoFromBrowserCommandLine(stdout)));
+  });
 }
 
 export function browserLaunchArguments(
@@ -1055,7 +1097,7 @@ function normalizeScreeningFacts(value: unknown): HhScreeningFact[] {
 
 export function normalizePersistedQueue(
   value: unknown,
-  restoreLegacyPreSubmissionState = true,
+  _restoreLegacyPreSubmissionState = true,
 ): HhQueueItem[] {
   if (!Array.isArray(value)) return [];
   const result: HhQueueItem[] = [];
@@ -1081,10 +1123,24 @@ export function normalizePersistedQueue(
     const legacyAlreadyApplied = rawStatus === 'sent'
       && !sentAt
       && /(?:уже отклик|hh показывает|отправлен ранее)/i.test(reason ?? '');
-    const stalePreSubmissionCoverLetterState = restoreLegacyPreSubmissionState
-      && rawStatus === 'skipped'
+    // This is not a terminal HH state. Older builds could enter the
+    // post-response cover-letter flow before the response itself had been
+    // submitted, fail to find a negotiation and then hide a perfectly
+    // actionable vacancy. Repair it on every load (not only once by schema
+    // version), because the same false state can also be persisted by a newer
+    // interrupted run.
+    const stalePreSubmissionCoverLetterState = rawStatus === 'skipped'
       && /отклик больше не найден в активных переговорах hh/i.test(reason ?? '')
       && !sentAt;
+    // Older versions treated the absence of an explicit "remote" sentence as
+    // proof that the role was office-only. That hides valid hybrid/unspecified
+    // vacancies even when the employer never requires office attendance. Only
+    // an explicit office requirement is a safe negative signal, so return the
+    // old false-negative state to the live queue for a fresh page check.
+    const staleUnconfirmedRemoteState = rawStatus === 'skipped'
+      && /(?:не подтвержд[её]н выбранный удал[её]нный формат|отсутств(?:ует|ие) явн(?:ой|ого).{0,80}удал[её]н)/i.test(reason ?? '')
+      && !sentAt;
+    const staleFalseNegativeState = stalePreSubmissionCoverLetterState || staleUnconfirmedRemoteState;
     const pendingQuestions = Array.isArray(item.pendingQuestions)
       ? item.pendingQuestions.map(normalizeStoredScreeningQuestion).filter((question): question is HhScreeningQuestion => Boolean(question)).slice(0, 60)
       : [];
@@ -1124,7 +1180,7 @@ export function normalizePersistedQueue(
         ? 'needs_input'
         : coverLetterPending
         ? 'opened'
-        : stalePreSubmissionCoverLetterState
+        : staleFalseNegativeState
           ? 'new'
           : legacyAlreadyApplied
             ? 'already_applied'
@@ -1135,6 +1191,8 @@ export function normalizePersistedQueue(
                 : QUEUE_STATUSES.has(rawStatus) ? rawStatus : 'new',
       reason: stalePreSubmissionCoverLetterState
         ? 'Предыдущая попытка не подтвердила отправку отклика. Вакансия возвращена в очередь для проверки на странице HH.'
+        : staleUnconfirmedRemoteState
+          ? 'Удалённый формат не был опровергнут. Вакансия возвращена в очередь и будет проверена по фактическим условиям на странице HH.'
         : recentUnconfirmedLetter
           ? 'Отклик отправлен без подтверждённого письма. Добавлю и проверю сопроводительное письмо в чате HH.'
         : reason,
@@ -1143,7 +1201,7 @@ export function normalizePersistedQueue(
       pendingQuestions: pendingQuestions.length > 0 ? pendingQuestions : undefined,
       screeningAnswers: screeningAnswers.length > 0 ? screeningAnswers : undefined,
       preparationNotes: preparationNotes.length > 0 ? preparationNotes : undefined,
-      coverLetterPending: coverLetterPending || undefined,
+      coverLetterPending: staleFalseNegativeState ? undefined : coverLetterPending || undefined,
       coverLetterAdded: coverLetterAdded || undefined,
       selectedResumeTitle: typeof item.selectedResumeTitle === 'string'
         ? item.selectedResumeTitle.trim().slice(0, 240) || undefined
@@ -1256,7 +1314,7 @@ export class HhBrowserAssistant {
       queuePaused: persisted?.queuePaused === true,
       applyProgress: null,
       config: normalizeHhAssistantConfig(config),
-      queue: normalizePersistedQueue(persisted?.queue, (persisted?.version ?? 0) < 5),
+      queue: normalizePersistedQueue(persisted?.queue),
       screeningFacts: normalizeScreeningFacts(persisted?.screeningFacts),
       runHistory: normalizeRunHistory(persisted?.runHistory),
       lastScanSummary: null,
@@ -1381,7 +1439,13 @@ export class HhBrowserAssistant {
    * dedicated page also makes background HR checks independent of an open
    * response modal.
    */
-  async getChatPage(): Promise<Page | null> {
+  async getChatPage(options: { explicit?: boolean } = {}): Promise<Page | null> {
+    // A scheduled poll must stay invisible while the user is working in the
+    // interactive HH window. Chromium cannot hide an individual tab, so defer
+    // the poll instead of creating a visible /negotiations tab next to the
+    // vacancy the user opened. Explicit actions (notification/chat button) may
+    // still open it.
+    if (this.browserMode === 'interactive' && !options.explicit) return null;
     if (this.chatPage && !this.chatPage.isClosed()) {
       await this.closeExcessAutomationPages(new Set([this.page, this.chatPage].filter(Boolean) as Page[]));
       return this.chatPage;
@@ -1424,7 +1488,7 @@ export class HhBrowserAssistant {
 
   /** Explicit user action: show the already authenticated HH conversation page. */
   async showChatPage(): Promise<void> {
-    const page = await this.getChatPage();
+    const page = await this.getChatPage({ explicit: true });
     if (!page || page.isClosed()) return;
     await page.bringToFront();
   }
@@ -1529,7 +1593,7 @@ export class HhBrowserAssistant {
         this.statePath,
         JSON.stringify(
           {
-            version: 5,
+            version: 6,
             config: this.state.config,
             queue: this.state.queue,
             screeningFacts: this.state.screeningFacts,
@@ -1781,8 +1845,15 @@ export class HhBrowserAssistant {
   private async launchInstalledBrowser(mode: BrowserRunMode): Promise<BrowserContext> {
     fs.mkdirSync(this.profileDir, { recursive: true });
     const errors: string[] = [];
-    const activeBrowser = profileDebugInfo(this.profileDir);
-    if (activeBrowser) {
+    // Prefer the live process command line over the persisted port file. Older
+    // builds could leave a stale SkillCueDebugPort behind; trying to launch a
+    // second Chrome with the same user-data-dir then exits with code 21.
+    const runningBrowser = await runningProfileDebugInfo(this.profileDir);
+    const persistedBrowser = profileDebugInfo(this.profileDir);
+    const activeBrowsers = [runningBrowser, persistedBrowser]
+      .filter((entry): entry is ProfileDebugInfo => Boolean(entry))
+      .filter((entry, index, all) => all.findIndex((candidate) => candidate.port === entry.port) === index);
+    for (const activeBrowser of activeBrowsers) {
       try {
         const browser = await chromium.connectOverCDP(`http://127.0.0.1:${activeBrowser.port}`, { timeout: 2500 });
         const context = browser.contexts()[0];
@@ -1796,6 +1867,11 @@ export class HhBrowserAssistant {
         await this.injectStealthScript(context);
         this.browser = browser;
         this.browserMode = mode;
+        fs.writeFileSync(
+          path.join(this.profileDir, 'SkillCueDebugPort'),
+          `${activeBrowser.port}\n${mode}`,
+          'utf8',
+        );
         return context;
       } catch (error) {
         errors.push(`existing browser: ${error instanceof Error ? error.message : String(error)}`);
@@ -2684,6 +2760,9 @@ export class HhBrowserAssistant {
         const key = jobKey(platform, vacancy.id);
         const old = previous.get(key);
         const alreadyApplied = vacancy.alreadyApplied === true;
+        const retryFalseMissingNegotiation = old?.status === 'skipped'
+          && !old.sentAt
+          && /отклик больше не найден в активных переговорах hh/i.test(old.reason ?? '');
         const vacancyData = { ...vacancy };
         delete vacancyData.alreadyApplied;
         queue.push({
@@ -2695,17 +2774,21 @@ export class HhBrowserAssistant {
             ? old?.coverLetterPending
               ? 'opened'
               : old?.status === 'sent' && Boolean(old.sentAt) ? 'sent' : 'already_applied'
-            : old?.status ?? 'new',
+            : retryFalseMissingNegotiation ? 'new' : old?.status ?? 'new',
           reason: alreadyApplied
             ? old?.coverLetterPending
               ? old.reason ?? 'Дожидаюсь формы сопроводительного письма; отклик пока не считаю завершённым.'
               : old?.status === 'sent' && Boolean(old.sentAt)
               ? old.reason
               : 'HH показывает: отклик уже был отправлен ранее.'
-            : old?.reason,
+            : retryFalseMissingNegotiation
+              ? 'Страница HH снова показывает доступный отклик. Вакансия возвращена в очередь.'
+              : old?.reason,
           addedAt: old?.addedAt ?? nowIso(),
           pendingQuestions: alreadyApplied ? undefined : old?.pendingQuestions,
           screeningAnswers: alreadyApplied ? undefined : old?.screeningAnswers,
+          coverLetterPending: retryFalseMissingNegotiation ? false : old?.coverLetterPending,
+          coverLetterAdded: retryFalseMissingNegotiation ? false : old?.coverLetterAdded,
           selectedResumeTitle: rankHhResumeTitlesForVacancy(
             vacancy.title,
             this.applicantResumes.map((resume) => resume.title),
@@ -2801,6 +2884,7 @@ export class HhBrowserAssistant {
       if (!id || !title) throw new Error('HH не отдал название вакансии по этой ссылке.');
       const key = jobKey('hh', id);
       const existing = this.state.queue.find((item) => item.key === key);
+      const responseAvailable = await hasVisible(page, RESPONSE_BUTTON_SELECTOR);
       const vacancy: HhQueueItem = {
         key,
         platform: 'hh',
@@ -2810,21 +2894,27 @@ export class HhBrowserAssistant {
         salary: (await firstText(page, [VACANCY_PAGE_SALARY_SELECTOR])).slice(0, 120),
         url,
         description: (await firstText(page, PLATFORM_INFO.hh.descriptions)).slice(0, 12_000),
-        status: existing?.status === 'sent'
+        status: responseAvailable
+          ? 'new'
+          : existing?.status === 'sent'
           ? 'sent'
           : existing?.status === 'already_applied'
             ? 'already_applied'
             : existing?.status === 'needs_input' ? 'needs_input' : 'new',
-        reason: existing?.status === 'sent'
+        reason: responseAvailable
+          ? undefined
+          : existing?.status === 'sent'
           || existing?.status === 'already_applied'
           || existing?.status === 'needs_input'
           ? existing.reason
           : undefined,
         addedAt: existing?.addedAt ?? nowIso(),
-        sentAt: existing?.sentAt,
+        sentAt: responseAvailable ? undefined : existing?.sentAt,
         pendingQuestions: existing?.pendingQuestions,
         screeningAnswers: existing?.screeningAnswers,
         preparationNotes: existing?.preparationNotes,
+        coverLetterPending: responseAvailable ? false : existing?.coverLetterPending,
+        coverLetterAdded: responseAvailable ? false : existing?.coverLetterAdded,
         selectedResumeTitle: rankHhResumeTitlesForVacancy(
           title,
           this.applicantResumes.map((resume) => resume.title),
@@ -2878,13 +2968,25 @@ export class HhBrowserAssistant {
       return this.getState();
     }
     try {
+      // Inspecting a vacancy is an explicit single-page action. Close a chat
+      // tab left by a previous explicit command so negotiations do not appear
+      // beside the vacancy the user just opened.
+      if (this.chatPage && !this.chatPage.isClosed()) {
+        await this.chatPage.close().catch(() => undefined);
+        this.chatPage = null;
+      }
       const page = await this.ensureBrowser('interactive');
       await page.goto(vacancy.url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
       await page.bringToFront();
       await this.captureVacancyDescription(page, vacancy);
       const blocker = await this.detectManualBlocker(page);
+      const terminalStatus = vacancy.status === 'sent'
+        || vacancy.status === 'already_applied'
+        || vacancy.status === 'skipped';
       this.patchQueue(vacancy.key, {
-        status: vacancy.status === 'needs_input' ? 'needs_input' : 'opened',
+        status: terminalStatus
+          ? vacancy.status
+          : vacancy.status === 'needs_input' ? 'needs_input' : 'opened',
       });
       this.update({
         phase: blocker ? 'manual_required' : 'ready',
@@ -3055,6 +3157,12 @@ export class HhBrowserAssistant {
       return 'success';
     }
     if (alreadyAppliedVisible) {
+      // A stale HH banner can coexist with a real action button (for example
+      // after switching a resume). A visible response action is the stronger
+      // signal: the vacancy is actionable now.
+      if (await hasVisible(page, RESPONSE_BUTTON_SELECTOR)) {
+        return 'response_button';
+      }
       return 'already_applied';
     }
     if (!ctx.resumeSelected && (await hasVisible(page, RESUME_ANY_SELECTOR))) {
@@ -3219,7 +3327,9 @@ export class HhBrowserAssistant {
     const preferred = await this.preferredApplicantResume(vacancyTitle);
     if (!preferred) return '';
     return this.getApplicantResumeContent(preferred.id)
-      .then((result) => result.text)
+      // Desired salary is often stored in the HH résumé title rather than in
+      // its body. Forms and recruiter chats need both verified sources.
+      .then((result) => [preferred.title, result.text].filter(Boolean).join('\n'))
       .catch(() => '');
   }
 
@@ -3581,7 +3691,7 @@ export class HhBrowserAssistant {
   private async attachPendingCoverLetterInChat(
     page: Page,
     vacancy: HhQueueItem,
-  ): Promise<{ attached: boolean; reason: string; terminal?: boolean }> {
+  ): Promise<{ attached: boolean; reason: string; terminal?: boolean; retryApplication?: boolean }> {
     const responseUrl = new URL('/applicant/vacancy_response', vacancy.url);
     responseUrl.searchParams.set('vacancyId', vacancy.id);
     if (page.url() !== responseUrl.href) {
@@ -3591,6 +3701,17 @@ export class HhBrowserAssistant {
       return {
         attached: false,
         reason: 'Сессия HH истекла. Войдите в HH — письмо останется в очереди.',
+      };
+    }
+
+    // The response action still exists, so there is no confirmed negotiation
+    // to attach a letter to yet. Return to the normal application flow instead
+    // of opening /applicant/negotiations and terminally hiding the vacancy.
+    if (await hasVisible(page, RESPONSE_BUTTON_SELECTOR)) {
+      return {
+        attached: false,
+        retryApplication: true,
+        reason: 'HH показывает доступный отклик. Возвращаю вакансию к обычной отправке с сопроводительным письмом.',
       };
     }
 
@@ -3607,8 +3728,11 @@ export class HhBrowserAssistant {
       if (!fallback.found) {
         return {
           attached: false,
-          terminal: true,
-          reason: 'Отклик больше не найден в активных переговорах HH — письмо отправлять некуда.',
+          retryApplication: !vacancy.sentAt,
+          terminal: Boolean(vacancy.sentAt),
+          reason: vacancy.sentAt
+            ? 'Ранее отправленный отклик больше не найден в активных переговорах HH.'
+            : 'HH не подтвердил отправку отклика. Возвращаю вакансию в очередь и повторно проверю её страницу.',
         };
       }
       frame = fallback.frame;
@@ -3731,6 +3855,19 @@ export class HhBrowserAssistant {
   ): Promise<{ sent: boolean; alreadyApplied?: boolean; blocked: boolean; reason: string }> {
     const result = await this.attachPendingCoverLetterInChat(page, vacancy);
     if (!result.attached) {
+      if (result.retryApplication) {
+        vacancy.coverLetterPending = false;
+        vacancy.coverLetterAdded = false;
+        vacancy.sentAt = undefined;
+        this.patchQueue(vacancy.id, {
+          status: 'new',
+          reason: result.reason,
+          sentAt: undefined,
+          coverLetterPending: false,
+          coverLetterAdded: false,
+        });
+        return { sent: false, blocked: false, reason: result.reason };
+      }
       if (result.terminal) {
         vacancy.coverLetterPending = false;
         this.patchQueue(vacancy.id, {
@@ -3817,7 +3954,24 @@ export class HhBrowserAssistant {
       responseSubmitted: Boolean(vacancy.coverLetterPending),
     };
     if (vacancy.coverLetterPending && !vacancy.coverLetterAdded) {
-      return this.finishPendingCoverLetter(page, vacancy);
+      // The live page is authoritative. If HH still offers the response
+      // action, the persisted post-response marker was false or interrupted.
+      if (await hasVisible(page, RESPONSE_BUTTON_SELECTOR)) {
+        vacancy.coverLetterPending = false;
+        vacancy.coverLetterAdded = false;
+        vacancy.sentAt = undefined;
+        baseCtx.responseClicked = false;
+        baseCtx.responseSubmitted = false;
+        this.patchQueue(vacancy.id, {
+          status: 'new',
+          reason: 'HH показывает доступный отклик. Продолжаю обычную отправку с письмом.',
+          sentAt: undefined,
+          coverLetterPending: false,
+          coverLetterAdded: false,
+        });
+      } else {
+        return this.finishPendingCoverLetter(page, vacancy);
+      }
     }
 
     let lastSituation: HhApplySituation = 'unknown';

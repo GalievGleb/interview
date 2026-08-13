@@ -212,10 +212,12 @@ export interface HhChatConversation {
   key: string;
   vacancyTitle: string;
   companyName: string;
+  vacancyUrl?: string;
   stage: 'waiting' | 'bot' | 'hr';
   hasUnread: boolean;
   lastMessage: string;
   lastMessageMine: boolean;
+  lastRecruiterMessage?: string;
   needsUserInput: boolean;
 }
 
@@ -270,6 +272,7 @@ export interface InterviewOutcome {
 export interface InterviewCalendarEvent {
   id: string;
   negotiationKey?: string;
+  journeyId?: string;
   vacancyTitle: string;
   companyName: string;
   type: InterviewType;
@@ -291,6 +294,7 @@ export interface InterviewCalendarEvent {
 export interface InterviewEventDraft {
   id?: string;
   negotiationKey?: string;
+  journeyId?: string;
   vacancyTitle: string;
   companyName: string;
   type: InterviewType;
@@ -302,6 +306,7 @@ export interface InterviewEventDraft {
   vacancyDescription?: string;
   meetingUrl?: string;
   notes?: string;
+  sessionId?: string;
 }
 
 export interface InterviewSchedulingThread {
@@ -414,6 +419,7 @@ export interface ElectronAPI {
   onBackendStatus?: (cb: (status: BackendStatus) => void) => () => void;
   overlay: {
     toggle: () => Promise<void>;
+    getWindowState?: () => Promise<{ visible: boolean; bounds: { x: number; y: number; width: number; height: number } | null }>;
     show: () => Promise<void>;
     showForInterviewEvent?: (eventId: string) => Promise<boolean>;
     getInterviewContext?: () => Promise<InterviewCalendarEvent | null>;
@@ -432,6 +438,7 @@ export interface ElectronAPI {
     resize?: (dw: number, dh: number) => Promise<void>;
     setLiveState?: (active: boolean) => Promise<void>;
     onForceAnswer?: (cb: () => void) => () => void;
+    onScroll?: (cb: (direction: -1 | 1) => void) => () => void;
   };
   window: {
     setSkipTaskbar: (skip: boolean) => Promise<void>;

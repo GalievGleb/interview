@@ -56,7 +56,7 @@ describe('candidate journey', () => {
 
     const waitingForResponse = buildCandidateJourney({ ...base, selectedPath: 'vacancy', hasVacancy: true, hasResume: true, hasAnalysis: true, practiceCompleted: true, hasApplication: true, hasEvidence: true });
     expect(waitingForResponse.action.to).toBe('/applications?view=dialogs');
-    expect(waitingForResponse.secondaryAction?.to).toBe('/history?view=growth');
+    expect(waitingForResponse.secondaryAction?.to).toBe('/practice');
 
     const responded = buildCandidateJourney({ ...base, selectedPath: 'vacancy', hasVacancy: true, hasResume: true, hasAnalysis: true, practiceCompleted: true, hasApplication: true, hasEmployerResponse: true });
     expect(responded.steps.at(-1)?.status).toBe('done');
@@ -66,7 +66,9 @@ describe('candidate journey', () => {
   it('routes a user without a vacancy from resume to a goal and honest evidence', () => {
     const start = buildCandidateJourney({ ...base, selectedPath: 'profile' });
     expect(start.action.to).toBe('/documents?mode=baseline');
-    expect(start.body).toContain('не станет оценкой');
+    expect(start.headline).toBe('Добавьте резюме');
+    expect(start.body).toBe('SkillCue использует ваш опыт, проекты и инструменты, чтобы точнее готовить вас к собеседованиям.');
+    expect(start.secondaryAction?.label).toBe('Пропустить');
 
     const goal = buildCandidateJourney({ ...base, selectedPath: 'profile', hasResume: true });
     expect(goal.action.to).toBe('/documents?mode=baseline&section=goal');
@@ -78,8 +80,8 @@ describe('candidate journey', () => {
       hasGrowthRole: true,
       hasGrowthProfile: true,
     });
-    expect(evidence.action.to).toBe('/applications?mode=settings');
-    expect(evidence.headline).toBe('Подтвердите навыки на практике.');
+    expect(evidence.action.to).toBe('/practice');
+    expect(evidence.headline).toBe('Проверьте навыки на практике.');
 
     const result = buildCandidateJourney({
       ...base,
@@ -89,8 +91,8 @@ describe('candidate journey', () => {
       hasGrowthProfile: true,
       hasEvidence: true,
     });
-    expect(result.action.to).toBe('/history?view=growth');
-    expect(result.steps.map((step) => step.label)).toEqual(['Резюме', 'Цель', 'Практика и интервью']);
+    expect(result.action.to).toBe('/practice');
+    expect(result.steps.map((step) => step.label)).toEqual(['Резюме', 'Цель', 'Подготовка']);
   });
 
   it('never skips a missing resume just because a vacancy was already analyzed', () => {

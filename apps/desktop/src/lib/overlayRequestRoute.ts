@@ -23,6 +23,9 @@ export function resolveOverlayRequestRoute(
     return { kind: 'screen', mode: input.smart ? 'deep' : 'general' };
   }
   if (input.customText.trim()) {
+    if (!input.hasTranscript && input.canCaptureScreen && input.useScreenFallback) {
+      return { kind: 'screen', mode: input.smart ? 'deep' : 'general' };
+    }
     return { kind: 'chat', mode: input.smart ? 'deep' : 'fast' };
   }
   if (

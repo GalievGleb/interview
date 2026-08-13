@@ -11,7 +11,7 @@ describe('desktop build channel', () => {
     expect(resolveBuildChannel(true, 'unexpected')).toBe('stable');
   });
 
-  it('keeps stable and dev OS identities and runtime resources separate', () => {
+  it('keeps stable and dev OS identities and runtime resources separate while preserving keyboard behavior', () => {
     const stable = getAppIdentity('stable');
     const dev = getAppIdentity('dev');
 
@@ -21,7 +21,9 @@ describe('desktop build channel', () => {
     expect(dev.apiPort).not.toBe(stable.apiPort);
     expect(dev.userDataDirectoryName).toBeTruthy();
     expect(stable.userDataDirectoryName).toBeNull();
-    expect(dev.defaultToggleShortcut).not.toBe(stable.defaultToggleShortcut);
-    expect(dev.forceAnswerShortcut).not.toBe(stable.forceAnswerShortcut);
+    expect(dev.defaultToggleShortcut).toBe('CommandOrControl+Shift+H');
+    expect(dev.forceAnswerShortcut).toBe('CommandOrControl+Enter');
+    expect(dev.defaultToggleShortcut).toBe(stable.defaultToggleShortcut);
+    expect(dev.forceAnswerShortcut).toBe(stable.forceAnswerShortcut);
   });
 });

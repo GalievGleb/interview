@@ -156,74 +156,75 @@ export default function GrowthProfileSetup({ initialOpen = false, onSaved }: Gro
           )}
 
           {role && (
-            <>
-              <div className="growth-baseline-heading">
-                <div>
-                  <h3>Стартовая самооценка</h3>
-                  <p>Можно пропустить темы, в которых пока нет данных.</p>
-                </div>
-              </div>
-              <div className="growth-baseline-list">
-                {role.core.map((topic) => (
-                  <fieldset className="growth-baseline-row" key={topic}>
-                    <legend className="sr-only">{topic}</legend>
-                    <div className="growth-baseline-row__content">
-                      <strong aria-hidden="true">{topic}</strong>
-                      <div className="growth-baseline-row__options">
-                        {GROWTH_LEVELS.map((level) => (
-                          <label key={level.value}>
-                            <input
-                              type="radio"
-                              name={`growth-${topic}`}
-                              value={level.value}
-                              checked={profile.answers[topic] === level.value}
-                              onChange={() => setProfile({
-                                ...profile,
-                                completed: false,
-                                answers: { ...profile.answers, [topic]: level.value },
-                              })}
-                            />
-                            <span>{level.label}</span>
-                          </label>
-                        ))}
+            <details className="growth-baseline-disclosure">
+              <summary>
+                <span>Добавить стартовую самооценку</span>
+                <small>Необязательно</small>
+              </summary>
+              <div className="growth-baseline-disclosure__content">
+                <p className="prep-faint">Отметьте только навыки, уровень которых уже можете оценить.</p>
+                <div className="growth-baseline-list">
+                  {role.core.map((topic) => (
+                    <fieldset className="growth-baseline-row" key={topic}>
+                      <legend className="sr-only">{topic}</legend>
+                      <div className="growth-baseline-row__content">
+                        <strong aria-hidden="true">{topic}</strong>
+                        <div className="growth-baseline-row__options">
+                          {GROWTH_LEVELS.map((level) => (
+                            <label key={level.value}>
+                              <input
+                                type="radio"
+                                name={`growth-${topic}`}
+                                value={level.value}
+                                checked={profile.answers[topic] === level.value}
+                                onChange={() => setProfile({
+                                  ...profile,
+                                  completed: false,
+                                  answers: { ...profile.answers, [topic]: level.value },
+                                })}
+                              />
+                              <span>{level.label}</span>
+                            </label>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  </fieldset>
-                ))}
-              </div>
-              <button
-                type="button"
-                className="growth-optional-toggle"
-                aria-expanded={profile.optional.length > 0}
-                onClick={() => setProfile({
-                  ...profile,
-                  optional: profile.optional.length > 0 ? [] : [...role.optional],
-                  completed: false,
-                })}
-              >
-                {profile.optional.length > 0 ? 'Убрать смежные направления' : 'Добавить смежные направления'}
-              </button>
-              {profile.optional.length > 0 && (
-                <div className="growth-optional-list">
-                  {role.optional.map((topic) => (
-                    <label key={topic}>
-                      <input
-                        type="checkbox"
-                        checked={profile.optional.includes(topic)}
-                        onChange={() => setProfile({
-                          ...profile,
-                          completed: false,
-                          optional: profile.optional.includes(topic)
-                            ? profile.optional.filter((item) => item !== topic)
-                            : [...profile.optional, topic],
-                        })}
-                      />
-                      <span>{topic}</span>
-                    </label>
+                    </fieldset>
                   ))}
                 </div>
-              )}
-            </>
+                <button
+                  type="button"
+                  className="growth-optional-toggle"
+                  aria-expanded={profile.optional.length > 0}
+                  onClick={() => setProfile({
+                    ...profile,
+                    optional: profile.optional.length > 0 ? [] : [...role.optional],
+                    completed: false,
+                  })}
+                >
+                  {profile.optional.length > 0 ? 'Убрать смежные навыки' : 'Добавить смежные навыки'}
+                </button>
+                {profile.optional.length > 0 && (
+                  <div className="growth-optional-list">
+                    {role.optional.map((topic) => (
+                      <label key={topic}>
+                        <input
+                          type="checkbox"
+                          checked={profile.optional.includes(topic)}
+                          onChange={() => setProfile({
+                            ...profile,
+                            completed: false,
+                            optional: profile.optional.includes(topic)
+                              ? profile.optional.filter((item) => item !== topic)
+                              : [...profile.optional, topic],
+                          })}
+                        />
+                        <span>{topic}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </details>
           )}
 
           {error && <p id="growth-goal-error" className="prep-inline-error" role="alert">{error}</p>}
