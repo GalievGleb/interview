@@ -294,10 +294,33 @@ def pop_last_usage() -> dict | None:
 # --- transient-failure retry (hot path) ---
 _MAX_ATTEMPTS = 3
 _RETRY_STATUS = {429, 500, 502, 503, 504}
+_COMPLETION_REQUEST_TIMEOUT_SECONDS = 120.0
+_MIN_COMPLETION_REQUEST_TIMEOUT_SECONDS = 0.001
 
 
 def _backoff(attempt: int) -> float:
     return 0.4 * (2**attempt)
+
+
+def completion_retry_budget_seconds(
+    request_timeout_seconds: float | None = None,
+    max_attempts: int | None = None,
+) -> float:
+    """Worst-case wall-clock budget for one non-streaming completion.
+
+    Routes with their own outer deadline use this helper so that deadline does
+    not cancel the provider while its configured retry policy is still active.
+    """
+    attempt_timeout = max(
+        _MIN_COMPLETION_REQUEST_TIMEOUT_SECONDS,
+        float(
+            _COMPLETION_REQUEST_TIMEOUT_SECONDS
+            if request_timeout_seconds is None
+            else request_timeout_seconds
+        ),
+    )
+    attempts = max(1, int(_MAX_ATTEMPTS if max_attempts is None else max_attempts))
+    return attempt_timeout * attempts + sum(_backoff(attempt) for attempt in range(attempts - 1))
 
 
 def apply_prompt_cache(messages: list[dict], model: str) -> list[dict]:
@@ -328,24 +351,44 @@ def apply_prompt_cache(messages: list[dict], model: str) -> list[dict]:
     return out
 
 
-async def _post_with_retry(base_url: str, provider: str, key: str, payload: dict) -> httpx.Response:
+async def _post_with_retry(
+    base_url: str,
+    provider: str,
+    key: str,
+    payload: dict,
+    *,
+    request_timeout_seconds: float | None = None,
+    max_attempts: int | None = None,
+) -> httpx.Response:
     """POST with bounded retry on transient transport errors / 429 / 5xx."""
-    for attempt in range(_MAX_ATTEMPTS):
+    attempt_timeout = max(
+        _MIN_COMPLETION_REQUEST_TIMEOUT_SECONDS,
+        float(
+            _COMPLETION_REQUEST_TIMEOUT_SECONDS
+            if request_timeout_seconds is None
+            else request_timeout_seconds
+        ),
+    )
+    attempts = max(1, int(_MAX_ATTEMPTS if max_attempts is None else max_attempts))
+    for attempt in range(attempts):
         try:
-            resp = await get_client().post(
-                f"{base_url}/chat/completions",
-                headers=_headers(provider, key),
-                json=payload,
-                timeout=120,
+            resp = await asyncio.wait_for(
+                get_client().post(
+                    f"{base_url}/chat/completions",
+                    headers=_headers(provider, key),
+                    json=payload,
+                    timeout=attempt_timeout,
+                ),
+                timeout=attempt_timeout,
             )
-        except (httpx.TimeoutException, httpx.TransportError) as exc:
-            if attempt >= _MAX_ATTEMPTS - 1:
+        except (TimeoutError, httpx.TimeoutException, httpx.TransportError) as exc:
+            if attempt >= attempts - 1:
                 raise AppError(
                     "Провайдер не отвечает. Повторите позже.", 504, "provider_timeout"
                 ) from exc
             await asyncio.sleep(_backoff(attempt))
             continue
-        if resp.status_code in _RETRY_STATUS and attempt < _MAX_ATTEMPTS - 1:
+        if resp.status_code in _RETRY_STATUS and attempt < attempts - 1:
             await asyncio.sleep(_backoff(attempt))
             continue
         return resp
@@ -569,6 +612,8 @@ async def complete(
     *,
     reasoning: dict | None = None,
     response_format: dict | None = None,
+    request_timeout_seconds: float | None = None,
+    max_attempts: int | None = None,
 ) -> str:
     """Неблокирующий полный ответ (для JSON-режима интервью).
 
@@ -590,7 +635,14 @@ async def complete(
     _apply_reasoning_options(payload, provider=provider, model=model, reasoning=reasoning)
     if response_format:
         payload["response_format"] = response_format
-    resp = await _post_with_retry(base_url, provider, key, payload)
+    resp = await _post_with_retry(
+        base_url,
+        provider,
+        key,
+        payload,
+        request_timeout_seconds=request_timeout_seconds,
+        max_attempts=max_attempts,
+    )
     if resp.status_code >= 400:
         raise parse_provider_error(resp.status_code, resp.text, provider)
     data = resp.json()

@@ -107,5 +107,6 @@ describe('HH generated cover-letter guard', () => {
 
     expect(response.canAutoFill).toBe(false);
     expect(response.coverLetter).toBe('');
+    expect(response.failureKind).toBe('skill_mismatch');
   });
 });

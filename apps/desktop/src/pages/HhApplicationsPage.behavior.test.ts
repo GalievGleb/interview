@@ -299,7 +299,9 @@ describe('HH applications redesign', () => {
     const applyAllAt = assistantSource.indexOf('async applyAll', runQueueAt);
     const runQueueSource = assistantSource.slice(runQueueAt, applyAllAt);
     expect(runQueueSource).toContain('const stopped = this.stopApplyRequested');
-    expect(runQueueSource).toContain('!hardBlocked && !stopped');
+    expect(runQueueSource).toContain('if (hardBlocked)');
+    expect(runQueueSource).toContain('this.clearQueueResumeTimer()');
+    expect(runQueueSource).toContain('else if (remaining > 0 && !stopped)');
     expect(runQueueSource).toContain('queuePaused: stopped || this.state.queuePaused');
 
     const stopAt = assistantSource.indexOf('stopApply(): HhAssistantState');
@@ -502,6 +504,10 @@ describe('HH applications redesign', () => {
     expect(assistantSource).toContain('coverLetterPending: true');
     expect(assistantSource).toContain('Отклик и сопроводительное письмо отправлены');
     expect(assistantSource).not.toContain('Отклик отправлен без письма');
+    expect(mainSource).toContain('const HH_SCREENING_REQUEST_TIMEOUT_MS = 95_000');
+    expect(mainSource).toContain('signal: AbortSignal.timeout(HH_SCREENING_REQUEST_TIMEOUT_MS)');
+    expect(mainSource).toContain('throw createBackendResponseError(');
+    expect(mainSource).toContain("'Не удалось подготовить ответы'");
     expect(mainSource).toContain('signal: AbortSignal.timeout(12_000)');
     const letterFormAt = assistantSource.indexOf("return 'letter_form'", assistantSource.indexOf('private async detectApplySituation'));
     const employerQuestionsAt = assistantSource.indexOf("return 'employer_questions'", assistantSource.indexOf('private async detectApplySituation'));
@@ -669,10 +675,12 @@ describe('HH applications redesign', () => {
     const updateAt = assistantSource.indexOf('this.update({', remainingAt);
     const remainingSource = assistantSource.slice(remainingAt, updateAt);
     expect(remainingSource).toContain("item.platform === 'hh'");
-    expect(remainingSource).toContain('isActionableQueueItem(item)');
+    expect(remainingSource).toContain('isQueueItemEligibleForRun(item, runMode)');
     expect(assistantSource).toContain('item.coverLetterPending && !item.coverLetterAdded');
     expect(assistantSource).toContain('!onlyFinishingAcceptedResponse && !canSendMore');
-    expect(assistantSource).toContain('if (remaining > 0 && !hardBlocked && !stopped) this.scheduleQueueResume');
+    expect(assistantSource).toContain('if (hardBlocked)');
+    expect(assistantSource).toContain('this.clearQueueResumeTimer()');
+    expect(assistantSource).toContain('else if (remaining > 0 && !stopped)');
   });
 
   it('keeps legacy resume selection while ranking among newly selected resumes', () => {

@@ -173,6 +173,73 @@ def test_complete_gives_up_after_max_attempts(monkeypatch):
     assert client.calls == provider_adapter._MAX_ATTEMPTS
 
 
+def test_complete_honors_route_specific_retry_budget(monkeypatch):
+    timeouts: list[float] = []
+
+    class Client:
+        async def post(self, *_args, timeout=None, **_kwargs):
+            timeouts.append(timeout)
+            return _Resp(503, text="busy")
+
+    client = Client()
+    _patch_common(monkeypatch, client)
+
+    try:
+        asyncio.run(
+            provider_adapter.complete(
+                [{"role": "user", "content": "q"}],
+                model="gpt-4o-mini",
+                request_timeout_seconds=20.0,
+                max_attempts=2,
+            )
+        )
+    except Exception as exc:  # noqa: BLE001
+        assert getattr(exc, "code", "") == "provider_timeout"
+    else:
+        raise AssertionError("expected failure after route-specific retries")
+
+    assert timeouts == [20.0, 20.0]
+    assert provider_adapter.completion_retry_budget_seconds(20.0, 2) == 40.4
+
+
+def test_complete_strictly_cancels_each_hung_attempt(monkeypatch):
+    calls = 0
+    cancellations = 0
+
+    class HungClient:
+        async def post(self, *_args, **_kwargs):
+            nonlocal calls, cancellations
+            calls += 1
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancellations += 1
+
+    client = HungClient()
+    _patch_common(monkeypatch, client)
+
+    async def run_with_test_guard():
+        return await asyncio.wait_for(
+            provider_adapter.complete(
+                [{"role": "user", "content": "q"}],
+                model="gpt-4o-mini",
+                request_timeout_seconds=0.005,
+                max_attempts=2,
+            ),
+            timeout=0.2,
+        )
+
+    try:
+        asyncio.run(run_with_test_guard())
+    except Exception as exc:  # noqa: BLE001
+        assert getattr(exc, "code", "") == "provider_timeout"
+    else:
+        raise AssertionError("expected hung attempts to hit the strict timeout")
+
+    assert calls == 2
+    assert cancellations == 2
+
+
 # --- local LLM (Ollama, keyless) ------------------------------------------
 def test_ollama_resolve_is_keyless():
     provider, base_url, key = provider_adapter._resolve("ollama")

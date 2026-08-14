@@ -17,6 +17,8 @@ export interface HhCoverLetterResponse {
   canAutoFill: boolean;
   reason?: string;
   model?: string;
+  /** Machine-readable reason for a response that must not be auto-filled. */
+  failureKind?: 'skill_mismatch' | 'manual';
 }
 
 export interface ValidatedHhCoverLetter {
@@ -129,6 +131,7 @@ export function buildGroundedLocalHhCoverLetter(
       canAutoFill: false,
       reason: 'Не найдено двух подтверждённых совпадений между вакансией и выбранным резюме.',
       model: 'local-grounded-v1',
+      failureKind: 'skill_mismatch',
     };
   }
 

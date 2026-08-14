@@ -81,6 +81,7 @@ export interface HhQueueItem {
   selectedResumeTitle?: string;
   coverLetterPending?: boolean;
   coverLetterAdded?: boolean;
+  autoRetryBlockedUntil?: 'manual' | 'daily';
 }
 
 export interface HhAutomationRun {

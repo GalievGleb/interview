@@ -3,6 +3,9 @@
 import asyncio
 import json
 
+import pytest
+
+from app.core.errors import AppError
 from app.routers import vacancy as vacancy_router
 from app.services import provider_adapter, rag_service
 
@@ -258,7 +261,48 @@ def test_screening_answers_refines_the_users_existing_draft(client, monkeypatch)
     assert "Do not replace it with a generic template" in captured["prompt"]
 
 
-def test_screening_answers_has_a_hard_interactive_deadline(client, monkeypatch):
+def test_screening_answers_deadline_covers_provider_retry_policy(monkeypatch):
+    settings = type(
+        "Settings",
+        (),
+        {
+            "screening_answers_provider_timeout_seconds": 20.0,
+            "screening_answers_provider_max_attempts": 2,
+            "screening_answers_deadline_seconds": None,
+        },
+    )()
+    monkeypatch.setattr(vacancy_router, "get_settings", lambda: settings)
+
+    request_timeout, max_attempts, deadline = vacancy_router._screening_answers_runtime_budget(
+        "openai/gpt-4o-mini"
+    )
+
+    assert request_timeout == 20.0
+    assert max_attempts == 2
+    assert deadline == pytest.approx(
+        provider_adapter.completion_retry_budget_seconds(20.0, 2)
+        + vacancy_router.SCREENING_ANSWERS_DEADLINE_MARGIN_SECONDS
+    )
+    _, _, fallback_deadline = vacancy_router._screening_answers_runtime_budget(
+        "openai/a-different-model"
+    )
+    assert fallback_deadline == pytest.approx(85.8)
+
+    settings.screening_answers_provider_timeout_seconds = 999.0
+    settings.screening_answers_provider_max_attempts = 5
+    settings.screening_answers_deadline_seconds = 999.0
+    capped_timeout, capped_attempts, capped_deadline = (
+        vacancy_router._screening_answers_runtime_budget("openai/a-different-model")
+    )
+    assert capped_deadline == vacancy_router.SCREENING_ANSWERS_MAX_DEADLINE_SECONDS
+    assert (
+        provider_adapter.completion_retry_budget_seconds(capped_timeout, capped_attempts) * 2
+        + vacancy_router.SCREENING_ANSWERS_DEADLINE_MARGIN_SECONDS
+        <= capped_deadline
+    )
+
+
+def test_screening_answers_returns_structured_timeout(client, monkeypatch):
     monkeypatch.setattr(rag_service, "get_context_text", lambda *_args: "")
 
     async def slow_complete(*_args, **_kwargs):
@@ -266,9 +310,46 @@ def test_screening_answers_has_a_hard_interactive_deadline(client, monkeypatch):
         return "{}"
 
     monkeypatch.setattr(provider_adapter, "complete", slow_complete)
-    monkeypatch.setattr(vacancy_router, "SCREENING_ANSWERS_DEADLINE_SECONDS", 0.01)
+    monkeypatch.setattr(
+        vacancy_router,
+        "_screening_answers_runtime_budget",
+        lambda _model: (1.0, 1, 0.01),
+    )
 
     response = client.post("/vacancy/screening-answers", json=_payload())
 
     assert response.status_code == 504
-    assert response.json()["detail"] == "Screening answer generation timed out"
+    assert response.json() == {
+        "error": {
+            "code": "provider_timeout",
+            "message": "Провайдер не успел подготовить ответы. Повторите позже.",
+        }
+    }
+
+
+def test_screening_answers_preserves_provider_quota_error(client, monkeypatch):
+    calls = 0
+    monkeypatch.setattr(rag_service, "get_context_text", lambda *_args: "")
+    monkeypatch.setattr(
+        vacancy_router,
+        "_resolve",
+        lambda _mode: ("openrouter", "openai/a-different-model"),
+    )
+
+    async def quota_exhausted(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        raise AppError("Месячный лимит токенов исчерпан.", 402, "token_quota_exceeded")
+
+    monkeypatch.setattr(provider_adapter, "complete", quota_exhausted)
+
+    response = client.post("/vacancy/screening-answers", json=_payload())
+
+    assert calls == 1
+    assert response.status_code == 402
+    assert response.json() == {
+        "error": {
+            "code": "token_quota_exceeded",
+            "message": "Месячный лимит токенов исчерпан.",
+        }
+    }

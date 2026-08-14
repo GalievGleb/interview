@@ -3,6 +3,7 @@
 import asyncio
 import json
 
+from app.core.errors import AppError
 from app.routers import vacancy as vacancy_router
 from app.services import provider_adapter, rag_service
 
@@ -123,6 +124,53 @@ def test_cover_letter_blocks_generic_or_unsubstantiated_output(client, monkeypat
     assert response.status_code == 200, response.text
     assert response.json()["canAutoFill"] is False
     assert response.json()["coverLetter"] == ""
+    assert response.json()["failureKind"] == "manual"
+
+    async def fake_skill_mismatch(*_args, **_kwargs):
+        return json.dumps(
+            {
+                "coverLetter": "",
+                "matches": [],
+                "canAutoFill": False,
+                "reason": "В резюме нет подтверждённых совпадений с требованиями.",
+            },
+            ensure_ascii=False,
+        )
+
+    monkeypatch.setattr(provider_adapter, "complete", fake_skill_mismatch)
+    response = client.post("/vacancy/cover-letter", json=_payload())
+    assert response.status_code == 200, response.text
+    assert response.json()["failureKind"] == "skill_mismatch"
+
+
+def test_cover_letter_does_not_treat_malformed_model_output_as_skill_mismatch(
+    client, monkeypatch
+):
+    monkeypatch.setattr(
+        rag_service,
+        "get_context_text",
+        lambda _db, kind: "QA Automation Engineer с опытом Python и Pytest. " * 3
+        if kind == "resume"
+        else "",
+    )
+    model_outputs = iter(
+        [
+            {},
+            {"canAutoFill": False},
+            {"matches": []},
+        ]
+    )
+
+    async def fake_incomplete_response(*_args, **_kwargs):
+        return json.dumps(next(model_outputs))
+
+    monkeypatch.setattr(provider_adapter, "complete", fake_incomplete_response)
+
+    for _ in range(3):
+        response = client.post("/vacancy/cover-letter", json=_payload())
+        assert response.status_code == 200, response.text
+        assert response.json()["canAutoFill"] is False
+        assert response.json()["failureKind"] == "manual"
 
 
 def test_cover_letter_blocks_template_signature_and_name_placeholder(client, monkeypatch):
@@ -225,3 +273,37 @@ def test_cover_letter_has_a_hard_deadline(client, monkeypatch):
 
     assert response.status_code == 504
     assert response.json()["detail"] == "Cover-letter generation timed out"
+
+
+def test_cover_letter_preserves_provider_quota_error(client, monkeypatch):
+    calls = 0
+    monkeypatch.setattr(
+        rag_service,
+        "get_context_text",
+        lambda _db, kind: "QA Automation Engineer Python Pytest Playwright CI/CD Allure. " * 3
+        if kind == "resume"
+        else "",
+    )
+    monkeypatch.setattr(
+        vacancy_router,
+        "_resolve",
+        lambda _mode: ("openrouter", "openai/a-different-model"),
+    )
+
+    async def quota_exhausted(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        raise AppError("Месячный лимит токенов исчерпан.", 402, "token_quota_exceeded")
+
+    monkeypatch.setattr(provider_adapter, "complete", quota_exhausted)
+
+    response = client.post("/vacancy/cover-letter", json=_payload())
+
+    assert calls == 1
+    assert response.status_code == 402
+    assert response.json() == {
+        "error": {
+            "code": "token_quota_exceeded",
+            "message": "Месячный лимит токенов исчерпан.",
+        }
+    }

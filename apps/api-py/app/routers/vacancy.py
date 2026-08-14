@@ -10,10 +10,13 @@ import asyncio
 import json
 import logging
 import re
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from app.config import get_settings
+from app.core.errors import AppError
 from app.db.session import get_db
 from app.prompts.vacancy import (
     VACANCY_ANALYZE_PROMPT,
@@ -61,10 +64,51 @@ FALLBACK_MODEL = "openai/gpt-4o-mini"
 FEEDBACK_FALLBACK_MODEL = "openai/gpt-4o-mini"
 VACANCY_EVALUATE_DEADLINE_SECONDS = 4.5
 VACANCY_EVALUATE_MAX_TOKENS = 1200
-SCREENING_ANSWERS_DEADLINE_SECONDS = 9.0
 SCREENING_ANSWERS_MAX_TOKENS = 1600
+SCREENING_ANSWERS_DEADLINE_MARGIN_SECONDS = 5.0
+# Electron allows 95 seconds for this localhost request. Keep the server's
+# configurable wall-clock budget below it so the API always owns the timeout
+# and can return a structured provider_timeout response.
+SCREENING_ANSWERS_MAX_DEADLINE_SECONDS = 90.0
 COVER_LETTER_DEADLINE_SECONDS = 9.0
 COVER_LETTER_MAX_TOKENS = 1200
+
+
+def _screening_answers_runtime_budget(model: str) -> tuple[float, int, float]:
+    """Return provider timeout, attempts and an aligned outer deadline."""
+    settings = get_settings()
+    requested_timeout = max(0.1, float(settings.screening_answers_provider_timeout_seconds))
+    max_attempts = max(1, min(5, int(settings.screening_answers_provider_max_attempts)))
+    model_passes = 1 if model == FEEDBACK_FALLBACK_MODEL else 2
+    max_provider_budget = (
+        SCREENING_ANSWERS_MAX_DEADLINE_SECONDS - SCREENING_ANSWERS_DEADLINE_MARGIN_SECONDS
+    ) / model_passes
+    minimum_timeout = 0.1
+    fixed_retry_overhead = (
+        provider_adapter.completion_retry_budget_seconds(minimum_timeout, max_attempts)
+        - minimum_timeout * max_attempts
+    )
+    max_request_timeout = max(
+        minimum_timeout,
+        (max_provider_budget - fixed_retry_overhead) / max_attempts,
+    )
+    request_timeout = min(requested_timeout, max_request_timeout)
+    provider_budget = provider_adapter.completion_retry_budget_seconds(
+        request_timeout,
+        max_attempts,
+    )
+    derived_deadline = (
+        provider_budget * model_passes + SCREENING_ANSWERS_DEADLINE_MARGIN_SECONDS
+    )
+    configured_deadline = settings.screening_answers_deadline_seconds
+    deadline = min(
+        SCREENING_ANSWERS_MAX_DEADLINE_SECONDS,
+        max(
+            derived_deadline,
+            float(configured_deadline) if configured_deadline is not None else 0.0,
+        ),
+    )
+    return request_timeout, max_attempts, deadline
 
 
 async def _complete_or_fallback(
@@ -81,6 +125,19 @@ async def _complete_or_fallback(
     try:
         return await provider_adapter.complete(messages, provider, model, **kwargs), model
     except Exception as exc:  # noqa: BLE001
+        # Subscription/quota/auth/input failures are definitive. Retrying them
+        # on another model only wastes time and, more importantly, used to hide
+        # their structured HTTP status/code behind a generic 502.
+        if isinstance(exc, AppError) and exc.status_code not in {
+            403,
+            404,
+            429,
+            500,
+            502,
+            503,
+            504,
+        }:
+            raise
         if model == fallback_model:
             raise
         logger.warning(
@@ -217,12 +274,13 @@ class CoverLetterPayload(BaseModel):
     language: str = "ru"
 
 
-def _cover_letter_unavailable(reason: str) -> dict:
+def _cover_letter_unavailable(reason: str, failure_kind: str = "manual") -> dict:
     return {
         "coverLetter": "",
         "matches": [],
         "canAutoFill": False,
         "reason": reason[:300],
+        "failureKind": failure_kind,
     }
 
 
@@ -272,6 +330,14 @@ async def cover_letter(payload: CoverLetterPayload, db=Depends(get_db)) -> dict:
             COVER_LETTER_DEADLINE_SECONDS,
         )
         raise HTTPException(status_code=504, detail="Cover-letter generation timed out") from exc
+    except AppError as exc:
+        logger.warning(
+            "Cover-letter generation failed (%s, HTTP %s): %s",
+            exc.code,
+            exc.status_code,
+            exc.message,
+        )
+        raise
     except Exception as exc:  # noqa: BLE001
         logger.warning("Cover-letter generation failed: %s", exc)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
@@ -279,7 +345,10 @@ async def cover_letter(payload: CoverLetterPayload, db=Depends(get_db)) -> dict:
     data = _parse_json(raw)
     letter = str(data.get("coverLetter", "")).replace("\r\n", "\n").strip()[:4_000]
     matches = []
-    for item in data.get("matches", []) if isinstance(data.get("matches"), list) else []:
+    raw_matches_value: Any = data.get("matches")
+    matches_schema_valid = isinstance(raw_matches_value, list)
+    raw_matches: list[Any] = raw_matches_value if matches_schema_valid else []
+    for item in raw_matches:
         if not isinstance(item, dict):
             continue
         need = str(item.get("vacancyNeed", "")).strip()[:300]
@@ -320,9 +389,11 @@ async def cover_letter(payload: CoverLetterPayload, db=Depends(get_db)) -> dict:
     )
     if not can_auto_fill:
         reason = str(data.get("reason", "")).strip()[:300]
+        explicit_skill_mismatch = data.get("canAutoFill") is False and matches_schema_valid
         return _cover_letter_unavailable(
             reason
-            or "Не удалось получить достаточно конкретное и подтверждённое письмо — автоотклик остановлен."
+            or "Не удалось получить достаточно конкретное и подтверждённое письмо — автоотклик остановлен.",
+            "skill_mismatch" if explicit_skill_mismatch else "manual",
         )
     return {
         "coverLetter": letter,
@@ -341,11 +412,11 @@ async def screening_answers(payload: ScreeningAnswersPayload, db=Depends(get_db)
     if not questions:
         raise HTTPException(status_code=400, detail="No screening questions provided")
 
-    normalized_questions = []
+    normalized_questions: list[dict[str, Any]] = []
     ids: set[str] = set()
-    for question in questions:
-        question_id = question.id.strip()[:100]
-        prompt = question.prompt.strip()[:1200]
+    for question_payload in questions:
+        question_id = question_payload.id.strip()[:100]
+        prompt = question_payload.prompt.strip()[:1200]
         if not question_id or not prompt or question_id in ids:
             raise HTTPException(
                 status_code=400,
@@ -356,36 +427,38 @@ async def screening_answers(payload: ScreeningAnswersPayload, db=Depends(get_db)
             {
                 "id": question_id,
                 "prompt": prompt,
-                "kind": question.kind
-                if question.kind in {"text", "single", "multiple", "select"}
+                "kind": question_payload.kind
+                if question_payload.kind in {"text", "single", "multiple", "select"}
                 else "text",
-                "options": _as_list(question.options, 30),
-                "required": bool(question.required),
+                "options": _as_list(question_payload.options, 30),
+                "required": bool(question_payload.required),
             }
         )
 
     supplied_resume = re.sub(r"\s+", " ", payload.resumeText or "").strip()[:5_000]
     resume = supplied_resume or rag_service.get_context_text(db, "resume")[:5_000]
     legend = rag_service.get_context_text(db, "legend")[:2_000]
-    confirmed_answers = []
+    confirmed_answers: list[dict[str, Any]] = []
     confirmed_answers_chars = 0
-    for item in payload.confirmedAnswers[-30:]:
-        question = re.sub(r"\s+", " ", item.question).strip()[:1_200]
-        answer = item.answer.strip()[:2_000]
-        selected_options = _as_list(item.selectedOptions, 30)
-        if question and (answer or selected_options):
-            item_chars = len(question) + len(answer) + sum(map(len, selected_options))
+    for confirmed_answer in payload.confirmedAnswers[-30:]:
+        confirmed_question = re.sub(r"\s+", " ", confirmed_answer.question).strip()[:1_200]
+        confirmed_text = confirmed_answer.answer.strip()[:2_000]
+        selected_options = _as_list(confirmed_answer.selectedOptions, 30)
+        if confirmed_question and (confirmed_text or selected_options):
+            item_chars = (
+                len(confirmed_question) + len(confirmed_text) + sum(map(len, selected_options))
+            )
             if confirmed_answers_chars + item_chars > 12_000:
                 continue
             confirmed_answers.append(
                 {
-                    "question": question,
-                    "answer": answer,
+                    "question": confirmed_question,
+                    "answer": confirmed_text,
                     "selectedOptions": selected_options,
                 }
             )
             confirmed_answers_chars += item_chars
-    existing_draft = None
+    existing_draft: dict[str, str] | None = None
     if payload.existingDraft:
         draft_question_id = payload.existingDraft.questionId.strip()[:200]
         draft_answer = re.sub(r"\s+", " ", payload.existingDraft.answer).strip()[:2_000]
@@ -432,6 +505,7 @@ async def screening_answers(payload: ScreeningAnswersPayload, db=Depends(get_db)
         questions_json=json.dumps(normalized_questions, ensure_ascii=False),
         language="Russian" if payload.language == "ru" else "English",
     )
+    request_timeout, max_attempts, deadline = _screening_answers_runtime_budget(model)
     try:
         raw, model = await asyncio.wait_for(
             _complete_or_fallback(
@@ -442,51 +516,70 @@ async def screening_answers(payload: ScreeningAnswersPayload, db=Depends(get_db)
                 temperature=0.1,
                 response_format={"type": "json_object"},
                 fallback_model=FEEDBACK_FALLBACK_MODEL,
+                request_timeout_seconds=request_timeout,
+                max_attempts=max_attempts,
             ),
-            timeout=SCREENING_ANSWERS_DEADLINE_SECONDS,
+            timeout=deadline,
         )
     except TimeoutError as exc:
         logger.warning(
             "Screening answer generation exceeded %.1fs deadline",
-            SCREENING_ANSWERS_DEADLINE_SECONDS,
+            deadline,
         )
-        raise HTTPException(status_code=504, detail="Screening answer generation timed out") from exc
+        raise AppError(
+            "Провайдер не успел подготовить ответы. Повторите позже.",
+            504,
+            "provider_timeout",
+        ) from exc
+    except AppError as exc:
+        logger.warning(
+            "Screening answer generation failed (%s, HTTP %s): %s",
+            exc.code,
+            exc.status_code,
+            exc.message,
+        )
+        raise
     except Exception as exc:  # noqa: BLE001
         logger.warning("Screening answer generation failed: %s", exc)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     data = _parse_json(raw)
-    raw_answers = data.get("answers") if isinstance(data.get("answers"), list) else []
-    by_id = {
-        str(item.get("id", "")): item
-        for item in raw_answers
-        if isinstance(item, dict) and str(item.get("id", "")) in ids
-    }
-    answers = []
-    for question in normalized_questions:
-        item = by_id.get(question["id"], {})
-        valid_options = {option.casefold(): option for option in question["options"]}
-        selected = []
-        for option in _as_list(item.get("selectedOptions"), 30):
+    raw_answers_value: Any = data.get("answers")
+    raw_answers: list[Any] = raw_answers_value if isinstance(raw_answers_value, list) else []
+    by_id: dict[str, dict[str, Any]] = {}
+    for raw_item in raw_answers:
+        if not isinstance(raw_item, dict):
+            continue
+        raw_id = str(raw_item.get("id", ""))
+        if raw_id in ids:
+            by_id[raw_id] = raw_item
+    answers: list[dict[str, Any]] = []
+    for normalized_question in normalized_questions:
+        answer_item = by_id.get(normalized_question["id"], {})
+        valid_options = {
+            option.casefold(): option for option in normalized_question["options"]
+        }
+        selected: list[str] = []
+        for option in _as_list(answer_item.get("selectedOptions"), 30):
             canonical = valid_options.get(option.casefold())
             if canonical and canonical not in selected:
                 selected.append(canonical)
-        if question["kind"] in {"single", "select"}:
+        if normalized_question["kind"] in {"single", "select"}:
             selected = selected[:1]
-        answer = str(item.get("answer", "")).strip()[:2_000]
-        can_auto_fill = bool(item.get("canAutoFill", False))
-        if question["kind"] == "text" and not answer:
+        answer_text = str(answer_item.get("answer", "")).strip()[:2_000]
+        can_auto_fill = bool(answer_item.get("canAutoFill", False))
+        if normalized_question["kind"] == "text" and not answer_text:
             can_auto_fill = False
-        if question["kind"] != "text" and not selected:
+        if normalized_question["kind"] != "text" and not selected:
             can_auto_fill = False
         answers.append(
             {
-                "id": question["id"],
-                "answer": answer,
+                "id": normalized_question["id"],
+                "answer": answer_text,
                 "selectedOptions": selected,
                 "canAutoFill": can_auto_fill,
-                "reason": str(item.get("reason", "")).strip()[:300],
-                "preparationNote": str(item.get("preparationNote", "")).strip()[:500],
+                "reason": str(answer_item.get("reason", "")).strip()[:300],
+                "preparationNote": str(answer_item.get("preparationNote", "")).strip()[:500],
             }
         )
     return {"answers": answers, "model": model}

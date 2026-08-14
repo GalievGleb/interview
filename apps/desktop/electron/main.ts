@@ -33,6 +33,10 @@ import { isReservedOverlayShortcut } from './shortcutPolicy';
 import { createAutoUpdateCoordinator } from './autoUpdateCoordinator';
 import { createUpdaterStatusStore } from './updaterStatusStore';
 import {
+  createBackendResponseError,
+  type BackendErrorEnvelope,
+} from './backendResponseError';
+import {
   hideOverlayAndShowMain,
   hideOverlayOnly,
   hideWindowOnClose,
@@ -85,6 +89,12 @@ if (APP_IDENTITY.userDataDirectoryName) {
 
 const API_URL =
   process.env.API_URL ?? `http://127.0.0.1:${APP_IDENTITY.apiPort}`;
+
+// Keep this just above the API's default worst-case screening budget:
+// 2 models × (2 attempts × 20s + 0.4s backoff) + 5s server margin ≈ 85.8s.
+// The API hard-caps configurable deadlines at 90s, so it always returns its
+// structured error before this transport guard fires.
+const HH_SCREENING_REQUEST_TIMEOUT_MS = 95_000;
 
 // Адрес серверного гейтвея лицензий SkillCue. Покупатель без своего ключа
 // OpenRouter, но с валидной лицензией ходит к нейросети через него (провайдер
@@ -1271,11 +1281,15 @@ if (!hasSingleInstanceLock) {
           method: 'POST',
           headers,
           body: JSON.stringify(request),
-          signal: AbortSignal.timeout(12_000),
+          signal: AbortSignal.timeout(HH_SCREENING_REQUEST_TIMEOUT_MS),
         });
         if (!response.ok) {
-          const payload = await response.json().catch(() => null) as { detail?: string } | null;
-          throw new Error(payload?.detail || `Не удалось подготовить ответы: HTTP ${response.status}`);
+          const payload = await response.json().catch(() => null) as BackendErrorEnvelope | null;
+          throw createBackendResponseError(
+            payload,
+            response.status,
+            'Не удалось подготовить ответы',
+          );
         }
         return await response.json() as HhScreeningAnswersResponse;
       },
@@ -1307,16 +1321,19 @@ if (!hasSingleInstanceLock) {
           if (validateGeneratedHhCoverLetter(local)) return local;
           return generated;
         }
-        const payload = await response.json().catch(() => null) as { detail?: unknown } | null;
-        const detail = typeof payload?.detail === 'string'
-          ? payload.detail
-          : `Не удалось подготовить письмо: HTTP ${response.status}`;
+        const payload = await response.json().catch(() => null) as BackendErrorEnvelope | null;
+        const backendError = createBackendResponseError(
+          payload,
+          response.status,
+          'Не удалось подготовить письмо',
+        );
         if (response.status !== 402 && response.status !== 429 && response.status < 500) {
-          throw new Error(detail);
+          throw backendError;
         }
         const local = buildGroundedLocalHhCoverLetter(request);
         if (local.canAutoFill) return local;
-        throw new Error(`${detail}. ${local.reason ?? ''}`.trim());
+        backendError.message = `${backendError.message}. ${local.reason ?? ''}`.trim();
+        throw backendError;
       },
     );
     hhBrowserAssistant.restoreSchedule();

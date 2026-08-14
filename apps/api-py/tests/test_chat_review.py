@@ -6,12 +6,12 @@ monkeypatched, so we test the routing, prompt wiring, and SSE framing only.
 
 import json
 
-from app.routers.chat import MAX_SCREEN_IMAGE_CHARS
 from app.prompts.meeting import (
     build_interview_outcome_prompt,
     build_interview_review_prompt,
     build_meeting_prompt,
 )
+from app.routers.chat import MAX_SCREEN_IMAGE_CHARS
 from app.services import provider_adapter
 
 

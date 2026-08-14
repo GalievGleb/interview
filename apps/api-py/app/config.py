@@ -27,6 +27,15 @@ class Settings(BaseSettings):
     # OpenRouter-ключа, но есть валидная лицензия — запросы идут через гейтвей.
     skillcue_gateway_url: str = ""
 
+    # Employer screening runs in the background, but it must still have a
+    # bounded latency budget. The route derives its outer deadline from these
+    # provider attempts (including a possible model fallback); an explicit
+    # deadline may increase that derived safety budget up to the product's
+    # hard server ceiling, never shorten it.
+    screening_answers_provider_timeout_seconds: float = 20.0
+    screening_answers_provider_max_attempts: int = 2
+    screening_answers_deadline_seconds: float | None = None
+
     embedding_provider: str = "openai"
     embedding_model: str = "text-embedding-3-small"
 
