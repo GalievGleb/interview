@@ -375,4 +375,18 @@ describe('HH cover-letter retry policy', () => {
       'near-miss-question',
     ]);
   });
+
+  it('gates a legacy opened cover-letter failure until an explicit retry', () => {
+    const stored = vacancy();
+    stored.status = 'opened';
+    stored.reason = 'Отклик не начат: в резюме нет подтверждённых совпадений.';
+
+    const [migrated] = normalizePersistedQueue([stored]);
+
+    expect(migrated).toMatchObject({
+      status: 'opened',
+      autoRetryBlockedUntil: 'manual',
+      reason: stored.reason,
+    });
+  });
 });

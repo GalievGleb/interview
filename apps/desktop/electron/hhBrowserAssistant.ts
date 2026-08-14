@@ -1294,6 +1294,14 @@ export function normalizePersistedQueue(
       || item.autoRetryBlockedUntil === 'daily'
       ? item.autoRetryBlockedUntil
       : undefined;
+    // Builds before persisted retry gates left cover-letter preparation
+    // failures as plain `opened` items. Restoring those items used to arm the
+    // 10-second queue timer and regenerate the same rejected letter forever.
+    // Keep them available for an explicit retry, but never auto-resume them.
+    const legacyUngatedCoverLetterFailure = rawStatus === 'opened'
+      && !coverLetterPending
+      && !storedAutoRetryBlock
+      && /^Отклик не начат:/iu.test(reason ?? '');
     const terminalStatus = rawStatus === 'sent'
       || rawStatus === 'already_applied'
       || rawStatus === 'skipped';
@@ -1301,7 +1309,9 @@ export function normalizePersistedQueue(
       ? undefined
       : onlyLegacyTransientQuestions
         ? 'daily' as const
-        : storedAutoRetryBlock;
+        : legacyUngatedCoverLetterFailure
+          ? 'manual' as const
+          : storedAutoRetryBlock;
     result.push({
       key: jobKey(platform, id),
       id,
