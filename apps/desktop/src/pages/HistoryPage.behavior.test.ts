@@ -56,4 +56,10 @@ describe('history analysis and privacy behavior', () => {
     expect(source).toContain('className="practice-empty"');
     expect(source).toContain('Истории пока нет');
   });
+
+  it('reloads history after the bundled backend finishes a cold start', () => {
+    expect(source).toContain('const { backendOnline } = useApp()');
+    expect(source).toContain('initialLoadStartedRef');
+    expect(source).toContain('if (!initialLoadStartedRef.current || backendOnline)');
+  });
 });

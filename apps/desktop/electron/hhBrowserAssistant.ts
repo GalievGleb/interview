@@ -724,9 +724,51 @@ export function browserCandidatePaths(
     ];
   }
 
-  const roots = [env.LOCALAPPDATA, env.PROGRAMFILES, env['PROGRAMFILES(X86)']].filter(Boolean) as string[];
-  const candidates = roots.map((root) => ({ label: 'Google Chrome', executable: join(root, 'Google', 'Chrome', 'Application', 'chrome.exe') }));
-  candidates.push(...roots.map((root) => ({ label: 'Microsoft Edge', executable: join(root, 'Microsoft', 'Edge', 'Application', 'msedge.exe') })));
+  const envValue = (key: string): string => {
+    const actualKey = Object.keys(env).find((candidate) => candidate.toLowerCase() === key.toLowerCase());
+    return actualKey ? String(env[actualKey] ?? '').trim() : '';
+  };
+  const localAppData = envValue('LOCALAPPDATA');
+  const roots = [
+    localAppData,
+    envValue('PROGRAMFILES'),
+    envValue('PROGRAMW6432'),
+    envValue('PROGRAMFILES(X86)'),
+  ].filter((root, index, all): root is string => Boolean(root) && (
+    all.findIndex((candidate) => candidate.toLowerCase() === root.toLowerCase()) === index
+  ));
+  const explicitCandidates = [
+    ['Google Chrome', envValue('CHROME_PATH')],
+    ['Microsoft Edge', envValue('EDGE_PATH')],
+    ['Brave', envValue('BRAVE_PATH')],
+    ['Vivaldi', envValue('VIVALDI_PATH')],
+    ['Chromium', envValue('CHROMIUM_PATH')],
+  ] as const;
+  const installations = [
+    ['Google Chrome', 'Google', 'Chrome', 'Application', 'chrome.exe'],
+    ['Google Chrome Beta', 'Google', 'Chrome Beta', 'Application', 'chrome.exe'],
+    ['Google Chrome Canary', 'Google', 'Chrome SxS', 'Application', 'chrome.exe'],
+    ['Microsoft Edge', 'Microsoft', 'Edge', 'Application', 'msedge.exe'],
+    ['Microsoft Edge Beta', 'Microsoft', 'Edge Beta', 'Application', 'msedge.exe'],
+    ['Microsoft Edge Dev', 'Microsoft', 'Edge Dev', 'Application', 'msedge.exe'],
+    ['Brave', 'BraveSoftware', 'Brave-Browser', 'Application', 'brave.exe'],
+    ['Vivaldi', 'Vivaldi', 'Application', 'vivaldi.exe'],
+    ['Chromium', 'Chromium', 'Application', 'chrome.exe'],
+  ] as const;
+  const candidates: Array<{ label: string; executable: string }> = [];
+  for (const [label, executable] of explicitCandidates) {
+    if (executable) candidates.push({ label, executable });
+  }
+  candidates.push(...roots.flatMap((root) => installations.map(([label, ...relative]) => ({
+    label,
+    executable: join(root, ...relative),
+  }))));
+  if (localAppData) {
+    candidates.push({
+      label: 'Chromium',
+      executable: join(localAppData, 'Programs', 'Chromium', 'Application', 'chrome.exe'),
+    });
+  }
   return candidates;
 }
 
@@ -735,10 +777,32 @@ function installedBrowserCandidates(): Array<{ label: string; executable: string
   return candidates.filter((candidate, index, all) => fs.existsSync(candidate.executable) && all.findIndex((item) => item.executable.toLowerCase() === candidate.executable.toLowerCase()) === index);
 }
 
+export function browserLaunchFailureMessage(
+  attemptedCandidates: number,
+  errors: string[],
+): string {
+  if (attemptedCandidates === 0) {
+    return [
+      'Для подключения HH нужен Chrome, Edge, Brave, Vivaldi или Chromium.',
+      'Установите поддерживаемый браузер и повторите подключение.',
+      'Firefox не подходит для автоматизации HH через Chromium DevTools.',
+    ].join(' ');
+  }
+  const details = errors.length > 0 ? ` ${errors.join(' | ')}` : '';
+  return `Не удалось запустить поддерживаемый Chromium-браузер.${details}`;
+}
+
 interface ProfileDebugInfo {
   port: number;
   mode: BrowserRunMode | null;
 }
+
+const WINDOWS_BROWSER_PROCESS_NAME_FILTER = [
+  "$_.Name -eq 'chrome.exe'",
+  "$_.Name -eq 'msedge.exe'",
+  "$_.Name -eq 'brave.exe'",
+  "$_.Name -eq 'vivaldi.exe'",
+].join(' -or ');
 
 export function debugInfoFromBrowserCommandLine(commandLine: string): ProfileDebugInfo | null {
   const port = Number(commandLine.match(/--remote-debugging-port(?:=|\s+)(\d+)/i)?.[1]);
@@ -768,7 +832,7 @@ export function profileBrowserCommandLineScript(): string {
     // Keep the complete Where-Object expression in one PowerShell statement.
     // Joining the old multiline form with semicolons produced `{; ... -and;`
     // and silently made live-profile discovery fail on every retry.
-    "$browser = Get-CimInstance Win32_Process | Where-Object { ($_.Name -eq 'chrome.exe' -or $_.Name -eq 'msedge.exe') -and $_.CommandLine -and $_.CommandLine.IndexOf($target, [StringComparison]::OrdinalIgnoreCase) -ge 0 -and $_.CommandLine -notmatch '--type=' -and $_.CommandLine -match '--remote-debugging-port(?:=|\\s+)(\\d+)' } | Select-Object -First 1",
+    `$browser = Get-CimInstance Win32_Process | Where-Object { (${WINDOWS_BROWSER_PROCESS_NAME_FILTER}) -and $_.CommandLine -and $_.CommandLine.IndexOf($target, [StringComparison]::OrdinalIgnoreCase) -ge 0 -and $_.CommandLine -notmatch '--type=' -and $_.CommandLine -match '--remote-debugging-port(?:=|\\s+)(\\d+)' } | Select-Object -First 1`,
     "if ($browser) { [Console]::Out.Write($browser.CommandLine) }",
   ].join('; ');
 }
@@ -858,16 +922,20 @@ async function terminateBrowserProcessTree(child: ChildProcess | null): Promise<
  * Kill only browser processes whose command line contains this exact private
  * profile path; regular user Chrome/Edge profiles are never matched.
  */
-async function terminateOrphanedProfileBrowsers(profileDir: string): Promise<void> {
-  if (process.platform !== 'win32') return;
-  const script = [
+export function profileBrowserCleanupScript(): string {
+  return [
     "$target = [IO.Path]::GetFullPath($env:SKILLCUE_AUTOMATION_PROFILE).TrimEnd('\\')",
     "$browsers = Get-CimInstance Win32_Process | Where-Object {",
-    "  ($_.Name -eq 'chrome.exe' -or $_.Name -eq 'msedge.exe') -and",
+    `  (${WINDOWS_BROWSER_PROCESS_NAME_FILTER}) -and`,
     "  $_.CommandLine -and $_.CommandLine.IndexOf($target, [StringComparison]::OrdinalIgnoreCase) -ge 0",
     '}',
     '$browsers | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }',
   ].join('; ');
+}
+
+async function terminateOrphanedProfileBrowsers(profileDir: string): Promise<void> {
+  if (process.platform !== 'win32') return;
+  const script = profileBrowserCleanupScript();
   const cleanup = new Promise<void>((resolve) => {
     const child = spawn(
       'powershell.exe',
@@ -1884,7 +1952,9 @@ export class HhBrowserAssistant {
     await new Promise((resolve) => setTimeout(resolve, 250));
     const debugPortPath = path.join(this.profileDir, 'DevToolsActivePort');
     const skillCuePortPath = path.join(this.profileDir, 'SkillCueDebugPort');
-    for (const candidate of installedBrowserCandidates()) {
+    const candidates = installedBrowserCandidates();
+    if (candidates.length === 0) throw new Error(browserLaunchFailureMessage(0, []));
+    for (const candidate of candidates) {
       let child: ChildProcess | null = null;
       try {
         fs.rmSync(debugPortPath, { force: true });
@@ -1918,7 +1988,7 @@ export class HhBrowserAssistant {
         errors.push(`${candidate.label}: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
-    throw new Error(`Не удалось открыть обычный Chrome или Edge. ${errors.join(' | ')}`);
+    throw new Error(browserLaunchFailureMessage(candidates.length, errors));
   }
 
   /**

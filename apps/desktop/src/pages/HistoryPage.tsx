@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarDays, ChevronRight, Mic2, Trash2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { api, type SessionItem } from '../lib/api';
 import { launchLive } from '../lib/launchLive';
 import { clearSessionKnowledge, refreshSessionKnowledge } from '../lib/sessionKnowledge';
 import Modal from '../components/Modal';
+import { useApp } from '../context/AppContext';
 
 type SourceFilter = 'all' | 'interview' | 'meeting';
 
@@ -21,6 +22,7 @@ function sessionLabel(session: SessionItem): string {
 
 export default function HistoryPage() {
   const navigate = useNavigate();
+  const { backendOnline } = useApp();
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -29,6 +31,7 @@ export default function HistoryPage() {
   const [deletingId, setDeletingId] = useState('');
   const [clearing, setClearing] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<SessionItem | 'all' | null>(null);
+  const initialLoadStartedRef = useRef(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -42,7 +45,15 @@ export default function HistoryPage() {
     }
   }, []);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    // The renderer can mount before the bundled backend has opened its port.
+    // Load immediately for an already-running service, then retry exactly when
+    // AppContext observes that a cold-started/restarted backend became healthy.
+    if (!initialLoadStartedRef.current || backendOnline) {
+      initialLoadStartedRef.current = true;
+      void load();
+    }
+  }, [backendOnline, load]);
 
   const filtered = useMemo(() => {
     const normalized = query.trim().toLowerCase();
