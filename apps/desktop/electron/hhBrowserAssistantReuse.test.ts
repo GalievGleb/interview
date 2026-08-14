@@ -54,7 +54,9 @@ describe('HH remembered screening answers', () => {
       applyInFlight: boolean;
     };
     mutable.state.config = { ...mutable.state.config, autoRunDaily: false };
-    mutable.state.queue = [pending('1'), pending('2')];
+    const reusedPending = pending('2');
+    reusedPending.autoRetryBlockedUntil = 'manual';
+    mutable.state.queue = [pending('1'), reusedPending];
     mutable.applyInFlight = true;
 
     const state = await assistant.answerScreeningQuestions('hh:1', [{
@@ -70,6 +72,7 @@ describe('HH remembered screening answers', () => {
     expect(reused?.status).toBe('prepared');
     expect(reused?.pendingQuestions).toBeUndefined();
     expect(reused?.screeningAnswers?.[0].answer).toBe('Казань');
+    expect(reused?.autoRetryBlockedUntil).toBeUndefined();
     expect(state.screeningFacts).toHaveLength(1);
   });
 
@@ -148,16 +151,61 @@ describe('HH remembered screening answers', () => {
       updatedAt: new Date().toISOString(),
     }];
     mutable.state.queue = [
-      relocationPending('1', 'Рязань', ['Да, готов переехать', 'Нет, только удалённый формат']),
+      {
+        ...relocationPending('1', 'Рязань', ['Да, готов переехать', 'Нет, только удалённый формат']),
+        autoRetryBlockedUntil: 'manual',
+      },
     ];
 
     const state = assistant.saveConfig({ schedule: 'remote', autoSend: false });
 
     expect(state.queue[0]?.status).toBe('prepared');
     expect(state.queue[0]?.pendingQuestions).toBeUndefined();
+    expect(state.queue[0]?.autoRetryBlockedUntil).toBeUndefined();
     expect(state.queue[0]?.screeningAnswers?.[0].selectedOptions).toEqual(['Нет, только удалённый формат']);
     expect(state.screeningFacts[0]?.answer).toContain('переезд по России не рассматриваю');
     expect(state.screeningFacts[0]?.selectedOptions).toEqual([]);
+  });
+
+  it('resolves a persisted salary question from the selected resume title', () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'skillcue-salary-resume-title-'));
+    directories.push(directory);
+    const defaults = new HhBrowserAssistant(directory, () => undefined).getState().config;
+    fs.writeFileSync(path.join(directory, 'hh-browser-assistant.json'), JSON.stringify({
+      version: 7,
+      config: {
+        ...defaults,
+        salaryFrom: null,
+        resumeTitles: [
+          'QA Fullstack Engineer Python 240 000 ₽',
+          'QA Automation Engineer Python 220 000 ₽',
+        ],
+        autoRunDaily: false,
+        autoSend: false,
+      },
+      queue: [{
+        ...pending('9001'),
+        selectedResumeTitle: 'QA Automation Engineer Python 220 000 ₽',
+        autoRetryBlockedUntil: 'manual',
+        pendingQuestions: [{
+          id: 'salary-expectation',
+          prompt: 'Уточните, пожалуйста, Ваши финансовые ожидания',
+          kind: 'text',
+          options: [],
+          required: true,
+        }],
+      }],
+      screeningFacts: [],
+      runHistory: [],
+    }, null, 2), 'utf8');
+
+    const restored = new HhBrowserAssistant(directory, () => undefined).getState();
+    const item = restored.queue[0];
+
+    expect(item?.status).toBe('prepared');
+    expect(item?.pendingQuestions).toBeUndefined();
+    expect(item?.autoRetryBlockedUntil).toBeUndefined();
+    expect(item?.screeningAnswers?.[0]?.answer).toMatch(/220[\s\u00a0]000 ₽/u);
   });
 
   it('replaces a stale Russian relocation choice in an unfinished restored application', () => {

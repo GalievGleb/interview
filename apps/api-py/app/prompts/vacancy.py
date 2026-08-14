@@ -84,6 +84,10 @@ ACTIVE MODE:
 
 STRICT GROUNDING RULES:
 - Any answer marked canAutoFill=true may contain personal experience claims ONLY from RESUME, INTERVIEW LEGEND, or USER-CONFIRMED ANSWERS below.
+- Every answer must declare sourceType as one of: "resume", "legend", "confirmed", "knowledge", or "none".
+- For sourceType="resume" or "legend", evidenceQuote must be one short, verbatim quote copied from that source which directly supports the answer. Do not paraphrase the evidence quote.
+- Use sourceType="confirmed" only when the new question has the same scope as a USER-CONFIRMED ANSWER and the returned value is exactly that confirmed value. Put that exact value in evidenceQuote.
+- Use sourceType="knowledge" only for a general professional, scenario, test-design, or coding question whose answer does not claim anything about this candidate's history, identity, preference, availability, or status. Otherwise use "none".
 - USER-CONFIRMED ANSWERS are authoritative candidate facts and preferences, but ONLY within the exact scope stated by their original question and answer.
 - Never generalize a confirmed answer to a broader decision. Consent to relocate to one named country, for one duration, or under stated conditions does not imply consent to another country, duration, or conditions. A salary, work format, start date, citizenship, language level, or travel preference is reusable only when the new question asks the same thing.
 - Never invent project counts, team size, dates, metrics, budgets, people management, tools, responsibilities, or outcomes.
@@ -105,6 +109,8 @@ Return STRICT JSON ONLY:
       "answer": "finished first-person answer, or empty when an option is selected",
       "selectedOptions": ["exact option label"],
       "canAutoFill": true,
+      "sourceType": "resume | legend | confirmed | knowledge | none",
+      "evidenceQuote": "short exact source quote, exact confirmed value, or empty for knowledge/none",
       "reason": "short reason only when canAutoFill=false",
       "preparationNote": "what to review before an interview when the narrow familiarity bridge was used, otherwise empty"
     }}

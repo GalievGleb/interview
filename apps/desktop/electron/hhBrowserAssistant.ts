@@ -67,6 +67,7 @@ import {
   findHhSemanticDuplicate,
   mergeHhVacancyDescription,
 } from './hhVacancyDuplicateGuard';
+import { evaluateHhStackCompatibility } from './hhStackCompatibility';
 
 export type HhQueueStatus =
   | 'new'
@@ -408,6 +409,56 @@ function isQueueItemEligibleForRun(
   if (!item.autoRetryBlockedUntil) return true;
   if (mode === 'manual') return true;
   return mode === 'daily' && item.autoRetryBlockedUntil === 'daily';
+}
+
+function pluralRuCount(count: number, one: string, few: string, many: string): string {
+  const absolute = Math.abs(count) % 100;
+  const last = absolute % 10;
+  if (absolute > 10 && absolute < 20) return many;
+  if (last === 1) return one;
+  if (last >= 2 && last <= 4) return few;
+  return many;
+}
+
+function pendingEmployerQuestionsReason(count: number): string {
+  return `Нужно ответить на ${count} ${pluralRuCount(
+    count,
+    'вопрос работодателя',
+    'вопроса работодателя',
+    'вопросов работодателя',
+  )}. Остальные вакансии продолжат обрабатываться.`;
+}
+
+/** Only session-wide failures are allowed to stop the whole HH queue. */
+export function isFatalHhQueueError(error: unknown, loginRequired = false): boolean {
+  if (loginRequired) return true;
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  return /(?:captcha|капч|авторизац|требуется\s+вход|войдите\s+в\s+(?:аккаунт|hh)|login\s+required|session\s+(?:expired|closed)|сесси[яи].{0,40}(?:истек|закрыт|заверш)|target\s+(?:page,?\s*)?(?:context|browser).{0,60}(?:closed|crashed)|browser.{0,40}(?:closed|disconnected)|context.{0,40}(?:closed|destroyed)|не удалось подключиться к (?:фоновой )?сессии hh|окно браузера.{0,30}закрыт)/iu.test(message);
+}
+
+async function allSettledWithConcurrency<T, TResult>(
+  items: readonly T[],
+  limit: number,
+  worker: (item: T, index: number) => Promise<TResult>,
+): Promise<Array<PromiseSettledResult<TResult>>> {
+  const results = new Array<PromiseSettledResult<TResult>>(items.length);
+  let cursor = 0;
+  const runWorker = async () => {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor += 1;
+      try {
+        results[index] = { status: 'fulfilled', value: await worker(items[index], index) };
+      } catch (reason) {
+        results[index] = { status: 'rejected', reason };
+      }
+    }
+  };
+  await Promise.all(Array.from(
+    { length: Math.min(Math.max(1, limit), items.length) },
+    () => runWorker(),
+  ));
+  return results;
 }
 
 function scheduleLabel(schedule: string): string {
@@ -1302,9 +1353,27 @@ export function normalizePersistedQueue(
       && !coverLetterPending
       && !storedAutoRetryBlock
       && /^Отклик не начат:/iu.test(reason ?? '');
-    const terminalStatus = rawStatus === 'sent'
-      || rawStatus === 'already_applied'
-      || rawStatus === 'skipped';
+    const normalizedStatus: HhQueueStatus = needsScreeningInput
+      ? 'needs_input'
+      : onlyLegacyTransientQuestions
+        ? 'opened'
+        : coverLetterPending
+          ? 'opened'
+          : staleFalseNegativeState
+            ? 'new'
+            : legacyAlreadyApplied
+              ? 'already_applied'
+              : rawStatus === 'needs_input' && pendingQuestions.length === 0
+                ? 'prepared'
+                : rawStatus === 'skipped' && reason === 'Не удалось распознать состояние страницы HH.'
+                  ? 'opened'
+                  : QUEUE_STATUSES.has(rawStatus) ? rawStatus : 'new';
+    // Terminal cleanup must follow recovery. A legacy `skipped` item can be
+    // restored to `opened`; using its raw status here used to erase saved
+    // employer questions and answers before the recovered retry could use them.
+    const terminalStatus = normalizedStatus === 'sent'
+      || normalizedStatus === 'already_applied'
+      || normalizedStatus === 'skipped';
     const autoRetryBlockedUntil = terminalStatus
       ? undefined
       : onlyLegacyTransientQuestions
@@ -1322,21 +1391,7 @@ export function normalizePersistedQueue(
       url,
       description: String(item.description ?? '').trim().slice(0, 12000),
       easyApply: Boolean(item.easyApply),
-      status: needsScreeningInput
-        ? 'needs_input'
-        : onlyLegacyTransientQuestions
-          ? 'opened'
-          : coverLetterPending
-            ? 'opened'
-            : staleFalseNegativeState
-              ? 'new'
-              : legacyAlreadyApplied
-                ? 'already_applied'
-                : rawStatus === 'needs_input' && pendingQuestions.length === 0
-                  ? 'prepared'
-                  : rawStatus === 'skipped' && reason === 'Не удалось распознать состояние страницы HH.'
-                    ? 'opened'
-                    : QUEUE_STATUSES.has(rawStatus) ? rawStatus : 'new',
+      status: normalizedStatus,
       reason: stalePreSubmissionCoverLetterState
         ? 'Предыдущая попытка не подтвердила отправку отклика. Вакансия возвращена в очередь для проверки на странице HH.'
         : staleUnconfirmedRemoteState
@@ -1345,11 +1400,13 @@ export function normalizePersistedQueue(
           ? 'Отклик отправлен без подтверждённого письма. Добавлю и проверю сопроводительное письмо в чате HH.'
         : onlyLegacyTransientQuestions
           ? 'Временный сбой подготовки ответов работодателю. Повторю в следующем ежедневном или ручном запуске.'
-          : reason,
+          : needsScreeningInput
+            ? pendingEmployerQuestionsReason(pendingQuestions.length)
+            : reason,
       addedAt: Number.isNaN(Date.parse(addedAt)) ? nowIso() : addedAt,
       sentAt,
-      pendingQuestions: pendingQuestions.length > 0 ? pendingQuestions : undefined,
-      screeningAnswers: screeningAnswers.length > 0 ? screeningAnswers : undefined,
+      pendingQuestions: !terminalStatus && pendingQuestions.length > 0 ? pendingQuestions : undefined,
+      screeningAnswers: !terminalStatus && screeningAnswers.length > 0 ? screeningAnswers : undefined,
       preparationNotes: preparationNotes.length > 0 ? preparationNotes : undefined,
       coverLetterPending: staleFalseNegativeState ? undefined : coverLetterPending || undefined,
       coverLetterAdded: coverLetterAdded || undefined,
@@ -1360,7 +1417,58 @@ export function normalizePersistedQueue(
     });
     if (result.length >= 1_000) break;
   }
-  return result;
+  const deduplicated = result.map((item) => {
+    if (
+      item.platform !== 'hh'
+      || item.status === 'sent'
+      || item.status === 'already_applied'
+      || item.status === 'skipped'
+    ) return item;
+    const owner = findHhSemanticDuplicate(result, item, item.description ?? '');
+    if (!owner) return item;
+    return {
+      ...item,
+      status: 'skipped' as const,
+      reason: `Точный дубль вакансии ${owner.company || owner.title} (${owner.id}); оставлен один отклик.`,
+      pendingQuestions: undefined,
+      screeningAnswers: undefined,
+      coverLetterPending: false,
+      autoRetryBlockedUntil: undefined,
+    };
+  });
+  return deduplicated.map((item) => {
+    if (
+      item.platform !== 'hh'
+      || item.status === 'sent'
+      || item.status === 'already_applied'
+      || item.status === 'skipped'
+      || !item.selectedResumeTitle?.trim()
+    ) return item;
+    // Startup reconciliation is deliberately narrower than live relevance:
+    // both stacks must be explicit in the selected résumé title and vacancy
+    // title. Description mentions may name the product backend or a technology
+    // that is explicitly *not* required, so they are not migration evidence.
+    const compatibility = evaluateHhStackCompatibility({
+      resumeContext: item.selectedResumeTitle,
+      vacancyTitle: item.title,
+      vacancyDescription: '',
+    });
+    if (
+      compatibility.compatible
+      || compatibility.candidateStacks.length === 0
+      || compatibility.vacancyStacks.length === 0
+    ) return item;
+    return {
+      ...item,
+      status: 'skipped' as const,
+      reason: `Убрано при восстановлении очереди: ${compatibility.reason ?? 'явный стек вакансии не совпадает с выбранным резюме.'}`,
+      pendingQuestions: undefined,
+      screeningAnswers: undefined,
+      coverLetterPending: false,
+      coverLetterAdded: false,
+      autoRetryBlockedUntil: undefined,
+    };
+  });
 }
 
 function normalizeRunHistory(value: unknown): HhAutomationRun[] {
@@ -1504,6 +1612,15 @@ export class HhBrowserAssistant {
     }
     this.state.queue = this.state.queue.map((item) => {
       if (item.platform !== 'hh') return item;
+      const resumeTitleSources = [
+        item.selectedResumeTitle ?? '',
+        ...this.state.config.resumeTitles,
+      ].filter(Boolean);
+      const resumeTitleContext = resumeTitleSources.join('\n').trim();
+      const salaryExpectation = findSalaryExpectation(
+        this.state.config.salaryFrom,
+        resumeTitleSources,
+      );
 
       // A response prepared before the user selected “remote only” may contain
       // a stale “yes” or “let's discuss” relocation answer. Do not let that
@@ -1533,7 +1650,7 @@ export class HhBrowserAssistant {
         const fact = facts.get(screeningQuestionSemanticKey(question.prompt));
         const remoteOnlyRussia = this.state.config.schedule === 'remote'
           && screeningRelocationScope(question.prompt) === 'russia';
-        const known = knownScreeningAnswer(question, this.state.config.salaryFrom, '', {
+        const known = knownScreeningAnswer(question, salaryExpectation, resumeTitleContext, {
           remoteOnly: this.state.config.schedule === 'remote',
         });
         // The current search format wins over an older relocation answer. If
@@ -1567,6 +1684,9 @@ export class HhBrowserAssistant {
           : `Известные условия применены. Осталось уточнить: ${pendingQuestions.length}.`,
         pendingQuestions: pendingQuestions.length > 0 ? pendingQuestions : undefined,
         screeningAnswers: [...answers.values()].slice(-60),
+        autoRetryBlockedUntil: pendingQuestions.length === 0
+          ? undefined
+          : item.autoRetryBlockedUntil,
       };
     });
     return changedCount;
@@ -3478,14 +3598,26 @@ export class HhBrowserAssistant {
   }
 
   /** Best matching HH résumé for this vacancy, reused by forms, letters and recruiter chat. */
-  async getSelectedResumeText(vacancyTitle: string): Promise<string> {
+  async getSelectedResumeText(
+    vacancyTitle: string,
+    options: { throwOnFailure?: boolean } = {},
+  ): Promise<string> {
     const preferred = await this.preferredApplicantResume(vacancyTitle);
     if (!preferred) return '';
-    return this.getApplicantResumeContent(preferred.id)
+    try {
+      const result = await this.getApplicantResumeContent(preferred.id);
       // Desired salary is often stored in the HH résumé title rather than in
       // its body. Forms and recruiter chats need both verified sources.
-      .then((result) => [preferred.title, result.text].filter(Boolean).join('\n'))
-      .catch(() => '');
+      return [preferred.title, result.text].filter(Boolean).join('\n');
+    } catch (error) {
+      if (options.throwOnFailure) {
+        const detail = error instanceof Error ? error.message : String(error);
+        throw new Error(`Не удалось загрузить выбранное резюме «${preferred.title}»: ${detail}`, {
+          cause: error,
+        });
+      }
+      return '';
+    }
   }
 
   private async fillEmployerQuestions(
@@ -3511,7 +3643,18 @@ export class HhBrowserAssistant {
       phase: 'applying',
       message: `Готовлю ответы на вопросы работодателя: ${fields.length}…`,
     });
-    const resumeText = await this.getSelectedResumeText(vacancy.title);
+    let resumeText = '';
+    try {
+      resumeText = await this.getSelectedResumeText(vacancy.title, { throwOnFailure: true });
+    } catch (error) {
+      return {
+        ok: false,
+        failureKind: 'transient',
+        reason: error instanceof Error
+          ? error.message
+          : 'Временно не удалось загрузить выбранное резюме для ответов работодателю.',
+      };
+    }
     const confirmedAnswers = selectRelevantScreeningFacts(
       this.state.screeningFacts,
       fields.map((field) => field.question),
@@ -3544,11 +3687,19 @@ export class HhBrowserAssistant {
     const transientFailureDetails = new Set<string>();
     if (this.generateScreeningAnswers) {
       const pendingForAi = fields.filter((field) => !knownAnswers.has(field.question.id));
+      const pendingGroups = new Map<string, typeof pendingForAi>();
+      for (const field of pendingForAi) {
+        const key = screeningQuestionSemanticKey(field.question.prompt);
+        const group = pendingGroups.get(key) ?? [];
+        group.push(field);
+        pendingGroups.set(key, group);
+      }
+      const representatives = [...pendingGroups.values()].map((group) => group[0]);
       const batches = Array.from(
-        { length: Math.ceil(pendingForAi.length / 6) },
-        (_, index) => pendingForAi.slice(index * 6, index * 6 + 6),
+        { length: Math.ceil(representatives.length / 6) },
+        (_, index) => representatives.slice(index * 6, index * 6 + 6),
       );
-      const batchResults = await Promise.allSettled(batches.map((batch) =>
+      const batchResults = await allSettledWithConcurrency(batches, 2, (batch) =>
         this.generateScreeningAnswers!({
           vacancyTitle: vacancy.title,
           vacancyCompany: vacancy.company,
@@ -3557,17 +3708,43 @@ export class HhBrowserAssistant {
           questions: batch.map((field) => field.question),
           confirmedAnswers,
           language: 'ru',
-        })));
+        }));
       const byId = new Map(generatedAnswers.map((answer) => [answer.id, answer]));
       batchResults.forEach((result, batchIndex) => {
         const batch = batches[batchIndex] ?? [];
         if (result.status === 'fulfilled') {
-          for (const answer of result.value.answers) byId.set(answer.id, answer);
+          for (const answer of result.value.answers) {
+            byId.set(answer.id, answer);
+            const representative = batch.find((field) => field.question.id === answer.id);
+            if (!representative) continue;
+            const group = pendingGroups.get(screeningQuestionSemanticKey(representative.question.prompt)) ?? [];
+            for (const duplicate of group) {
+              if (duplicate.question.id === answer.id) continue;
+              const mapped = reusableScreeningAnswer(duplicate.question, {
+                question: representative.question.prompt,
+                answer: answer.answer,
+                selectedOptions: answer.selectedOptions,
+              });
+              if (mapped) {
+                byId.set(duplicate.question.id, {
+                  ...mapped,
+                  // Reusing the value for an equivalent field must never
+                  // promote a review-only model suggestion to automatic
+                  // submission. Only the representative answer's verified
+                  // autofill decision may authorize its duplicates.
+                  canAutoFill: answer.canAutoFill,
+                  reason: answer.reason,
+                  preparationNote: answer.preparationNote,
+                });
+              }
+            }
+          }
           return;
         }
         const reason = result.reason instanceof Error ? result.reason.message : String(result.reason);
         for (const field of batch) {
-          transientQuestionIds.add(field.question.id);
+          const group = pendingGroups.get(screeningQuestionSemanticKey(field.question.prompt)) ?? [field];
+          for (const duplicate of group) transientQuestionIds.add(duplicate.question.id);
         }
         if (reason.trim()) transientFailureDetails.add(reason.trim().slice(0, 180));
       });
@@ -3660,7 +3837,7 @@ export class HhBrowserAssistant {
       return {
         ok: false,
         failureKind: 'manual',
-        reason: `Нужно ответить на ${pendingQuestions.length} ${pendingQuestions.length === 1 ? 'вопрос работодателя' : 'вопроса работодателя'}. Остальные вакансии продолжат обрабатываться.`,
+        reason: pendingEmployerQuestionsReason(pendingQuestions.length),
         pendingQuestions,
         preparationNotes,
       };
@@ -3742,15 +3919,17 @@ export class HhBrowserAssistant {
       message: `Сопоставляю резюме с вакансией «${vacancy.title}» и готовлю письмо…`,
     });
     let response: HhCoverLetterResponse;
+    let request: HhCoverLetterRequest;
     try {
       const resumeText = await this.getSelectedResumeText(vacancy.title);
-      response = await this.generateCoverLetter({
+      request = {
         vacancyTitle: vacancy.title,
         vacancyCompany: vacancy.company,
         vacancyDescription,
         resumeText,
         language: 'ru',
-      });
+      };
+      response = await this.generateCoverLetter(request);
     } catch (error) {
       return {
         ok: false,
@@ -3761,7 +3940,7 @@ export class HhBrowserAssistant {
         retry: 'later',
       };
     }
-    const validated = validateGeneratedHhCoverLetter(response);
+    const validated = validateGeneratedHhCoverLetter(response, request);
     if (!validated) {
       return {
         ok: false,
@@ -4217,13 +4396,20 @@ export class HhBrowserAssistant {
 
     let lastSituation: HhApplySituation = 'unknown';
     let repeatedSituation = 0;
+    let finalSubmitClicked = false;
     for (let step = 0; step < 12; step += 1) {
       const situation = await this.detectApplySituation(page, baseCtx);
       repeatedSituation = situation === lastSituation ? repeatedSituation + 1 : 0;
       lastSituation = situation;
       if (repeatedSituation >= 2) {
-        const reason = `HH не изменил форму после нескольких попыток. Последнее состояние: ${situation}.`;
-        this.patchQueue(vacancy.id, { status: 'opened', reason });
+        const reason = finalSubmitClicked
+          ? 'Финальная кнопка нажата один раз, но HH пока не подтвердил отклик. Не нажимаю повторно; проверю статус при следующем ежедневном или ручном запуске.'
+          : `HH не изменил форму после нескольких попыток. Последнее состояние: ${situation}.`;
+        this.patchQueue(vacancy.id, {
+          status: 'opened',
+          reason,
+          autoRetryBlockedUntil: finalSubmitClicked ? 'daily' : undefined,
+        });
         return { sent: false, blocked: false, reason };
       }
       const decided = decideNextAction(situation, baseCtx);
@@ -4311,6 +4497,11 @@ export class HhBrowserAssistant {
           });
           return { sent: false, blocked: false, reason: decided.reason };
         case 'wait_user':
+          this.patchQueue(vacancy.id, {
+            status: 'opened',
+            reason: decided.reason,
+            autoRetryBlockedUntil: 'manual',
+          });
           this.update({
             phase: 'manual_required',
             browserOpen: true,
@@ -4343,6 +4534,7 @@ export class HhBrowserAssistant {
             };
           }
           await page.waitForTimeout(jitterMs(1));
+          finalSubmitClicked = false;
           baseCtx.responseClicked = true;
           break;
         }
@@ -4359,6 +4551,7 @@ export class HhBrowserAssistant {
               this.patchQueue(vacancy.id, { selectedResumeTitle: selectedTitles[0] });
             }
           }
+          finalSubmitClicked = false;
           baseCtx.resumeSelected = true;
           break;
         case 'open_letter': {
@@ -4369,6 +4562,7 @@ export class HhBrowserAssistant {
             .locator(LETTER_SELECTOR)
             .first()
             .waitFor({ state: 'visible', timeout: 5_000 });
+          finalSubmitClicked = false;
           break;
         }
         case 'fill_letter': {
@@ -4388,6 +4582,7 @@ export class HhBrowserAssistant {
           if ((await textarea.inputValue()).trim() !== generated.letter.trim()) {
             throw new Error('HH не принял текст сопроводительного письма.');
           }
+          finalSubmitClicked = false;
           baseCtx.letterFilled = true;
           break;
         }
@@ -4451,6 +4646,7 @@ export class HhBrowserAssistant {
               autoRetryBlockedUntil,
             };
           }
+          finalSubmitClicked = false;
           baseCtx.questionsFilled = true;
           const preparationNotes = [...new Set([
             ...(vacancy.preparationNotes ?? []),
@@ -4465,6 +4661,13 @@ export class HhBrowserAssistant {
           break;
         }
         case 'click_confirm': {
+          // A slow HH transition can leave the same visible submit button in
+          // the DOM after the click. Never issue a second external submit in
+          // one attempt; wait for a success/letter state, then defer safely.
+          if (finalSubmitClicked) {
+            await page.waitForTimeout(jitterMs(0.4));
+            break;
+          }
           if (baseCtx.hasCoverLetter && !baseCtx.letterFilled) {
             const generated = await this.prepareCoverLetter(page, vacancy);
             if (!generated.ok) {
@@ -4473,6 +4676,7 @@ export class HhBrowserAssistant {
           }
           const clicked = await this.clickFirstVisible(page, RESPONSE_SUBMIT_SELECTOR);
           if (!clicked) throw new Error('HH не показал финальную кнопку отклика.');
+          finalSubmitClicked = true;
           baseCtx.responseSubmitted = true;
           await page.waitForTimeout(jitterMs(1));
           break;
@@ -4580,17 +4784,18 @@ export class HhBrowserAssistant {
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
         const reason = `Неожиданная ошибка при обработке вакансии: ${detail}`;
+        const fatal = isFatalHhQueueError(error, this.state.loginRequired);
         this.patchQueue(item.key, {
           status: 'opened',
           reason,
-          autoRetryBlockedUntil: 'daily',
+          autoRetryBlockedUntil: fatal ? 'manual' : 'daily',
         });
         outcome = {
           sent: false,
           alreadyApplied: false,
-          blocked: true,
+          blocked: fatal,
           reason,
-          autoRetryBlockedUntil: 'daily',
+          autoRetryBlockedUntil: fatal ? 'manual' : 'daily',
         };
       }
       if (outcome.sent) sentNow += 1;
@@ -5007,6 +5212,9 @@ export class HhBrowserAssistant {
             : `Повторяющиеся ответы применены. Осталось уточнить: ${pendingQuestions.length}.`,
           pendingQuestions: pendingQuestions.length > 0 ? pendingQuestions : undefined,
           screeningAnswers: [...answers.values()].slice(-60),
+          autoRetryBlockedUntil: pendingQuestions.length === 0
+            ? undefined
+            : item.autoRetryBlockedUntil,
         };
       });
     }
@@ -5170,16 +5378,17 @@ export class HhBrowserAssistant {
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       const reason = `Неожиданная ошибка при обработке вакансии: ${detail}`;
+      const fatal = isFatalHhQueueError(error, this.state.loginRequired);
       this.patchQueue(vacancy.key, {
         status: 'opened',
         reason,
-        autoRetryBlockedUntil: 'daily',
+        autoRetryBlockedUntil: fatal ? 'manual' : 'daily',
       });
       outcome = {
         sent: false,
-        blocked: true,
+        blocked: fatal,
         reason,
-        autoRetryBlockedUntil: 'daily',
+        autoRetryBlockedUntil: fatal ? 'manual' : 'daily',
       };
     }
     const stopped = this.stopApplyRequested;
@@ -5368,8 +5577,19 @@ export class HhBrowserAssistant {
   }
 
   private patchQueue(vacancyId: string, patch: Partial<HhQueueItem>): void {
+    const terminal = patch.status === 'sent'
+      || patch.status === 'already_applied'
+      || patch.status === 'skipped';
+    const normalizedPatch: Partial<HhQueueItem> = terminal
+      ? {
+          ...patch,
+          pendingQuestions: undefined,
+          screeningAnswers: undefined,
+          autoRetryBlockedUntil: undefined,
+        }
+      : patch;
     this.state.queue = this.state.queue.map((item) =>
-      item.key === vacancyId || item.id === vacancyId ? { ...item, ...patch } : item,
+      item.key === vacancyId || item.id === vacancyId ? { ...item, ...normalizedPatch } : item,
     );
     this.persist();
   }

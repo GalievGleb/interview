@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Page } from 'playwright-core';
 import type {
   HhScreeningAnswer,
+  HhScreeningAnswersRequest,
   HhScreeningField,
   HhScreeningQuestion,
 } from './hhScreeningQuestions';
@@ -94,7 +95,7 @@ type TestableAssistant = {
 };
 
 function createAssistant(
-  generator: () => Promise<{ answers: HhScreeningAnswer[] }>,
+  generator: (request: HhScreeningAnswersRequest) => Promise<{ answers: HhScreeningAnswer[] }>,
   existingDirectory?: string,
 ): TestableAssistant {
   const directory = existingDirectory
@@ -250,6 +251,7 @@ describe('HH rejected screening batches', () => {
       ...assistant.state.config,
       platform: 'hh',
       query: 'QA Automation Engineer',
+      resumeTitles: ['QA Automation Python'],
       schedule: '',
       autoSend: true,
       autoRunDaily: false,
@@ -299,5 +301,123 @@ describe('HH rejected screening batches', () => {
     await vi.advanceTimersByTimeAsync(31 * 60 * 1_000);
 
     expect(generator).toHaveBeenCalledOnce();
+  });
+
+  it('deduplicates semantically identical questions before calling the provider', async () => {
+    const duplicatePrompt = 'В каком городе вы сейчас проживаете?';
+    const fields: HhScreeningField[] = ['city-a', 'city-b'].map((id) => ({
+      ...field(id),
+      question: { ...field(id).question, prompt: duplicatePrompt },
+    }));
+    screeningMocks.collect.mockResolvedValue(fields);
+    let filledAnswers: HhScreeningAnswer[] = [];
+    screeningMocks.fill.mockImplementation(async (_page, currentFields, answers) => {
+      filledAnswers = answers;
+      return { filled: currentFields.length, unresolved: [] };
+    });
+    const generator = vi.fn(async (request: { questions: HhScreeningQuestion[] }) => ({
+      answers: request.questions.map((question) => ({
+        id: question.id,
+        answer: 'Казань',
+        selectedOptions: [],
+        canAutoFill: true,
+        reason: '',
+      })),
+    }));
+    const assistant = createAssistant(generator);
+
+    const result = await assistant.fillEmployerQuestions({} as Page, vacancy());
+
+    expect(result.ok).toBe(true);
+    expect(generator).toHaveBeenCalledOnce();
+    expect(generator.mock.calls[0]?.[0].questions).toHaveLength(1);
+    expect(filledAnswers.filter((answer) => answer.canAutoFill).map((answer) => answer.id)).toEqual([
+      'city-a',
+      'city-b',
+    ]);
+  });
+
+  it('does not promote a review-only suggestion when mapping semantic duplicates', async () => {
+    const duplicatePrompt = 'В каком городе вы сейчас проживаете?';
+    const fields: HhScreeningField[] = ['city-a', 'city-b'].map((id) => ({
+      ...field(id),
+      question: { ...field(id).question, prompt: duplicatePrompt },
+    }));
+    screeningMocks.collect.mockResolvedValue(fields);
+    let filledAnswers: HhScreeningAnswer[] = [];
+    screeningMocks.fill.mockImplementation(async (_page, currentFields, answers) => {
+      filledAnswers = answers;
+      return {
+        filled: 0,
+        unresolved: currentFields.map((current) => ({
+          id: current.question.id,
+          reason: 'Нужно подтвердить город.',
+        })),
+      };
+    });
+    const generator = vi.fn(async (request: { questions: HhScreeningQuestion[] }) => ({
+      answers: request.questions.map((question) => ({
+        id: question.id,
+        answer: 'Казань',
+        selectedOptions: [],
+        canAutoFill: false,
+        reason: 'Город не подтверждён.',
+      })),
+    }));
+    const assistant = createAssistant(generator);
+
+    const result = await assistant.fillEmployerQuestions({} as Page, vacancy());
+
+    expect(result.ok).toBe(false);
+    expect(generator).toHaveBeenCalledOnce();
+    expect(generator.mock.calls[0]?.[0].questions).toHaveLength(1);
+    expect(filledAnswers).toHaveLength(2);
+    expect(filledAnswers.every((answer) => answer.canAutoFill === false)).toBe(true);
+    expect(result.pendingQuestions).toHaveLength(2);
+  });
+
+  it('limits provider batches to two concurrent requests', async () => {
+    screeningMocks.collect.mockResolvedValue(Array.from({ length: 18 }, (_, index) => field(`unique-${index}`)));
+    screeningMocks.fill.mockImplementation(async (_page, fields) => ({ filled: fields.length, unresolved: [] }));
+    let active = 0;
+    let maximumActive = 0;
+    const generator = vi.fn(async (request: { questions: HhScreeningQuestion[] }) => {
+      active += 1;
+      maximumActive = Math.max(maximumActive, active);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      active -= 1;
+      return {
+        answers: request.questions.map((question) => ({
+          id: question.id,
+          answer: 'Подтверждённый ответ',
+          selectedOptions: [],
+          canAutoFill: true,
+          reason: '',
+        })),
+      };
+    });
+    const assistant = createAssistant(generator);
+
+    const result = await assistant.fillEmployerQuestions({} as Page, vacancy());
+
+    expect(result.ok).toBe(true);
+    expect(generator).toHaveBeenCalledTimes(3);
+    expect(maximumActive).toBe(2);
+  });
+
+  it('treats a selected resume fetch failure as transient and keeps it out of personal questions', async () => {
+    screeningMocks.collect.mockResolvedValue([field('resume-dependent')]);
+    const generator = vi.fn(async () => ({ answers: [] }));
+    const assistant = createAssistant(generator);
+    assistant.getSelectedResumeText = vi.fn(async () => {
+      throw new Error('HH временно не вернул текст резюме.');
+    });
+
+    const result = await assistant.fillEmployerQuestions({} as Page, vacancy());
+
+    expect(result).toMatchObject({ ok: false, failureKind: 'transient' });
+    expect(result.reason).toContain('текст резюме');
+    expect(result.pendingQuestions).toBeUndefined();
+    expect(generator).not.toHaveBeenCalled();
   });
 });

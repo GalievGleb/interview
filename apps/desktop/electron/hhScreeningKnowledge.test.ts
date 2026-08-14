@@ -46,6 +46,18 @@ describe('HH candidate screening knowledge', () => {
     expect(result?.answer).toContain('Минимум');
   });
 
+  it.each([
+    'Укажите ваши финансовые ожидания',
+    'What is your expected salary level?',
+    'What are your financial expectations?',
+  ])('recognizes salary wording: %s', (prompt) => {
+    const result = knownScreeningAnswer({
+      id: 'salary-wording', prompt, kind: 'text', options: [], required: true,
+    }, 220_000);
+    expect(result?.canAutoFill).toBe(true);
+    expect(result?.answer).toContain('220\u00a0000 ₽');
+  });
+
   it('does not manufacture unknown Matrix experience', () => {
     expect(knownScreeningAnswer({
       id: 'matrix',
@@ -167,6 +179,21 @@ describe('HH candidate screening knowledge', () => {
     expect(answer?.selectedOptions).toEqual(['Нет, рассматриваю только работу в своем городе']);
   });
 
+  it('does not reuse relocation consent for a different Russian destination', () => {
+    const answer = reusableScreeningAnswer({
+      id: 'yoshkar',
+      prompt: 'Готовы ли вы к переезду в Йошкар-Олу?',
+      kind: 'single',
+      options: ['Да, готов(а)', 'Нет'],
+      required: true,
+    }, {
+      question: 'Готовы ли вы к переезду в Рязань?',
+      answer: '',
+      selectedOptions: ['Да, готов(а)'],
+    });
+    expect(answer).toBeNull();
+  });
+
   it('uses the remote-only filter for Russian relocation but still asks about abroad', () => {
     const russian = knownScreeningAnswer({
       id: 'ryazan', prompt: 'Готовы ли вы к переезду в Рязань?', kind: 'single',
@@ -189,8 +216,59 @@ describe('HH candidate screening knowledge', () => {
       required: true,
     }, null, 'AQA-Engineer Python — Сбербанк. Автоматизировал UI и API тестирование.');
     expect(result?.canAutoFill).toBe(true);
-    expect(result?.answer).toContain('Сбербанка');
-    expect(result?.answer).toContain('Коммерческого опыта в web3 нет');
+    expect(result?.answer).toContain('банковской/финтех-сфере');
+    expect(result?.answer).toContain('web3 в резюме не указан');
+    expect(result?.answer).not.toContain('один год');
+    expect(result?.answer).not.toContain('Python');
+  });
+
+  it('does not turn a sparse bank mention into Sber AQA experience', () => {
+    const result = knownScreeningAnswer({
+      id: 'fintech-sparse',
+      prompt: 'Имеется ли у вас опыт работы в финтехе/веб3 сферах?',
+      kind: 'text', options: [], required: true,
+    }, null, 'Работал аналитиком в другом банке.');
+
+    expect(result?.canAutoFill).toBe(true);
+    expect(result?.answer).toBe(
+      'В резюме подтверждён опыт работы в банковской/финтех-сфере. Отдельный опыт web3 в резюме не указан.',
+    );
+    expect(result?.answer).not.toMatch(/Сбер|AQA|Pytest|Playwright|один год/i);
+  });
+
+  it('does not add automation or a total duration to basic web-testing evidence', () => {
+    const result = knownScreeningAnswer({
+      id: 'web-basic', prompt: 'У Вас есть опыт тестирования WEB-приложений?',
+      kind: 'text', options: [], required: false,
+    }, null, 'Опыт работы: 4 года. Тестировал web-приложения вручную.');
+
+    expect(result?.answer).toBe('Да. В резюме подтверждён опыт тестирования web-приложений.');
+    expect(result?.answer).not.toMatch(/коммерческ|4 года|регрессион|smoke|exploratory|автоматизац/i);
+  });
+
+  it('does not reverse an explicit negative résumé statement', () => {
+    expect(knownScreeningAnswer({
+      id: 'web-negative', prompt: 'У Вас есть опыт тестирования WEB-приложений?',
+      kind: 'text', options: [], required: false,
+    }, null, 'Не тестировал web-приложения.')).toBeNull();
+
+    expect(knownScreeningAnswer({
+      id: 'web-negative-suffix', prompt: 'У Вас есть опыт тестирования WEB-приложений?',
+      kind: 'text', options: [], required: false,
+    }, null, 'Тестирование web-приложений не выполнял.')).toBeNull();
+  });
+
+  it('does not select yes for option questions backed only by negative résumé statements', () => {
+    expect(knownScreeningAnswer({
+      id: 'web-negative-option', prompt: 'У Вас есть опыт тестирования WEB-приложений?',
+      kind: 'single', options: ['Да', 'Нет'], required: false,
+    }, null, 'Не тестировал web-приложения.')).toBeNull();
+
+    expect(knownScreeningAnswer({
+      id: 'automation-negative-option',
+      prompt: 'Есть ли практический (коммерческий) опыт с автотестированием на python?',
+      kind: 'multiple', options: ['Да', 'Нет'], required: false,
+    }, null, 'ООО Пример. Автотесты на Python не разрабатывал.')).toBeNull();
   });
 
   it('answers confirmed web and commercial automation experience without remote AI', () => {
@@ -211,11 +289,13 @@ AQA-Engineer Python. API автотесты Requests + Pytest.
     }, null, resume);
 
     expect(web?.canAutoFill).toBe(true);
-    expect(web?.answer).toContain('4 года 2 месяца');
+    expect(web?.answer).toBe('Да. В резюме подтверждён опыт тестирования web-приложений.');
     expect(automation?.canAutoFill).toBe(true);
     expect(automation?.answer).toContain('ГЕОМИКС');
     expect(automation?.answer).toContain('Сбер');
     expect(automation?.answer).toContain('Python, Pytest, Playwright, Selenium, Requests');
+    expect(automation?.answer).not.toContain('основной язык');
+    expect(automation?.answer).not.toContain('4 года 2 месяца');
   });
 
   it('selects yes for confirmed commercial Python automation experience', () => {
@@ -239,12 +319,18 @@ AQA-Engineer Python. API автотесты Requests + Pytest.
     });
   });
 
-  it('answers a typo-tolerant AI usage question locally', () => {
+  it('does not invent personal AI usage without resume or confirmed evidence', () => {
     const answer = knownScreeningAnswer({
       id: 'ai', prompt: 'Вы используете в работе ИИ? Какие заджачи Вы решаете при помощи ИИ?', kind: 'text', options: [], required: false,
     }, null, '');
-    expect(answer?.canAutoFill).toBe(true);
-    expect(answer?.answer).toContain('анализа требований');
+    expect(answer).toBeNull();
+  });
+
+  it('does not invent motivation or role interpretation without evidence', () => {
+    const answer = knownScreeningAnswer({
+      id: 'role', prompt: 'Что в предстоящих обязанностях заинтересовало вас больше всего и как понимаете роль?', kind: 'text', options: [], required: false,
+    }, null, '');
+    expect(answer).toBeNull();
   });
 
   it('keeps an older Matrix fact ahead of newer unrelated facts', () => {
@@ -270,5 +356,17 @@ AQA-Engineer Python. API автотесты Requests + Pytest.
     }], 30);
     expect(selected[0]).toBe(matrix);
     expect(selected).toContain(matrix);
+  });
+
+  it('does not send unrelated zero-score facts to the screening model', () => {
+    const unrelated = {
+      question: 'Готовы ли вы к командировкам?',
+      answer: 'Нет',
+      selectedOptions: [],
+    };
+    const selected = selectRelevantScreeningFacts([unrelated], [{
+      id: 'matrix', prompt: 'Работали ли вы с Matrix?', kind: 'text', options: [], required: true,
+    }], 30);
+    expect(selected).toEqual([]);
   });
 });

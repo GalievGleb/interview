@@ -32,7 +32,7 @@ describe('HH pending screening summary', () => {
     ]);
     const drafts = readHhScreeningDrafts({
       getItem: () => JSON.stringify({
-        'hh:one::q-one': { answer: 'Да', selectedOptions: [] },
+        'hh:one::q-one': { answer: 'Да', selectedOptions: [], confirmedByUser: true },
       }),
     });
 
@@ -41,9 +41,30 @@ describe('HH pending screening summary', () => {
 
   it('accepts short yes/no text as a complete employer answer', () => {
     const textQuestion = { kind: 'text' as const };
-    expect(isHhScreeningAnswerComplete(textQuestion, 'Нет', [])).toBe(true);
-    expect(isHhScreeningAnswerComplete(textQuestion, 'Да', [])).toBe(true);
-    expect(isHhScreeningAnswerComplete(textQuestion, '   ', [])).toBe(false);
+    expect(isHhScreeningAnswerComplete(textQuestion, 'Нет', [], true)).toBe(true);
+    expect(isHhScreeningAnswerComplete(textQuestion, 'Да', [], true)).toBe(true);
+    expect(isHhScreeningAnswerComplete(textQuestion, '   ', [], true)).toBe(false);
+  });
+
+  it('does not count an AI suggestion as complete until the user accepts it', () => {
+    const summary = summarizePendingHhScreening([vacancy('one', 'Готовы работать удалённо?')]);
+    const drafts = readHhScreeningDrafts({
+      getItem: () => JSON.stringify({
+        'hh:one::q-one': { answer: 'Да', selectedOptions: [], confirmedByUser: false },
+      }),
+    });
+
+    expect(isHhScreeningAnswerComplete({ kind: 'text' }, 'Да', [], false)).toBe(false);
+    expect(countUnansweredHhScreeningQuestions(summary, drafts)).toBe(1);
+  });
+
+  it('treats legacy drafts without an explicit confirmation flag as unconfirmed', () => {
+    const drafts = readHhScreeningDrafts({
+      getItem: () => JSON.stringify({
+        legacy: { answer: 'Да', selectedOptions: [] },
+      }),
+    });
+    expect(drafts.legacy.confirmedByUser).toBe(false);
   });
 
   it('counts repeated employer prompts once', () => {

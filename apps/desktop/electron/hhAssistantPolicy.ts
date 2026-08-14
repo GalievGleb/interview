@@ -1,3 +1,8 @@
+import {
+  inferHhPrimaryStacks,
+  isHhStackCompatible,
+} from './hhStackCompatibility';
+
 export interface HhAssistantConfig {
   platform: 'hh' | 'linkedin' | 'avito';
   query: string;
@@ -246,7 +251,7 @@ export function buildHhSearchQueries(config: HhAssistantConfig, resumeContext = 
   if (config.includeRelatedQueries) {
     const normalized = base.toLocaleLowerCase('ru');
     const qaProfile = detectQaSearchProfile(base, resumeContext);
-    const isPython = /(?:^|\W)python(?:\W|$)|питон/i.test(normalized);
+    const isPython = inferHhPrimaryStacks(base, resumeContext).includes('python');
     const isFullstack = /full[\s-]?stack|фулл[\s-]?ст[еэ]к/i.test(normalized);
 
     if (qaProfile === 'automation' && isPython) {
@@ -331,6 +336,12 @@ export function isVacancyRelevantToSearchProfile(
   if (pythonIntent && !/(?:^|\W)python(?:\W|$)|питон/i.test(candidate)) return false;
 
   const qaProfile = detectQaSearchProfile(query, resumeContext);
+  if (qaProfile !== 'manual' && !isHhStackCompatible({
+    searchQuery: query,
+    resumeContext,
+    vacancyTitle: vacancy.title,
+    vacancyDescription: description,
+  })) return false;
   if (qaProfile === 'automation') {
     const automationEvidence =
       /(?:^|\W)(?:aqa|sdet)(?:\W|$)|automation|автоматиз|автотест|pytest|playwright|selenium|locust|jmeter|(?:^|\W)k6(?:\W|$)|нагрузочн\S*\s+тест/i.test(candidate);

@@ -56,7 +56,7 @@ describe('HR profile question flow', () => {
   it('saves confirmed answers as reusable candidate knowledge', () => {
     expect(profileSource).toContain('remember,');
     expect(profileSource).toContain('assistant.answerScreeningQuestions(');
-    expect(profileSource).toContain('Что SkillCue уже знает');
+    expect(profileSource).toContain('Сохранённые ответы');
     expect(profileSource).toContain('assistant.forgetScreeningFact(factId)');
     expect(assistantSource).toContain('this.state.screeningFacts = [...facts.values()].slice(-100)');
     expect(assistantSource).toContain('selectRelevantScreeningFacts(');
@@ -70,8 +70,8 @@ describe('HR profile question flow', () => {
   });
 
   it('splits long tests into bounded AI batches and resumes cards only after an answer exists', () => {
-    expect(assistantSource).toContain('pendingForAi.slice(index * 6, index * 6 + 6)');
-    expect(assistantSource).toContain('Promise.allSettled(batches.map');
+    expect(assistantSource).toContain('representatives.slice(index * 6, index * 6 + 6)');
+    expect(assistantSource).toContain('allSettledWithConcurrency(batches, 2');
     const actionableAt = assistantSource.indexOf('const ACTIONABLE_QUEUE_STATUSES');
     const actionableEnd = assistantSource.indexOf(']);', actionableAt);
     expect(assistantSource.slice(actionableAt, actionableEnd)).not.toContain("'needs_input'");
@@ -97,6 +97,13 @@ describe('HR profile question flow', () => {
     expect(mainSource).toContain("ipcMain.handle('hh-assistant:suggest-screening-answer'");
     expect(preloadSource).toContain("ipcRenderer.invoke('hh-assistant:suggest-screening-answer'");
     expect(electronTypesSource).toContain('suggestScreeningAnswer: (');
+  });
+
+  it('requires explicit acceptance before a generated suggestion is complete', () => {
+    expect(profileSource).toContain('confirmedByUser: false');
+    expect(profileSource).toContain('confirmedByUser: true');
+    expect(profileSource).toContain('Использовать этот вариант');
+    expect(profileSource).toContain('onClick={confirmCurrentDraft}');
   });
 
   it('shows recoverable errors instead of an empty or falsely completed profile', () => {

@@ -19,7 +19,7 @@ const STOP_WORDS = new Set([
   'which', 'work', 'worked', 'experience', 'describe', 'please',
 ]);
 
-const SALARY_QUESTION_RE = /(?:зарплат|з\s*\/?\s*п\b|оклад|доход|компенсац|денежн|вилк)/i;
+const SALARY_QUESTION_RE = /(?:зарплат|з\s*\/?\s*п\b|оклад|доход|компенсац|денежн|вилк|финансов[а-яё]*\s+ожидан|salary|compensation|financial\s+expectations?|expected\s+(?:salary|compensation|pay|level)|\bpay\b)/i;
 const MONEY_RE = /(\d{2,3}(?:[\s\u00a0]\d{3})+|\d{5,7})\s*(?:₽|руб(?:\.|лей|ля)?|rub\b)/giu;
 const RELOCATION_RE = /релокац|переезд|переехать|перебраться|сменить\s+(?:город|место\s+жительства)/i;
 const FOREIGN_RELOCATION_RE = /за\s+(?:рубеж|границ)|другую\s+стран|саудов|оаэ|эмират|дуба[йе]|кипр|турц|грузи|тбилис|армени|ереван|казахстан|алмат|астан|кыргыз|бишкек|узбекистан|ташкент|серби|белград|черногор|европ|германи|польш|чехи|израил|сша|америк|канад|испан|португал|франц|итал|нидерланд|голланд|бельги|австри|швейцар|швец|норвег|финлянд|дани|великобритан|англи|ирланд|румын|болгар|венгр|хорват|словен|словац|литв|латви|эстон|грец|беларус|белорус|минск|украин|киев|молдов|кишинев|азербайджан|баку|мексик|бразил|аргентин|чили|австрали|нов(?:ую|ая)?\s+зеланд|индонез|таиланд|вьетнам/i;
@@ -85,6 +85,10 @@ export function reusableScreeningAnswer(
   const exact = screeningQuestionKey(question.prompt) === screeningQuestionKey(fact.question);
   const samePreference = screeningQuestionSemanticKey(question.prompt) === screeningQuestionSemanticKey(fact.question);
   if (!exact && !samePreference) return null;
+  const intent = screeningPreferenceIntent(fact);
+  // A refusal/remote-only preference is safe to apply to another destination
+  // in the same scope. Consent or conditional consent is destination-specific.
+  if (!exact && samePreference && intent !== 'decline') return null;
   if (question.kind === 'text') {
     const answer = fact.answer.trim() || fact.selectedOptions.join(', ').trim();
     return answer ? { id: question.id, answer, selectedOptions: [], canAutoFill: true, reason: '' } : null;
@@ -97,7 +101,6 @@ export function reusableScreeningAnswer(
   if (exactOptions.length > 0) {
     return { id: question.id, answer: fact.answer, selectedOptions: exactOptions, canAutoFill: true, reason: '' };
   }
-  const intent = screeningPreferenceIntent(fact);
   const mapped = intent && relocationOptionForIntent(question.options, intent);
   return mapped
     ? { id: question.id, answer: '', selectedOptions: [mapped], canAutoFill: true, reason: '' }
@@ -123,18 +126,6 @@ const PROFESSIONAL_OPTION_RULES: Array<{
   { question: /приоритет автоматизац/i, option: /часто используются.*влияние.*бизнес/i },
   { question: /минимизир.*время прогона.*автотест/i, option: /пирамид.*тестирован/i },
   { question: /QA.*эффективно участвовать.*разработк/i, option: /ранних стадиях.*оценивая риски/i },
-  { question: /пользуетесь ли вы LLM/i, option: /^Ежедневно$/i },
-  {
-    question: /развернуть LLM.*агент/i,
-    option: /^Да$/i,
-    preparationNote: 'Повторить развёртывание LLM-агента: модель, инструменты, секреты, наблюдаемость и ограничения доступа.',
-  },
-  { question: /заниматься промт-инжиниринг/i, option: /^Да$/i },
-  {
-    question: /знаете.*как работают LLM/i,
-    option: /^Примерно$/i,
-    preparationNote: 'Повторить базовую механику LLM: токенизация, attention, контекст, temperature и ограничения модели.',
-  },
 ];
 
 function tokens(value: string): Set<string> {
@@ -182,6 +173,7 @@ export function selectRelevantScreeningFacts<T extends ConfirmedScreeningFact>(
 ): T[] {
   return facts
     .map((fact, index) => ({ fact, index, score: relevance(fact, questions) }))
+    .filter(({ score }) => score > 0)
     .sort((left, right) => right.score - left.score || right.index - left.index)
     .slice(0, Math.max(0, limit))
     .map(({ fact }) => fact);
@@ -283,6 +275,21 @@ function resumeAutomationTools(resumeText: string): string[] {
   return candidates.filter(([, pattern]) => pattern.test(resumeText)).map(([name]) => name);
 }
 
+const NEGATED_RESUME_CLAIM_RE = /(?:^|\W)(?:не\s+(?:было\s+)?(?:работал\w*|тестир\w*|разрабатывал\w*|писал\w*|использовал\w*|занимался\w*|выполнял\w*|имел\w*)|нет\s+(?:коммерческ\w*\s+)?опыт|без\s+опыт|(?:опыт|работ\w*|тестир\w*|автотест\w*)[^.\n]{0,30}\sне\s+(?:было|имел\w*|выполнял\w*))/iu;
+
+function affirmativeResumeSentence(
+  resumeText: string,
+  requiredPatterns: readonly RegExp[],
+): string | null {
+  const sentences = resumeText
+    .split(/[\n.!?]+/u)
+    .map((sentence) => sentence.replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+  return sentences.find((sentence) =>
+    !NEGATED_RESUME_CLAIM_RE.test(sentence)
+    && requiredPatterns.every((pattern) => pattern.test(sentence))) ?? null;
+}
+
 /**
  * Deterministic answers for preferences SkillCue already has. These win over
  * the model, so an obvious salary question cannot become a manual blocker.
@@ -315,12 +322,17 @@ export function knownScreeningAnswer(
     const confirmedYes = question.options.find((option) => /^да[.!]?$/i.test(option.trim()));
     const asksAboutCommercialAutomation =
       /(?:практическ|коммерческ).*опыт.*автотест|опыт.*автотест.*(?:python|питон|коммерческ)/i.test(question.prompt);
-    const resumeConfirmsCommercialAutomation =
-      /автотест/i.test(resumeText) && /\bPython\b/i.test(resumeText) && resumeEmployerNames(resumeText).length > 0;
+    const resumeConfirmsCommercialAutomation = Boolean(affirmativeResumeSentence(resumeText, [
+      /автотест/i,
+      /(?:разрабатывал|писал|создавал|поддерживал|автоматизировал)/i,
+      /\bPython\b/i,
+    ])) && resumeEmployerNames(resumeText).length > 0;
     const asksAboutWebTesting =
       /опыт.*тестирован.*(?:web|веб)|тестирован.*(?:web|веб).*опыт/i.test(question.prompt);
-    const resumeConfirmsWebTesting =
-      /(?:web|веб)[-\s]?приложен/i.test(resumeText) && /тестир/i.test(resumeText);
+    const resumeConfirmsWebTesting = Boolean(affirmativeResumeSentence(resumeText, [
+      /(?:web|веб)[-\s]?приложен/i,
+      /тестир/i,
+    ]));
     if (
       confirmedYes
       && ((asksAboutCommercialAutomation && resumeConfirmsCommercialAutomation)
@@ -347,49 +359,52 @@ export function knownScreeningAnswer(
     };
   }
 
-  if (/предстоящ.*обязанност.*заинтересовал|как понимаете предстоящую роль/i.test(question.prompt)) {
-    return {
-      id: question.id,
-      answer: 'Больше всего меня заинтересовали задачи по обеспечению качества продукта, развитию автоматизации и поиску рисков на ранних этапах. Роль понимаю как активное участие в разработке: от анализа требований и тест-дизайна до автотестов, диагностики дефектов и контроля качества релиза.',
-      selectedOptions: [], canAutoFill: true, reason: '',
-    };
-  }
   if (
     /опыт.*тестирован.*(?:web|веб)|тестирован.*(?:web|веб).*опыт/i.test(question.prompt)
-    && /(?:web|веб)[-\s]?приложен/i.test(resumeText)
-    && /тестир/i.test(resumeText)
   ) {
-    const duration = resumeExperienceDuration(resumeText);
-    return {
-      id: question.id,
-      answer: `Да. Есть коммерческий опыт тестирования web-приложений${duration ? ` — ${duration}` : ''}: функциональное, регрессионное, smoke и exploratory-тестирование, а также UI/API-автоматизация.`,
-      selectedOptions: [], canAutoFill: true, reason: '',
-    };
+    const evidence = affirmativeResumeSentence(resumeText, [
+      /(?:web|веб)[-\s]?приложен/i,
+      /тестир/i,
+    ]);
+    if (evidence) {
+      return {
+        id: question.id,
+        answer: 'Да. В резюме подтверждён опыт тестирования web-приложений.',
+        selectedOptions: [], canAutoFill: true, reason: '',
+      };
+    }
   }
   if (
     /коммерческ.*опыт.*(?:написан|разработк).*автотест|опыт.*автотест.*коммерческ/i.test(question.prompt)
-    && /автотест/i.test(resumeText)
   ) {
     const employers = resumeEmployerNames(resumeText);
     const tools = resumeAutomationTools(resumeText);
-    const duration = resumeExperienceDuration(resumeText);
-    if (employers.length > 0 && tools.length > 0) {
+    const evidence = affirmativeResumeSentence(resumeText, [
+      /автотест/i,
+      /(?:разрабатывал|писал|создавал|поддерживал|автоматизировал)/i,
+    ]);
+    if (evidence && employers.length > 0 && tools.length > 0) {
       return {
         id: question.id,
-        answer: `Да. Коммерческий опыт разработки автотестов${duration ? ` — в рамках ${duration} общего опыта` : ''}. Компании: ${employers.join(', ')}. Подтверждённый резюме стек: ${tools.join(', ')}; основной язык — Python.`,
+        answer: `Да. В резюме указан коммерческий опыт разработки автотестов. Компании: ${employers.join(', ')}. Инструменты, перечисленные в резюме: ${tools.join(', ')}.`,
         selectedOptions: [], canAutoFill: true, reason: '',
       };
     }
   }
   if (
     /опыт.*(?:финтех|web3|веб3)|(?:финтех|web3|веб3).*опыт/i.test(question.prompt)
-    && /(?:сбер|сбербанк|банк|финтех)/i.test(resumeText)
   ) {
-    return {
-      id: question.id,
-      answer: 'Есть опыт в финтехе: один год работал AQA-инженером на внутреннем корпоративном продукте Сбербанка, автоматизировал UI и API сценарии на Python, Pytest и Playwright. Коммерческого опыта в web3 нет.',
-      selectedOptions: [], canAutoFill: true, reason: '',
-    };
+    const evidence = affirmativeResumeSentence(resumeText, [
+      /(?:сбер|сбербанк|банк|финтех)/i,
+      /(?:работ|опыт|aqa|qa|engineer|инженер|аналитик|тестир|разработ)/i,
+    ]);
+    if (evidence) {
+      return {
+        id: question.id,
+        answer: 'В резюме подтверждён опыт работы в банковской/финтех-сфере. Отдельный опыт web3 в резюме не указан.',
+        selectedOptions: [], canAutoFill: true, reason: '',
+      };
+    }
   }
   if (/compress_numbers|подряд идущие дубликаты/i.test(question.prompt)) {
     return {
@@ -403,14 +418,6 @@ export function knownScreeningAnswer(
       id: question.id,
       answer: 'Сначала уточню, что означает «лучше» для продукта и игроков: скорость подбора, баланс, пинг, удержание или доля отмен. Затем зафиксирую измеримые критерии, сегменты и ограничения, изучу текущие метрики и жалобы, после чего составлю риски и проверяемые гипотезы для эксперимента.',
       selectedOptions: [], canAutoFill: true, reason: '',
-    };
-  }
-  if (/опыт использования ИИ|используете.*ИИ|какие.*задач.*(?:ИИ|AI)|какие задачи решали.*чем пользовались/i.test(question.prompt)) {
-    return {
-      id: question.id,
-      answer: 'Использую LLM для анализа требований, подготовки тестовых сценариев, поиска граничных случаев, разбора логов и прототипирования автоматизации на Python. Проверяю ответы модели по исходным данным, не передаю секреты и оставляю критичные решения под контролем человека.',
-      selectedOptions: [], canAutoFill: true, reason: '',
-      preparationNote: 'Подготовить один конкретный пример применения LLM в QA и рассказать, как проверялся результат.',
     };
   }
   return null;

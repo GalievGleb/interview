@@ -5,6 +5,7 @@ export const HH_SCREENING_DRAFTS_STORAGE_KEY = 'skillcue.hhHrProfileDrafts.v1';
 export interface HhScreeningLocalDraft {
   answer: string;
   selectedOptions: string[];
+  confirmedByUser: boolean;
 }
 
 export function readHhScreeningDrafts(
@@ -22,6 +23,9 @@ export function readHhScreeningDrafts(
         selectedOptions: Array.isArray(value.selectedOptions)
           ? value.selectedOptions.map(String).slice(0, 30)
           : [],
+        // Legacy and automatically generated drafts are intentionally not
+        // treated as accepted until the user edits or explicitly uses them.
+        confirmedByUser: value.confirmedByUser === true,
       };
     }
     return result;
@@ -79,7 +83,9 @@ export function isHhScreeningAnswerComplete(
   question: Pick<HhScreeningQuestion, 'kind'>,
   answer: string | undefined,
   selectedOptions: string[] | undefined,
+  confirmedByUser = false,
 ): boolean {
+  if (!confirmedByUser) return false;
   return question.kind === 'text'
     ? Boolean(answer?.trim())
     : Boolean(selectedOptions?.length);
@@ -131,7 +137,12 @@ export function countUnansweredHhScreeningQuestions(
   for (const vacancy of summary.vacancies) {
     for (const question of vacancy.pendingQuestions ?? []) {
       const draft = drafts[`${vacancy.key}::${question.id}`];
-      if (isHhScreeningAnswerComplete(question, draft?.answer, draft?.selectedOptions)) {
+      if (isHhScreeningAnswerComplete(
+        question,
+        draft?.answer,
+        draft?.selectedOptions,
+        draft?.confirmedByUser,
+      )) {
         answeredMeanings.add(hhScreeningSemanticKey(question.prompt) || question.id);
       }
     }

@@ -24,7 +24,7 @@ import {
   type HhCoverLetterResponse,
   validateGeneratedHhCoverLetter,
 } from './hhCoverLetter';
-import type { HhScreeningAnswersResponse } from './hhScreeningQuestions';
+import { parseHhScreeningAnswersResponse } from './hhScreeningQuestions';
 import type { HhAssistantConfig } from './hhAssistantPolicy';
 import { HhOAuthService } from './hhOAuthService';
 import { HhChatBrowser } from './hhChatBrowser';
@@ -1291,7 +1291,7 @@ if (!hasSingleInstanceLock) {
             'Не удалось подготовить ответы',
           );
         }
-        return await response.json() as HhScreeningAnswersResponse;
+        return parseHhScreeningAnswersResponse(await response.json());
       },
       async (request) => {
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -1311,14 +1311,14 @@ if (!hasSingleInstanceLock) {
         }
         if (response.ok) {
           const generated = await response.json() as HhCoverLetterResponse;
-          if (validateGeneratedHhCoverLetter(generated)) return generated;
+          if (validateGeneratedHhCoverLetter(generated, request)) return generated;
 
           // The model may occasionally return an unfinished template even
           // though the HTTP request succeeded. Never pass it to HH: use the
           // grounded local writer when possible, otherwise let the desktop
           // guard stop the application.
           const local = buildGroundedLocalHhCoverLetter(request);
-          if (validateGeneratedHhCoverLetter(local)) return local;
+          if (validateGeneratedHhCoverLetter(local, request)) return local;
           return generated;
         }
         const payload = await response.json().catch(() => null) as BackendErrorEnvelope | null;

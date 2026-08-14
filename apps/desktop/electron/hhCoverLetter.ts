@@ -1,3 +1,5 @@
+import { evaluateHhStackCompatibility } from './hhStackCompatibility';
+
 export interface HhCoverLetterRequest {
   vacancyTitle: string;
   vacancyCompany: string;
@@ -118,6 +120,22 @@ function joinRussian(items: string[]): string {
 export function buildGroundedLocalHhCoverLetter(
   request: HhCoverLetterRequest,
 ): HhCoverLetterResponse {
+  const stackCompatibility = evaluateHhStackCompatibility({
+    resumeContext: request.resumeText ?? '',
+    vacancyTitle: request.vacancyTitle,
+    vacancyDescription: request.vacancyDescription,
+  });
+  if (!stackCompatibility.compatible) {
+    return {
+      coverLetter: '',
+      matches: [],
+      canAutoFill: false,
+      reason: stackCompatibility.reason,
+      model: 'local-grounded-v1',
+      failureKind: 'skill_mismatch',
+    };
+  }
+
   const vacancy = request.vacancyDescription.toLocaleLowerCase('ru');
   const resume = (request.resumeText ?? '').toLocaleLowerCase('ru');
   const matches = GROUNDED_CAPABILITIES
@@ -167,7 +185,13 @@ const MARKDOWN_LIST_PATTERN = /^(?:\s*[-*]\s+|\s*\d+[.)]\s+)/mu;
  */
 export function validateGeneratedHhCoverLetter(
   response: HhCoverLetterResponse,
+  request: HhCoverLetterRequest,
 ): ValidatedHhCoverLetter | null {
+  if (!evaluateHhStackCompatibility({
+    resumeContext: request.resumeText ?? '',
+    vacancyTitle: request.vacancyTitle,
+    vacancyDescription: request.vacancyDescription,
+  }).compatible) return null;
   if (!response.canAutoFill || !Array.isArray(response.matches) || response.matches.length < 2) {
     return null;
   }

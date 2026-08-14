@@ -42,6 +42,7 @@ import {
 import type {
   HhAssistantState,
   HhChatState,
+  HhQueueItem,
   InterviewCalendarEvent,
   InterviewCalendarState,
 } from '../types/electron';
@@ -72,6 +73,17 @@ function pluralRu(value: number, one: string, few: string, many: string): string
 
 function hhVacancyId(value?: string): string {
   return value?.match(/(?:vacancy\/|vacancyId=)(\d+)/i)?.[1] ?? '';
+}
+
+export function summarizeHomeHhQueue(queue: readonly HhQueueItem[]) {
+  const actionable = queue.filter((item) =>
+    item.platform === 'hh'
+    && (item.status === 'new' || item.status === 'opened' || item.status === 'prepared'));
+  return {
+    eligible: actionable.filter((item) => !item.autoRetryBlockedUntil).length,
+    daily: actionable.filter((item) => item.autoRetryBlockedUntil === 'daily').length,
+    manual: actionable.filter((item) => item.autoRetryBlockedUntil === 'manual').length,
+  };
 }
 
 function nextInterview(events: InterviewCalendarEvent[], now: Date): InterviewCalendarEvent | undefined {
@@ -228,9 +240,8 @@ export default function HomePage() {
     (item) => item.status === 'sent' && item.sentAt && isSameLocalDay(item.sentAt, now),
   ).length;
   const activeHrDialogs = chatState?.activeNegotiations ?? 0;
-  const queuedApplications = (assistantState?.queue ?? []).filter(
-    (item) => item.status === 'new' || item.status === 'opened' || item.status === 'prepared',
-  ).length;
+  const queueGates = summarizeHomeHhQueue(assistantState?.queue ?? []);
+  const queuedApplications = queueGates.eligible;
   const serviceReady = backendOnline && hasAnyKey && hasStt;
   const nearestQueueItem = nearestInterview
     ? findMatchingQueueItem(nearestInterview, assistantState?.queue ?? [])
@@ -326,8 +337,18 @@ export default function HomePage() {
     : { label: candidateJourney.action.label, onClick: () => navigate(candidateJourney.action.to) };
   const queueStatusTitle = activeRun
     ? 'Поиск работает'
-    : queuedApplications > 0
+    : assistantState?.queuePaused && (queuedApplications + queueGates.daily + queueGates.manual > 0)
+      ? 'Очередь приостановлена'
+    : queuedApplications > 0 && assistantState?.config.autoSend && !assistantState.loginRequired
       ? 'Очередь продолжится автоматически'
+      : queuedApplications > 0
+        ? `${queuedApplications} ${pluralRu(queuedApplications, 'отклик готов', 'отклика готовы', 'откликов готовы')} к ручному запуску`
+      : queueGates.daily > 0 && assistantState?.config.autoRunDaily
+        ? `${queueGates.daily} ${pluralRu(queueGates.daily, 'отклик повторится', 'отклика повторятся', 'откликов повторятся')} в ежедневном запуске`
+        : queueGates.daily > 0
+          ? `${queueGates.daily} ${pluralRu(queueGates.daily, 'отклик ждёт', 'отклика ждут', 'откликов ждут')} повторного запуска`
+          : queueGates.manual > 0
+            ? `${queueGates.manual} ${pluralRu(queueGates.manual, 'отклик требует', 'отклика требуют', 'откликов требуют')} ручной проверки`
       : latestRun?.status === 'failed'
         ? 'Последний поиск требует проверки'
         : 'Поиск сейчас не запущен';
@@ -367,6 +388,17 @@ export default function HomePage() {
         ? `${pendingScreeningQuestions} ${pluralRu(pendingScreeningQuestions, 'вопрос работодателя', 'вопроса работодателей', 'вопросов работодателей')}; поиск продолжается`
         : 'Проверьте сохранённые ответы и продолжите отклики',
       onClick: () => navigate('/applications/hr-profile'),
+    });
+  }
+  if (queueGates.manual > 0 || (queueGates.daily > 0 && !assistantState?.config.autoRunDaily)) {
+    const waiting = queueGates.manual + (assistantState?.config.autoRunDaily ? 0 : queueGates.daily);
+    attentionItems.push({
+      key: 'queue-gates',
+      title: `${waiting} ${pluralRu(waiting, 'отклик ждёт', 'отклика ждут', 'откликов ждут')} проверки`,
+      detail: queueGates.manual > 0
+        ? 'Автопродолжение отключено для этих вакансий после ошибки или незнакомого шага'
+        : 'Запустите повтор вручную или включите ежедневный поиск',
+      onClick: () => navigate('/applications?view=active'),
     });
   }
   if (nearestInterview && preflightReadyCount < preflightChecks.length) {

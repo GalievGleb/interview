@@ -22,7 +22,7 @@ function vacancy(): HhQueueItem {
     company: 'Example',
     salary: '',
     url: 'https://hh.ru/vacancy/123456789',
-    description: 'Нужен инженер по автоматизации тестирования с опытом Java и Kubernetes. '.repeat(3),
+    description: 'Нужен инженер по автоматизации тестирования с опытом Python и Kubernetes. '.repeat(3),
     status: 'new',
     addedAt: new Date().toISOString(),
   };
@@ -76,6 +76,8 @@ function createAssistant(
     assistant.state.config = {
       ...assistant.state.config,
       platform: 'hh',
+      query: 'QA Automation Engineer',
+      resumeTitles: ['QA Automation Python'],
       autoSend: true,
       autoRunDaily: false,
       dailyLimit: 200,

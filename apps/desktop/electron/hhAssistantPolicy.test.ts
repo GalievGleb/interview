@@ -86,6 +86,63 @@ describe('HH browser assistant policy', () => {
     expect(buildHhSearchQueries(config, manualResume)).not.toContain('AQA');
   });
 
+  it('keeps a generic automation search on the Python stack selected in the resume', () => {
+    const config = normalizeHhAssistantConfig({
+      query: 'QA Automation engineer',
+      includeRelatedQueries: true,
+    });
+    const resume = 'QA Automation Engineer\nPython, Pytest, Playwright, API автотесты.';
+
+    expect(buildHhSearchQueries(config, resume)).toEqual([
+      'QA Automation engineer',
+      'QA Automation Python',
+      'AQA Python',
+      'SDET Python',
+      'инженер по автоматизации тестирования Python',
+      'тестировщик-автоматизатор Python',
+      'автоматизация тестирования Python',
+      'Python QA',
+      'QA Engineer Python',
+    ]);
+  });
+
+  it('rejects explicit unsupported-only stacks before they enter a Python queue', () => {
+    const vacancy = (title: string, id = title) => ({
+      id,
+      title,
+      company: 'Example',
+      salary: '',
+      url: `https://hh.ru/vacancy/${encodeURIComponent(id)}`,
+    });
+    const resume = 'QA Automation Engineer\nPython, Pytest, Playwright, API автотесты.';
+    const query = 'QA Automation engineer';
+
+    for (const title of [
+      'QA Automation Java',
+      'QA автоматизатор Джава',
+      'Senior QA Automation JS/TS',
+      'AQA C#/.NET',
+      'iOS QA Automation Swift',
+      'Тестировщик-автоматизатор 1С / Vanessa Automation',
+      'QA Automation Go',
+    ]) {
+      expect(isVacancyRelevantToSearchProfile(vacancy(title), query, '', resume)).toBe(false);
+    }
+
+    expect(isVacancyRelevantToSearchProfile(
+      vacancy('QA Automation Python'),
+      query,
+      'Python, Pytest и Playwright.',
+      resume,
+    )).toBe(true);
+    expect(isVacancyRelevantToSearchProfile(
+      vacancy('QA Automation Java or Python'),
+      query,
+      'JUnit или Pytest в зависимости от команды.',
+      resume,
+    )).toBe(true);
+  });
+
   it('filters specialised automation, data and performance roles out of a manual QA search', () => {
     const vacancy = (title: string) => ({
       id: title,

@@ -35,6 +35,20 @@ const sentToday = (queue: HhQueueItem[]) => {
   return queue.filter((item) => item.status === 'sent' && item.sentAt && new Date(item.sentAt).toDateString() === today).length;
 };
 
+export function summarizeHhQueueGates(queue: readonly HhQueueItem[]) {
+  const actionable = queue.filter((item) =>
+    item.status === 'new' || item.status === 'opened' || item.status === 'prepared');
+  return {
+    eligible: actionable.filter((item) => !item.autoRetryBlockedUntil).length,
+    daily: actionable.filter((item) => item.autoRetryBlockedUntil === 'daily').length,
+    manual: actionable.filter((item) => item.autoRetryBlockedUntil === 'manual').length,
+  };
+}
+
+export function hhScreeningVacancyPath(vacancyKey: string): string {
+  return `/applications/hr-profile?${new URLSearchParams({ vacancy: vacancyKey }).toString()}`;
+}
+
 const queueStatus = (item: HhQueueItem) => {
   if (item.status === 'sent') return { label: 'Отправлено', tone: 'bg-emerald-500/10 text-emerald-300' };
   if (item.status === 'already_applied') return { label: 'Уже откликались', tone: 'bg-sky-500/10 text-sky-200' };
@@ -489,6 +503,10 @@ export default function HhApplicationsPage() {
     navigate(`/prepare?${query.toString()}`);
   };
 
+  const answerQueueItem = (item: HhQueueItem) => {
+    navigate(hhScreeningVacancyPath(item.key));
+  };
+
   const applyQueueItem = async (item: HhQueueItem) => {
     if (!assistant) return;
     setQueueItemToApply(null);
@@ -677,6 +695,16 @@ export default function HhApplicationsPage() {
   const todaySent = sentToday(activeQueue);
   const activeVacancyCount = activeQueue.filter((item) =>
     item.status === 'new' || item.status === 'opened' || item.status === 'prepared' || item.status === 'needs_input').length;
+  const queueGates = summarizeHhQueueGates(activeQueue);
+  const queueGateLabel = [
+    queueGates.eligible > 0 ? `${queueGates.eligible} готовы сейчас` : '',
+    queueGates.daily > 0
+      ? state?.config.autoRunDaily
+        ? `${queueGates.daily} до следующего ежедневного запуска`
+        : `${queueGates.daily} требуют повторного запуска`
+      : '',
+    queueGates.manual > 0 ? `${queueGates.manual} требуют ручного запуска` : '',
+  ].filter(Boolean).join(' · ');
   const sentVacancyCount = activeQueue.filter((item) =>
     item.status === 'sent' || item.status === 'already_applied').length;
   const archivedVacancyCount = activeQueue.filter((item) => item.status === 'skipped').length;
@@ -804,6 +832,12 @@ export default function HhApplicationsPage() {
         </nav>
       </header>
 
+      {pageMode === 'activity' && automationError && (
+        <p className="rounded-xl border border-red-500/25 bg-red-500/5 p-3 text-sm text-red-300" role="alert">
+          {automationError}
+        </p>
+      )}
+
       {pageMode === 'activity' && <section className={`hh-daily-overview panel-card shrink-0 p-5 is-${overview.tone}`} aria-live="polite">
         <div className="flex flex-wrap items-center gap-4">
           <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-2xl ${overview.tone === 'attention' ? 'bg-violet-400/10 text-violet-200' : overview.tone === 'active' ? 'hh-run-orbit is-active bg-sky-500/10 text-sky-200' : 'bg-emerald-500/10 text-emerald-300'}`}>
@@ -817,7 +851,7 @@ export default function HhApplicationsPage() {
           <div className="hh-daily-overview__stats" aria-label="Сводка откликов">
             <span><small>Сегодня</small><strong>{todaySent}</strong></span>
             <span><small>Нужно от вас</small><strong className={userActionCount ? 'text-violet-200' : ''}>{userActionCount}</strong></span>
-            <span><small>Ответов отправлено</small><strong>{chatState?.repliesToday ?? 0}</strong></span>
+            <span><small>Ответов HR сегодня</small><strong>{chatState?.repliesToday ?? 0}</strong></span>
           </div>
           <button type="button" className={`${overview.tone === 'active' ? 'btn-danger' : 'btn-primary'} shrink-0`} disabled={overview.tone === 'active' && stoppingRun} onClick={overview.action}>
             {overview.tone === 'active' ? stoppingRun ? <Loader2 className="animate-spin" size={15} /> : <Square size={14} /> : null}
@@ -1252,7 +1286,7 @@ export default function HhApplicationsPage() {
       </details>}
 
       <section id="hh-conversations-panel" className="panel-card shrink-0 scroll-mt-5 overflow-hidden">
-        <div className="panel-header flex-wrap gap-3"><div><h2 className="panel-title">{queuePanelMeta.title}</h2><p className="mt-0.5 text-xs text-ink-faint">{queuePanelMeta.detail}</p></div>{queueView === 'active' && draft.platform === 'hh' && platformMatches && state?.queuePaused ? <span className="ml-auto flex items-center gap-1.5 text-xs text-ink-muted"><Square size={11} /> Очередь приостановлена</span> : queueView === 'active' && draft.platform === 'hh' && platformMatches && state?.config.autoRunDaily ? <span className="ml-auto flex items-center gap-1.5 text-xs text-emerald-300"><span className="sc-dot sc-dot--live" /> Автоочередь включена</span> : null}</div>
+        <div className="panel-header flex-wrap gap-3"><div><h2 className="panel-title">{queuePanelMeta.title}</h2><p className="mt-0.5 text-xs text-ink-faint">{queuePanelMeta.detail}</p></div>{queueView === 'active' && draft.platform === 'hh' && platformMatches && state?.queuePaused ? <span className="ml-auto flex items-center gap-1.5 text-xs text-ink-muted"><Square size={11} /> Очередь приостановлена</span> : queueView === 'active' && draft.platform === 'hh' && platformMatches && queueGateLabel ? <span className={`ml-auto flex items-center gap-1.5 text-xs ${queueGates.eligible > 0 && state?.config.autoRunDaily ? 'text-emerald-300' : 'text-ink-muted'}`}><span className={`sc-dot ${queueGates.eligible > 0 && state?.config.autoRunDaily ? 'sc-dot--live' : ''}`} /> {queueGateLabel}</span> : null}</div>
         <div className="flex flex-wrap gap-2 border-b border-surface-border px-5 py-3" aria-label="Фильтры вакансий">
           {([
             ...(draft.platform === 'hh' ? [
@@ -1336,6 +1370,9 @@ export default function HhApplicationsPage() {
               <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs ${status.tone}`}>{status.label}</span>
               <div className="flex flex-wrap items-start justify-end gap-2">
                 <button type="button" className="btn-ghost btn-sm shrink-0" onClick={() => openVacancyInBrowser(item)}><ExternalLink size={14} />Открыть</button>
+                {item.status === 'needs_input' && (
+                  <button type="button" className="btn-primary btn-sm shrink-0" onClick={() => answerQueueItem(item)}><ArrowRight size={14} />Ответить на вопросы</button>
+                )}
                 {actionable && (
                   <button type="button" className="btn-primary btn-sm shrink-0" disabled={busy !== ''} onClick={() => setQueueItemToApply(item)}>{busy === `apply:${item.key}` ? <Loader2 className="animate-spin" size={14} /> : <Send size={14} />}Отклик</button>
                 )}

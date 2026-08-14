@@ -73,6 +73,259 @@ SCREENING_ANSWERS_MAX_DEADLINE_SECONDS = 90.0
 COVER_LETTER_DEADLINE_SECONDS = 9.0
 COVER_LETTER_MAX_TOKENS = 1200
 
+_SCREENING_RESTRICTED_FACT_RE = re.compile(
+    r"(?:"
+    r"где\s+(?:вы\s+)?(?:жив[её]те|находитесь)|откуда\s+вы|город\w*\s+(?:прожив|нахожд)|"
+    r"локаци|местонахожд|\blocation\b|\bcity\b|\bresiden|"
+    r"гражданств|право\s+на\s+работ|разрешен\w*\s+на\s+работ|work\s+permit|"
+    r"work\s+authori[sz]ation|legal\s+status|"
+    r"security\s+clearance|судим|военн|арм(?:ия|ии)|служб\w*\s+в\s+арм|military|"
+    r"трудоустр|официальн\w*\s+оформ|оформлен|оформлени|трудов\w*\s+договор|"
+    r"самозанят|(?:^|\W)ип(?:\W|$)|(?:^|\W)гпх(?:\W|$)|аутстафф|outstaff|"
+    r"формат\w*\s+сотруднич|contract\s+(?:type|terms?)|"
+    r"employment\s+(?:status|type|terms?)|self[- ]employed|"
+    r"зарплат|з\s*\/?\s*п\b|оклад|доход|компенсац|финансов\w*\s+ожидан|"
+    r"salary|compensation|financial\s+expectations?|expected\s+(?:salary|pay|level)|"
+    r"релокац|переезд|relocat|"
+    r"график|смен\w*\s+(?:работ|дежур)|дата\s+выхода|когда\s+готов\w*\s+(?:выйти|приступ)|"
+    r"рабоч\w*\s+час|часов\w*\s+пояс|занятост|пол\w*\s+день|part[- ]time|"
+    r"work\s+schedule|shift\s+work|start\s+date|availability|"
+    r"за\s+последн|полгода|полугод|последн\w*\s+\d+\s+(?:месяц|недел|дн)|"
+    r"\b(?:past|last)\s+\d+\s+(?:months?|weeks?|days?)\b|\bcurrently\b|\bcurrent\b|"
+    r"(?:^|\W)сейчас(?:\W|$)|текущ\w*\s+(?:статус|место|работ|город|занят)"
+    r")",
+    re.IGNORECASE,
+)
+_SCREENING_EXPERIENCE_RE = re.compile(
+    r"(?:опыт|работал|работали|использовал|используете|пользуетесь|применял|занимал|"
+    r"делали|участвовал|сталкивал|знакомы\s+ли|умеете\s+ли|играл|какие\s+задач\w*\s+решал|"
+    r"your\s+experience|have\s+you|did\s+you|worked\s+with|used\s+in\s+your|"
+    r"are\s+you\s+familiar|tell\s+us\s+about\s+your)",
+    re.IGNORECASE,
+)
+_SCREENING_KNOWLEDGE_RE = re.compile(
+    r"(?:что\s+такое|объясните|чем\s+отлича|что\s+(?:бы\s+)?(?:вы\s+)?выбер|"
+    r"какой\s+(?:вид|тип|метод)|как\s+(?:бы\s+)?(?:вы\s+)?(?:протестир|провер|реализ|"
+    r"организ|поступ|реш)|представьте|сценари\w*|реализуйте|напишите\s+(?:код|функц|тест)|"
+    r"test[- ]design|how\s+would\s+you|what\s+would\s+you|which\s+(?:test|method|approach)|"
+    r"implement\s+(?:a\s+)?(?:function|test|solution)|write\s+(?:code|a\s+function|tests?))",
+    re.IGNORECASE,
+)
+_SCREENING_BEHAVIORAL_HISTORY_RE = re.compile(
+    r"(?:"
+    r"(?:как|что)\s+(?:именно\s+)?(?:вы\s+)?(?:решил[иа]|решали|поступил[иа]|поступали|"
+    r"действовал[иа]|действовали|сделал[иа]|делали|реализовал[иа]|реализовывали|"
+    r"организовал[иа]|организовывали|протестировал[иа]|тестировали|проверил[иа]|"
+    r"проверяли|справил(?:ся|ась)|справлялись)|"
+    r"расскажите.{0,80}(?:случа|ситуац|пример)|"
+    r"(?:на|в)\s+(?:ваш\w*\s+)?(?:прошл\w*|предыдущ\w*|реальн\w*|коммерческ\w*)\s+"
+    r"(?:проект|работ|команд|компан|практик)|"
+    r"\bhow\s+did\s+you\b|\bwhat\s+did\s+you\b|\btell\s+(?:me|us)\s+about\s+(?:a\s+time|your)\b|"
+    r"\b(?:in|on)\s+your\s+(?:past|previous|last|real|commercial)\s+"
+    r"(?:project|job|role|team|company)\b"
+    r")",
+    re.IGNORECASE,
+)
+_SCREENING_PERSONAL_HISTORY_ANSWER_RE = re.compile(
+    r"(?:"
+    r"(?:^|[,;.!?]\s*|\bя\s+)(?:лично\s+)?(?:работал|работала|использовал|использовала|применял|"
+    r"применяла|решил|решила|сделал|сделала|провел|провела|провёл|участвовал|участвовала|"
+    r"руководил|руководила|организовал|организовала|внедрил|внедрила|настроил|настроила|"
+    r"разработал|разработала|тестировал|тестировала)|"
+    r"(?:в|на)\s+(?:мо[её]м|моей|нашей)\s+(?:практик|проект|работ|команд|компан)|"
+    r"\bу\s+меня\b.{0,50}\bопыт\w*\b|\bмо(?:й|я|е|ё|и|его|ей|их)\s+опыт\w*\b|"
+    r"\bI\s+(?:worked|used|applied|solved|led|implemented|configured|developed|tested|managed)\b|"
+    r"\bI\s+have\b.{0,40}\b(?:years?\s+of\s+)?experience\b|\bmy\s+(?:commercial\s+)?experience\b|"
+    r"\b(?:in|on)\s+my\s+(?:experience|practice|project|job|role|team|company)\b"
+    r")",
+    re.IGNORECASE,
+)
+_SCREENING_PROMPT_INJECTION_RE = re.compile(
+    r"(?:"
+    r"игнорир\w*.{0,40}(?:инструкц|правил|ограничен)|"
+    r"(?:ответьте|ответь|напишите|напиши|укажите|укажи).{0,50}(?:что\s+(?:вы|я)|будто\s+(?:вы|я))|"
+    r"\bignore\s+(?:all\s+|any\s+|the\s+)?(?:previous\s+)?(?:instructions?|rules?|prompts?)\b|"
+    r"\b(?:say|write|claim|state)\s+that\s+(?:you|I)\b|\b(?:system|developer)\s+prompt\b"
+    r")",
+    re.IGNORECASE,
+)
+_SCREENING_NEGATIVE_EXPERIENCE_RE = re.compile(
+    r"(?:"
+    r"\bне\s+(?!только\b)(?:\w+\s+){0,2}(?:работал|работала|использовал|использовала|применял|"
+    r"применяла|сталкивался|сталкивалась|знаком|знакома|занимался|занималась)|"
+    r"\bникогда\s+не\b|\bнет\s+(?:у\s+меня\s+)?(?:коммерческ\w*\s+)?опыт|"
+    r"\bопыт\w*.{0,20}(?:нет|отсутств)|\bбез\s+(?:коммерческ\w*\s+)?опыт|"
+    r"\b(?:never|have\s+not|haven't|did\s+not|didn't|no)\b.{0,35}"
+    r"(?:worked|used|experience|familiar)"
+    r")",
+    re.IGNORECASE,
+)
+_SCREENING_PROSPECTIVE_EXPERIENCE_RE = re.compile(
+    r"(?:"
+    r"\b(?:хочу|планир\w*|собираюсь|намерен\w*|готов\w*)\b.{0,35}"
+    r"(?:изуч|осво|попроб|разобра|науч)|"
+    r"\b(?:(?:сейчас|пока)\s+)?(?:самостоятельно\s+)?(?:изучаю|осваиваю)\b|"
+    r"\b(?:want|plan|intend|willing|ready)\b.{0,35}(?:learn|study|try)|"
+    r"\b(?:currently\s+)?learning\b"
+    r")",
+    re.IGNORECASE,
+)
+_SCREENING_AFFIRMATIVE_EXPERIENCE_RE = re.compile(
+    r"(?:"
+    r"^(?:да|yes)\b|\b(?:есть|имею)\s+(?:коммерческ\w*\s+)?опыт|"
+    r"\b(?:работал|работала|использовал|использовала|применял|применяла|сталкивался|"
+    r"сталкивалась|занимался|занималась)\b|"
+    r"\b(?:I\s+have|I\s+worked|I\s+used|experienced\s+with|have\s+experience)\b"
+    r")",
+    re.IGNORECASE,
+)
+_SCREENING_EVIDENCE_STOP_WORDS = {
+    "ваш", "ваша", "ваши", "вас", "есть", "был", "была", "были", "ли", "опыт",
+    "опишите", "какой", "какие", "работали", "работал", "использовали", "использовал",
+    "with", "your", "have", "what", "which", "work", "worked", "experience", "describe",
+}
+
+
+def _normalize_screening_text(value: str) -> str:
+    normalized = value.casefold().replace("ё", "е")
+    return re.sub(r"[^0-9a-zа-я+#.]+", " ", normalized).strip()
+
+
+def _screening_exact_confirmed_value(
+    question: dict[str, Any],
+    answer_text: str,
+    selected: list[str],
+    confirmed_answers: list[dict[str, Any]],
+) -> str | None:
+    prompt_key = _normalize_screening_text(str(question.get("prompt", "")))
+    for fact in confirmed_answers:
+        if _normalize_screening_text(str(fact.get("question", ""))) != prompt_key:
+            continue
+        confirmed_text = str(fact.get("answer", "")).strip()
+        confirmed_options = [str(value).strip() for value in fact.get("selectedOptions", []) if str(value).strip()]
+        if question.get("kind") == "text":
+            actual = _normalize_screening_text(answer_text)
+            candidates = [confirmed_text, *confirmed_options]
+            match = next(
+                (value for value in candidates if _normalize_screening_text(value) == actual and actual),
+                None,
+            )
+            if match:
+                return match
+            continue
+        actual_options = {_normalize_screening_text(value) for value in selected if value.strip()}
+        expected_values = confirmed_options or ([confirmed_text] if confirmed_text else [])
+        expected_options = {
+            _normalize_screening_text(value)
+            for value in expected_values
+            if value.strip()
+        }
+        if actual_options and actual_options == expected_options:
+            return ", ".join(selected)
+    return None
+
+
+def _screening_evidence_is_verifiable(
+    question: dict[str, Any],
+    answer_text: str,
+    selected: list[str],
+    evidence_quote: str,
+    source_text: str,
+) -> bool:
+    quote = _normalize_screening_text(evidence_quote)
+    source = _normalize_screening_text(source_text)
+    if len(quote) < 8 or quote not in source:
+        return False
+    question_tokens = {
+        token for token in _normalize_screening_text(str(question.get("prompt", ""))).split()
+        if len(token) >= 4 and token not in _SCREENING_EVIDENCE_STOP_WORDS
+    }
+    quote_tokens = {token for token in quote.split() if len(token) >= 4}
+    shares_subject = any(
+        left == right or left[:5] == right[:5]
+        for left in question_tokens
+        for right in quote_tokens
+    )
+    if question_tokens and not shares_subject:
+        return False
+    prompt = str(question.get("prompt", ""))
+    claim_text = " ".join([answer_text, *selected]).strip()
+    selected_affirmative = any(
+        re.match(r"^(?:да|yes)(?:\s|$)", _normalize_screening_text(value))
+        for value in selected
+    )
+    experience_claim = bool(
+        _SCREENING_EXPERIENCE_RE.search(prompt)
+        or _SCREENING_AFFIRMATIVE_EXPERIENCE_RE.search(claim_text)
+    )
+    affirmative_claim = selected_affirmative or bool(
+        _SCREENING_AFFIRMATIVE_EXPERIENCE_RE.search(answer_text)
+    )
+    if experience_claim and affirmative_claim:
+        if _SCREENING_NEGATIVE_EXPERIENCE_RE.search(evidence_quote):
+            return False
+        if _SCREENING_PROSPECTIVE_EXPERIENCE_RE.search(evidence_quote):
+            return False
+    claimed_numbers = set(re.findall(r"\d+(?:[.,]\d+)?", f"{answer_text} {' '.join(selected)}"))
+    evidence_numbers = set(re.findall(r"\d+(?:[.,]\d+)?", evidence_quote))
+    return claimed_numbers.issubset(evidence_numbers)
+
+
+def _screening_server_autofill(
+    question: dict[str, Any],
+    answer_text: str,
+    selected: list[str],
+    answer_item: dict[str, Any],
+    *,
+    confirmed_answers: list[dict[str, Any]],
+    resume: str,
+    legend: str,
+    draft_mode: bool,
+) -> tuple[bool, str, str]:
+    """Validate model provenance before allowing an answer to leave review mode."""
+    provenance = str(
+        answer_item.get("sourceType", answer_item.get("provenance", "none"))
+    ).strip().casefold()
+    if provenance not in {"resume", "legend", "confirmed", "knowledge", "none"}:
+        provenance = "none"
+    evidence_quote = str(
+        answer_item.get("evidenceQuote", answer_item.get("evidence", ""))
+    ).strip()[:500]
+    if draft_mode or answer_item.get("canAutoFill") is not True:
+        return False, provenance, evidence_quote
+
+    confirmed_value = _screening_exact_confirmed_value(
+        question, answer_text, selected, confirmed_answers
+    )
+    if confirmed_value:
+        return True, "confirmed", confirmed_value[:500]
+
+    prompt = str(question.get("prompt", ""))
+    if _SCREENING_RESTRICTED_FACT_RE.search(prompt):
+        return False, provenance, evidence_quote
+
+    if _SCREENING_PROMPT_INJECTION_RE.search(prompt):
+        return False, provenance, evidence_quote
+
+    knowledge_text = " ".join([answer_text, *selected])
+    if (
+        provenance == "knowledge"
+        and _SCREENING_KNOWLEDGE_RE.search(prompt)
+        and not _SCREENING_EXPERIENCE_RE.search(prompt)
+        and not _SCREENING_BEHAVIORAL_HISTORY_RE.search(prompt)
+        and not _SCREENING_PERSONAL_HISTORY_ANSWER_RE.search(knowledge_text)
+    ):
+        return True, "knowledge", ""
+
+    if provenance in {"resume", "legend"}:
+        source_text = resume if provenance == "resume" else legend
+        if _screening_evidence_is_verifiable(
+            question, answer_text, selected, evidence_quote, source_text
+        ):
+            return True, provenance, evidence_quote
+
+    return False, provenance, evidence_quote
+
 
 def _screening_answers_runtime_budget(model: str) -> tuple[float, int, float]:
     """Return provider timeout, attempts and an aligned outer deadline."""
@@ -567,19 +820,41 @@ async def screening_answers(payload: ScreeningAnswersPayload, db=Depends(get_db)
         if normalized_question["kind"] in {"single", "select"}:
             selected = selected[:1]
         answer_text = str(answer_item.get("answer", "")).strip()[:2_000]
-        can_auto_fill = bool(answer_item.get("canAutoFill", False))
+        can_auto_fill, source_type, evidence_quote = _screening_server_autofill(
+            normalized_question,
+            answer_text,
+            selected,
+            answer_item,
+            confirmed_answers=confirmed_answers,
+            resume=resume,
+            legend=legend,
+            draft_mode=bool(payload.draftMode),
+        )
         if normalized_question["kind"] == "text" and not answer_text:
             can_auto_fill = False
         if normalized_question["kind"] != "text" and not selected:
             can_auto_fill = False
+        reason = str(answer_item.get("reason", "")).strip()[:300]
+        if (
+            not can_auto_fill
+            and answer_item.get("canAutoFill") is True
+            and (answer_text or selected)
+            and not reason
+        ):
+            reason = (
+                "Ответ оставлен на подтверждение: для автозаполнения нет "
+                "проверяемого источника в резюме, легенде или точном подтверждённом ответе."
+            )
         answers.append(
             {
                 "id": normalized_question["id"],
                 "answer": answer_text,
                 "selectedOptions": selected,
                 "canAutoFill": can_auto_fill,
-                "reason": str(answer_item.get("reason", "")).strip()[:300],
+                "reason": reason,
                 "preparationNote": str(answer_item.get("preparationNote", "")).strip()[:500],
+                "sourceType": source_type,
+                "evidenceQuote": evidence_quote,
             }
         )
     return {"answers": answers, "model": model}

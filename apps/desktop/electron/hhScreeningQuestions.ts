@@ -18,9 +18,18 @@ export interface HhScreeningAnswer {
   answer: string;
   selectedOptions: string[];
   canAutoFill: boolean;
+  sourceType?: HhScreeningAnswerSourceType;
+  evidenceQuote?: string;
   reason?: string;
   preparationNote?: string;
 }
+
+export type HhScreeningAnswerSourceType =
+  | 'resume'
+  | 'legend'
+  | 'confirmed'
+  | 'knowledge'
+  | 'none';
 
 export interface HhScreeningAnswersRequest {
   vacancyTitle: string;
@@ -46,6 +55,69 @@ export interface HhScreeningAnswersRequest {
 export interface HhScreeningAnswersResponse {
   answers: HhScreeningAnswer[];
   model?: string;
+}
+
+const SCREENING_ANSWER_SOURCE_TYPES = new Set<HhScreeningAnswerSourceType>([
+  'resume',
+  'legend',
+  'confirmed',
+  'knowledge',
+  'none',
+]);
+
+/**
+ * Treat the backend response as untrusted data. Older or malformed backends may
+ * return canAutoFill without the provenance contract required by the current
+ * desktop. Preserve the draft, but downgrade it to review-only.
+ */
+export function parseHhScreeningAnswersResponse(value: unknown): HhScreeningAnswersResponse {
+  const payload = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+  const rawAnswers = Array.isArray(payload.answers) ? payload.answers : [];
+  const answers = rawAnswers.flatMap((raw): HhScreeningAnswer[] => {
+    if (!raw || typeof raw !== 'object') return [];
+    const item = raw as Record<string, unknown>;
+    const id = typeof item.id === 'string' ? item.id.trim().slice(0, 100) : '';
+    if (!id) return [];
+    const rawSourceType = typeof item.sourceType === 'string'
+      ? item.sourceType.trim().toLocaleLowerCase('en-US')
+      : 'none';
+    const sourceType = SCREENING_ANSWER_SOURCE_TYPES.has(rawSourceType as HhScreeningAnswerSourceType)
+      ? rawSourceType as HhScreeningAnswerSourceType
+      : 'none';
+    const evidenceQuote = typeof item.evidenceQuote === 'string'
+      ? item.evidenceQuote.trim().slice(0, 500)
+      : '';
+    const provenanceComplete = sourceType === 'knowledge'
+      || ((sourceType === 'resume' || sourceType === 'legend' || sourceType === 'confirmed')
+        && evidenceQuote.length > 0);
+    const requestedAutoFill = item.canAutoFill === true;
+    const canAutoFill = requestedAutoFill && provenanceComplete;
+    const suppliedReason = typeof item.reason === 'string' ? item.reason.trim().slice(0, 300) : '';
+    return [{
+      id,
+      answer: typeof item.answer === 'string' ? item.answer.trim().slice(0, 2_000) : '',
+      selectedOptions: Array.isArray(item.selectedOptions)
+        ? item.selectedOptions
+          .filter((option): option is string => typeof option === 'string')
+          .map((option) => option.trim().slice(0, 300))
+          .filter(Boolean)
+          .slice(0, 30)
+        : [],
+      canAutoFill,
+      sourceType,
+      evidenceQuote,
+      reason: !canAutoFill && requestedAutoFill && !suppliedReason
+        ? 'Ответ оставлен на подтверждение: backend не предоставил проверяемый источник.'
+        : suppliedReason,
+      preparationNote: typeof item.preparationNote === 'string'
+        ? item.preparationNote.trim().slice(0, 500)
+        : '',
+    }];
+  });
+  return {
+    answers,
+    model: typeof payload.model === 'string' ? payload.model.trim().slice(0, 200) : undefined,
+  };
 }
 
 interface RawControl {

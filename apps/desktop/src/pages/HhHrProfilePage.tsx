@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -36,6 +36,7 @@ import type {
 interface ScreeningDraft {
   answer: string;
   selectedOptions: string[];
+  confirmedByUser: boolean;
 }
 
 function draftKey(vacancyKey: string, questionId: string): string {
@@ -43,7 +44,12 @@ function draftKey(vacancyKey: string, questionId: string): string {
 }
 
 function isComplete(question: HhScreeningQuestion, value: ScreeningDraft | undefined): boolean {
-  return isHhScreeningAnswerComplete(question, value?.answer, value?.selectedOptions);
+  return isHhScreeningAnswerComplete(
+    question,
+    value?.answer,
+    value?.selectedOptions,
+    value?.confirmedByUser,
+  );
 }
 
 function questionExplanation(question: HhScreeningQuestion): string {
@@ -52,10 +58,29 @@ function questionExplanation(question: HhScreeningQuestion): string {
     return 'Онлайн-ИИ достиг месячного лимита. SkillCue всё равно использует резюме, сохранённые факты и локальные безопасные шаблоны; личные сведения не выдумывает.';
   }
   if (/не удалось получить|timed out|timeout|http\s*5\d\d/i.test(reason)) {
-    return 'SkillCue не получил надёжный ответ автоматически. Проверьте этот факт один раз — дальше он останется в профиле.';
+    return 'Временный сбой онлайн-подсказки. Повторите подготовку позже или ответьте сейчас; это не означает, что в профиле не хватает личного факта.';
   }
   if (reason) return reason;
   return 'Этого факта нет в резюме и подтверждённых ответах. SkillCue не будет придумывать его за вас.';
+}
+
+export function isHhScreeningSubmissionAccepted(
+  state: Pick<HhAssistantState, 'queue'>,
+  vacancyKey: string,
+): boolean {
+  const target = state.queue.find((item) => item.key === vacancyKey || item.id === vacancyKey);
+  return target?.status === 'sent' || target?.status === 'already_applied';
+}
+
+export function resolveHhScreeningVacancy(
+  vacancies: readonly HhQueueItem[],
+  activeVacancyKey: string,
+  requestedVacancyKey: string,
+): HhQueueItem | null {
+  return vacancies.find((item) => item.key === activeVacancyKey || item.id === activeVacancyKey)
+    ?? vacancies.find((item) => item.key === requestedVacancyKey || item.id === requestedVacancyKey)
+    ?? vacancies[0]
+    ?? null;
 }
 
 function cleanRemoteError(error: unknown, fallback: string): string {
@@ -74,9 +99,11 @@ function suggestionErrorMessage(error: unknown): string {
 export default function HhHrProfilePage() {
   const assistant = window.electronAPI?.hhAssistant;
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const requestedVacancyKey = searchParams.get('vacancy')?.trim() ?? '';
   const [state, setState] = useState<HhAssistantState | null>(null);
   const [drafts, setDrafts] = useState<Record<string, ScreeningDraft>>(readHhScreeningDrafts);
-  const [activeVacancyKey, setActiveVacancyKey] = useState('');
+  const [activeVacancyKey, setActiveVacancyKey] = useState(requestedVacancyKey);
   const [questionIndex, setQuestionIndex] = useState(0);
   const [remember, setRemember] = useState(true);
   const [submittingVacancyKeys, setSubmittingVacancyKeys] = useState<string[]>([]);
@@ -119,9 +146,11 @@ export default function HhHrProfilePage() {
   );
   const pendingVacancies = screeningSummary.vacancies;
   const totalQuestions = countUnansweredHhScreeningQuestions(screeningSummary, drafts);
-  const activeVacancy = pendingVacancies.find((item) => item.key === activeVacancyKey)
-    ?? pendingVacancies[0]
-    ?? null;
+  const activeVacancy = resolveHhScreeningVacancy(
+    pendingVacancies,
+    activeVacancyKey,
+    requestedVacancyKey,
+  );
   const rawQuestions = activeVacancy?.pendingQuestions ?? [];
   const questions = uniqueHhScreeningQuestions(rawQuestions);
   const currentQuestion = questions[Math.min(questionIndex, Math.max(0, questions.length - 1))] ?? null;
@@ -130,6 +159,10 @@ export default function HhHrProfilePage() {
     : '';
   const currentDraft = currentDraftKey ? drafts[currentDraftKey] : undefined;
   const hasWrittenAnswer = currentQuestion?.kind === 'text' && Boolean(currentDraft?.answer.trim());
+  const currentDraftHasValue = currentQuestion?.kind === 'text'
+    ? Boolean(currentDraft?.answer.trim())
+    : Boolean(currentDraft?.selectedOptions.length);
+  const currentDraftConfirmed = currentDraft?.confirmedByUser === true;
   const answeredInVacancy = activeVacancy
     ? questions.filter((question) => isComplete(question, drafts[draftKey(activeVacancy.key, question.id)])).length
     : 0;
@@ -141,6 +174,14 @@ export default function HhHrProfilePage() {
         (question) => hhScreeningSemanticKey(question.prompt) === hhScreeningSemanticKey(currentQuestion.prompt),
       ).length, 0) - 1
     : 0;
+
+  useEffect(() => {
+    if (!requestedVacancyKey) return;
+    setActiveVacancyKey(requestedVacancyKey);
+    setQuestionIndex(0);
+    setError('');
+    setNotice('');
+  }, [requestedVacancyKey]);
 
   useEffect(() => {
     if (!activeVacancy) return;
@@ -166,6 +207,7 @@ export default function HhHrProfilePage() {
           next[key] = {
             answer: question.suggestedAnswer ?? '',
             selectedOptions: question.suggestedOptions ?? [],
+            confirmedByUser: false,
           };
           changed = true;
         }
@@ -199,7 +241,11 @@ export default function HhHrProfilePage() {
     }
     setDrafts((current) => ({
       ...current,
-      [key]: { answer, selectedOptions: current[key]?.selectedOptions ?? [] },
+      [key]: {
+        answer,
+        selectedOptions: current[key]?.selectedOptions ?? [],
+        confirmedByUser: true,
+      },
     }));
     setGeneratedSuggestions((current) => {
       if (!current[key]) return current;
@@ -218,13 +264,13 @@ export default function HhHrProfilePage() {
       setSuggestingDraftKey('');
     }
     setDrafts((current) => {
-      const value = current[key] ?? { answer: '', selectedOptions: [] };
+      const value = current[key] ?? { answer: '', selectedOptions: [], confirmedByUser: false };
       const selectedOptions = currentQuestion.kind === 'multiple'
         ? value.selectedOptions.includes(option)
           ? value.selectedOptions.filter((item) => item !== option)
           : [...value.selectedOptions, option]
         : [option];
-      return { ...current, [key]: { ...value, selectedOptions } };
+      return { ...current, [key]: { ...value, selectedOptions, confirmedByUser: true } };
     });
     setError('');
   };
@@ -232,7 +278,7 @@ export default function HhHrProfilePage() {
   const moveQuestion = (direction: -1 | 1) => {
     if (!currentQuestion || !activeVacancy) return;
     if (direction > 0 && !isComplete(currentQuestion, drafts[draftKey(activeVacancy.key, currentQuestion.id)])) {
-      setError('Ответьте на этот вопрос — SkillCue сохранит факт и больше не спросит его повторно.');
+      setError('Ответьте на вопрос или явно нажмите «Использовать этот вариант» для подготовленного черновика.');
       return;
     }
     suggestionRequestId.current += 1;
@@ -265,6 +311,7 @@ export default function HhHrProfilePage() {
         [key]: {
           answer: suggestion.answer,
           selectedOptions: suggestion.selectedOptions,
+          confirmedByUser: false,
         },
       }));
       setGeneratedSuggestions((current) => ({ ...current, [key]: suggestion }));
@@ -277,6 +324,19 @@ export default function HhHrProfilePage() {
         setSuggestingDraftKey('');
       }
     }
+  };
+
+  const confirmCurrentDraft = () => {
+    if (!currentDraftKey) return;
+    setDrafts((current) => {
+      const value = current[currentDraftKey];
+      if (!value) return current;
+      return {
+        ...current,
+        [currentDraftKey]: { ...value, confirmedByUser: true },
+      };
+    });
+    setError('');
   };
 
   const submitVacancy = async () => {
@@ -309,6 +369,14 @@ export default function HhHrProfilePage() {
         }),
       );
       const nextVacancies = summarizePendingHhScreening(next.queue).vacancies;
+      if (!isHhScreeningSubmissionAccepted(next, vacancyKey)) {
+        const unresolved = nextVacancies.find((item) => item.key === vacancyKey);
+        setState(next);
+        setActiveVacancyKey(vacancyKey);
+        setNotice('');
+        setError(next.message || `Ответы для «${unresolved?.title ?? activeVacancy.title}» не подтверждены HH. Черновики сохранены — проверьте форму и повторите.`);
+        return;
+      }
       const nextVacancy = nextVacancies.find((item) => item.key !== vacancyKey) ?? null;
       setState(next);
       setDrafts((current) => {
@@ -378,7 +446,7 @@ export default function HhHrProfilePage() {
           <div className="flex gap-2">
             <div className="rounded-xl border border-surface-border bg-surface-light px-4 py-2.5 text-center">
               <b className="block text-lg text-ink">{state?.screeningFacts.length ?? 0}</b>
-              <span className="text-[10px] uppercase tracking-wide text-ink-faint">SkillCue знает</span>
+              <span className="text-[10px] uppercase tracking-wide text-ink-faint">Сохранённых ответов</span>
             </div>
             <div className="rounded-xl border border-amber-400/20 bg-amber-400/[0.04] px-4 py-2.5 text-center">
               <b className="block text-lg text-amber-100">{totalQuestions}</b>
@@ -393,7 +461,7 @@ export default function HhHrProfilePage() {
         {screeningSummary.quotaLimitedCount > 0 && (
           <div className="mt-3 flex items-start gap-2 rounded-xl border border-amber-400/25 bg-amber-400/[0.05] px-3.5 py-3 text-xs leading-relaxed text-amber-100">
             <Sparkles className="mt-0.5 shrink-0" size={15} />
-            <span><b>Онлайн-ИИ временно ограничен тарифом.</b> Это не означает, что SkillCue не знает ваш профиль: ответы из резюме и сохранённых фактов продолжают подставляться. Для {screeningSummary.quotaLimitedCount} {screeningSummary.quotaLimitedCount === 1 ? 'уникального вопроса' : 'уникальных вопросов'} доступен локальный черновик, если его можно составить без выдумывания фактов.</span>
+            <span><b>Онлайн-ИИ временно ограничен тарифом.</b> Ответы из резюме и сохранённых фактов продолжают подставляться. Для {screeningSummary.quotaLimitedCount} {screeningSummary.quotaLimitedCount === 1 ? 'уникального вопроса' : 'уникальных вопросов'} доступен локальный черновик, если его можно составить без выдумывания фактов.</span>
           </div>
         )}
       </header>
@@ -558,7 +626,7 @@ export default function HhHrProfilePage() {
                       })}
                     </div>
                   )}
-                  {currentQuestion.kind === 'text' && hasWrittenAnswer && (
+                  {currentQuestion.kind === 'text' && hasWrittenAnswer && currentDraftConfirmed && (
                     <p className="mt-2 flex items-center gap-1.5 text-[11px] text-emerald-200">
                       <Check size={12} />Ответ принят. Короткие ответы «Да» и «Нет» тоже можно сохранять.
                     </p>
@@ -575,6 +643,18 @@ export default function HhHrProfilePage() {
                     <p className="mt-2 flex items-center gap-1.5 text-[11px] text-violet-200">
                       <Sparkles size={12} />SkillCue подготовил черновик — проверьте его перед сохранением.
                     </p>
+                  )}
+                  {currentDraftHasValue && !currentDraftConfirmed && (
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-300/25 bg-amber-300/[0.045] px-3.5 py-3 text-xs text-amber-100">
+                      <span>Это пока черновик. Проверьте ответ перед отправкой работодателю.</span>
+                      <button
+                        type="button"
+                        className="btn-secondary btn-sm border-amber-300/30 text-amber-50"
+                        onClick={confirmCurrentDraft}
+                      >
+                        <Check size={14} />Использовать этот вариант
+                      </button>
+                    </div>
                   )}
                 </div>
 
@@ -607,7 +687,7 @@ export default function HhHrProfilePage() {
         <details className="group panel-card overflow-hidden">
           <summary className="flex cursor-pointer list-none items-center gap-3 p-4 text-sm font-medium text-ink hover:bg-surface-hover/30">
             <ShieldCheck size={17} className="text-emerald-300" />
-            Что SkillCue уже знает
+            Сохранённые ответы
             <span className="rounded-full bg-surface-elevated px-2 py-0.5 text-[11px] text-ink-muted">{state?.screeningFacts.length}</span>
             <span className="ml-auto text-xs text-ink-faint group-open:hidden">Показать</span>
             <span className="ml-auto hidden text-xs text-ink-faint group-open:inline">Скрыть</span>
