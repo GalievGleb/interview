@@ -151,9 +151,12 @@ describe('HH applications redesign', () => {
     expect(pageSource).toContain('const loaded = await assistant.getResumes()');
     expect(pageSource).toContain('setResumes(loaded)');
     expect(pageSource).toContain('Резюме по умолчанию');
-    expect(pageSource).toContain('loaded[0] ? [loaded[0].title] : []');
+    expect(pageSource).toContain('loaded.length === 1');
+    expect(pageSource).toContain('<option value="" disabled>Выберите резюме HH</option>');
     expect(pageSource).toContain('aria-label="Резюме HH по умолчанию"');
     expect(pageSource).toContain('resumeTitles: [event.target.value]');
+    expect(pageSource).toContain('setResumeSelectionExplicitlyConfirmed(true)');
+    expect(pageSource).toContain('resumeSelectionExplicitlyConfirmed: true');
     expect(pageSource).not.toContain('placeholder="Часть названия резюме"');
   });
 
@@ -318,7 +321,8 @@ describe('HH applications redesign', () => {
     expect(pageSource).toContain("target?.scrollIntoView({ behavior: 'smooth', block: 'center' })");
     expect(pageSource).toContain('onClick={focusMissingRequirement}');
     expect(pageSource).toContain('Исправить');
-    expect(pageSource).toContain('loaded[0] ? [loaded[0].title] : []');
+    expect(pageSource).toContain('loaded.length === 1');
+    expect(pageSource).toContain('Выберите резюме HH');
     expect(pageSource).toContain('disabled={busy !== \'\'}');
     expect(pageSource).not.toContain("disabled={busy !== '' || !draft.query.trim()");
   });
@@ -688,6 +692,7 @@ describe('HH applications redesign', () => {
     expect(assistantSource).toContain('selectedTitles: string[], vacancyTitle: string');
     expect(assistantSource).toContain('this.state.config.resumeTitles.length > 0');
     expect(assistantSource).toContain('[this.state.config.resumeTitleContains].filter(Boolean)');
-    expect(assistantSource).toContain('score > best.score');
+    expect(assistantSource).toContain('rankHhResumeTitlesForVacancy(');
+    expect(assistantSource).toContain('explicitlySelectedTitleIndex(itemTitles, target)');
   });
 });

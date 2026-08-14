@@ -64,7 +64,7 @@ describe('HR profile question flow', () => {
 
   it('uses known salary data without turning it into a manual question', () => {
     expect(assistantSource).toContain('findSalaryExpectation(');
-    expect(assistantSource).toContain('knownScreeningAnswer(field.question, salaryExpectation, resumeText, {');
+    expect(assistantSource).toContain('knownScreeningAnswer(field.question, salaryExpectation, resumeText);');
     expect(knowledgeSource).toContain('explicit setting or HH résumé');
     expect(knowledgeSource).toContain('Рассматриваю предложения от');
   });
@@ -97,6 +97,9 @@ describe('HR profile question flow', () => {
     expect(mainSource).toContain("ipcMain.handle('hh-assistant:suggest-screening-answer'");
     expect(preloadSource).toContain("ipcRenderer.invoke('hh-assistant:suggest-screening-answer'");
     expect(electronTypesSource).toContain('suggestScreeningAnswer: (');
+    expect(profileSource).toContain("currentDraft?.answer && currentDraft.selectedOptions.length === 0");
+    expect(profileSource).toContain('<span>{currentDraft.answer}</span>');
+    expect(assistantSource).toContain('buildHhScreeningReviewDraft(question');
   });
 
   it('requires explicit acceptance before a generated suggestion is complete', () => {
@@ -104,6 +107,8 @@ describe('HR profile question flow', () => {
     expect(profileSource).toContain('confirmedByUser: true');
     expect(profileSource).toContain('Использовать этот вариант');
     expect(profileSource).toContain('onClick={confirmCurrentDraft}');
+    expect(profileSource).toContain('reconcileHhScreeningLocalDraft(question, next[key])');
+    expect(profileSource).not.toContain('if (next[key]) continue');
   });
 
   it('shows recoverable errors instead of an empty or falsely completed profile', () => {

@@ -76,20 +76,27 @@ COVER_LETTER_MAX_TOKENS = 1200
 _SCREENING_RESTRICTED_FACT_RE = re.compile(
     r"(?:"
     r"где\s+(?:вы\s+)?(?:жив[её]те|находитесь)|откуда\s+вы|город\w*\s+(?:прожив|нахожд)|"
+    r"(?:^|\W)(?:живу|проживаю|нахожусь)(?:\W|$)|"
     r"локаци|местонахожд|\blocation\b|\bcity\b|\bresiden|"
     r"гражданств|право\s+на\s+работ|разрешен\w*\s+на\s+работ|work\s+permit|"
     r"work\s+authori[sz]ation|legal\s+status|"
     r"security\s+clearance|судим|военн|арм(?:ия|ии)|служб\w*\s+в\s+арм|military|"
+    r"виз\w*|visa|здоров\w*|health\s+status|"
     r"трудоустр|официальн\w*\s+оформ|оформлен|оформлени|трудов\w*\s+договор|"
     r"самозанят|(?:^|\W)ип(?:\W|$)|(?:^|\W)гпх(?:\W|$)|аутстафф|outstaff|"
     r"формат\w*\s+сотруднич|contract\s+(?:type|terms?)|"
     r"employment\s+(?:status|type|terms?)|self[- ]employed|"
     r"зарплат|з\s*\/?\s*п\b|оклад|доход|компенсац|финансов\w*\s+ожидан|"
     r"salary|compensation|financial\s+expectations?|expected\s+(?:salary|pay|level)|"
-    r"релокац|переезд|relocat|"
+    r"релокац|переезд|переех|relocat|"
     r"график|смен\w*\s+(?:работ|дежур)|дата\s+выхода|когда\s+готов\w*\s+(?:выйти|приступ)|"
     r"рабоч\w*\s+час|часов\w*\s+пояс|занятост|пол\w*\s+день|part[- ]time|"
     r"work\s+schedule|shift\s+work|start\s+date|availability|"
+    r"возраст|сколько\s+(?:вам|мне)\s+лет|дата\s+рожд|образован|диплом|сертифик|istqb|"
+    r"английск|уровень\s+язык|english\s+(?:level|proficiency)|"
+    r"командиров|ночн\w*\s+(?:смен|работ)|nda|соглашен\w*\s+о\s+неразглаш|"
+    r"семейн\w*\s+положен|женат|замужем|беремен|инвалид|диагноз|\bздоров(?:а|ы)?\b|"
+    r"(?:^|\W)(?:дети|здоровье|гендер|пол)(?:\W|$)|"
     r"за\s+последн|полгода|полугод|последн\w*\s+\d+\s+(?:месяц|недел|дн)|"
     r"\b(?:past|last)\s+\d+\s+(?:months?|weeks?|days?)\b|\bcurrently\b|\bcurrent\b|"
     r"(?:^|\W)сейчас(?:\W|$)|текущ\w*\s+(?:статус|место|работ|город|занят)"
@@ -101,6 +108,11 @@ _SCREENING_EXPERIENCE_RE = re.compile(
     r"делали|участвовал|сталкивал|знакомы\s+ли|умеете\s+ли|играл|какие\s+задач\w*\s+решал|"
     r"your\s+experience|have\s+you|did\s+you|worked\s+with|used\s+in\s+your|"
     r"are\s+you\s+familiar|tell\s+us\s+about\s+your)",
+    re.IGNORECASE,
+)
+_SCREENING_DIRECT_EXPERIENCE_PROMPT_RE = re.compile(
+    r"коммерческ|опыт|работал|работали|использовал|использовали|применял|применяли|"
+    r"experience|worked\s+with|have\s+you\s+(?:worked|used)|did\s+you\s+use",
     re.IGNORECASE,
 )
 _SCREENING_KNOWLEDGE_RE = re.compile(
@@ -137,6 +149,34 @@ _SCREENING_PERSONAL_HISTORY_ANSWER_RE = re.compile(
     r"\bI\s+(?:worked|used|applied|solved|led|implemented|configured|developed|tested|managed)\b|"
     r"\bI\s+have\b.{0,40}\b(?:years?\s+of\s+)?experience\b|\bmy\s+(?:commercial\s+)?experience\b|"
     r"\b(?:in|on)\s+my\s+(?:experience|practice|project|job|role|team|company)\b"
+    r")",
+    re.IGNORECASE,
+)
+_SCREENING_PERSONAL_FACT_ANSWER_RE = re.compile(
+    r"(?:"
+    r"\bя\s+(?:живу|проживаю|нахожусь|гражданин|гражданка|сертифицирован|"
+    r"сертифицирована|владею|говорю|учусь|обучаюсь|готов\w*\s+(?:работать|"
+    r"подпис|к\b|на\b|рассмотр))|"
+    r"\bмне\s+\d{1,3}\s+(?:лет|год)|\bу\s+меня\b|"
+    r"\bмо(?:й|я|е|ё|и|его|ей|их)\s+(?:город|гражданств|образован|диплом|"
+    r"сертифик|английск|уровень\s+язык|зарплат|финансов|график|занятост)|"
+    r"(?:^|[.!?]\s*)(?:есть|имею)\s+(?:у\s+меня\s+)?(?:коммерческ\w*\s+)?опыт|"
+    r"\bмне\s+приходилось\b|\bна\s+прошл\w*\s+работ\w*\b|"
+    r"\bI\s+(?:live|reside|am\s+based|am\s+certified|have\s+(?:a\s+)?(?:degree|"
+    r"certificate)|am\s+(?:available|willing)\s+to\s+(?:work|travel|relocate))\b|"
+    r"\bI\s+am\s+\d{1,3}\b|\bmy\s+(?:city|citizenship|education|degree|"
+    r"certification|English|language\s+level|salary|availability|schedule)\b"
+    r")",
+    re.IGNORECASE,
+)
+_SCREENING_KNOWLEDGE_PERSONAL_MARKER_RE = re.compile(
+    r"(?:"
+    r"\b(?:я|мне|мой|моя|мо[её]|мои|у\s+меня|ранее|раньше|опыт)\b|"
+    r"\b(?:работаю|работал|работала|отвечал|отвечала|использую|использовал|"
+    r"использовала|знаю|владею|имею|обладаю|готов|готова|могу|учился|училась|"
+    r"сертифицирован|сертифицирована)\b|"
+    r"\b(?:I|my|mine|previously|currently|experienced|experience|worked|used|"
+    r"lead|led|managed|willing|available)\b"
     r")",
     re.IGNORECASE,
 )
@@ -184,11 +224,94 @@ _SCREENING_EVIDENCE_STOP_WORDS = {
     "опишите", "какой", "какие", "работали", "работал", "использовали", "использовал",
     "with", "your", "have", "what", "which", "work", "worked", "experience", "describe",
 }
+_SCREENING_PERSONAL_SUPPORT_STOP_WORDS = _SCREENING_EVIDENCE_STOP_WORDS | {
+    "также", "который", "которая", "которые", "этого", "этой", "своей",
+    "своего", "через", "после", "перед", "about", "also", "that", "this",
+    "then", "with", "from", "into", "using", "worked", "experience",
+}
+_SCREENING_TECH_EVIDENCE_PATTERNS: dict[str, re.Pattern[str]] = {
+    "1c": re.compile(r"(?:^|\W)(?:1c|1с|1c|1с)(?:\W|$)", re.IGNORECASE),
+    "allure": re.compile(r"\ballure\b", re.IGNORECASE),
+    "ci": re.compile(r"\bci(?:\s*/\s*cd)?\b|пайплайн|pipeline", re.IGNORECASE),
+    "aws": re.compile(r"\baws\b|amazon\s+web\s+services", re.IGNORECASE),
+    "c++": re.compile(r"(?:^|\W)c\+\+(?:\W|$)", re.IGNORECASE),
+    "c#": re.compile(r"(?:^|\W)c#(?:\W|$)|\.net\b", re.IGNORECASE),
+    "c": re.compile(r"(?:^|[^a-z0-9+#])c(?:[^a-z0-9+#]|$)", re.IGNORECASE),
+    "docker": re.compile(r"\bdocker\b", re.IGNORECASE),
+    "edt": re.compile(r"\bedt\b", re.IGNORECASE),
+    "git": re.compile(r"\bgit(?:hub|lab)?\b", re.IGNORECASE),
+    "go": re.compile(r"\bgo(?:lang)?\b", re.IGNORECASE),
+    "java": re.compile(r"\bjava\b", re.IGNORECASE),
+    "javascript": re.compile(r"\bjavascript\b|\bjs\b", re.IGNORECASE),
+    "jira": re.compile(r"\bjira\b", re.IGNORECASE),
+    "kubernetes": re.compile(r"\bkubernetes\b|\bk8s\b", re.IGNORECASE),
+    "playwright": re.compile(r"\bplaywright\b", re.IGNORECASE),
+    "postman": re.compile(r"\bpostman\b", re.IGNORECASE),
+    "pytest": re.compile(r"\bpytest\b", re.IGNORECASE),
+    "python": re.compile(r"\bpython\b", re.IGNORECASE),
+    "r": re.compile(r"(?:^|[^a-z0-9+#])r(?:[^a-z0-9+#]|$)", re.IGNORECASE),
+    "selenium": re.compile(r"\bselenium\b", re.IGNORECASE),
+    "sonar": re.compile(r"\bsonar(?:qube)?\b", re.IGNORECASE),
+    "sql": re.compile(r"\bsql\b|\bpostgres(?:ql)?\b|\bmysql\b", re.IGNORECASE),
+    "swift": re.compile(r"\bswift\b", re.IGNORECASE),
+    "ios": re.compile(r"\bios\b", re.IGNORECASE),
+    "typescript": re.compile(r"\btypescript\b|\bts\b", re.IGNORECASE),
+    "vanessa": re.compile(r"\bvanessa\b|ванесс", re.IGNORECASE),
+}
+_SCREENING_STRONG_ACTION_EVIDENCE: tuple[tuple[re.Pattern[str], re.Pattern[str]], ...] = (
+    (
+        re.compile(r"настроил|настроила|настраивал|configured|set\s+up", re.IGNORECASE),
+        re.compile(r"настро|конфигур|configured|configuration|set\s+up", re.IGNORECASE),
+    ),
+    (
+        re.compile(r"внедрил|внедрила|implemented|introduced", re.IGNORECASE),
+        re.compile(r"внедр|implemented|implementation|introduced", re.IGNORECASE),
+    ),
+    (
+        re.compile(r"создал|создала|разработал|разработала|built|created|developed", re.IGNORECASE),
+        re.compile(r"созд|разработ|built|created|developed", re.IGNORECASE),
+    ),
+    (
+        re.compile(r"руководил|руководила|управлял|управляла|led|managed", re.IGNORECASE),
+        re.compile(r"руковод|управля|лид\w*\s+команд|led|managed|management", re.IGNORECASE),
+    ),
+)
+_SCREENING_DURATION_RE = re.compile(
+    r"\b(\d+(?:[.,]\d+)?)\s*(лет|года?|месяц(?:а|ев)?|недел(?:я|и|ь)?|дн(?:я|ей)|"
+    r"years?|months?|weeks?|days?)\b",
+    re.IGNORECASE,
+)
+
+
+def _screening_durations(value: str) -> set[tuple[str, str]]:
+    categories = {
+        "лет": "year", "год": "year", "года": "year",
+        "year": "year", "years": "year",
+        "месяц": "month", "месяца": "month", "месяцев": "month",
+        "month": "month", "months": "month",
+        "неделя": "week", "недели": "week", "недель": "week", "неделю": "week",
+        "week": "week", "weeks": "week",
+        "дня": "day", "дней": "day", "day": "day", "days": "day",
+    }
+    return {
+        (number.replace(",", "."), categories[unit.casefold()])
+        for number, unit in _SCREENING_DURATION_RE.findall(value)
+    }
 
 
 def _normalize_screening_text(value: str) -> str:
     normalized = value.casefold().replace("ё", "е")
     return re.sub(r"[^0-9a-zа-я+#.]+", " ", normalized).strip()
+
+
+def _screening_personal_claim_stems(value: str) -> set[str]:
+    return {
+        cleaned[:6]
+        for token in _normalize_screening_text(value).split()
+        if (cleaned := token.strip("."))
+        and len(cleaned) >= 4
+        and cleaned not in _SCREENING_PERSONAL_SUPPORT_STOP_WORDS
+    }
 
 
 def _screening_exact_confirmed_value(
@@ -250,25 +373,97 @@ def _screening_evidence_is_verifiable(
         return False
     prompt = str(question.get("prompt", ""))
     claim_text = " ".join([answer_text, *selected]).strip()
-    selected_affirmative = any(
-        re.match(r"^(?:да|yes)(?:\s|$)", _normalize_screening_text(value))
+    selected_negative = any(
+        re.match(r"^(?:нет|no)(?:\s|$)", _normalize_screening_text(value))
         for value in selected
     )
     experience_claim = bool(
         _SCREENING_EXPERIENCE_RE.search(prompt)
         or _SCREENING_AFFIRMATIVE_EXPERIENCE_RE.search(claim_text)
     )
-    affirmative_claim = selected_affirmative or bool(
-        _SCREENING_AFFIRMATIVE_EXPERIENCE_RE.search(answer_text)
+    negative_claim = selected_negative or bool(
+        _SCREENING_NEGATIVE_EXPERIENCE_RE.search(claim_text)
+        or re.match(r"^(?:нет|no)(?:\s|$)", _normalize_screening_text(answer_text))
     )
-    if experience_claim and affirmative_claim:
-        if _SCREENING_NEGATIVE_EXPERIENCE_RE.search(evidence_quote):
+    negative_evidence = bool(_SCREENING_NEGATIVE_EXPERIENCE_RE.search(evidence_quote))
+    # Negative free-text claims are especially easy to bind to the wrong item
+    # in a mixed résumé sentence ("worked with Python, not Java"). Only an
+    # exact user-confirmed negative is eligible for automatic submission.
+    if negative_claim:
+        return False
+    if experience_claim:
+        if negative_evidence:
             return False
         if _SCREENING_PROSPECTIVE_EXPERIENCE_RE.search(evidence_quote):
             return False
+        if (
+            _SCREENING_DIRECT_EXPERIENCE_PROMPT_RE.search(prompt)
+            and not _SCREENING_AFFIRMATIVE_EXPERIENCE_RE.search(evidence_quote)
+        ):
+            return False
+    if experience_claim and negative_claim and not negative_evidence:
+        return False
+    # A single overlapping word must not authorize a compound résumé claim.
+    # Every named tool in the answer and every strong ownership/setup action
+    # needs direct support in the quoted evidence.
+    unsupported_technologies = [
+        name
+        for name, pattern in _SCREENING_TECH_EVIDENCE_PATTERNS.items()
+        if pattern.search(claim_text) and not pattern.search(evidence_quote)
+    ]
+    if unsupported_technologies:
+        return False
+    prompt_technologies = {
+        name
+        for name, pattern in _SCREENING_TECH_EVIDENCE_PATTERNS.items()
+        if pattern.search(prompt)
+    }
+    # A single Да or one supported tool cannot answer a compound question
+    # about several named technologies. Require the answer and its quote to
+    # explicitly cover every named subject; otherwise leave the draft for
+    # review.
+    if prompt_technologies and any(
+        not _SCREENING_TECH_EVIDENCE_PATTERNS[name].search(claim_text)
+        or not _SCREENING_TECH_EVIDENCE_PATTERNS[name].search(evidence_quote)
+        for name in prompt_technologies
+    ):
+        return False
+    for claim_pattern, evidence_pattern in _SCREENING_STRONG_ACTION_EVIDENCE:
+        if claim_pattern.search(claim_text) and not evidence_pattern.search(evidence_quote):
+            return False
+    # Every substantive answer stem must be present in the exact source quote,
+    # not merely one overlapping word from the question. This keeps résumé and
+    # legend autofill extractive while still allowing light punctuation and
+    # morphology changes.
+    claim_stems = _screening_personal_claim_stems(claim_text)
+    evidence_stems = _screening_personal_claim_stems(evidence_quote)
+    if not claim_stems or claim_stems - evidence_stems:
+        return False
+    named_latin_claims = {
+        value.casefold()
+        for value in re.findall(r"\b[A-Z][A-Za-z0-9.+#-]{2,}\b", claim_text)
+        if value.casefold() not in {"the", "this", "that", "when", "first", "using"}
+    }
+    normalized_evidence = _normalize_screening_text(evidence_quote)
+    if any(name not in normalized_evidence.split() for name in named_latin_claims):
+        return False
+    if re.search(r"коммерческ|commercial|production|продакш", prompt, re.IGNORECASE):
+        if re.search(r"учебн|личн\w*\s+проект|pet[- ]?project|курсов|training", evidence_quote, re.IGNORECASE):
+            return False
+        if not re.search(
+            r"коммерческ|commercial|production|продакш|опыт\s+работ|работал\w*\s+(?:в|на)|"
+            r"компан|работодател|должност",
+            evidence_quote,
+            re.IGNORECASE,
+        ):
+            return False
     claimed_numbers = set(re.findall(r"\d+(?:[.,]\d+)?", f"{answer_text} {' '.join(selected)}"))
     evidence_numbers = set(re.findall(r"\d+(?:[.,]\d+)?", evidence_quote))
-    return claimed_numbers.issubset(evidence_numbers)
+    if not claimed_numbers.issubset(evidence_numbers):
+        return False
+    claimed_durations = _screening_durations(f"{answer_text} {' '.join(selected)}")
+    evidence_durations = _screening_durations(evidence_quote)
+    return claimed_durations.issubset(evidence_durations)
 
 
 def _screening_server_autofill(
@@ -300,30 +495,21 @@ def _screening_server_autofill(
     if confirmed_value:
         return True, "confirmed", confirmed_value[:500]
 
-    prompt = str(question.get("prompt", ""))
-    if _SCREENING_RESTRICTED_FACT_RE.search(prompt):
+    # A free-form quote cannot safely bind a model-generated Да/Нет (or one
+    # selected option) to every subject in a compound employer question. Exact
+    # user-confirmed choices are handled above; all other closed choices remain
+    # prepared review suggestions. Deterministic desktop rules keep their
+    # explicit, source-backed allowlist.
+    if question.get("kind") != "text":
         return False, provenance, evidence_quote
 
-    if _SCREENING_PROMPT_INJECTION_RE.search(prompt):
-        return False, provenance, evidence_quote
-
-    knowledge_text = " ".join([answer_text, *selected])
-    if (
-        provenance == "knowledge"
-        and _SCREENING_KNOWLEDGE_RE.search(prompt)
-        and not _SCREENING_EXPERIENCE_RE.search(prompt)
-        and not _SCREENING_BEHAVIORAL_HISTORY_RE.search(prompt)
-        and not _SCREENING_PERSONAL_HISTORY_ANSWER_RE.search(knowledge_text)
-    ):
-        return True, "knowledge", ""
-
-    if provenance in {"resume", "legend"}:
-        source_text = resume if provenance == "resume" else legend
-        if _screening_evidence_is_verifiable(
-            question, answer_text, selected, evidence_quote, source_text
-        ):
-            return True, provenance, evidence_quote
-
+    # Model output is always useful as a prepared draft, but it is not a safe
+    # authority for automatic submission.  A finite regex/evidence checker can
+    # still miss an invented personal clause, a polarity reversal, or one
+    # unsupported part of an arbitrary compound employer question.  Exact
+    # user-confirmed values are the only model-path exception above.  Resume
+    # facts such as city/salary and allowlisted professional answers are filled
+    # deterministically by the desktop client before the model is called.
     return False, provenance, evidence_quote
 
 
@@ -362,6 +548,162 @@ def _screening_answers_runtime_budget(model: str) -> tuple[float, int, float]:
         ),
     )
     return request_timeout, max_attempts, deadline
+
+
+def _screening_review_fallback(
+    question: dict[str, Any],
+    *,
+    vacancy_title: str = "",
+    vacancy_company: str = "",
+    reason: str = "",
+) -> dict[str, Any]:
+    """Build a non-empty last-resort draft that can never be auto-submitted."""
+    prompt = str(question.get("prompt", ""))
+    kind = str(question.get("kind", "text"))
+    options = [str(value).strip() for value in question.get("options", []) if str(value).strip()]
+    selected: list[str] = []
+    answer = ""
+    if kind != "text" and options:
+        neutral = next(
+            (
+                option
+                for option in options
+                if re.search(
+                    r"^(?:по\s+договоренности|готов\w*\s+обсудить|свой\s+вариант|другое|иное|"
+                    r"не\s+указан|нет\s+предпочтен|любой|any|other|not\s+specified)",
+                    option,
+                    re.IGNORECASE,
+                )
+            ),
+            None,
+        )
+        sensitive = bool(
+            re.search(
+                r"гражданств|право\s+на\s+работ|разрешен\w*\s+на\s+работ|судим|"
+                r"военн|арм(?:ия|ии)|трудоустр|официальн|тк\s*рф|"
+                r"трудов\w*\s+(?:договор|опыт)|самозанят|(?:^|\W)ип(?:\W|$)|"
+                r"(?:^|\W)гпх(?:\W|$)|зарплат|оклад|компенсац|"
+                r"финансов\w*\s+ожидан|релокац|переезд|график|смен|дата\s+выхода|"
+                r"за\s+последн|полгода|опыт|работал|использовал|знаком|применял|"
+                r"swift|ios|1[сc]|experience|worked\s+with|used|current|currently|"
+                r"work\s+(?:permit|authorization|status)|military|criminal",
+                prompt,
+                re.IGNORECASE,
+            )
+        )
+        if neutral:
+            selected = [neutral]
+        elif sensitive:
+            answer = (
+                "Выберите точный вариант после проверки личного статуса или опыта: "
+                "SkillCue не будет угадывать ответ «Да» или «Нет»."
+            )
+        else:
+            answer = (
+                "Выберите подходящий вариант вручную: SkillCue не будет угадывать "
+                "неподтверждённый ответ."
+            )
+    elif re.search(
+        r"зарплат|оклад|компенсац|финансов\w*\s+ожидан|salary|compensation",
+        prompt,
+        re.IGNORECASE,
+    ):
+        role = vacancy_title.strip() or "этой позиции"
+        answer = (
+            f"Ориентируюсь на рыночную компенсацию для позиции «{role}»; "
+            "точный диапазон готов согласовать с учётом задач, формата работы и совокупного пакета."
+        )
+    elif re.search(
+        r"где\s+(?:вы\s+)?(?:жив|наход)|"
+        r"(?:в\s+)?каком\s+городе.{0,60}(?:жив|прожив|наход)|"
+        r"город\w*.{0,60}(?:жив|прожив|нахожд)|"
+        r"локаци|местонахожд|location|city|residen",
+        prompt,
+        re.IGNORECASE,
+    ):
+        answer = (
+            "Актуальный город проживания и доступный формат работы готов подтвердить "
+            "перед следующим этапом."
+        )
+    elif re.search(
+        r"гражданств|право\s+на\s+работ|военн|судим|трудоустр|официальн\w*\s+оформ|"
+        r"самозанят|график|дата\s+выхода|work\s+(?:permit|authorization|status)|military|criminal",
+        prompt,
+        re.IGNORECASE,
+    ):
+        answer = (
+            "Актуальный статус по этому пункту готов подтвердить работодателю "
+            "перед следующим этапом."
+        )
+    elif re.search(
+        r"почему.*(?:ваканси|позици)|чем.*(?:ваканси|позици).*интерес|мотивац",
+        prompt,
+        re.IGNORECASE,
+    ):
+        role = vacancy_title.strip() or "эта позиция"
+        company = f" в {vacancy_company.strip()}" if vacancy_company.strip() else ""
+        answer = (
+            f"Мне интересна позиция «{role}»{company}: она позволяет применять мой профиль "
+            "к реальным задачам продукта, развивать качество и давать измеримый результат команде."
+        )
+    elif re.search(
+        r"как\s+(?:бы\s+)?(?:вы\s+)?(?:протестир|провер|реш|поступ|организ)|"
+        r"что\s+такое|объясните|чем\s+отлича|how\s+would\s+you|what\s+is",
+        prompt,
+        re.IGNORECASE,
+    ):
+        answer = (
+            "Сначала уточню требования и критерии успеха, затем выделю критичные и граничные "
+            "сценарии, проверю основные риски и зафиксирую воспроизводимый результат."
+        )
+    elif re.search(
+        r"опыт|работал|использовал|знаком|применял|experience|worked\s+with|used",
+        prompt,
+        re.IGNORECASE,
+    ):
+        answer = (
+            "Подтверждённый релевантный опыт и инструменты перечислены в моём резюме; "
+            "готов предметно уточнить глубину опыта по технологиям, важным для этой позиции."
+        )
+    else:
+        answer = (
+            "Готов дать предметный ответ с учётом контекста вакансии; перед отправкой уточню "
+            "личные факты и оставлю только то, что точно соответствует моему опыту."
+        )
+    return {
+        "id": str(question.get("id", "")),
+        "answer": answer,
+        "selectedOptions": selected,
+        "canAutoFill": False,
+        "sourceType": "none",
+        "evidenceQuote": "",
+        "reason": (
+            "Черновик подготовлен локально и требует подтверждения пользователя"
+            + (f": {reason.strip()[:180]}" if reason.strip() else ".")
+        )[:300],
+        "preparationNote": "",
+    }
+
+
+def _screening_fallback_response(
+    questions: list[dict[str, Any]],
+    *,
+    vacancy_title: str = "",
+    vacancy_company: str = "",
+    reason: str = "",
+) -> dict[str, Any]:
+    return {
+        "answers": [
+            _screening_review_fallback(
+                question,
+                vacancy_title=vacancy_title,
+                vacancy_company=vacancy_company,
+                reason=reason,
+            )
+            for question in questions
+        ],
+        "model": "local-review-fallback",
+    }
 
 
 async def _complete_or_fallback(
@@ -660,7 +1002,14 @@ async def cover_letter(payload: CoverLetterPayload, db=Depends(get_db)) -> dict:
 @router.post("/screening-answers")
 async def screening_answers(payload: ScreeningAnswersPayload, db=Depends(get_db)) -> dict:
     """Generate one grounded answer batch for an HH employer-question form."""
-    _ensure_vacancy_quota(db)
+    quota_error: AppError | None = None
+    try:
+        _ensure_vacancy_quota(db)
+    except AppError as exc:
+        # A spent online-AI allowance must not make the employer-question
+        # editor empty. Validation below still runs; after that we return
+        # local review-only drafts which do not consume provider tokens.
+        quota_error = exc
     questions = payload.questions[:20]
     if not questions:
         raise HTTPException(status_code=400, detail="No screening questions provided")
@@ -733,14 +1082,15 @@ async def screening_answers(payload: ScreeningAnswersPayload, db=Depends(get_db)
         if existing_draft
         else
         """INTERACTIVE DRAFT MODE — the result is shown in an editor and is never submitted without explicit user confirmation.
-- Prefer supported résumé facts, but when a low-risk personal preference or informal history is unknown, provide one conservative, plausible first-person example as a useful starting point.
-- A hypothesis MUST have canAutoFill=false and reason must say that the user needs to verify it.
+- Prefer supported résumé facts. Never invent a plausible personal preference, history, game, tool, employer, status, or commitment merely to make a draft sound complete.
+- When a personal fact is unknown, return honest review guidance with canAutoFill=false and reason saying exactly what the user needs to verify.
 - Do not invent employers, commercial projects, dates, duration, metrics, credentials, legal status, location, salary, work authorization, or contractual commitments.
-- For unknown legal, location, compensation, schedule, relocation, or contract facts, return an empty answer and ask for confirmation rather than guessing.
+- Always return a finished non-empty draft for every text question. For an unknown legal, location, compensation, schedule, relocation, or contract fact, answer honestly that the current value must be confirmed. For a closed option question, select an exact option only when a source supports it or the form provides a neutral option; otherwise leave selectedOptions empty and explain that the user must choose.
 - Keep a hypothetical draft natural and specific enough to edit; do not use placeholders or coaching instructions inside the answer."""
         if payload.draftMode
         else """AUTOMATIC MODE — every answer may be sent without another review.
-- If a factual answer is not supported by the supplied sources, return an empty answer, set canAutoFill=false, and explain the missing fact in reason. Do not guess."""
+- Return a useful finished answer for every text question, even when it cannot be submitted automatically. For a closed option question, select an exact option only from evidence or a neutral choice; an unknown legal/status yes-no question must remain unselected with a clear review reason.
+- If a factual answer is not supported by the supplied sources, provide the best conservative review draft, set canAutoFill=false, sourceType=none, and explain what the user must verify. Never label a guessed fact as verified or safe for automatic submission."""
     )
     prompt = VACANCY_SCREENING_ANSWERS_PROMPT.format(
         answer_mode_rules=answer_mode_rules,
@@ -758,6 +1108,17 @@ async def screening_answers(payload: ScreeningAnswersPayload, db=Depends(get_db)
         questions_json=json.dumps(normalized_questions, ensure_ascii=False),
         language="Russian" if payload.language == "ru" else "English",
     )
+    if quota_error is not None:
+        logger.info(
+            "Screening online quota unavailable; returning local review drafts (%s)",
+            quota_error.code,
+        )
+        return _screening_fallback_response(
+            normalized_questions,
+            vacancy_title=payload.vacancyTitle,
+            vacancy_company=payload.vacancyCompany,
+            reason=quota_error.message,
+        )
     request_timeout, max_attempts, deadline = _screening_answers_runtime_budget(model)
     try:
         raw, model = await asyncio.wait_for(
@@ -774,16 +1135,17 @@ async def screening_answers(payload: ScreeningAnswersPayload, db=Depends(get_db)
             ),
             timeout=deadline,
         )
-    except TimeoutError as exc:
+    except TimeoutError:
         logger.warning(
             "Screening answer generation exceeded %.1fs deadline",
             deadline,
         )
-        raise AppError(
-            "Провайдер не успел подготовить ответы. Повторите позже.",
-            504,
-            "provider_timeout",
-        ) from exc
+        return _screening_fallback_response(
+            normalized_questions,
+            vacancy_title=payload.vacancyTitle,
+            vacancy_company=payload.vacancyCompany,
+            reason="Провайдер не успел подготовить ответы.",
+        )
     except AppError as exc:
         logger.warning(
             "Screening answer generation failed (%s, HTTP %s): %s",
@@ -791,12 +1153,31 @@ async def screening_answers(payload: ScreeningAnswersPayload, db=Depends(get_db)
             exc.status_code,
             exc.message,
         )
-        raise
+        return _screening_fallback_response(
+            normalized_questions,
+            vacancy_title=payload.vacancyTitle,
+            vacancy_company=payload.vacancyCompany,
+            reason=exc.message,
+        )
     except Exception as exc:  # noqa: BLE001
         logger.warning("Screening answer generation failed: %s", exc)
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        return _screening_fallback_response(
+            normalized_questions,
+            vacancy_title=payload.vacancyTitle,
+            vacancy_company=payload.vacancyCompany,
+            reason="Онлайн-генератор временно недоступен.",
+        )
 
-    data = _parse_json(raw)
+    try:
+        data = _parse_json(raw)
+    except HTTPException:
+        logger.warning("Screening answer model returned invalid JSON; using local review drafts")
+        return _screening_fallback_response(
+            normalized_questions,
+            vacancy_title=payload.vacancyTitle,
+            vacancy_company=payload.vacancyCompany,
+            reason="Онлайн-модель вернула повреждённый ответ.",
+        )
     raw_answers_value: Any = data.get("answers")
     raw_answers: list[Any] = raw_answers_value if isinstance(raw_answers_value, list) else []
     by_id: dict[str, dict[str, Any]] = {}
@@ -809,6 +1190,12 @@ async def screening_answers(payload: ScreeningAnswersPayload, db=Depends(get_db)
     answers: list[dict[str, Any]] = []
     for normalized_question in normalized_questions:
         answer_item = by_id.get(normalized_question["id"], {})
+        fallback = _screening_review_fallback(
+            normalized_question,
+            vacancy_title=payload.vacancyTitle,
+            vacancy_company=payload.vacancyCompany,
+            reason="Онлайн-модель не вернула пригодный ответ.",
+        )
         valid_options = {
             option.casefold(): option for option in normalized_question["options"]
         }
@@ -820,6 +1207,13 @@ async def screening_answers(payload: ScreeningAnswersPayload, db=Depends(get_db)
         if normalized_question["kind"] in {"single", "select"}:
             selected = selected[:1]
         answer_text = str(answer_item.get("answer", "")).strip()[:2_000]
+        if normalized_question["kind"] == "text" and not answer_text:
+            answer_text = str(fallback["answer"])
+            answer_item = fallback
+        elif normalized_question["kind"] != "text" and not selected:
+            selected = list(fallback["selectedOptions"])
+            answer_text = str(fallback["answer"])
+            answer_item = fallback
         can_auto_fill, source_type, evidence_quote = _screening_server_autofill(
             normalized_question,
             answer_text,
@@ -830,6 +1224,44 @@ async def screening_answers(payload: ScreeningAnswersPayload, db=Depends(get_db)
             legend=legend,
             draft_mode=bool(payload.draftMode),
         )
+        if normalized_question["kind"] != "text" and selected and not can_auto_fill:
+            neutral_selection = all(
+                re.search(
+                    r"^(?:по\s+договоренности|готов\w*\s+обсудить|свой\s+вариант|другое|иное|"
+                    r"не\s+указан|нет\s+предпочтен|любой|any|other|not\s+specified)",
+                    option,
+                    re.IGNORECASE,
+                )
+                for option in selected
+            )
+            exact_confirmed = bool(
+                _screening_exact_confirmed_value(
+                    normalized_question,
+                    answer_text,
+                    selected,
+                    confirmed_answers,
+                )
+            )
+            grounded_if_automatic, _, _ = _screening_server_autofill(
+                normalized_question,
+                answer_text,
+                selected,
+                answer_item,
+                confirmed_answers=confirmed_answers,
+                resume=resume,
+                legend=legend,
+                draft_mode=False,
+            )
+            if not (neutral_selection or exact_confirmed or grounded_if_automatic):
+                # A review-only Да/Нет is still a visible preselection and can
+                # be mistaken for a fact. Replace unsupported choices with the
+                # same honest, unselected guidance used for provider failures.
+                selected = list(fallback["selectedOptions"])
+                answer_text = str(fallback["answer"])
+                answer_item = fallback
+                can_auto_fill = False
+                source_type = "none"
+                evidence_quote = ""
         if normalized_question["kind"] == "text" and not answer_text:
             can_auto_fill = False
         if normalized_question["kind"] != "text" and not selected:

@@ -15,6 +15,7 @@ import {
   answerExperienceThresholdFromResume,
   buildSalaryExpectationAnswer,
   findSalaryExpectation,
+  isSalaryExpectationQuestion,
 } from './hhScreeningKnowledge';
 
 export interface HhChatConfig {
@@ -211,12 +212,46 @@ export interface ChatMessage {
   isSystem?: boolean;
 }
 
+export interface HhChatNegotiationContext {
+  negotiationKey: string;
+  vacancyTitle: string;
+  companyName: string;
+  vacancyUrl?: string;
+}
+
+export interface HhChatCandidateProfile {
+  /** Exact résumé persisted for this queue vacancy; salary and tenure facts may only use this field. */
+  selectedResumeText: string;
+  /** Optional cross-document context for general replies; salary facts are stripped before prompting. */
+  supplementalProfileText?: string;
+}
+
+export interface HhRecruiterProfileQueueCandidate {
+  id: string;
+  platform: 'hh' | 'linkedin' | 'avito';
+  title: string;
+  company: string;
+  url: string;
+  selectedResumeTitle?: string;
+  selectedResumeVerified?: boolean;
+}
+
+export interface HhRecruiterProfileSelection<T extends HhRecruiterProfileQueueCandidate> {
+  vacancy: T;
+  selectedResumeTitle: string;
+  cacheKey: string;
+}
+
 function chatStatePath(userDataDir: string): string {
   return path.join(userDataDir, 'hh-chat-browser.json');
 }
 
 function compactText(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
+}
+
+function chatFactQuestionKey(value: string): string {
+  return compactText(value).toLocaleLowerCase('ru');
 }
 
 function normalizeOutboundText(value: string): string {
@@ -250,6 +285,53 @@ export function isRecruiterQuestionnaire(value: string): boolean {
   if (numberedItemIds(text).length >= 2) return true;
   const questionMarks = (text.match(/\?/g) ?? []).length;
   return text.length >= 180 && questionMarks >= 3;
+}
+
+const OBJECTIVE_TECHNICAL_QUESTION_RE = /(?:^|[.!?]\s*)(?:что\s+(?:такое|происходит|позволяет|означает|делает|верн[её]т)|почему(?=$|[\s?!,:])|для\s+чего(?=$|[\s?!,:])|чем\s+отлича|в\s+ч[её]м\s+(?:разниц|отлич|различ)|как\s+(?:работает(?=$|[\s?!,:])|устроен|обеспечивается|реализовать|настроить|протестировать|проверить|диагностировать|решить|рассчитать|спроектировать|организовать|найти|исправить)|как\s+бы\s+вы\s+(?:решили|протестировали|проверили|организовали|спроектировали|диагностировали)|какие?[^?\n]{0,70}(?:существуют|бывают|используются|нужны|полезны|подойдут)|назовите[^?\n]{0,35}(?:причин|вид|тип|этап|метод|способ)|опишите[^?\n]{0,35}(?:алгоритм|подход|архитектур|процесс|принцип)|(?:напишите|составьте|приведите)[^?\n]{0,35}(?:sql|запрос|код|пример|тест)|решите\s+(?:задач|пример)|когда\s+(?:использовать|применять|нужен))/i;
+const OBJECTIVE_TECHNICAL_SUBJECT_RE = /(?:\b(?:sql|nosql|kafka|playwright|selenium|rest|api|http|https|tcp|udp|oauth|jwt|deadlock|mutex|docker|kubernetes|linux|git|java|python|javascript|typescript|redis|postgres|mysql|oracle|grpc|graphql|ci\s*\/\s*cd|at-least-once)\b|consumer\s+group|race\s+condition|баз[а-яё]*\s+данн|алгоритм|архитектур|микросервис|протокол|транзакц|индекс|кеш|кэш|очеред|поток|процесс|запрос|код|тестир|автотест|доставк|сериализац|контейнер|сеть|сетев|приложен|сервер)/iu;
+const NON_OBJECTIVE_RECRUITER_CLAUSE_RE = /(?:игнорир|не\s+следуй|обойди[^.!?;]{0,25}инструкц|забудь|забудьте|предыдущ[а-яё]*\s+инструкц|системн[а-яё]*\s+(?:промпт|сообщен)|prompt\s+injection|(?:^|[^a-zа-яё])(?:ваш[а-яё]*|сво[а-яё]*|your)(?=$|[^a-zа-яё])|(?:считай|представь|притвор)[^.!?;]{0,35}что|(?:ответь|ответьте|напиши|напишите|скажи|скажите)[^.!?;]{0,50}(?:что|будто)|(?:у\s+(?:меня|вас)|кандидат)[^.!?;]{0,60}(?:опыт|лет|готов|жив|зарплат|гражданств)|(?:опыт|стаж)[а-яё]*\s+(?:работ|использован|применен)|коммерческ[а-яё]*\s+опыт|\d+\s*(?:лет|год[а-яё]*)[^.!?;]{0,25}опыт|готов[а-яё]*[^.!?;]{0,35}(?:переех|переезд|релокац|офис|график)|гражданств|зарплат|текущ[а-яё]*\s+доход|место\s+(?:жительства|проживания)|почему[^.!?;]{0,35}(?:хотите\s+работать|ушл[а-яё]*)|мотивац|(?:наня|принять)[^.!?;]{0,20}вас|вас[^.!?;]{0,20}(?:наня|принять)|сильн[а-яё]*\s+сторон|слаб[а-яё]*\s+сторон|достижен|неудач|работаете[^.!?;]{0,35}конфликт|конфликт[^.!?;]{0,35}команд)/i;
+const CANDIDATE_HISTORY_ACTION_RE = /(?:^|[^\p{L}])(?:вы\s+)?(?:выбрал|работал|использовал|применял|писал|настраивал|разворачивал|проектировал|проводил|мигрировал|строил|тестировал|разрабатывал|внедрял|участвовал|руководил|делал)(?:а|и)?(?=$|[^\p{L}])|почему[^.!?;]{0,35}(?:вы\s+)?решили(?=$|[^\p{L}])/iu;
+const CANDIDATE_PAST_ACTION_GRAMMAR_RE = /(?:^|[^\p{L}])вы\s+[\p{L}-]{2,}(?:лись|лась|лся|ли|ла|л)(?=$|[^\p{L}])|котор[а-яё]*[^.!?;]{0,45}(?:вы\s+)?[\p{L}-]{2,}(?:лись|лась|лся|ли|ла|л)(?=$|[^\p{L}])/iu;
+
+function hhQuestionnaireItems(value: string): string[] {
+  return [...value.matchAll(/(?:^|\s)\d{1,2}[.)]\s+([\s\S]*?)(?=(?:\s+\d{1,2}[.)]\s+)|$)/g)]
+    .map((match) => compactText(match[1] ?? ''))
+    .filter(Boolean);
+}
+
+function isObjectiveTechnicalQuestion(value: string): boolean {
+  const text = compactText(value);
+  const nonHypotheticalText = text.replace(/как\s+бы\s+вы\s+[\p{L}-]+/giu, '');
+  if (
+    !text
+    || NON_OBJECTIVE_RECRUITER_CLAUSE_RE.test(text)
+    || CANDIDATE_HISTORY_ACTION_RE.test(text)
+    || CANDIDATE_PAST_ACTION_GRAMMAR_RE.test(nonHypotheticalText)
+  ) return false;
+  const clauses = text
+    .split(/[.!?;]\s+/u)
+    .map((clause) => clause.trim())
+    .filter(Boolean);
+  return clauses.length > 0 && clauses.every((clause) => (
+    OBJECTIVE_TECHNICAL_QUESTION_RE.test(clause)
+    && OBJECTIVE_TECHNICAL_SUBJECT_RE.test(clause)
+  ));
+}
+
+/** True unless every free-form answer can be limited to objective technical knowledge. */
+export function requiresHhChatFactProvenance(value: string): boolean {
+  const text = compactText(value);
+  const questionnaireItems = hhQuestionnaireItems(text);
+  if (isRecruiterQuestionnaire(text)) {
+    // An unnumbered questionnaire cannot be split reliably enough to prove
+    // that every requested answer is objective technical knowledge.
+    if (questionnaireItems.length < 2) return true;
+    return questionnaireItems.some((item) => !isObjectiveTechnicalQuestion(item));
+  }
+  // Free-form LLM output is allowed only for an explicitly recognized,
+  // impersonal technical question. Scheduling and exact candidate facts are
+  // handled by deterministic branches before this guard.
+  return !isObjectiveTechnicalQuestion(text);
 }
 
 export function isCompleteRecruiterQuestionnaireReply(
@@ -324,6 +406,82 @@ export function normalizeHhNegotiationVacancyUrl(value: string): string | undefi
   } catch {
     return undefined;
   }
+}
+
+function hhRecruiterVacancyId(value: string): string {
+  return normalizeHhNegotiationVacancyUrl(value)?.match(/\/vacancy\/(\d+)$/)?.[1] ?? '';
+}
+
+function hhRecruiterIdentityText(value: string): string {
+  return compactText(value).toLocaleLowerCase('ru');
+}
+
+const SUPPLEMENTAL_SALARY_FACT_RE = /(?:зарплат|заработн[а-яё]*\s+плат|оклад|доход|компенсац|денежн[а-яё]*\s+ожидан|salary|compensation|financial\s+expectations?|\bpay\b)/i;
+const SUPPLEMENTAL_MONEY_AMOUNT_RE = /(?:\d{2,3}(?:[\s\u00a0]\d{3})+|\d{5,7}|\d{2,4}\s*[кk])\s*(?:₽|руб(?:\.|лей|ля)?|rub\b)?/i;
+
+/** Removes cross-document salary evidence while retaining supplemental experience facts. */
+export function sanitizeHhChatSupplementalProfile(value: string): string {
+  return value
+    .split(/(?:\r?\n)+|(?<=[.!?;])\s+/)
+    .map((part) => part.trim())
+    .filter((part) => part
+      && !SUPPLEMENTAL_SALARY_FACT_RE.test(part)
+      && !SUPPLEMENTAL_MONEY_AMOUNT_RE.test(part))
+    .join('\n')
+    .trim();
+}
+
+export function buildHhChatCandidateProfileContent(profile: HhChatCandidateProfile): string {
+  const selectedResume = profile.selectedResumeText.trim();
+  if (!selectedResume) return '';
+  const supplemental = sanitizeHhChatSupplementalProfile(profile.supplementalProfileText ?? '');
+  return [
+    `ВЫБРАННОЕ РЕЗЮМЕ ДЛЯ ЭТОЙ ВАКАНСИИ (единственный источник зарплаты):\n${selectedResume}`,
+    supplemental
+      ? `ДОПОЛНИТЕЛЬНЫЙ ПРОФИЛЬ (только для опыта и навыков, не для зарплаты):\n${supplemental}`
+      : '',
+  ].filter(Boolean).join('\n\n');
+}
+
+/** Resolves the one persisted queue entry whose explicitly selected résumé belongs to this chat. */
+export function resolveHhRecruiterProfileSelection<T extends HhRecruiterProfileQueueCandidate>(
+  queue: readonly T[],
+  context: HhChatNegotiationContext,
+): HhRecruiterProfileSelection<T> | null {
+  const hhQueue = queue.filter((item) => item.platform === 'hh');
+  const requestedVacancyId = hhRecruiterVacancyId(context.vacancyUrl ?? '');
+  let matches: T[];
+  if (requestedVacancyId) {
+    matches = hhQueue.filter((item) => {
+      const itemVacancyId = hhRecruiterVacancyId(item.url)
+        || (/^\d+$/.test(item.id) ? item.id : '');
+      return itemVacancyId === requestedVacancyId;
+    });
+  } else {
+    const title = hhRecruiterIdentityText(context.vacancyTitle);
+    const company = hhRecruiterIdentityText(context.companyName);
+    if (!title || !company) return null;
+    matches = hhQueue.filter((item) => (
+      hhRecruiterIdentityText(item.title) === title
+      && hhRecruiterIdentityText(item.company) === company
+    ));
+  }
+  if (matches.length !== 1) return null;
+
+  const vacancy = matches[0];
+  const selectedResumeTitle = vacancy.selectedResumeTitle?.trim() ?? '';
+  // Titles inferred during a scan (especially legacy already-applied items) do
+  // not prove which résumé was actually sent. Personal recruiter replies may
+  // use it only after the HH response form visibly confirmed the exact résumé.
+  if (!selectedResumeTitle || vacancy.selectedResumeVerified !== true) return null;
+  const vacancyId = requestedVacancyId
+    || hhRecruiterVacancyId(vacancy.url)
+    || (/^\d+$/.test(vacancy.id) ? vacancy.id : '');
+  const vacancyIdentity = vacancyId
+    ? `hh-vacancy:${vacancyId}`
+    : `hh-chat:${hhRecruiterIdentityText(context.negotiationKey)}:${hhRecruiterIdentityText(vacancy.title)}:${hhRecruiterIdentityText(vacancy.company)}`;
+  const cacheKey = `${vacancyIdentity}\u0000resume:${hhRecruiterIdentityText(selectedResumeTitle)}`;
+  return { vacancy, selectedResumeTitle, cacheKey };
 }
 
 function formatRussianList(items: string[]): string {
@@ -512,7 +670,9 @@ export function isOutgoingChatClassName(value: string): boolean {
 }
 
 export type GetPageFn = (purpose?: 'background' | 'explicit') => Promise<Page | null>;
-export type GetCandidateProfileFn = (vacancyTitle: string) => Promise<string>;
+export type GetCandidateProfileFn = (
+  context: HhChatNegotiationContext,
+) => Promise<HhChatCandidateProfile | ''>;
 
 export class HhChatBrowser {
   private readonly getPage: GetPageFn;
@@ -693,14 +853,15 @@ export class HhChatBrowser {
     this.seenMessageIds.add(pending.messageId);
     this.pendingDecisions = this.pendingDecisions.filter((item) => item.id !== pending.id);
     if (remember) {
-      const factScopeMatches = (item: HhChatFact) => pending.kind === 'candidate_fact'
-        ? item.kind === pending.kind && compactText(item.question).toLocaleLowerCase('ru') === compactText(pending.question).toLocaleLowerCase('ru')
-        : item.kind === pending.kind;
+      const recruiterQuestion = pending.recruiterMessage;
+      const recruiterQuestionKey = chatFactQuestionKey(recruiterQuestion);
+      const factScopeMatches = (item: HhChatFact) => item.kind === pending.kind
+        && chatFactQuestionKey(item.question) === recruiterQuestionKey;
       const previous = this.confirmedFacts.find(factScopeMatches);
       const fact: HhChatFact = {
         id: previous?.id ?? `chat-fact-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         kind: pending.kind,
-        question: pending.question,
+        question: recruiterQuestion,
         answer,
         updatedAt: new Date().toISOString(),
       };
@@ -969,26 +1130,48 @@ export class HhChatBrowser {
         // never short-circuit the remaining questions.
         const decisionKind = questionnaire ? null : detectChatDecisionKind(lastMessage.text);
         if (decisionKind) {
+          const canAutoAnswerDecision = decisionKind !== 'salary'
+            || isSalaryExpectationQuestion(lastMessage.text);
           let resumeAnswer = '';
-          if ((decisionKind === 'salary' || decisionKind === 'experience') && this.getCandidateProfile) {
-            const candidateProfile = await this.settleWithin(
-              this.getCandidateProfile(negotiation.vacancyTitle).catch((error) => {
+          if (
+            canAutoAnswerDecision
+            && (decisionKind === 'salary' || decisionKind === 'experience')
+            && this.getCandidateProfile
+          ) {
+            const candidateProfile = await this.settleWithin<HhChatCandidateProfile | ''>(
+              this.getCandidateProfile({
+                negotiationKey: negotiation.key,
+                vacancyTitle: negotiation.vacancyTitle,
+                companyName: negotiation.companyName,
+                vacancyUrl: negotiation.vacancyUrl,
+              }).catch((error) => {
                 console.warn('[hh-chat-browser] salary resume lookup failed:', error);
-                return '';
+                return '' as const;
               }),
               8_000,
               '',
             );
+            const selectedResumeText = candidateProfile
+              ? candidateProfile.selectedResumeText
+              : '';
             if (decisionKind === 'salary') {
-              const salaryExpectation = findSalaryExpectation(null, [candidateProfile]);
+              const salaryExpectation = findSalaryExpectation(null, [selectedResumeText]);
               if (salaryExpectation) {
-                resumeAnswer = buildSalaryExpectationAnswer(salaryExpectation, lastMessage.text);
+                resumeAnswer = buildSalaryExpectationAnswer(
+                  salaryExpectation,
+                  lastMessage.text,
+                  selectedResumeText,
+                );
               }
             } else {
-              resumeAnswer = answerExperienceThresholdFromResume(lastMessage.text, candidateProfile) ?? '';
+              resumeAnswer = answerExperienceThresholdFromResume(lastMessage.text, selectedResumeText) ?? '';
             }
           }
-          const confirmed = this.confirmedFacts.find((item) => item.kind === decisionKind);
+          const recruiterQuestionKey = chatFactQuestionKey(lastMessage.text);
+          const confirmed = canAutoAnswerDecision && decisionKind !== 'salary'
+            ? this.confirmedFacts.find((item) => item.kind === decisionKind
+              && chatFactQuestionKey(item.question) === recruiterQuestionKey)
+            : undefined;
           const automaticAnswer = resumeAnswer || confirmed?.answer || '';
           if (automaticAnswer) {
             await this.delay(this.config.replyDelaySec * 1000);
@@ -1043,14 +1226,30 @@ export class HhChatBrowser {
           continue;
         }
 
-        const candidateProfilePromise = this.getCandidateProfile?.(negotiation.vacancyTitle)
-          .catch((error) => {
-            console.warn('[hh-chat-browser] candidate profile unavailable:', error);
-            return '';
-          }) ?? Promise.resolve('');
-        const candidateProfile = (await this.settleWithin(candidateProfilePromise, 8_000, ''))
+        const candidateProfilePromise: Promise<HhChatCandidateProfile | ''> =
+          this.getCandidateProfile?.({
+            negotiationKey: negotiation.key,
+            vacancyTitle: negotiation.vacancyTitle,
+            companyName: negotiation.companyName,
+            vacancyUrl: negotiation.vacancyUrl,
+          })
+            .catch((error) => {
+              console.warn('[hh-chat-browser] candidate profile unavailable:', error);
+              return '' as const;
+            }) ?? Promise.resolve('' as const);
+        const candidateProfileResult = await this.settleWithin<HhChatCandidateProfile | ''>(
+          candidateProfilePromise,
+          8_000,
+          '',
+        );
+        const candidateProfile = (candidateProfileResult
+          ? buildHhChatCandidateProfileContent(candidateProfileResult)
+          : '')
           .trim()
           .slice(0, 12_000);
+        const selectedResumeProfile = candidateProfileResult
+          ? candidateProfileResult.selectedResumeText.trim().slice(0, 12_000)
+          : '';
         const confirmedFacts = this.confirmedFacts.length > 0
           ? `\n\nПодтверждённые пользователем условия (используй только когда вопрос совпадает по смыслу):\n${this.confirmedFacts.map((item) => `- ${item.question}: ${item.answer}`).join('\n')}`
           : '';
@@ -1073,12 +1272,56 @@ export class HhChatBrowser {
           .replaceAll('{company}', negotiation.companyName)
           .replaceAll('{candidateProfile}', candidateProfile || '(подтверждённый профиль пока недоступен)')
           .replaceAll('{message}', lastMessage.text);
-        const groundedReply = buildGroundedRecruiterReply(lastMessage.text, candidateProfile);
-        let rawReply = groundedReply ?? (await this.settleWithin(this.llmCall(prompt), 20_000, ''))
+        const resumeReplyCandidate = buildGroundedRecruiterReply(
+          lastMessage.text,
+          selectedResumeProfile,
+        );
+        const resumeGroundedReply = resumeReplyCandidate
+          ? prepareRecruiterReply(resumeReplyCandidate, lastMessage.text)
+          : null;
+        const recruiterQuestionKey = chatFactQuestionKey(lastMessage.text);
+        const exactConfirmedFact = this.confirmedFacts.find((item) => (
+          item.kind === 'candidate_fact'
+          && chatFactQuestionKey(item.question) === recruiterQuestionKey
+        ));
+        const exactConfirmedReply = exactConfirmedFact
+          ? prepareRecruiterReply(exactConfirmedFact.answer, lastMessage.text)
+          : null;
+        const trustedReply = resumeGroundedReply ?? exactConfirmedReply;
+        const trustedReplySource: HhChatReplySource | null = resumeGroundedReply
+          ? 'resume_fact'
+          : exactConfirmedReply ? 'saved_fact' : null;
+
+        if (requiresHhChatFactProvenance(lastMessage.text) && !trustedReply) {
+          if (!this.pendingDecisions.some((item) => item.messageId === messageId)) {
+            this.pendingDecisions.push({
+              id: `chat-decision-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+              negotiationKey: negotiation.key,
+              messageId,
+              vacancyTitle: negotiation.vacancyTitle,
+              companyName: negotiation.companyName,
+              recruiterMessage: lastMessage.text,
+              question: questionnaire
+                ? 'Подтвердите единый ответ на все вопросы работодателя: анкета содержит личные, юридические или карьерные факты.'
+                : `Подтвердите личный факт для ответа работодателю: «${lastMessage.text.slice(0, 300)}»`,
+              kind: 'candidate_fact',
+              createdAt: new Date().toISOString(),
+            });
+            this.pendingDecisions = this.pendingDecisions.slice(-100);
+            shouldPersist = true;
+          }
+          conversations.set(negotiation.key, {
+            ...conversations.get(negotiation.key)!,
+            needsUserInput: true,
+          });
+          continue;
+        }
+
+        let rawReply = trustedReply ?? (await this.settleWithin(this.llmCall(prompt), 20_000, ''))
           .trim()
           .slice(0, 6_000);
         let reply = prepareRecruiterReply(rawReply, lastMessage.text);
-        if (!reply && !groundedReply) {
+        if (!reply && !trustedReply) {
           rawReply = (await this.settleWithin(
             this.llmCall(
               `${prompt}\n\nПредыдущий вариант не прошёл проверку безопасности или релевантности. ` +
@@ -1150,7 +1393,7 @@ export class HhChatBrowser {
           companyName: negotiation.companyName,
           recruiterMessage: lastMessage.text,
           reply,
-          source: 'generated',
+          source: trustedReplySource ?? 'generated',
         });
         shouldPersist = true;
         conversations.set(negotiation.key, {

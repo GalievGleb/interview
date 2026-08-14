@@ -78,7 +78,10 @@ type TestableAssistant = {
   state: HhAssistantState;
   statePath: string;
   getState: () => HhAssistantState;
-  getSelectedResumeText: (vacancyTitle: string) => Promise<string>;
+  getSelectedResumeText: (
+    vacancyTitle: string,
+    options?: { throwOnFailure?: boolean; selectedResumeTitle?: string },
+  ) => Promise<string>;
   fillEmployerQuestions: (page: Page, item: HhQueueItem) => Promise<ScreeningResult>;
   ensureBrowser: () => Promise<Page>;
   preferredApplicantResume: () => Promise<null>;
@@ -164,7 +167,244 @@ afterEach(() => {
 });
 
 describe('HH rejected screening batches', () => {
-  it('does not turn a provider failure into persisted personal questions', async () => {
+  it('autofills salary and city from the resume selected for the current vacancy', async () => {
+    const fields: HhScreeningField[] = [
+      {
+        ...field('salary'),
+        question: {
+          ...field('salary').question,
+          prompt: 'Уточните, пожалуйста, Ваши финансовые ожидания',
+        },
+      },
+      {
+        ...field('city'),
+        question: {
+          ...field('city').question,
+          prompt: 'Где вы сейчас живёте?',
+        },
+      },
+    ];
+    screeningMocks.collect.mockResolvedValue(fields);
+    let submittedAnswers: HhScreeningAnswer[] = [];
+    screeningMocks.fill.mockImplementation(async (_page, currentFields, answers) => {
+      submittedAnswers = answers;
+      return { filled: currentFields.length, unresolved: [] };
+    });
+    const generator = vi.fn(async () => ({ answers: [] }));
+    const assistant = createAssistant(generator);
+    const selectedResumeTitle = 'QA Automation Engineer Python 220 000 ₽ · Удалённо';
+    assistant.state.config = {
+      ...assistant.state.config,
+      salaryFrom: null,
+      resumeTitles: ['QA Fullstack Engineer Python 240 000 ₽ · Удалённо'],
+    };
+    assistant.getSelectedResumeText = vi.fn(async () => (
+      `${selectedResumeTitle}\nГород проживания: Казань\nPython · Pytest · Playwright`
+    ));
+    const item = { ...vacancy(), selectedResumeTitle };
+
+    const result = await assistant.fillEmployerQuestions({} as Page, item);
+
+    expect(result.ok).toBe(true);
+    expect(generator).not.toHaveBeenCalled();
+    expect(assistant.getSelectedResumeText).toHaveBeenCalledWith(item.title, {
+      throwOnFailure: true,
+      selectedResumeTitle,
+    });
+    expect(submittedAnswers.find((answer) => answer.id === 'salary')?.answer)
+      .toMatch(/220[\s\u00a0]000 ₽/u);
+    expect(submittedAnswers.find((answer) => answer.id === 'city')).toMatchObject({
+      answer: 'Казань',
+      canAutoFill: true,
+    });
+  });
+
+  it('autofills salary from the selected resume title without fetching the resume body', async () => {
+    const salaryField: HhScreeningField = {
+      ...field('salary-title-only'),
+      question: {
+        ...field('salary-title-only').question,
+        prompt: 'Уточните, пожалуйста, Ваши финансовые ожидания',
+      },
+    };
+    screeningMocks.collect.mockResolvedValue([salaryField]);
+    let submittedAnswers: HhScreeningAnswer[] = [];
+    screeningMocks.fill.mockImplementation(async (_page, currentFields, answers) => {
+      submittedAnswers = answers;
+      return { filled: currentFields.length, unresolved: [] };
+    });
+    const generator = vi.fn(async () => ({ answers: [] }));
+    const assistant = createAssistant(generator);
+    const selectedResumeTitle = 'QA Automation Engineer Python 220 000 ₽ · Удалённо';
+    assistant.state.config = {
+      ...assistant.state.config,
+      salaryFrom: null,
+      resumeTitles: ['QA Fullstack Engineer Python 240 000 ₽ · Удалённо'],
+    };
+    assistant.getSelectedResumeText = vi.fn(async () => {
+      throw new Error('resume body temporarily unavailable');
+    });
+
+    const result = await assistant.fillEmployerQuestions(
+      {} as Page,
+      { ...vacancy(), selectedResumeTitle },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(assistant.getSelectedResumeText).not.toHaveBeenCalled();
+    expect(generator).not.toHaveBeenCalled();
+    expect(submittedAnswers[0]?.answer).toMatch(/220[\s\u00a0]000 ₽/u);
+    expect(submittedAnswers[0]?.answer).not.toContain('на руки');
+  });
+
+  it('autofills the selected resume city instead of a stale saved city', async () => {
+    const cityField: HhScreeningField = {
+      ...field('current-city'),
+      question: {
+        ...field('current-city').question,
+        prompt: 'В каком городе вы сейчас проживаете?',
+      },
+    };
+    screeningMocks.collect.mockResolvedValue([cityField]);
+    let submittedAnswers: HhScreeningAnswer[] = [];
+    screeningMocks.fill.mockImplementation(async (_page, currentFields, answers) => {
+      submittedAnswers = answers;
+      return { filled: currentFields.length, unresolved: [] };
+    });
+    const generator = vi.fn(async () => ({ answers: [] }));
+    const assistant = createAssistant(generator);
+    const selectedResumeTitle = 'QA Automation Engineer Python 220 000 ₽ · Удалённо';
+    assistant.state.screeningFacts = [{
+      id: 'old-confirmed-city',
+      question: 'В каком городе проживаешь фактически?',
+      answer: 'Казань',
+      selectedOptions: [],
+      updatedAt: '2025-01-01T00:00:00.000Z',
+    }];
+    assistant.getSelectedResumeText = vi.fn(async () => (
+      `${selectedResumeTitle}\nГород проживания: Москва`
+    ));
+
+    const result = await assistant.fillEmployerQuestions(
+      {} as Page,
+      { ...vacancy(), selectedResumeTitle },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(assistant.getSelectedResumeText).toHaveBeenCalledOnce();
+    expect(generator).not.toHaveBeenCalled();
+    expect(submittedAnswers[0]).toMatchObject({
+      id: 'current-city',
+      answer: 'Москва',
+      canAutoFill: true,
+    });
+  });
+
+  it('keeps an exact answer confirmed for this vacancy above resume salary and city', async () => {
+    const fields: HhScreeningField[] = [
+      {
+        ...field('salary-exact'),
+        question: {
+          ...field('salary-exact').question,
+          prompt: 'Уточните, пожалуйста, Ваши финансовые ожидания',
+        },
+      },
+      {
+        ...field('city-exact'),
+        question: {
+          ...field('city-exact').question,
+          prompt: 'Где вы сейчас живёте?',
+        },
+      },
+    ];
+    screeningMocks.collect.mockResolvedValue(fields);
+    let submittedAnswers: HhScreeningAnswer[] = [];
+    screeningMocks.fill.mockImplementation(async (_page, currentFields, answers) => {
+      submittedAnswers = answers;
+      return { filled: currentFields.length, unresolved: [] };
+    });
+    const generator = vi.fn(async () => ({ answers: [] }));
+    const assistant = createAssistant(generator);
+    const selectedResumeTitle = 'QA Automation Engineer Python 220 000 ₽ · Удалённо';
+    assistant.getSelectedResumeText = vi.fn(async () => (
+      `${selectedResumeTitle}\nГород проживания: Москва`
+    ));
+    const item: HhQueueItem = {
+      ...vacancy(),
+      selectedResumeTitle,
+      screeningAnswers: [
+        {
+          questionId: 'salary-exact',
+          question: 'Уточните, пожалуйста, Ваши финансовые ожидания',
+          answer: 'Рассматриваю предложения от 250 000 ₽ в месяц.',
+          selectedOptions: [],
+          confirmedByUser: true,
+        },
+        {
+          questionId: 'city-exact',
+          question: 'Где вы сейчас живёте?',
+          answer: 'Казань',
+          selectedOptions: [],
+          confirmedByUser: true,
+        },
+      ],
+    };
+
+    const result = await assistant.fillEmployerQuestions({} as Page, item);
+
+    expect(result.ok).toBe(true);
+    expect(generator).not.toHaveBeenCalled();
+    expect(assistant.getSelectedResumeText).not.toHaveBeenCalled();
+    expect(submittedAnswers.find((answer) => answer.id === 'salary-exact')?.answer)
+      .toMatch(/250[\s\u00a0]000 ₽/u);
+    expect(submittedAnswers.find((answer) => answer.id === 'city-exact')?.answer).toBe('Казань');
+  });
+
+  it('does not auto-submit a remembered city when the selected resume cannot be loaded', async () => {
+    const cityField: HhScreeningField = {
+      ...field('current-city-load-error'),
+      question: {
+        ...field('current-city-load-error').question,
+        prompt: 'Где вы сейчас живёте?',
+      },
+    };
+    screeningMocks.collect.mockResolvedValue([cityField]);
+    let submittedAnswers: HhScreeningAnswer[] = [];
+    screeningMocks.fill.mockImplementation(async (_page, currentFields, answers) => {
+      submittedAnswers = answers;
+      return {
+        filled: 0,
+        unresolved: currentFields.map((current) => ({
+          id: current.question.id,
+          reason: 'Город нужно подтвердить.',
+        })),
+      };
+    });
+    const generator = vi.fn(async () => ({ answers: [] }));
+    const assistant = createAssistant(generator);
+    assistant.state.screeningFacts = [{
+      id: 'stale-city-from-another-resume',
+      question: 'Где вы сейчас живёте?',
+      answer: 'Москва',
+      selectedOptions: [],
+      updatedAt: '2025-01-01T00:00:00.000Z',
+    }];
+    assistant.getSelectedResumeText = vi.fn(async () => {
+      throw new Error('HH временно не вернул выбранное резюме.');
+    });
+
+    const result = await assistant.fillEmployerQuestions({} as Page, {
+      ...vacancy(),
+      selectedResumeTitle: 'QA Automation Engineer Python 220 000 ₽ · Удалённо',
+    } as HhQueueItem);
+
+    expect(result).toMatchObject({ ok: false, failureKind: 'manual' });
+    expect(submittedAnswers[0]?.canAutoFill).toBe(false);
+    expect(submittedAnswers[0]?.answer).not.toBe('Москва');
+    expect(result.pendingQuestions?.[0]?.suggestedAnswer).not.toBe('Москва');
+  });
+
+  it('turns a provider failure into persisted questions with useful review drafts', async () => {
     screeningMocks.collect.mockResolvedValue([field('q1'), field('q2')]);
     const generator = vi.fn(async () => {
       throw new Error('Провайдер не успел подготовить ответы. Повторите позже.');
@@ -174,8 +414,12 @@ describe('HH rejected screening batches', () => {
     const result = await assistant.fillEmployerQuestions({} as Page, vacancy());
 
     expect(generator).toHaveBeenCalledOnce();
-    expect(result).toMatchObject({ ok: false, failureKind: 'transient' });
-    expect(result.pendingQuestions).toBeUndefined();
+    expect(result).toMatchObject({ ok: false, failureKind: 'manual' });
+    expect(result.pendingQuestions).toHaveLength(2);
+    expect(result.pendingQuestions?.every((question) => (
+      Boolean(question.suggestedAnswer?.trim())
+      || Boolean(question.suggestedOptions?.length)
+    ))).toBe(true);
   });
 
   it('keeps an explicit fulfilled canAutoFill=false answer as a manual question', async () => {
@@ -197,6 +441,7 @@ describe('HH rejected screening batches', () => {
     expect(result.pendingQuestions?.[0]?.assistantReason).toBe(
       'В резюме нет подтверждённого личного факта.',
     );
+    expect(result.pendingQuestions?.[0]?.suggestedAnswer).toBeTruthy();
   });
 
   it('persists an unrecognized external form as manual and never rearms the short timer', async () => {
@@ -237,7 +482,7 @@ describe('HH rejected screening batches', () => {
     expect(generator).not.toHaveBeenCalled();
   });
 
-  it('continues with the second vacancy after a transient screening failure', async () => {
+  it('keeps review drafts and continues with the second vacancy after a provider failure', async () => {
     vi.useFakeTimers();
     screeningMocks.collect.mockResolvedValue([field('provider-question')]);
     const generator = vi.fn(async () => {
@@ -281,10 +526,10 @@ describe('HH rejected screening batches', () => {
     expect(generator).toHaveBeenCalledOnce();
     expect(detect).toHaveBeenCalledTimes(2);
     expect(assistant.getState().queue[0]).toMatchObject({
-      status: 'opened',
-      autoRetryBlockedUntil: 'daily',
+      status: 'needs_input',
     });
-    expect(assistant.getState().queue[0]?.pendingQuestions).toBeUndefined();
+    expect(assistant.getState().queue[0]?.autoRetryBlockedUntil).toBeUndefined();
+    expect(assistant.getState().queue[0]?.pendingQuestions?.[0]?.suggestedAnswer).toBeTruthy();
     expect(assistant.getState().queue[1]?.status).toBe('already_applied');
     expect(assistant.getState().runHistory[0]).toMatchObject({
       status: 'attention',
@@ -295,7 +540,8 @@ describe('HH rejected screening batches', () => {
     expect(assistant.queueResumeTimer).toBeNull();
 
     const restored = createAssistant(generator, path.dirname(assistant.statePath));
-    expect(restored.getState().queue[0]?.autoRetryBlockedUntil).toBe('daily');
+    expect(restored.getState().queue[0]?.status).toBe('needs_input');
+    expect(restored.getState().queue[0]?.autoRetryBlockedUntil).toBeUndefined();
     restored.restoreSchedule();
     expect(restored.queueResumeTimer).toBeNull();
     await vi.advanceTimersByTimeAsync(31 * 60 * 1_000);
@@ -405,7 +651,7 @@ describe('HH rejected screening batches', () => {
     expect(maximumActive).toBe(2);
   });
 
-  it('treats a selected resume fetch failure as transient and keeps it out of personal questions', async () => {
+  it('keeps useful pending drafts when the selected resume body cannot be fetched', async () => {
     screeningMocks.collect.mockResolvedValue([field('resume-dependent')]);
     const generator = vi.fn(async () => ({ answers: [] }));
     const assistant = createAssistant(generator);
@@ -415,9 +661,9 @@ describe('HH rejected screening batches', () => {
 
     const result = await assistant.fillEmployerQuestions({} as Page, vacancy());
 
-    expect(result).toMatchObject({ ok: false, failureKind: 'transient' });
-    expect(result.reason).toContain('текст резюме');
-    expect(result.pendingQuestions).toBeUndefined();
-    expect(generator).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ ok: false, failureKind: 'manual' });
+    expect(result.pendingQuestions).toHaveLength(1);
+    expect(result.pendingQuestions?.[0]?.suggestedAnswer).toBeTruthy();
+    expect(generator).toHaveBeenCalledOnce();
   });
 });

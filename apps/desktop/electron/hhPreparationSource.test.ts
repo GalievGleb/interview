@@ -6,7 +6,10 @@ describe('HH preparation sources', () => {
     const html = `
       <main>
         <div data-qa="resume-position-card"><h1>QA Automation Engineer</h1><p>Python · pytest</p></div>
+        <div data-qa="resume-personal-address">Казань</div>
         <div data-qa="resume-contacts-phone">+7 999 000-00-00</div>
+        <div data-qa="resume-email-address">gleb@example.com</div>
+        <div data-qa="resume-location-preference">Готов к переезду</div>
         <section data-qa="resume-list-card-experience">
           <h2>Опыт работы</h2><article>SkillCue — автоматизировал API-тесты</article>
           <script>{"hugeApplicationState":"must not enter prompt"}</script>
@@ -18,9 +21,12 @@ describe('HH preparation sources', () => {
     const text = parseHhResumeText(html);
 
     expect(text).toContain('QA Automation Engineer');
+    expect(text).toContain('Город проживания: Казань');
     expect(text).toContain('автоматизировал API-тесты');
     expect(text).toContain('Playwright');
     expect(text).not.toContain('+7 999');
+    expect(text).not.toContain('gleb@example.com');
+    expect(text).not.toContain('Город проживания: Готов к переезду');
     expect(text).not.toContain('hugeApplicationState');
     expect(text).not.toContain('Рекомендованные вакансии');
   });

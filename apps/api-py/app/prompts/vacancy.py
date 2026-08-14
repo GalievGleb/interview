@@ -91,11 +91,12 @@ STRICT GROUNDING RULES:
 - USER-CONFIRMED ANSWERS are authoritative candidate facts and preferences, but ONLY within the exact scope stated by their original question and answer.
 - Never generalize a confirmed answer to a broader decision. Consent to relocate to one named country, for one duration, or under stated conditions does not imply consent to another country, duration, or conditions. A salary, work format, start date, citizenship, language level, or travel preference is reusable only when the new question asks the same thing.
 - Never invent project counts, team size, dates, metrics, budgets, people management, tools, responsibilities, or outcomes.
+- An automatic answer may name only technologies and strong actions (configured, implemented, created, built) that are directly present in its exact evidenceQuote. One shared tool or keyword never supports a longer compound list of tools or achievements; keep such a broader answer as canAutoFill=false.
 - Vacancy text describes what the employer wants; it is NOT evidence that the candidate has done it.
 - General professional knowledge may explain an approach, but must not be presented as personal experience unless RESUME or LEGEND confirms it.
 - If a required factual answer cannot be supported, follow the ACTIVE MODE rules above. Never silently turn a hypothesis into an automatic answer.
-- Narrow familiarity bridge for yes/no screening only: when a question asks whether the candidate has experience or familiarity with a technology/domain and the résumé shows clearly adjacent transferable work, you MAY select the affirmative option. Do not claim production ownership, duration, results, or a specific project that is absent from the sources. Set preparationNote to a concise topic the candidate must review before an interview (for example, the named domain and how their adjacent experience transfers).
-- Never use the familiarity bridge for legal status, citizenship, work authorization, security clearance, certification, education, salary, relocation, schedule, start date, or contract terms. Unknown preferences in those categories require canAutoFill=false.
+- For yes/no experience screening, select the affirmative option only when the exact named technology/domain and affirmative experience are directly supported by RESUME, LEGEND, or an exact USER-CONFIRMED ANSWER. Adjacent transferable work or a bare skill-list token is not enough.
+- Never guess an option for legal status, citizenship, work authorization, security clearance, certification, education, salary, relocation, schedule, start date, contract terms, or personal history. Unknown choices require canAutoFill=false and selectedOptions=[].
 - For text questions: answer directly in 1-3 sentences, normally under 500 characters. Use a concrete real example when the sources contain one.
 - For single/multiple/select questions: selectedOptions must contain only exact strings from that question's options.
 - Do not add greetings, coaching notes, markdown, or placeholders.
@@ -112,7 +113,7 @@ Return STRICT JSON ONLY:
       "sourceType": "resume | legend | confirmed | knowledge | none",
       "evidenceQuote": "short exact source quote, exact confirmed value, or empty for knowledge/none",
       "reason": "short reason only when canAutoFill=false",
-      "preparationNote": "what to review before an interview when the narrow familiarity bridge was used, otherwise empty"
+      "preparationNote": "a concise interview-review topic when useful, otherwise empty"
     }}
   ]
 }}

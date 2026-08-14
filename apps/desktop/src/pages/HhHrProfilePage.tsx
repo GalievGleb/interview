@@ -17,11 +17,13 @@ import {
 import {
   countUnansweredHhScreeningQuestions,
   hhScreeningRelocationScope,
+  hhScreeningPromptKey,
   hhScreeningSemanticKey,
   HH_SCREENING_DRAFTS_STORAGE_KEY,
   isHhAiQuotaMessage,
   isHhScreeningAnswerComplete,
   readHhScreeningDrafts,
+  reconcileHhScreeningLocalDraft,
   summarizePendingHhScreening,
   uniqueHhScreeningQuestions,
 } from '../lib/hhScreening';
@@ -37,6 +39,7 @@ interface ScreeningDraft {
   answer: string;
   selectedOptions: string[];
   confirmedByUser: boolean;
+  promptKey?: string;
 }
 
 function draftKey(vacancyKey: string, questionId: string): string {
@@ -44,6 +47,7 @@ function draftKey(vacancyKey: string, questionId: string): string {
 }
 
 function isComplete(question: HhScreeningQuestion, value: ScreeningDraft | undefined): boolean {
+  if (value?.promptKey !== hhScreeningPromptKey(question.prompt)) return false;
   return isHhScreeningAnswerComplete(
     question,
     value?.answer,
@@ -115,6 +119,7 @@ export default function HhHrProfilePage() {
   const [reloadKey, setReloadKey] = useState(0);
   const [generatedSuggestions, setGeneratedSuggestions] = useState<Record<string, HhScreeningDraftSuggestion>>({});
   const suggestionRequestId = useRef(0);
+  const automaticallyPreparedDrafts = useRef(new Set<string>());
 
   useEffect(() => {
     if (!assistant) return;
@@ -202,19 +207,55 @@ export default function HhHrProfilePage() {
       for (const vacancy of pendingVacancies) {
         for (const question of vacancy.pendingQuestions ?? []) {
           const key = draftKey(vacancy.key, question.id);
-          if (next[key]) continue;
-          if (!question.suggestedAnswer && !(question.suggestedOptions?.length)) continue;
-          next[key] = {
-            answer: question.suggestedAnswer ?? '',
-            selectedOptions: question.suggestedOptions ?? [],
-            confirmedByUser: false,
-          };
+          const reconciled = reconcileHhScreeningLocalDraft(question, next[key]);
+          if (reconciled === next[key]) continue;
+          next[key] = reconciled;
           changed = true;
         }
       }
       return changed ? next : current;
     });
   }, [pendingVacancies]);
+
+  useEffect(() => {
+    if (!assistant) return;
+    for (const vacancy of pendingVacancies) {
+      for (const question of vacancy.pendingQuestions ?? []) {
+        if (hhScreeningSemanticKey(question.prompt) !== 'profile:current-location') continue;
+        const key = draftKey(vacancy.key, question.id);
+        const promptKey = hhScreeningPromptKey(question.prompt);
+        // Re-run hydration after the user explicitly selects a résumé. A
+        // previously shown city hint must then be replaced by the city from
+        // that exact résumé rather than staying as an unconfirmed stale draft.
+        const requestKey = `${key}::${promptKey}::${vacancy.selectedResumeTitle ?? ''}`;
+        if (automaticallyPreparedDrafts.current.has(requestKey)) continue;
+        automaticallyPreparedDrafts.current.add(requestKey);
+        void assistant.suggestScreeningAnswer(vacancy.key, question.id)
+          .then((suggestion) => {
+            setDrafts((current) => {
+              const existing = current[key];
+              if (existing?.confirmedByUser && existing.promptKey === promptKey) return current;
+              return {
+                ...current,
+                [key]: {
+                  answer: suggestion.answer,
+                  selectedOptions: suggestion.selectedOptions,
+                  // A profile result is a deterministic value from the exact
+                  // selected résumé or a previously confirmed fact.
+                  confirmedByUser: suggestion.source === 'profile',
+                  promptKey,
+                },
+              };
+            });
+            setGeneratedSuggestions((current) => ({ ...current, [key]: suggestion }));
+          })
+          .catch(() => {
+            // The seeded local draft remains usable. A visible manual retry is
+            // still available without turning a browser/read error into a dead end.
+          });
+      }
+    }
+  }, [assistant, pendingVacancies]);
 
   useEffect(() => {
     localStorage.setItem(HH_SCREENING_DRAFTS_STORAGE_KEY, JSON.stringify(drafts));
@@ -245,6 +286,7 @@ export default function HhHrProfilePage() {
         answer,
         selectedOptions: current[key]?.selectedOptions ?? [],
         confirmedByUser: true,
+        promptKey: hhScreeningPromptKey(currentQuestion.prompt),
       },
     }));
     setGeneratedSuggestions((current) => {
@@ -264,13 +306,24 @@ export default function HhHrProfilePage() {
       setSuggestingDraftKey('');
     }
     setDrafts((current) => {
-      const value = current[key] ?? { answer: '', selectedOptions: [], confirmedByUser: false };
+      const value = current[key] ?? {
+        answer: '', selectedOptions: [], confirmedByUser: false,
+        promptKey: hhScreeningPromptKey(currentQuestion.prompt),
+      };
       const selectedOptions = currentQuestion.kind === 'multiple'
         ? value.selectedOptions.includes(option)
           ? value.selectedOptions.filter((item) => item !== option)
           : [...value.selectedOptions, option]
         : [option];
-      return { ...current, [key]: { ...value, selectedOptions, confirmedByUser: true } };
+      return {
+        ...current,
+        [key]: {
+          ...value,
+          selectedOptions,
+          confirmedByUser: true,
+          promptKey: hhScreeningPromptKey(currentQuestion.prompt),
+        },
+      };
     });
     setError('');
   };
@@ -312,6 +365,7 @@ export default function HhHrProfilePage() {
           answer: suggestion.answer,
           selectedOptions: suggestion.selectedOptions,
           confirmedByUser: false,
+          promptKey: hhScreeningPromptKey(currentQuestion.prompt),
         },
       }));
       setGeneratedSuggestions((current) => ({ ...current, [key]: suggestion }));
@@ -333,7 +387,11 @@ export default function HhHrProfilePage() {
       if (!value) return current;
       return {
         ...current,
-        [currentDraftKey]: { ...value, confirmedByUser: true },
+        [currentDraftKey]: {
+          ...value,
+          confirmedByUser: true,
+          promptKey: currentQuestion ? hhScreeningPromptKey(currentQuestion.prompt) : value.promptKey,
+        },
       };
     });
     setError('');
@@ -608,23 +666,31 @@ export default function HhHrProfilePage() {
                       placeholder="Ответьте своими словами. SkillCue сохранит смысл и использует его в следующих анкетах."
                     />
                   ) : (
-                    <div className="grid gap-2 sm:grid-cols-2">
-                      {currentQuestion.options.map((option) => {
-                        const selected = drafts[draftKey(activeVacancy.key, currentQuestion.id)]?.selectedOptions.includes(option) ?? false;
-                        return (
-                          <label key={option} className={`flex cursor-pointer items-start gap-2.5 rounded-xl border p-3.5 text-sm transition-[color,background-color,border-color] ${selected ? 'border-emerald-400/40 bg-emerald-400/[0.07] text-ink' : 'border-surface-border bg-surface-light text-ink-muted hover:bg-surface-hover'}`}>
-                            <input
-                              type={currentQuestion.kind === 'multiple' ? 'checkbox' : 'radio'}
-                              name={`${activeVacancy.key}-${currentQuestion.id}`}
-                              checked={selected}
-                              onChange={() => updateOption(option)}
-                              className="mt-0.5 h-4 w-4 accent-emerald-500"
-                            />
-                            <span>{option}</span>
-                          </label>
-                        );
-                      })}
-                    </div>
+                    <>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {currentQuestion.options.map((option) => {
+                          const selected = drafts[draftKey(activeVacancy.key, currentQuestion.id)]?.selectedOptions.includes(option) ?? false;
+                          return (
+                            <label key={option} className={`flex cursor-pointer items-start gap-2.5 rounded-xl border p-3.5 text-sm transition-[color,background-color,border-color] ${selected ? 'border-emerald-400/40 bg-emerald-400/[0.07] text-ink' : 'border-surface-border bg-surface-light text-ink-muted hover:bg-surface-hover'}`}>
+                              <input
+                                type={currentQuestion.kind === 'multiple' ? 'checkbox' : 'radio'}
+                                name={`${activeVacancy.key}-${currentQuestion.id}`}
+                                checked={selected}
+                                onChange={() => updateOption(option)}
+                                className="mt-0.5 h-4 w-4 accent-emerald-500"
+                              />
+                              <span>{option}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                      {currentDraft?.answer && currentDraft.selectedOptions.length === 0 && (
+                        <div className="mt-2.5 flex items-start gap-2 rounded-lg border border-amber-300/20 bg-amber-300/[0.04] px-3 py-2.5 text-xs leading-relaxed text-amber-100" role="note">
+                          <ShieldCheck className="mt-0.5 shrink-0" size={13} />
+                          <span>{currentDraft.answer}</span>
+                        </div>
+                      )}
+                    </>
                   )}
                   {currentQuestion.kind === 'text' && hasWrittenAnswer && currentDraftConfirmed && (
                     <p className="mt-2 flex items-center gap-1.5 text-[11px] text-emerald-200">

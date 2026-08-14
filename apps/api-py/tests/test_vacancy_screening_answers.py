@@ -50,7 +50,7 @@ def test_screening_answers_uses_resume_and_preserves_exact_options(client, monke
                 "answers": [
                     {
                         "id": "parallel-projects",
-                        "answer": "Одновременно вёл два IT-проекта и контролировал сроки в Jira.",
+                        "answer": "Вёл два проекта и использовал Jira.",
                         "selectedOptions": [],
                         "canAutoFill": True,
                         "sourceType": "resume",
@@ -77,14 +77,21 @@ def test_screening_answers_uses_resume_and_preserves_exact_options(client, monke
 
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["answers"][0]["canAutoFill"] is True
+    # Model text remains a useful, source-labelled draft, but only an exact
+    # user-confirmed value may leave review mode. Deterministic desktop rules
+    # handle allowlisted résumé facts such as city and salary.
+    assert body["answers"][0]["canAutoFill"] is False
     assert body["answers"][0]["sourceType"] == "resume"
     assert body["answers"][0]["evidenceQuote"] == "Вёл два проекта, использовал Jira"
-    assert body["answers"][1]["selectedOptions"] == ["Да"]
-    assert body["answers"][1]["preparationNote"] == "Повторить базовые рабочие процессы Jira."
+    # Model-generated closed choices stay visible for review without a risky
+    # Да/Нет preselection; exact user-confirmed choices are covered below.
+    assert body["answers"][1]["selectedOptions"] == []
+    assert body["answers"][1]["answer"]
+    assert body["answers"][1]["canAutoFill"] is False
+    assert body["answers"][1]["preparationNote"] == ""
     assert "Вёл два проекта" in captured["prompt"]
     assert "Never invent project counts" in captured["prompt"]
-    assert "Narrow familiarity bridge" in captured["prompt"]
+    assert "bare skill-list token is not enough" in captured["prompt"]
     assert "AUTOMATIC MODE" in captured["prompt"]
     assert captured["model"].endswith("gpt-4o-mini")
     assert captured["kwargs"]["max_tokens"] <= 1600
@@ -116,6 +123,9 @@ def test_screening_answers_blocks_missing_or_unusable_model_items(client, monkey
     answers = {item["id"]: item for item in response.json()["answers"]}
     assert answers["parallel-projects"]["canAutoFill"] is False
     assert answers["jira-level"]["canAutoFill"] is False
+    assert answers["parallel-projects"]["answer"]
+    assert answers["jira-level"]["selectedOptions"] == []
+    assert answers["jira-level"]["answer"]
 
 
 def test_screening_answers_requires_verifiable_evidence_for_experience(client, monkeypatch):
@@ -148,7 +158,8 @@ def test_screening_answers_requires_verifiable_evidence_for_experience(client, m
     assert response.status_code == 200, response.text
     answer = {item["id"]: item for item in response.json()["answers"]}["jira-level"]
     assert answer["canAutoFill"] is False
-    assert "проверяемого источника" in answer["reason"]
+    assert answer["selectedOptions"] == []
+    assert "требует подтверждения" in answer["reason"]
 
 
 def test_screening_answers_rejects_time_bound_fact_even_with_resume_quote(client, monkeypatch):
@@ -233,7 +244,7 @@ def test_screening_answers_allows_only_exact_confirmed_restricted_value(client, 
     assert answer["evidenceQuote"] == "Красноярск"
 
 
-def test_screening_answers_allows_general_knowledge_without_personal_evidence(client, monkeypatch):
+def test_screening_answers_keeps_general_knowledge_in_review_mode(client, monkeypatch):
     monkeypatch.setattr(rag_service, "get_context_text", lambda *_args: "")
 
     async def fake_complete(*_args, **_kwargs):
@@ -265,7 +276,7 @@ def test_screening_answers_allows_general_knowledge_without_personal_evidence(cl
     )
 
     assert response.status_code == 200, response.text
-    assert response.json()["answers"][0]["canAutoFill"] is True
+    assert response.json()["answers"][0]["canAutoFill"] is False
     assert response.json()["answers"][0]["sourceType"] == "knowledge"
 
 
@@ -362,6 +373,206 @@ def test_screening_server_gate_rejects_personal_history_disguised_as_knowledge(
         {"canAutoFill": True, "sourceType": "knowledge"},
         confirmed_answers=[],
         resume="",
+        legend="",
+        draft_mode=False,
+    )
+
+    assert can_auto_fill is False
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        "Сначала проверю авторизацию и валидацию. Мой текущий город — Москва.",
+        "Проверю позитивные и негативные сценарии. Моё гражданство — РФ.",
+        "Начну с критического пути. Мои финансовые ожидания — 300000 рублей.",
+    ],
+)
+def test_screening_server_gate_rejects_restricted_fact_in_knowledge_answer(answer):
+    can_auto_fill, _, _ = vacancy_router._screening_server_autofill(
+        {
+            "id": "api-knowledge",
+            "prompt": "Как бы вы протестировали новый API?",
+            "kind": "text",
+            "options": [],
+        },
+        answer,
+        [],
+        {"canAutoFill": True, "sourceType": "knowledge"},
+        confirmed_answers=[],
+        resume="",
+        legend="",
+        draft_mode=False,
+    )
+
+    assert can_auto_fill is False
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        "Я живу в Москве. Сначала проверю happy path.",
+        "Мне 35 лет. Сначала проверю happy path.",
+        "У меня высшее техническое образование. Сначала проверю happy path.",
+        "Я сертифицирован ISTQB. Сначала проверю happy path.",
+        "Мой английский — C1. Сначала проверю happy path.",
+        "Я готов работать по ночам. Сначала проверю happy path.",
+        "Есть опыт тестирования API. Сначала проверю happy path.",
+        "Мне приходилось тестировать API на прошлой работе.",
+        "Я женат, детей нет. Сначала проверю happy path.",
+        "Я здоров, диагнозов нет. Сначала проверю happy path.",
+        "Моя дата рождения — 1 января 1990 года. Сначала проверю happy path.",
+    ],
+)
+def test_screening_server_gate_rejects_personal_fact_in_knowledge_answer(answer):
+    can_auto_fill, _, _ = vacancy_router._screening_server_autofill(
+        {
+            "id": "api-knowledge",
+            "prompt": "Как бы вы протестировали новый API?",
+            "kind": "text",
+            "options": [],
+        },
+        answer,
+        [],
+        {"canAutoFill": True, "sourceType": "knowledge"},
+        confirmed_answers=[],
+        resume="",
+        legend="",
+        draft_mode=False,
+    )
+
+    assert can_auto_fill is False
+
+
+@pytest.mark.parametrize(
+    ("question", "answer", "selected", "evidence"),
+    [
+        (
+            {"id": "langs", "prompt": "Работали с Python и Java?", "kind": "single", "options": ["Да", "Нет"]},
+            "", ["Да"], "Работал с Python.",
+        ),
+        (
+            {"id": "one-c", "prompt": "Работали с Vanessa, EDT, Git, CI и SonarQube?", "kind": "single", "options": ["Да", "Нет"]},
+            "", ["Да"], "Работал с Vanessa Automation.",
+        ),
+        (
+            {"id": "cloud", "prompt": "Есть опыт с AWS, C++ и Go?", "kind": "single", "options": ["Да", "Нет"]},
+            "", ["Да"], "Работал с Java.",
+        ),
+        (
+            {"id": "python-no", "prompt": "Работали с Python?", "kind": "single", "options": ["Да", "Нет"]},
+            "", ["Нет"], "Работал с Python. Не работал с Java.",
+        ),
+        (
+            {"id": "commercial", "prompt": "Есть коммерческий опыт с Python?", "kind": "single", "options": ["Да", "Нет"]},
+            "", ["Да"], "Учебный проект на Python.",
+        ),
+        (
+            {"id": "english", "prompt": "Какой у вас уровень английского?", "kind": "text", "options": []},
+            "Уровень английского — C1.", [], "Английский — B1.",
+        ),
+        (
+            {"id": "travel", "prompt": "Готовы к командировкам?", "kind": "single", "options": ["Да", "Нет"]},
+            "", ["Да"], "Командировки: не готов.",
+        ),
+        (
+            {"id": "duration", "prompt": "Сколько лет опыта автоматизации?", "kind": "text", "options": []},
+            "Опыт автоматизации — 3 года.", [], "Опыт автоматизации — 3 месяца.",
+        ),
+    ],
+)
+def test_screening_server_gate_rejects_ambiguous_or_contradictory_resume_claims(
+    question,
+    answer,
+    selected,
+    evidence,
+):
+    can_auto_fill, _, _ = vacancy_router._screening_server_autofill(
+        question,
+        answer,
+        selected,
+        {
+            "canAutoFill": True,
+            "sourceType": "resume",
+            "evidenceQuote": evidence,
+        },
+        confirmed_answers=[],
+        resume=evidence,
+        legend="",
+        draft_mode=False,
+    )
+
+    assert can_auto_fill is False
+
+
+@pytest.mark.parametrize(
+    ("technology", "unrelated", "evidence"),
+    [
+        ("AWS", "Python", "Навыки: Python"),
+        ("Go", "Java", "Навыки: Java"),
+        ("C#", "Python", "Навыки: Python"),
+        ("Git", "Python", "Навыки: Python"),
+        ("R", "Python", "Навыки: Python"),
+        ("C", "Python", "Навыки: Python"),
+    ],
+)
+def test_screening_server_gate_binds_short_technology_subject(
+    technology,
+    unrelated,
+    evidence,
+):
+    can_auto_fill, _, _ = vacancy_router._screening_server_autofill(
+        {
+            "id": "short-tech",
+            "prompt": f"Работали ли вы с {technology}?",
+            "kind": "text",
+            "options": [],
+        },
+        unrelated,
+        [],
+        {
+            "canAutoFill": True,
+            "sourceType": "resume",
+            "evidenceQuote": evidence,
+        },
+        confirmed_answers=[],
+        resume=evidence,
+        legend="",
+        draft_mode=False,
+    )
+
+    assert can_auto_fill is False
+
+
+@pytest.mark.parametrize(
+    ("answer", "evidence"),
+    [
+        ("Python", "Не работал с Python"),
+        ("Kafka", "Пока не работал с Kafka"),
+        ("Kubernetes", "Сейчас изучаю Kubernetes"),
+        ("API тестирование", "Не занимался API тестированием"),
+    ],
+)
+def test_screening_server_gate_rejects_terse_claim_from_negative_or_prospective_evidence(
+    answer,
+    evidence,
+):
+    can_auto_fill, _, _ = vacancy_router._screening_server_autofill(
+        {
+            "id": "terse-tech",
+            "prompt": f"Работали ли вы с {answer}?",
+            "kind": "text",
+            "options": [],
+        },
+        answer,
+        [],
+        {
+            "canAutoFill": True,
+            "sourceType": "resume",
+            "evidenceQuote": evidence,
+        },
+        confirmed_answers=[],
+        resume=evidence,
         legend="",
         draft_mode=False,
     )
@@ -564,6 +775,150 @@ def test_screening_answers_can_generate_a_review_only_hypothesis(client, monkeyp
     assert "never submitted without explicit user confirmation" in captured["prompt"]
 
 
+def test_screening_answers_unknown_sensitive_fact_still_gets_review_draft(client, monkeypatch):
+    monkeypatch.setattr(rag_service, "get_context_text", lambda *_args: "")
+
+    async def fake_complete(*_args, **_kwargs):
+        return json.dumps({
+            "answers": [{
+                "id": "city",
+                "answer": "",
+                "selectedOptions": [],
+                "canAutoFill": False,
+                "sourceType": "none",
+                "reason": "Город не подтверждён.",
+            }]
+        })
+
+    monkeypatch.setattr(provider_adapter, "complete", fake_complete)
+    response = client.post(
+        "/vacancy/screening-answers",
+        json={
+            "vacancyTitle": "QA Engineer",
+            "questions": [{
+                "id": "city",
+                "prompt": "В каком городе вы сейчас живёте?",
+                "kind": "text",
+                "options": [],
+                "required": True,
+            }],
+            "draftMode": True,
+            "language": "ru",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    answer = response.json()["answers"][0]
+    assert answer["answer"]
+    assert "город проживания" in answer["answer"]
+    assert answer["canAutoFill"] is False
+    assert answer["sourceType"] == "none"
+
+
+@pytest.mark.parametrize("kind", ["single", "select", "multiple"])
+def test_screening_answers_empty_option_result_never_guesses_a_choice(
+    client, monkeypatch, kind
+):
+    monkeypatch.setattr(rag_service, "get_context_text", lambda *_args: "")
+
+    async def fake_complete(*_args, **_kwargs):
+        return json.dumps({"answers": []})
+
+    monkeypatch.setattr(provider_adapter, "complete", fake_complete)
+    response = client.post(
+        "/vacancy/screening-answers",
+        json={
+            "vacancyTitle": "QA Engineer",
+            "questions": [{
+                "id": kind,
+                "prompt": "Готовы обсудить формат работы?",
+                "kind": kind,
+                "options": ["Да", "Нет"],
+                "required": True,
+            }],
+            "language": "ru",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    answer = response.json()["answers"][0]
+    assert answer["selectedOptions"] == []
+    assert answer["answer"]
+    assert answer["canAutoFill"] is False
+
+
+def test_screening_answers_does_not_guess_unknown_swift_experience(
+    client, monkeypatch
+):
+    monkeypatch.setattr(rag_service, "get_context_text", lambda *_args: "")
+
+    async def fake_complete(*_args, **_kwargs):
+        return json.dumps({
+            "answers": [{
+                "id": "swift-experience",
+                "answer": "",
+                "selectedOptions": ["Да"],
+                "canAutoFill": True,
+                "sourceType": "resume",
+                "evidenceQuote": "QA Automation на Python",
+            }]
+        })
+
+    monkeypatch.setattr(provider_adapter, "complete", fake_complete)
+    response = client.post(
+        "/vacancy/screening-answers",
+        json={
+            "vacancyTitle": "iOS QA Engineer",
+            "resumeText": "QA Automation на Python: API и UI автотесты.",
+            "questions": [{
+                "id": "swift-experience",
+                "prompt": "Работали ли вы со Swift?",
+                "kind": "single",
+                "options": ["Да", "Нет"],
+                "required": True,
+            }],
+            "language": "ru",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    answer = response.json()["answers"][0]
+    assert answer["selectedOptions"] == []
+    assert "опыта" in answer["answer"]
+    assert answer["canAutoFill"] is False
+
+
+def test_screening_answers_does_not_guess_official_employment_yes_or_no(
+    client, monkeypatch
+):
+    monkeypatch.setattr(rag_service, "get_context_text", lambda *_args: "")
+
+    async def fake_complete(*_args, **_kwargs):
+        return json.dumps({"answers": []})
+
+    monkeypatch.setattr(provider_adapter, "complete", fake_complete)
+    response = client.post(
+        "/vacancy/screening-answers",
+        json={
+            "vacancyTitle": "QA Engineer",
+            "questions": [{
+                "id": "official-employment",
+                "prompt": "Твой опыт работы за последние 3 года - официальный (по ТК РФ)?",
+                "kind": "single",
+                "options": ["Да", "Нет"],
+                "required": True,
+            }],
+            "language": "ru",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    answer = response.json()["answers"][0]
+    assert answer["selectedOptions"] == []
+    assert answer["answer"]
+    assert answer["canAutoFill"] is False
+
+
 def test_screening_answers_requires_questions(client):
     response = client.post("/vacancy/screening-answers", json={"questions": []})
     assert response.status_code == 400
@@ -659,7 +1014,7 @@ def test_screening_answers_deadline_covers_provider_retry_policy(monkeypatch):
     )
 
 
-def test_screening_answers_returns_structured_timeout(client, monkeypatch):
+def test_screening_answers_timeout_returns_review_drafts(client, monkeypatch):
     monkeypatch.setattr(rag_service, "get_context_text", lambda *_args: "")
 
     async def slow_complete(*_args, **_kwargs):
@@ -675,16 +1030,35 @@ def test_screening_answers_returns_structured_timeout(client, monkeypatch):
 
     response = client.post("/vacancy/screening-answers", json=_payload())
 
-    assert response.status_code == 504
-    assert response.json() == {
-        "error": {
-            "code": "provider_timeout",
-            "message": "Провайдер не успел подготовить ответы. Повторите позже.",
-        }
-    }
+    assert response.status_code == 200
+    body = response.json()
+    assert body["model"] == "local-review-fallback"
+    assert len(body["answers"]) == len(_payload()["questions"])
+    assert all(item["canAutoFill"] is False for item in body["answers"])
+    assert body["answers"][0]["answer"]
+    assert body["answers"][1]["selectedOptions"] == []
+    assert body["answers"][1]["answer"]
 
 
-def test_screening_answers_preserves_provider_quota_error(client, monkeypatch):
+def test_screening_answers_invalid_model_json_returns_review_drafts(client, monkeypatch):
+    monkeypatch.setattr(rag_service, "get_context_text", lambda *_args: "")
+
+    async def invalid_complete(*_args, **_kwargs):
+        return "this is not json"
+
+    monkeypatch.setattr(provider_adapter, "complete", invalid_complete)
+
+    response = client.post("/vacancy/screening-answers", json=_payload())
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["model"] == "local-review-fallback"
+    assert len(body["answers"]) == len(_payload()["questions"])
+    assert all(item["canAutoFill"] is False for item in body["answers"])
+    assert all(item["answer"] for item in body["answers"])
+
+
+def test_screening_answers_provider_quota_error_returns_review_drafts(client, monkeypatch):
     calls = 0
     monkeypatch.setattr(rag_service, "get_context_text", lambda *_args: "")
     monkeypatch.setattr(
@@ -703,10 +1077,179 @@ def test_screening_answers_preserves_provider_quota_error(client, monkeypatch):
     response = client.post("/vacancy/screening-answers", json=_payload())
 
     assert calls == 1
-    assert response.status_code == 402
-    assert response.json() == {
-        "error": {
-            "code": "token_quota_exceeded",
-            "message": "Месячный лимит токенов исчерпан.",
-        }
-    }
+    assert response.status_code == 200
+    assert response.json()["model"] == "local-review-fallback"
+    assert all(item["canAutoFill"] is False for item in response.json()["answers"])
+
+
+def test_screening_answers_preflight_quota_uses_fallback_without_provider(client, monkeypatch):
+    provider_called = False
+
+    def quota_exhausted(*_args, **_kwargs):
+        raise AppError("Месячный лимит токенов исчерпан.", 402, "token_quota_exceeded")
+
+    async def must_not_call_provider(*_args, **_kwargs):
+        nonlocal provider_called
+        provider_called = True
+        return "{}"
+
+    monkeypatch.setattr(vacancy_router, "_ensure_vacancy_quota", quota_exhausted)
+    monkeypatch.setattr(provider_adapter, "complete", must_not_call_provider)
+
+    response = client.post("/vacancy/screening-answers", json=_payload())
+
+    assert response.status_code == 200
+    assert provider_called is False
+    assert response.json()["model"] == "local-review-fallback"
+
+
+def test_screening_server_gate_rejects_compound_tech_claim_from_partial_quote():
+    answer = (
+        "Использовал Vanessa Automation, EDT, Git, CI и SonarQube, "
+        "настроил пайплайны и проверки качества."
+    )
+    can_auto_fill, _, _ = vacancy_router._screening_server_autofill(
+        {
+            "id": "one-c-tools",
+            "prompt": "Работали ли вы с Vanessa, EDT, Git, CI и SonarQube?",
+            "kind": "text",
+            "options": [],
+        },
+        answer,
+        [],
+        {
+            "canAutoFill": True,
+            "sourceType": "resume",
+            "evidenceQuote": "Использовал Git для контроля версий.",
+        },
+        confirmed_answers=[],
+        resume="Использовал Git для контроля версий.",
+        legend="",
+        draft_mode=False,
+    )
+
+    assert can_auto_fill is False
+
+
+def test_screening_server_gate_rejects_invented_company_and_leadership():
+    can_auto_fill, _, _ = vacancy_router._screening_server_autofill(
+        {
+            "id": "testing-history",
+            "prompt": "Расскажите про ваш опыт тестирования.",
+            "kind": "text",
+            "options": [],
+        },
+        "Я руководил командой тестирования в Google.",
+        [],
+        {
+            "canAutoFill": True,
+            "sourceType": "resume",
+            "evidenceQuote": "Работал над тестированием в SkillCue.",
+        },
+        confirmed_answers=[],
+        resume="Работал над тестированием в SkillCue.",
+        legend="",
+        draft_mode=False,
+    )
+
+    assert can_auto_fill is False
+
+
+def test_screening_server_gate_rejects_one_added_unsupported_responsibility():
+    evidence = "Работал над тестированием в SkillCue."
+    can_auto_fill, _, _ = vacancy_router._screening_server_autofill(
+        {
+            "id": "testing-security",
+            "prompt": "Расскажите про ваш опыт тестирования.",
+            "kind": "text",
+            "options": [],
+        },
+        "Работал над тестированием в SkillCue, отвечал за безопасность.",
+        [],
+        {
+            "canAutoFill": True,
+            "sourceType": "resume",
+            "evidenceQuote": evidence,
+        },
+        confirmed_answers=[],
+        resume=evidence,
+        legend="",
+        draft_mode=False,
+    )
+
+    assert can_auto_fill is False
+
+
+def test_screening_server_gate_rejects_negative_answer_from_affirmative_quote():
+    evidence = "Работал с Python."
+    can_auto_fill, _, _ = vacancy_router._screening_server_autofill(
+        {
+            "id": "python-experience",
+            "prompt": "Работали ли вы с Python?",
+            "kind": "text",
+            "options": [],
+        },
+        "Нет, не работал с Python.",
+        [],
+        {
+            "canAutoFill": True,
+            "sourceType": "resume",
+            "evidenceQuote": evidence,
+        },
+        confirmed_answers=[],
+        resume=evidence,
+        legend="",
+        draft_mode=False,
+    )
+
+    assert can_auto_fill is False
+
+
+def test_screening_server_gate_rejects_negative_option_from_affirmative_quote():
+    evidence = "Работал с Python."
+    can_auto_fill, _, _ = vacancy_router._screening_server_autofill(
+        {
+            "id": "python-experience-option",
+            "prompt": "Работали ли вы с Python?",
+            "kind": "single",
+            "options": ["Да", "Нет"],
+        },
+        "",
+        ["Нет"],
+        {
+            "canAutoFill": True,
+            "sourceType": "resume",
+            "evidenceQuote": evidence,
+        },
+        confirmed_answers=[],
+        resume=evidence,
+        legend="",
+        draft_mode=False,
+    )
+
+    assert can_auto_fill is False
+
+
+def test_screening_server_gate_requires_experience_verb_for_commercial_yes():
+    evidence = "Навыки: Python."
+    can_auto_fill, _, _ = vacancy_router._screening_server_autofill(
+        {
+            "id": "commercial-python",
+            "prompt": "Есть ли у вас коммерческий опыт работы с Python?",
+            "kind": "single",
+            "options": ["Да", "Нет"],
+        },
+        "",
+        ["Да"],
+        {
+            "canAutoFill": True,
+            "sourceType": "resume",
+            "evidenceQuote": evidence,
+        },
+        confirmed_answers=[],
+        resume=evidence,
+        legend="",
+        draft_mode=False,
+    )
+
+    assert can_auto_fill is False

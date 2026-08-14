@@ -108,6 +108,7 @@ export default function HhApplicationsPage() {
   const [busy, setBusy] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [resumes, setResumes] = useState<Array<{ id: string; title: string; url: string }>>([]);
+  const [resumeSelectionExplicitlyConfirmed, setResumeSelectionExplicitlyConfirmed] = useState(false);
   const [resumeLoading, setResumeLoading] = useState(false);
   const [resumeLoadError, setResumeLoadError] = useState('');
   const [chatState, setChatState] = useState<HhChatState | null>(null);
@@ -239,8 +240,10 @@ export default function HhApplicationsPage() {
       : { ...current, resumeTitles: [requestedResumeTitle], resumeTitleContains: '' });
   }, [resumes, searchParams]);
 
-  const config = (): HhAssistantConfig => ({
-    ...draft, excludedKeywords: splitList(excludedKeywords),
+  const config = () => ({
+    ...draft,
+    excludedKeywords: splitList(excludedKeywords),
+    ...(resumeSelectionExplicitlyConfirmed ? { resumeSelectionExplicitlyConfirmed: true } : {}),
   });
   const run = async (key: string, action: () => Promise<HhAssistantState>) => {
     setBusy(key);
@@ -378,7 +381,11 @@ export default function HhApplicationsPage() {
         if (current.platform !== 'hh') return current;
         const availableTitles = new Set(loaded.map((resume) => resume.title));
         const selected = current.resumeTitles.find((title) => availableTitles.has(title));
-        const resumeTitles = selected ? [selected] : loaded[0] ? [loaded[0].title] : [];
+        const resumeTitles = selected
+          ? [selected]
+          : loaded.length === 1
+            ? [loaded[0].title]
+            : [];
         if (
           resumeTitles.length === current.resumeTitles.length &&
           resumeTitles.every((title, index) => title === current.resumeTitles[index])
@@ -472,6 +479,7 @@ export default function HhApplicationsPage() {
         const next = await assistant.saveConfig({
           resumeTitles: draft.resumeTitles,
           resumeTitleContains: '',
+          ...(resumeSelectionExplicitlyConfirmed ? { resumeSelectionExplicitlyConfirmed: true } : {}),
         });
         setDraft((current) => ({
           ...current,
@@ -947,7 +955,7 @@ export default function HhApplicationsPage() {
           {resumeLoadError && <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-3 text-sm text-amber-200"><p>{resumeLoadError}</p><button type="button" className="btn-ghost mt-2" disabled={resumeLoading} onClick={() => void loadResumes()}><RefreshCw size={14} />Повторить</button></div>}
           {resumeLoading && resumes.length === 0 && <p className="flex items-center gap-2 text-sm text-ink-faint"><Loader2 className="animate-spin" size={15} />Загружаю актуальное резюме из HH…</p>}
           {!resumeLoading && !resumeLoadError && resumes.length === 0 && <div className="rounded-xl border border-amber-400/20 bg-amber-400/[0.04] p-3 text-sm text-ink-muted"><p>Для отклика нужно опубликованное резюме в HH. Локальное резюме подходит для анализа, но HH не сможет отправить его работодателю.</p><button type="button" className="btn-secondary btn-sm mt-3" onClick={() => void window.electronAPI?.openExternal('https://hh.ru/applicant/resumes')}><ExternalLink size={14} />Открыть резюме в HH</button></div>}
-          {resumes.length > 0 && <label className="flex items-center gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/[0.04] p-3"><FileText size={18} className="shrink-0 text-emerald-300" /><select className="field min-w-0 flex-1" aria-label="Резюме HH по умолчанию" value={draft.resumeTitles[0] ?? resumes[0].title} onChange={(event) => setDraft({ ...draft, resumeTitles: [event.target.value], resumeTitleContains: '' })}>{resumes.map((resume) => <option key={resume.id} value={resume.title}>{resume.title}</option>)}</select><span className="hidden text-xs text-emerald-300 sm:inline">Автовыбор включён</span></label>}
+          {resumes.length > 0 && <label className="flex items-center gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/[0.04] p-3"><FileText size={18} className="shrink-0 text-emerald-300" /><select className="field min-w-0 flex-1" aria-label="Резюме HH по умолчанию" value={draft.resumeTitles[0] ?? ''} onChange={(event) => { setResumeSelectionExplicitlyConfirmed(true); setDraft({ ...draft, resumeTitles: [event.target.value], resumeTitleContains: '' }); }}><option value="" disabled>Выберите резюме HH</option>{resumes.map((resume) => <option key={resume.id} value={resume.title}>{resume.title}</option>)}</select><span className="hidden text-xs text-emerald-300 sm:inline">Автовыбор включён</span></label>}
         </div>
       </section>}
 

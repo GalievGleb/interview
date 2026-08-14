@@ -36,6 +36,7 @@ import {
   collectHhScreeningFields,
   fillHhScreeningFields,
   matchScreeningOptionLabels,
+  screeningQuestionKey,
   type HhScreeningAnswer,
   type HhScreeningAnswersRequest,
   type HhScreeningAnswersResponse,
@@ -43,11 +44,17 @@ import {
 } from './hhScreeningQuestions';
 import { partitionUnresolvedScreeningQuestions } from './hhScreeningFailures';
 import {
+  buildHhScreeningReviewDraft,
+  isSensitiveHhScreeningChoice,
+  isUsableHhScreeningDraft,
+} from './hhScreeningReviewDraft';
+import {
   findSalaryExpectation,
+  isCurrentLocationQuestion,
+  isSalaryRelatedQuestion,
   knownScreeningAnswer,
   localScreeningDraft,
   reusableScreeningAnswer,
-  screeningRelocationScope,
   screeningQuestionSemanticKey,
   selectRelevantScreeningFacts,
 } from './hhScreeningKnowledge';
@@ -99,6 +106,8 @@ export interface HhQueueItem extends HhVacancy {
   screeningAnswers?: HhStoredScreeningAnswer[];
   preparationNotes?: string[];
   selectedResumeTitle?: string;
+  /** True only after HH visibly confirmed this exact résumé in the response form. */
+  selectedResumeVerified?: boolean;
   /** HH accepted the initial response, but SkillCue still has to attach the letter. */
   coverLetterPending?: boolean;
   coverLetterAdded?: boolean;
@@ -115,6 +124,8 @@ export interface HhStoredScreeningAnswer {
   question: string;
   answer: string;
   selectedOptions: string[];
+  /** Present only after the user explicitly submitted this exact vacancy answer. */
+  confirmedByUser?: boolean;
 }
 
 export interface HhScreeningAnswerInput extends HhStoredScreeningAnswer {
@@ -195,6 +206,11 @@ export interface HhAssistantState {
   updatedAt: string;
 }
 
+export type HhAssistantConfigUpdate = Partial<HhAssistantConfig> & {
+  /** Set only by an explicit user action in the resume selector. */
+  resumeSelectionExplicitlyConfirmed?: boolean;
+};
+
 interface PersistedState {
   version?: number;
   config: HhAssistantConfig;
@@ -202,6 +218,7 @@ interface PersistedState {
   screeningFacts?: unknown;
   runHistory?: unknown;
   queuePaused?: unknown;
+  resumeSelectionConfirmed?: unknown;
 }
 
 interface QueueRunStats {
@@ -216,6 +233,8 @@ interface QueueRunStats {
 }
 
 export type HhCoverLetterRetry = 'never' | 'manual' | 'later';
+
+const HH_RESUME_TEXT_CACHE_TTL_MS = 5 * 60_000;
 
 type PreparedHhCoverLetter =
   | { ok: true; letter: string }
@@ -494,19 +513,28 @@ function polishScreeningDraftLocally(value: string): string {
   return /[.!?…]$/u.test(capitalized) ? capitalized : `${capitalized}.`;
 }
 
-const REMOTE_ONLY_RUSSIA_QUESTION = 'Рассматриваете ли вы переезд по России ради работы?';
 const REMOTE_ONLY_RUSSIA_ANSWER = 'Нет, переезд по России не рассматриваю. Интересует только полностью удалённый формат работы.';
 
-function remoteOnlyRussiaStoredAnswer(
-  questionId: string,
-  question: string,
-): HhStoredScreeningAnswer {
-  return {
-    questionId,
-    question,
-    answer: REMOTE_ONLY_RUSSIA_ANSWER,
-    selectedOptions: [],
-  };
+function findReusableScreeningFact<T extends Pick<HhScreeningFact, 'question' | 'answer' | 'selectedOptions'>>(
+  question: HhScreeningQuestion,
+  candidates: Iterable<T>,
+): T | undefined {
+  for (const candidate of candidates) {
+    if (reusableScreeningAnswer(question, candidate)?.canAutoFill) return candidate;
+  }
+  return undefined;
+}
+
+function findExactVacancyScreeningAnswer(
+  question: HhScreeningQuestion,
+  answers: readonly HhStoredScreeningAnswer[] | undefined,
+): HhStoredScreeningAnswer | undefined {
+  const promptKey = screeningQuestionKey(question.prompt);
+  if (!promptKey) return undefined;
+  return answers?.find((answer) => (
+    answer.confirmedByUser === true
+    && screeningQuestionKey(answer.question) === promptKey
+  ));
 }
 
 function safeJsonRead<T>(filePath: string): T | null {
@@ -593,6 +621,69 @@ export function resumeTitleMatches(left: string, right: string): boolean {
   let overlap = 0;
   for (const token of leftTokens) if (rightTokens.has(token)) overlap += 1;
   return overlap >= Math.max(2, Math.ceil(smaller * 0.6));
+}
+
+function normalizeHhResumeTitleForSelection(value: string): string {
+  return value
+    .normalize('NFKC')
+    .toLocaleLowerCase('ru')
+    .replace(/ё/g, 'е')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function explicitlySelectedTitleIndex(titles: string[], selectedResumeTitle: string): number | null {
+  const selected = normalizeHhResumeTitleForSelection(selectedResumeTitle);
+  if (!selected) return null;
+  const exactIndices = titles.flatMap((title, index) =>
+    normalizeHhResumeTitleForSelection(title) === selected ? [index] : []);
+  if (exactIndices.length === 1) return exactIndices[0];
+  // A persisted résumé is factual provenance for salary, city and experience.
+  // Never silently replace it with the only fuzzy-looking card: even without
+  // a salary in the title it can be a different résumé with different facts.
+  return null;
+}
+
+/**
+ * Resolves an explicitly persisted résumé title without letting a fuzzy match
+ * swap two otherwise identical résumés that have different salary targets.
+ */
+export function findExplicitlySelectedHhResume(
+  resumes: HhApplicantResume[],
+  selectedResumeTitle: string,
+): HhApplicantResume | undefined {
+  const index = explicitlySelectedTitleIndex(
+    resumes.map((resume) => resume.title),
+    selectedResumeTitle,
+  );
+  return index == null ? undefined : resumes[index];
+}
+
+function resumeTitleFactSources(
+  selectedResumeTitle: string | undefined,
+  configuredResumeTitles: string[],
+): string[] {
+  const selected = selectedResumeTitle?.trim() ?? '';
+  if (selected) return [selected];
+  const configured = configuredResumeTitles.filter((title) => title.trim());
+  // With several configured résumés, a title-level fact (most importantly the
+  // salary) is ambiguous until the exact résumé for this vacancy is selected.
+  return configured.length === 1 ? configured : [];
+}
+
+function selectedResumeFactSources(
+  selectedResumeTitle: string | undefined,
+  selectedResumeText: string,
+  configuredResumeTitles: string[],
+): string[] {
+  const selected = selectedResumeTitle?.trim() ?? '';
+  const explicitSalaryLines = selectedResumeText
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => /(?:финансов[а-яё]*\s+ожидан|зарплатн[а-яё]*\s+ожидан|(?:желаем|ожидаем|expected|desired).{0,40}(?:зарплат|доход|компенсац|оплат|salary|income|compensation)|(?:зарплат|доход|компенсац|оплат|salary|income|compensation).{0,40}(?:желаем|ожидаем|expected|desired))/i.test(line));
+  return selected
+    ? [selected, ...explicitSalaryLines].filter(Boolean)
+    : [...explicitSalaryLines, ...resumeTitleFactSources(undefined, configuredResumeTitles)].filter(Boolean);
 }
 
 function normalizeHhResumeLink(rawUrl: string): { id: string; url: string } | null {
@@ -1183,6 +1274,9 @@ async function hasVisibleResponseFlowBlocker(page: Page): Promise<boolean> {
   return false;
 }
 
+const LEGACY_TRANSIENT_SCREENING_REASON =
+  'Не удалось получить безопасный AI-ответ: Screening answer generation timed out';
+
 function normalizeStoredScreeningQuestion(value: unknown): HhScreeningQuestion | null {
   if (!value || typeof value !== 'object') return null;
   const item = value as Record<string, unknown>;
@@ -1196,25 +1290,53 @@ function normalizeStoredScreeningQuestion(value: unknown): HhScreeningQuestion |
   const options = Array.isArray(item.options)
     ? item.options.map((option) => String(option).trim().slice(0, 300)).filter(Boolean).slice(0, 30)
     : [];
-  const assistantReason = String(item.assistantReason ?? '').replace(/\s+/g, ' ').trim().slice(0, 300);
-  const suggestedAnswer = String(item.suggestedAnswer ?? '').trim().slice(0, 2_000);
-  const suggestedOptions = Array.isArray(item.suggestedOptions)
-    ? item.suggestedOptions.map((option) => String(option).trim().slice(0, 300)).filter(Boolean).slice(0, 30)
+  const storedAssistantReason = String(item.assistantReason ?? '').replace(/\s+/g, ' ').trim().slice(0, 300);
+  const storedSuggestedAnswer = String(item.suggestedAnswer ?? '').trim().slice(0, 2_000);
+  const storedSuggestedOptions = Array.isArray(item.suggestedOptions)
+    ? item.suggestedOptions
+      .map((option) => String(option).trim().slice(0, 300))
+      .filter((option) => option && options.includes(option))
+      .slice(0, 30)
     : [];
-  return {
+  const normalized: HhScreeningQuestion = {
     id,
     prompt,
     kind,
     options,
     required: Boolean(item.required),
-    assistantReason: assistantReason || undefined,
-    suggestedAnswer: suggestedAnswer || undefined,
-    suggestedOptions: suggestedOptions.length > 0 ? suggestedOptions : undefined,
+    assistantReason: storedAssistantReason || undefined,
+    suggestedAnswer: storedSuggestedAnswer || undefined,
+    suggestedOptions: storedSuggestedOptions.length > 0 ? storedSuggestedOptions : undefined,
+  };
+  const fallback = buildHhScreeningReviewDraft(normalized);
+  const unsafeLegacySensitiveDraft = isSensitiveHhScreeningChoice(prompt);
+  // Persisted queue suggestions predate provenance metadata. Any preselected
+  // closed-choice value can encode an invented preference or status even when
+  // its prompt is not yet in our sensitivity vocabulary. Rebuild all such
+  // options on upgrade; exact résumé/fact rules will rehydrate grounded values.
+  const unsafeLegacyClosedSelection = kind !== 'text' && storedSuggestedOptions.length > 0;
+  const storedDraftUsable = isUsableHhScreeningDraft(normalized, {
+    answer: storedSuggestedAnswer,
+    selectedOptions: storedSuggestedOptions,
+  });
+  if (!unsafeLegacySensitiveDraft && !unsafeLegacyClosedSelection && storedDraftUsable) return normalized;
+
+  // Builds before the provenance contract persisted empty questions and, in
+  // some cases, guessed Да/Нет for legal or personal-history choices. They
+  // have no source metadata, so only a newly built review-only fallback is
+  // safe to restore. Grounded city/salary facts are reconciled immediately
+  // afterwards by reconcileKnownPendingScreeningQuestions.
+  return {
+    ...normalized,
+    assistantReason: storedAssistantReason === LEGACY_TRANSIENT_SCREENING_REASON
+      ? storedAssistantReason
+      : fallback.reason || normalized.assistantReason,
+    suggestedAnswer: fallback.answer || undefined,
+    suggestedOptions: fallback.selectedOptions.length > 0
+      ? fallback.selectedOptions
+      : undefined,
   };
 }
-
-const LEGACY_TRANSIENT_SCREENING_REASON =
-  'Не удалось получить безопасный AI-ответ: Screening answer generation timed out';
 
 function isLegacyTransientScreeningQuestion(question: HhScreeningQuestion): boolean {
   // Deliberately exact: only the synthetic timeout generated by the affected
@@ -1232,7 +1354,13 @@ function normalizeStoredScreeningAnswer(value: unknown): HhStoredScreeningAnswer
     ? item.selectedOptions.map((option) => String(option).trim().slice(0, 300)).filter(Boolean).slice(0, 30)
     : [];
   if (!questionId || !question || (!answer && selectedOptions.length === 0)) return null;
-  return { questionId, question, answer, selectedOptions };
+  return {
+    questionId,
+    question,
+    answer,
+    selectedOptions,
+    ...(item.confirmedByUser === true ? { confirmedByUser: true } : {}),
+  };
 }
 
 function normalizeScreeningFacts(value: unknown): HhScreeningFact[] {
@@ -1247,6 +1375,11 @@ function normalizeScreeningFacts(value: unknown): HhScreeningFact[] {
       ? item.selectedOptions.map((option) => String(option).trim().slice(0, 300)).filter(Boolean).slice(0, 30)
       : [];
     if (!question || (!answer && selectedOptions.length === 0)) continue;
+    // Older builds treated the default HH search format "remote" as an
+    // explicit refusal to relocate. The HH settings screen never asked the
+    // user to confirm that preference, so this synthetic fact is not valid
+    // provenance and must not survive an upgrade.
+    if (answer === REMOTE_ONLY_RUSSIA_ANSWER && selectedOptions.length === 0) continue;
     const updatedAt = String(item.updatedAt ?? '');
     const fact: HhScreeningFact = {
       id: String(item.id ?? `fact-${Date.now()}-${byQuestion.size}`).trim().slice(0, 140),
@@ -1320,7 +1453,13 @@ export function normalizePersistedQueue(
       && rawStatus !== 'already_applied'
       && rawStatus !== 'skipped';
     const screeningAnswers = Array.isArray(item.screeningAnswers)
-      ? item.screeningAnswers.map(normalizeStoredScreeningAnswer).filter((answer): answer is HhStoredScreeningAnswer => Boolean(answer)).slice(0, 60)
+      ? item.screeningAnswers
+        .map(normalizeStoredScreeningAnswer)
+        .filter((answer): answer is HhStoredScreeningAnswer => Boolean(answer))
+        // See normalizeScreeningFacts: this exact text was generated from a
+        // default search filter, not from a confirmed screening answer.
+        .filter((answer) => answer.answer !== REMOTE_ONLY_RUSSIA_ANSWER)
+        .slice(0, 60)
       : [];
     const preparationNotes = Array.isArray(item.preparationNotes)
       ? [...new Set(item.preparationNotes
@@ -1413,6 +1552,7 @@ export function normalizePersistedQueue(
       selectedResumeTitle: typeof item.selectedResumeTitle === 'string'
         ? item.selectedResumeTitle.trim().slice(0, 240) || undefined
         : undefined,
+      selectedResumeVerified: item.selectedResumeVerified === true || undefined,
       autoRetryBlockedUntil,
     });
     if (result.length >= 1_000) break;
@@ -1530,7 +1670,8 @@ export class HhBrowserAssistant {
   private queueResumeRunning = false;
   private lastScanFoundCount = 0;
   private applicantResumes: HhApplicantResume[] = [];
-  private readonly resumeTextCache = new Map<string, string>();
+  private resumeSelectionConfirmed = false;
+  private readonly resumeTextCache = new Map<string, { text: string; cachedAt: number }>();
   private readonly preparedCoverLetters = new Map<string, string>();
 
   constructor(
@@ -1543,8 +1684,9 @@ export class HhBrowserAssistant {
     this.statePath = path.join(userDataDir, 'hh-browser-assistant.json');
     this.emitState = emitState;
     const persisted = safeJsonRead<PersistedState>(this.statePath);
+    const persistedVersion = persisted?.version ?? 0;
     const persistedConfig = persisted?.config ?? DEFAULT_HH_ASSISTANT_CONFIG;
-    const migratedConfig = (persisted?.version ?? 0) >= 3
+    const migratedConfig = persistedVersion >= 3
       ? persistedConfig
       : {
           ...persistedConfig,
@@ -1559,9 +1701,18 @@ export class HhBrowserAssistant {
         };
     // v4 changes the default run mode to automatic. Apply it once to existing
     // installations; a later explicit switch back to review-only is retained.
-    const config = (persisted?.version ?? 0) >= 4
+    const v4Config = persistedVersion >= 4
       ? migratedConfig
       : { ...migratedConfig, autoSend: true };
+    // v0.0.33 could silently replace a configured 220k résumé with a fuzzy
+    // 240k card. Force one explicit account-résumé confirmation on upgrade;
+    // inferred per-vacancy titles remain untrusted until HH visibly selects one.
+    const config = persistedVersion >= 8
+      ? v4Config
+      : { ...v4Config, resumeTitles: [], resumeTitleContains: '' };
+    this.resumeSelectionConfirmed = persistedVersion >= 8
+      && persisted?.resumeSelectionConfirmed === true;
+    const normalizedQueue = normalizePersistedQueue(persisted?.queue);
     this.state = {
       phase: 'idle',
       browserOpen: false,
@@ -1573,14 +1724,28 @@ export class HhBrowserAssistant {
       queuePaused: persisted?.queuePaused === true,
       applyProgress: null,
       config: normalizeHhAssistantConfig(config),
-      queue: normalizePersistedQueue(persisted?.queue),
+      queue: persistedVersion >= 8
+        ? normalizedQueue
+        : normalizedQueue.map((item) => {
+            const screeningAnswers = item.screeningAnswers?.filter((answer) => (
+              !isSalaryRelatedQuestion(answer.question)
+              && !isCurrentLocationQuestion(answer.question)
+            ));
+            return {
+              ...item,
+              selectedResumeTitle: undefined,
+              selectedResumeVerified: undefined,
+              screeningAnswers: screeningAnswers?.length ? screeningAnswers : undefined,
+            };
+          }),
       screeningFacts: normalizeScreeningFacts(persisted?.screeningFacts),
       runHistory: normalizeRunHistory(persisted?.runHistory),
       lastScanSummary: null,
       nextRunAt: null,
       updatedAt: nowIso(),
     };
-    if (this.reconcileKnownPendingScreeningQuestions() > 0) this.persist();
+    const reconciledQuestions = this.reconcileKnownPendingScreeningQuestions();
+    if (persistedVersion < 8 || reconciledQuestions > 0) this.persist();
   }
 
   /**
@@ -1593,70 +1758,54 @@ export class HhBrowserAssistant {
       this.state.screeningFacts.map((fact) => [screeningQuestionSemanticKey(fact.question), fact]),
     );
     let changedCount = 0;
-    if (this.state.config.schedule === 'remote') {
-      const question = REMOTE_ONLY_RUSSIA_QUESTION;
-      const key = screeningQuestionSemanticKey(question);
-      const previous = facts.get(key);
-      const answer = REMOTE_ONLY_RUSSIA_ANSWER;
-      if (previous && (previous.answer !== answer || previous.selectedOptions.length > 0)) {
-        facts.set(key, {
-          id: previous.id,
-          question,
-          answer,
-          selectedOptions: [],
-          updatedAt: nowIso(),
-        });
-        this.state.screeningFacts = [...facts.values()].slice(-100);
-        changedCount += 1;
-      }
-    }
     this.state.queue = this.state.queue.map((item) => {
       if (item.platform !== 'hh') return item;
-      const resumeTitleSources = [
-        item.selectedResumeTitle ?? '',
-        ...this.state.config.resumeTitles,
-      ].filter(Boolean);
+      const resumeTitleSources = resumeTitleFactSources(
+        item.selectedResumeTitle,
+        this.state.config.resumeTitles,
+      );
       const resumeTitleContext = resumeTitleSources.join('\n').trim();
       const salaryExpectation = findSalaryExpectation(
-        this.state.config.salaryFrom,
+        null,
         resumeTitleSources,
       );
 
-      // A response prepared before the user selected “remote only” may contain
-      // a stale “yes” or “let's discuss” relocation answer. Do not let that
-      // cached value win when an unfinished application is restored.
-      let screeningAnswers = item.screeningAnswers;
-      if (
-        this.state.config.schedule === 'remote'
-        && item.status !== 'sent'
-        && item.status !== 'already_applied'
-        && screeningAnswers?.some((answer) => screeningRelocationScope(answer.question) === 'russia')
-      ) {
-        let answersChanged = false;
-        screeningAnswers = screeningAnswers.map((answer) => {
-          if (screeningRelocationScope(answer.question) !== 'russia') return answer;
-          if (answer.answer === REMOTE_ONLY_RUSSIA_ANSWER && answer.selectedOptions.length === 0) return answer;
-          answersChanged = true;
-          return remoteOnlyRussiaStoredAnswer(answer.questionId, answer.question);
-        });
-        if (answersChanged) changedCount += 1;
-      }
+      const screeningAnswers = item.screeningAnswers;
 
       if (item.status !== 'needs_input' || !item.pendingQuestions?.length) {
         return screeningAnswers === item.screeningAnswers ? item : { ...item, screeningAnswers };
       }
       const resolved: HhStoredScreeningAnswer[] = [];
       const pendingQuestions = item.pendingQuestions.filter((question) => {
-        const fact = facts.get(screeningQuestionSemanticKey(question.prompt));
-        const remoteOnlyRussia = this.state.config.schedule === 'remote'
-          && screeningRelocationScope(question.prompt) === 'russia';
-        const known = knownScreeningAnswer(question, salaryExpectation, resumeTitleContext, {
-          remoteOnly: this.state.config.schedule === 'remote',
-        });
-        // The current search format wins over an older relocation answer. If
-        // the form has no safe negative option, leave it for the user instead
-        // of falling back to a stale “yes” or “let's discuss”.
-        const answer = remoteOnlyRussia
+        const exactVacancyAnswer = findExactVacancyScreeningAnswer(question, screeningAnswers);
+        const exactMapped = exactVacancyAnswer
+          ? reusableScreeningAnswer(question, exactVacancyAnswer)
+          : null;
+        if (exactMapped?.canAutoFill) {
+          resolved.push({
+            questionId: question.id,
+            question: question.prompt,
+            answer: exactMapped.answer,
+            selectedOptions: exactMapped.selectedOptions,
+            confirmedByUser: true,
+          });
+          changedCount += 1;
+          return false;
+        }
+        const fact = facts.get(screeningQuestionSemanticKey(question.prompt))
+          ?? findReusableScreeningFact(question, facts.values());
+        // Startup reconciliation is synchronous and has not loaded the selected
+        // résumé body yet. A remembered city may be stale, so keep the current-
+        // location question pending until the live fill/suggestion path can
+        // compare it with the actually selected résumé.
+        if (isCurrentLocationQuestion(question.prompt)) return true;
+        // `salaryFrom` is a search floor, not a confirmed questionnaire answer.
+        // Before a live form has visibly confirmed the exact résumé, keep the
+        // salary pending instead of trusting a legacy/inferred title.
+        if (isSalaryRelatedQuestion(question.prompt) && item.selectedResumeVerified !== true) return true;
+        const known = knownScreeningAnswer(question, salaryExpectation, resumeTitleContext);
+        const salaryQuestion = isSalaryRelatedQuestion(question.prompt);
+        const answer = salaryQuestion
           ? known
           : (fact ? reusableScreeningAnswer(question, fact) : null) ?? known;
         if (!answer?.canAutoFill) return true;
@@ -1809,10 +1958,21 @@ export class HhBrowserAssistant {
   }
 
   /** Пересчитывает таймер при изменении конфига (час запуска мог смениться). */
-  saveConfig(value: Partial<HhAssistantConfig>): HhAssistantState {
+  saveConfig(value: HhAssistantConfigUpdate): HhAssistantState {
+    const { resumeSelectionExplicitlyConfirmed, ...configValue } = value;
+    if (resumeSelectionExplicitlyConfirmed === true) {
+      this.resumeSelectionConfirmed = Array.isArray(configValue.resumeTitles)
+        && configValue.resumeTitles.some((title) => String(title).trim());
+    } else if (
+      resumeSelectionExplicitlyConfirmed === false
+      && Array.isArray(configValue.resumeTitles)
+      && configValue.resumeTitles.length === 0
+    ) {
+      this.resumeSelectionConfirmed = false;
+    }
     this.state.config = normalizeHhAssistantConfig({
       ...this.state.config,
-      ...value,
+      ...configValue,
     });
     this.reconcileKnownPendingScreeningQuestions();
     if (this.state.config.autoRunDaily) {
@@ -1864,12 +2024,13 @@ export class HhBrowserAssistant {
         this.statePath,
         JSON.stringify(
           {
-            version: 7,
+            version: 8,
             config: this.state.config,
             queue: this.state.queue,
             screeningFacts: this.state.screeningFacts,
             runHistory: this.state.runHistory,
             queuePaused: this.state.queuePaused,
+            resumeSelectionConfirmed: this.resumeSelectionConfirmed,
           } satisfies PersistedState,
           null,
           2,
@@ -1986,12 +2147,32 @@ export class HhBrowserAssistant {
   }
 
   private syncCurrentApplicantResume(resumes: HhApplicantResume[]): void {
-    const configured = this.state.config.resumeTitles.find((title) =>
-      resumes.some((resume) => resumeTitleMatches(resume.title, title)),
-    );
-    const currentTitle = configured
-      ? resumes.find((resume) => resumeTitleMatches(resume.title, configured))?.title
-      : resumes[0]?.title;
+    const hadConfiguredTitle = this.state.config.resumeTitles.some((title) => title.trim());
+    const configured = this.state.config.resumeTitles
+      .map((title) => findExplicitlySelectedHhResume(resumes, title))
+      .find((resume): resume is HhApplicantResume => Boolean(resume));
+    // A title synchronized from HH becomes provenance for salary, city and
+    // experience. Never replace an existing choice with a fuzzy-looking card.
+    // With no configured choice, only a single account résumé is unambiguous.
+    const currentTitle = configured?.title
+      ?? (!hadConfiguredTitle && resumes.length === 1
+        ? resumes[0]?.title
+        : undefined);
+    if (!currentTitle) {
+      // A previously confirmed title may disappear or be renamed in HH. With
+      // multiple remaining resumes there is no safe replacement, so require a
+      // fresh explicit selection instead of silently ranking another card.
+      if (hadConfiguredTitle || this.resumeSelectionConfirmed) {
+        this.resumeSelectionConfirmed = false;
+        this.state.config = normalizeHhAssistantConfig({
+          ...this.state.config,
+          resumeTitles: [],
+          resumeTitleContains: '',
+        });
+      }
+      return;
+    }
+    if (resumes.length === 1) this.resumeSelectionConfirmed = true;
     const resumeTitles = currentTitle ? [currentTitle] : [];
     if (
       this.state.config.resumeTitles.length === resumeTitles.length &&
@@ -2663,6 +2844,9 @@ export class HhBrowserAssistant {
           return [];
         }
         if (sessionResult.resumes.length > 0) {
+          // "Обновить из HH" must also refresh salary/city/body facts; keeping
+          // an old body here could auto-submit a value the user just changed.
+          this.resumeTextCache.clear();
           this.applicantResumes = sessionResult.resumes;
           this.syncCurrentApplicantResume(sessionResult.resumes);
           this.update({
@@ -2688,6 +2872,7 @@ export class HhBrowserAssistant {
           return [];
         }
         if (pageResult.resumes.length > 0) {
+          this.resumeTextCache.clear();
           this.applicantResumes = pageResult.resumes;
           this.syncCurrentApplicantResume(pageResult.resumes);
           this.update({
@@ -2745,12 +2930,16 @@ export class HhBrowserAssistant {
         throw new Error('Сессия HH закончилась. Подключите HH ещё раз во вкладке «Отклики».');
       }
       this.applicantResumes = result.resumes;
+      this.syncCurrentApplicantResume(result.resumes);
     }
     const resume = this.applicantResumes.find((item) => item.id === resumeId.trim());
     if (!resume) throw new Error('Выбранное резюме больше не найдено в HH. Обновите список.');
 
     const cached = this.resumeTextCache.get(resume.id);
-    if (cached) return { ...resume, text: cached };
+    if (cached && Date.now() - cached.cachedAt <= HH_RESUME_TEXT_CACHE_TTL_MS) {
+      return { ...resume, text: cached.text };
+    }
+    if (cached) this.resumeTextCache.delete(resume.id);
     const response = await this.context.request.get(resume.url, {
       failOnStatusCode: false,
       timeout: 20_000,
@@ -2761,7 +2950,7 @@ export class HhBrowserAssistant {
     if (text.length < 80) {
       throw new Error('HH открыл резюме, но не отдал его содержимое. Обновите резюме на HH и повторите.');
     }
-    this.resumeTextCache.set(resume.id, text);
+    this.resumeTextCache.set(resume.id, { text, cachedAt: Date.now() });
     return { ...resume, text };
   }
 
@@ -3066,11 +3255,14 @@ export class HhBrowserAssistant {
           autoRetryBlockedUntil: alreadyApplied || retryFalseMissingNegotiation
             ? undefined
             : old?.autoRetryBlockedUntil,
-          selectedResumeTitle: rankHhResumeTitlesForVacancy(
+          selectedResumeTitle: old?.selectedResumeTitle ?? rankHhResumeTitlesForVacancy(
             vacancy.title,
             this.applicantResumes.map((resume) => resume.title),
             this.state.config.resumeTitles,
-          )[0] ?? old?.selectedResumeTitle,
+          )[0],
+          selectedResumeVerified: old?.selectedResumeTitle
+            ? old.selectedResumeVerified
+            : undefined,
         });
       }
       const foundCount = queue.length;
@@ -3192,11 +3384,14 @@ export class HhBrowserAssistant {
         preparationNotes: existing?.preparationNotes,
         coverLetterPending: responseAvailable ? false : existing?.coverLetterPending,
         coverLetterAdded: responseAvailable ? false : existing?.coverLetterAdded,
-        selectedResumeTitle: rankHhResumeTitlesForVacancy(
+        selectedResumeTitle: existing?.selectedResumeTitle ?? rankHhResumeTitlesForVacancy(
           title,
           this.applicantResumes.map((resume) => resume.title),
           this.state.config.resumeTitles,
-        )[0] ?? existing?.selectedResumeTitle,
+        )[0],
+        selectedResumeVerified: existing?.selectedResumeTitle
+          ? existing.selectedResumeVerified
+          : undefined,
       };
       this.update({
         phase: 'ready',
@@ -3452,19 +3647,21 @@ export class HhBrowserAssistant {
     return 'unknown';
   }
 
-  private async selectPreferredResume(page: Page, selectedTitles: string[], vacancyTitle: string): Promise<void> {
-    if (selectedTitles.length === 0) return;
-    const allowed = selectedTitles.map((title) => title.toLocaleLowerCase('ru'));
+  private async selectPreferredResume(page: Page, selectedTitles: string[], vacancyTitle: string): Promise<string> {
+    if (selectedTitles.length === 0) {
+      throw new Error('Не выбрано резюме для отклика HH. Отклик не отправлен.');
+    }
+    const allowed = selectedTitles;
     const vacancyTokens = new Set(vacancyTitle.toLocaleLowerCase('ru').split(/[^a-zа-яё0-9+#.]+/i).filter((token) => token.length > 2));
     const target = allowed
       .map((title) => ({
         title,
-        score: title
+        score: title.toLocaleLowerCase('ru')
           .split(/[^a-zа-яё0-9+#.]+/i)
           .filter((token) => vacancyTokens.has(token)).length,
       }))
       .sort((left, right) => right.score - left.score)[0]?.title;
-    if (!target) return;
+    if (!target) throw new Error('Не удалось определить резюме для отклика HH.');
 
     // Current HH response modal shows the selected resume as resume-title and
     // reveals the alternatives after that card is clicked.
@@ -3484,37 +3681,74 @@ export class HhBrowserAssistant {
     };
     let visible = await visibleModern();
     if (visible.length > 0) {
-      const currentMatches = resumeTitleMatches(visible[0]?.text ?? '', target);
-      if (visible.length === 1 && currentMatches) return;
+      const currentExact = normalizeHhResumeTitleForSelection(visible[0]?.text ?? '')
+        === normalizeHhResumeTitleForSelection(target);
+      if (visible.length === 1 && currentExact) return target;
       if (visible.length === 1) {
         await modernTitles.nth(visible[0].index).click({ timeout: 5_000 });
         await page.waitForTimeout(250);
         visible = await visibleModern();
       }
-      const option = visible
-        .slice(currentMatches ? 1 : 0)
-        .find((item) => resumeTitleMatches(item.text, target));
-      if (option) {
-        await modernTitles.nth(option.index).click({ timeout: 5_000 });
-        return;
+      const selectedIndex = explicitlySelectedTitleIndex(
+        visible.map((item) => item.text),
+        target,
+      );
+      if (selectedIndex != null) {
+        const option = visible[selectedIndex];
+        if (option) {
+          const selectedItem = modernTitles.nth(option.index);
+          await selectedItem.click({ timeout: 5_000 });
+          await page.waitForTimeout(250);
+          const confirmed = await visibleModern();
+          if (
+            confirmed.length === 1
+            && normalizeHhResumeTitleForSelection(confirmed[0]?.text ?? '')
+              === normalizeHhResumeTitleForSelection(target)
+          ) return target;
+          const radio = selectedItem.locator('input[type="radio"], input[data-qa*="resume"]');
+          const radioCount = await radio.count().catch(() => 0);
+          const checked = radioCount > 0
+            ? await radio.first().isChecked().catch(() => null)
+            : null;
+          const ariaSelected = await selectedItem.getAttribute('aria-selected').catch(() => null);
+          const ariaChecked = await selectedItem.getAttribute('aria-checked').catch(() => null);
+          if (checked === true || ariaSelected === 'true' || ariaChecked === 'true') return target;
+          throw new Error(`HH не подтвердил выбор резюме «${target}». Отклик не отправлен.`);
+        }
       }
-      if (currentMatches) return;
-      throw new Error(`Выбранное резюме «${selectedTitles[allowed.indexOf(target)]}» не найдено в форме отклика HH.`);
+      throw new Error(`Выбранное резюме «${target}» не найдено в форме отклика HH.`);
     }
 
     // Compatibility fallback for the previous HH response form.
     const items = page.locator(RESUME_ITEM_SELECTOR);
     const count = Math.min(await items.count(), 10);
-    let best: { index: number; score: number } | null = null;
+    const itemTitles: string[] = [];
     for (let index = 0; index < count; index += 1) {
       const item = items.nth(index);
-      const text = (await item.innerText().catch(() => '')).toLocaleLowerCase('ru');
-      const selected = allowed.find((title) => resumeTitleMatches(text, title));
-      if (!selected) continue;
-      const score = selected.split(/[^a-zа-яё0-9+#.]+/i).filter((token) => vacancyTokens.has(token)).length;
-      if (!best || score > best.score) best = { index, score };
+      itemTitles.push(await item.innerText().catch(() => ''));
     }
-    if (best) await items.nth(best.index).click({ timeout: 5_000 }).catch(() => undefined);
+    const selectedIndex = explicitlySelectedTitleIndex(itemTitles, target);
+    if (selectedIndex != null) {
+      const selectedItem = items.nth(selectedIndex);
+      try {
+        await selectedItem.click({ timeout: 5_000 });
+      } catch (error) {
+        throw new Error(`Не удалось выбрать резюме «${target}» в форме отклика HH.`, {
+          cause: error,
+        });
+      }
+      await page.waitForTimeout(100);
+      const radio = selectedItem.locator('input[type="radio"], input[data-qa*="resume"]');
+      const radioCount = await radio.count().catch(() => 0);
+      const checked = radioCount > 0
+        ? await radio.first().isChecked().catch(() => null)
+        : null;
+      const ariaSelected = await selectedItem.getAttribute('aria-selected').catch(() => null);
+      const ariaChecked = await selectedItem.getAttribute('aria-checked').catch(() => null);
+      if (checked === true || ariaSelected === 'true' || ariaChecked === 'true') return target;
+      throw new Error(`HH не подтвердил выбор резюме «${target}». Отклик не отправлен.`);
+    }
+    throw new Error(`Выбранное резюме «${target}» не найдено в форме отклика HH.`);
   }
 
   private async clickFirstVisible(
@@ -3558,11 +3792,23 @@ export class HhBrowserAssistant {
     return this.clickFirstVisible(page, RESPONSE_BUTTON_SELECTOR);
   }
 
-  private async preferredApplicantResume(vacancyTitle: string): Promise<HhApplicantResume | undefined> {
+  private async preferredApplicantResume(
+    vacancyTitle: string,
+    selectedResumeTitle = '',
+  ): Promise<HhApplicantResume | undefined> {
     if (!this.context) return undefined;
     if (this.applicantResumes.length === 0) {
       const result = await this.readApplicantResumesFromSession().catch(() => null);
-      if (result && !result.loginRequired) this.applicantResumes = result.resumes;
+      if (result && !result.loginRequired) {
+        this.applicantResumes = result.resumes;
+        this.syncCurrentApplicantResume(result.resumes);
+      }
+    }
+    const explicitlySelected = selectedResumeTitle.trim();
+    if (explicitlySelected) {
+      const selected = findExplicitlySelectedHhResume(this.applicantResumes, explicitlySelected);
+      if (selected) return selected;
+      return undefined;
     }
     const rankedTitles = rankHhResumeTitlesForVacancy(
       vacancyTitle,
@@ -3571,7 +3817,7 @@ export class HhBrowserAssistant {
     );
     const preferredTitle = rankedTitles[0];
     return preferredTitle
-      ? this.applicantResumes.find((resume) => resumeTitleMatches(resume.title, preferredTitle))
+      ? findExplicitlySelectedHhResume(this.applicantResumes, preferredTitle)
       : undefined;
   }
 
@@ -3580,16 +3826,21 @@ export class HhBrowserAssistant {
    * might later rank best for one particular vacancy.
    */
   private async getConfiguredSearchResumeContext(): Promise<string> {
-    const fallback = this.state.config.resumeTitles.join('\n').trim();
-    if (!this.context) return fallback;
+    if (!this.context) return this.state.config.resumeTitles.join('\n').trim();
     if (this.applicantResumes.length === 0) {
       const result = await this.readApplicantResumesFromSession().catch(() => null);
-      if (result && !result.loginRequired) this.applicantResumes = result.resumes;
+      if (result && !result.loginRequired) {
+        this.applicantResumes = result.resumes;
+        this.syncCurrentApplicantResume(result.resumes);
+      }
     }
+    const fallback = this.state.config.resumeTitles.join('\n').trim();
     const configuredTitle = this.state.config.resumeTitles[0]?.trim() ?? '';
     const selected = configuredTitle
-      ? this.applicantResumes.find((resume) => resumeTitleMatches(resume.title, configuredTitle))
-      : this.applicantResumes[0];
+      ? findExplicitlySelectedHhResume(this.applicantResumes, configuredTitle)
+      : this.applicantResumes.length === 1
+        ? this.applicantResumes[0]
+        : undefined;
     if (!selected) return fallback;
     const text = await this.getApplicantResumeContent(selected.id)
       .then((result) => result.text)
@@ -3600,10 +3851,21 @@ export class HhBrowserAssistant {
   /** Best matching HH résumé for this vacancy, reused by forms, letters and recruiter chat. */
   async getSelectedResumeText(
     vacancyTitle: string,
-    options: { throwOnFailure?: boolean } = {},
+    options: { throwOnFailure?: boolean; selectedResumeTitle?: string } = {},
   ): Promise<string> {
-    const preferred = await this.preferredApplicantResume(vacancyTitle);
-    if (!preferred) return '';
+    const preferred = await this.preferredApplicantResume(
+      vacancyTitle,
+      options.selectedResumeTitle,
+    );
+    if (!preferred) {
+      if (options.throwOnFailure) {
+        const selected = options.selectedResumeTitle?.trim();
+        throw new Error(selected
+          ? `Выбранное резюме «${selected}» больше не найдено в HH. Обновите список резюме.`
+          : 'Не удалось выбрать подходящее резюме в HH. Обновите список резюме.');
+      }
+      return '';
+    }
     try {
       const result = await this.getApplicantResumeContent(preferred.id);
       // Desired salary is often stored in the HH résumé title rather than in
@@ -3643,48 +3905,123 @@ export class HhBrowserAssistant {
       phase: 'applying',
       message: `Готовлю ответы на вопросы работодателя: ${fields.length}…`,
     });
-    let resumeText = '';
-    try {
-      resumeText = await this.getSelectedResumeText(vacancy.title, { throwOnFailure: true });
-    } catch (error) {
-      return {
-        ok: false,
-        failureKind: 'transient',
-        reason: error instanceof Error
+    const resumeTitleSources = resumeTitleFactSources(
+      vacancy.selectedResumeTitle,
+      this.state.config.resumeTitles,
+    );
+    const resumeTitleContext = resumeTitleSources.join('\n').trim();
+    const titleSalaryExpectation = findSalaryExpectation(
+      null,
+      resumeTitleSources,
+    );
+    const preflightFacts = new Map<string, HhStoredScreeningAnswer | HhScreeningFact>();
+    for (const fact of this.state.screeningFacts) {
+      preflightFacts.set(screeningQuestionSemanticKey(fact.question), fact);
+    }
+    for (const answer of vacancy.screeningAnswers ?? []) {
+      if (answer.confirmedByUser !== true) continue;
+      preflightFacts.set(screeningQuestionSemanticKey(answer.question), answer);
+    }
+    const preflightAnswers = new Map(fields.flatMap((field) => {
+      const exactVacancyAnswer = findExactVacancyScreeningAnswer(
+        field.question,
+        vacancy.screeningAnswers,
+      );
+      const exactMapped = exactVacancyAnswer
+        ? reusableScreeningAnswer(field.question, exactVacancyAnswer)
+        : null;
+      if (exactMapped?.canAutoFill) {
+        return [[field.question.id, exactMapped] as const];
+      }
+      // The selected résumé is the freshest source for the candidate's current
+      // city. Do not let an older remembered answer suppress loading it.
+      if (isCurrentLocationQuestion(field.question.prompt)) return [];
+      const known = knownScreeningAnswer(
+        field.question,
+        titleSalaryExpectation,
+        resumeTitleContext,
+      );
+      const fact = preflightFacts.get(screeningQuestionSemanticKey(field.question.prompt))
+        ?? findReusableScreeningFact(field.question, preflightFacts.values());
+      const salaryQuestion = isSalaryRelatedQuestion(field.question.prompt);
+      const answer = salaryQuestion
+        ? known
+        : (fact ? reusableScreeningAnswer(field.question, fact) : null) ?? known;
+      return answer?.canAutoFill ? [[field.question.id, answer] as const] : [];
+    }));
+    let resumeText = resumeTitleContext;
+    let resumeLoadError = '';
+    if (fields.some((field) => !preflightAnswers.has(field.question.id))) {
+      try {
+        resumeText = await this.getSelectedResumeText(vacancy.title, {
+          throwOnFailure: true,
+          selectedResumeTitle: vacancy.selectedResumeTitle,
+        });
+      } catch (error) {
+        resumeLoadError = error instanceof Error
           ? error.message
-          : 'Временно не удалось загрузить выбранное резюме для ответов работодателю.',
-      };
+          : 'Временно не удалось загрузить выбранное резюме для ответов работодателю.';
+        // Continue with selected-title/config context. Every collected field
+        // still receives a local review draft instead of disappearing behind
+        // a transient dead-end.
+        resumeText = resumeTitleContext;
+      }
     }
     const confirmedAnswers = selectRelevantScreeningFacts(
       this.state.screeningFacts,
       fields.map((field) => field.question),
       30,
-    ).map((item) => ({
+    )
+      // Salary is scoped to the exact résumé selected for this vacancy (or an
+      // explicit configured amount). A remembered value from another résumé
+      // must not be sent back to the model as trusted provenance.
+      .filter((item) => (
+        !isSalaryRelatedQuestion(item.question)
+        && !isCurrentLocationQuestion(item.question)
+      ))
+      .map((item) => ({
       question: item.question,
       answer: item.answer,
       selectedOptions: item.selectedOptions,
-    }));
+      }));
     const salaryExpectation = findSalaryExpectation(
-      this.state.config.salaryFrom,
-      [...this.state.config.resumeTitles, resumeText],
+      null,
+      selectedResumeFactSources(
+        vacancy.selectedResumeTitle,
+        resumeText,
+        this.state.config.resumeTitles,
+      ),
     );
     const knownAnswers = new Map(
       fields.flatMap((field) => {
-        const answer = knownScreeningAnswer(field.question, salaryExpectation, resumeText, {
-          remoteOnly: this.state.config.schedule === 'remote',
-        });
+        const exactVacancyAnswer = findExactVacancyScreeningAnswer(
+          field.question,
+          vacancy.screeningAnswers,
+        );
+        const exactMapped = exactVacancyAnswer
+          ? reusableScreeningAnswer(field.question, exactVacancyAnswer)
+          : null;
+        if (exactMapped?.canAutoFill) {
+          return [[field.question.id, exactMapped] as const];
+        }
+        const answer = knownScreeningAnswer(field.question, salaryExpectation, resumeText);
         return answer ? [[field.question.id, answer] as const] : [];
       }),
     );
-    let generatedAnswers: HhScreeningAnswer[] = fields.map((field) => ({
-      id: field.question.id,
-      answer: '',
-      selectedOptions: [],
-      canAutoFill: false,
-      reason: 'AI не смог подтвердить ответ — нужен ваш выбор.',
-    }));
+    const reviewFallback = (question: HhScreeningQuestion): HhScreeningAnswer => (
+      localScreeningDraft(question, vacancy.title, vacancy.company)
+      ?? buildHhScreeningReviewDraft(question, {
+        vacancyTitle: vacancy.title,
+        vacancyCompany: vacancy.company,
+        resumeText,
+      })
+    );
+    let generatedAnswers: HhScreeningAnswer[] = fields.map((field) => (
+      reviewFallback(field.question)
+    ));
     const transientQuestionIds = new Set<string>();
     const transientFailureDetails = new Set<string>();
+    if (resumeLoadError) transientFailureDetails.add(resumeLoadError.slice(0, 180));
     if (this.generateScreeningAnswers) {
       const pendingForAi = fields.filter((field) => !knownAnswers.has(field.question.id));
       const pendingGroups = new Map<string, typeof pendingForAi>();
@@ -3714,16 +4051,23 @@ export class HhBrowserAssistant {
         const batch = batches[batchIndex] ?? [];
         if (result.status === 'fulfilled') {
           for (const answer of result.value.answers) {
-            byId.set(answer.id, answer);
             const representative = batch.find((field) => field.question.id === answer.id);
             if (!representative) continue;
+            const fallbackAnswer = reviewFallback(representative.question);
+            const usefulAnswer = isUsableHhScreeningDraft(representative.question, answer)
+              ? answer
+              : {
+                  ...fallbackAnswer,
+                  reason: answer.reason?.trim() || fallbackAnswer.reason,
+                };
+            byId.set(answer.id, usefulAnswer);
             const group = pendingGroups.get(screeningQuestionSemanticKey(representative.question.prompt)) ?? [];
             for (const duplicate of group) {
               if (duplicate.question.id === answer.id) continue;
               const mapped = reusableScreeningAnswer(duplicate.question, {
                 question: representative.question.prompt,
-                answer: answer.answer,
-                selectedOptions: answer.selectedOptions,
+                answer: usefulAnswer.answer,
+                selectedOptions: usefulAnswer.selectedOptions,
               });
               if (mapped) {
                 byId.set(duplicate.question.id, {
@@ -3732,9 +4076,9 @@ export class HhBrowserAssistant {
                   // promote a review-only model suggestion to automatic
                   // submission. Only the representative answer's verified
                   // autofill decision may authorize its duplicates.
-                  canAutoFill: answer.canAutoFill,
-                  reason: answer.reason,
-                  preparationNote: answer.preparationNote,
+                  canAutoFill: usefulAnswer.canAutoFill,
+                  reason: usefulAnswer.reason,
+                  preparationNote: usefulAnswer.preparationNote,
                 });
               }
             }
@@ -3744,7 +4088,9 @@ export class HhBrowserAssistant {
         const reason = result.reason instanceof Error ? result.reason.message : String(result.reason);
         for (const field of batch) {
           const group = pendingGroups.get(screeningQuestionSemanticKey(field.question.prompt)) ?? [field];
-          for (const duplicate of group) transientQuestionIds.add(duplicate.question.id);
+          for (const duplicate of group) {
+            byId.set(duplicate.question.id, reviewFallback(duplicate.question));
+          }
         }
         if (reason.trim()) transientFailureDetails.add(reason.trim().slice(0, 180));
       });
@@ -3766,35 +4112,47 @@ export class HhBrowserAssistant {
       });
     }
     for (const item of vacancy.screeningAnswers ?? []) {
+      if (item.confirmedByUser !== true) continue;
       confirmedByMeaning.set(screeningQuestionSemanticKey(item.question), item);
     }
     const generatedById = new Map(generatedAnswers.map((answer) => [answer.id, answer]));
     const mergedAnswers = fields.map((field): HhScreeningAnswer => {
-      const remoteOnlyRussia = this.state.config.schedule === 'remote'
-        && screeningRelocationScope(field.question.prompt) === 'russia';
-      if (remoteOnlyRussia) {
-        return knownAnswers.get(field.question.id) ?? {
-          id: field.question.id,
-          answer: '', selectedOptions: [], canAutoFill: false,
-          reason: 'Выбран только удалённый формат, но в форме нет безопасного отрицательного варианта.',
-        };
+      const exactVacancyAnswer = findExactVacancyScreeningAnswer(
+        field.question,
+        vacancy.screeningAnswers,
+      );
+      const exactMapped = exactVacancyAnswer
+        ? reusableScreeningAnswer(field.question, exactVacancyAnswer)
+        : null;
+      if (exactMapped?.canAutoFill) return exactMapped;
+      const confirmed = confirmedByMeaning.get(screeningQuestionSemanticKey(field.question.prompt))
+        ?? findReusableScreeningFact(field.question, confirmedByMeaning.values());
+      if (isSalaryRelatedQuestion(field.question.prompt)) {
+        // Salary is scoped to the configured expectation or the exact résumé
+        // selected for this vacancy. A global remembered value can belong to a
+        // different résumé and therefore is never automatic provenance.
+        return knownAnswers.get(field.question.id)
+          ?? generatedById.get(field.question.id)
+          ?? reviewFallback(field.question);
       }
-      const confirmed = confirmedByMeaning.get(screeningQuestionSemanticKey(field.question.prompt));
+      if (isCurrentLocationQuestion(field.question.prompt)) {
+        // City and salary from the résumé selected for this exact vacancy are
+        // newer and more contextual than a globally remembered answer. A city
+        // remembered under another résumé is useful only as a review draft,
+        // never as automatic provenance for this vacancy.
+        return knownAnswers.get(field.question.id)
+          ?? generatedById.get(field.question.id)
+          ?? reviewFallback(field.question);
+      }
       if (!confirmed) {
-        return knownAnswers.get(field.question.id) ?? generatedById.get(field.question.id) ?? {
-          id: field.question.id,
-          answer: '', selectedOptions: [], canAutoFill: false,
-          reason: 'Нужен ответ пользователя.',
-        };
+        return knownAnswers.get(field.question.id)
+          ?? generatedById.get(field.question.id)
+          ?? reviewFallback(field.question);
       }
       return reusableScreeningAnswer(field.question, confirmed)
         ?? knownAnswers.get(field.question.id)
         ?? generatedById.get(field.question.id)
-        ?? {
-          id: field.question.id,
-          answer: '', selectedOptions: [], canAutoFill: false,
-          reason: 'Сохранённый ответ не совпадает с вариантами этой формы.',
-        };
+        ?? reviewFallback(field.question);
     });
     const preparationNotes = [...new Set(mergedAnswers
       .filter((answer) => answer.canAutoFill)
@@ -3921,7 +4279,10 @@ export class HhBrowserAssistant {
     let response: HhCoverLetterResponse;
     let request: HhCoverLetterRequest;
     try {
-      const resumeText = await this.getSelectedResumeText(vacancy.title);
+      const resumeText = await this.getSelectedResumeText(vacancy.title, {
+        throwOnFailure: true,
+        selectedResumeTitle: vacancy.selectedResumeTitle,
+      });
       request = {
         vacancyTitle: vacancy.title,
         vacancyCompany: vacancy.company,
@@ -4314,8 +4675,47 @@ export class HhBrowserAssistant {
     options: { explicitUserSelection?: boolean } = {},
   ): Promise<HhApplyOutcome> {
     const page = await this.ensureBrowser('background');
-    const preferredResume = await this.preferredApplicantResume(vacancy.title);
+    const persistedResumeTitle = vacancy.selectedResumeTitle?.trim() ?? '';
+    const preferredResume = await this.preferredApplicantResume(
+      vacancy.title,
+      persistedResumeTitle,
+    );
+    if (
+      this.applicantResumes.length > 1
+      && !this.resumeSelectionConfirmed
+      && vacancy.selectedResumeVerified !== true
+    ) {
+      const reason = 'После обновления нужно один раз явно выбрать резюме HH в настройках откликов. Старый выбор не используется, потому что прежняя версия могла перепутать похожие резюме.';
+      this.patchQueue(vacancy.id, {
+        status: 'opened',
+        reason,
+        autoRetryBlockedUntil: 'manual',
+      });
+      return {
+        sent: false,
+        blocked: true,
+        reason,
+        autoRetryBlockedUntil: 'manual',
+      };
+    }
+    if (!preferredResume && (persistedResumeTitle || this.applicantResumes.length > 0)) {
+      const reason = persistedResumeTitle
+        ? `Выбранное резюме «${persistedResumeTitle}» больше не найдено в HH или не определяется однозначно. Отклик не отправлен — обновите список резюме.`
+        : 'Для вакансии не удалось однозначно выбрать одно из резюме HH. Отклик не отправлен — выберите точное резюме в настройках.';
+      this.patchQueue(vacancy.id, {
+        status: 'opened',
+        reason,
+        autoRetryBlockedUntil: 'manual',
+      });
+      return {
+        sent: false,
+        blocked: true,
+        reason,
+        autoRetryBlockedUntil: 'manual',
+      };
+    }
     if (preferredResume) {
+      vacancy.selectedResumeTitle = preferredResume.title;
       this.patchQueue(vacancy.id, { selectedResumeTitle: preferredResume.title });
     }
     if (hhVacancyId(page.url()) !== vacancy.id) {
@@ -4540,16 +4940,25 @@ export class HhBrowserAssistant {
         }
         case 'select_resume':
           {
-            const preferredResume = await this.preferredApplicantResume(vacancy.title);
+            const preferredResume = await this.preferredApplicantResume(
+              vacancy.title,
+              vacancy.selectedResumeTitle,
+            );
             const selectedTitles = preferredResume
               ? [preferredResume.title]
-              : this.state.config.resumeTitles.length > 0
-                ? this.state.config.resumeTitles
-                : [this.state.config.resumeTitleContains].filter(Boolean);
-            await this.selectPreferredResume(page, selectedTitles, vacancy.title);
-            if (selectedTitles[0]) {
-              this.patchQueue(vacancy.id, { selectedResumeTitle: selectedTitles[0] });
-            }
+              : vacancy.selectedResumeTitle
+                ? [vacancy.selectedResumeTitle]
+                : this.state.config.resumeTitles.length > 0
+                  ? this.state.config.resumeTitles
+                  : [this.state.config.resumeTitleContains].filter(Boolean);
+            const selectedResumeTitle = await this.selectPreferredResume(
+              page,
+              selectedTitles,
+              vacancy.title,
+            );
+            vacancy.selectedResumeTitle = selectedResumeTitle;
+            vacancy.selectedResumeVerified = true;
+            this.patchQueue(vacancy.id, { selectedResumeTitle, selectedResumeVerified: true });
           }
           finalSubmitClicked = false;
           baseCtx.resumeSelected = true;
@@ -4897,17 +5306,23 @@ export class HhBrowserAssistant {
       : '';
 
     const normalizeSuggestion = (
-      answer: Pick<HhScreeningAnswer, 'answer' | 'selectedOptions'>,
+      answer: Pick<HhScreeningAnswer, 'answer' | 'selectedOptions'> | null | undefined,
       source: HhScreeningDraftSuggestion['source'],
       note: string,
     ): HhScreeningDraftSuggestion | null => {
+      if (!answer) return null;
       const text = String(answer.answer ?? '').trim().slice(0, 2_000);
       const selectedOptions = matchScreeningOptionLabels(
         { answer: text, selectedOptions: answer.selectedOptions ?? [] },
         question.options,
         question.kind === 'multiple',
       );
-      const valid = question.kind === 'text' ? Boolean(text) : selectedOptions.length > 0;
+      // Closed sensitive questions may intentionally return a review note with
+      // no preselected option. This is still a successful suggestion request:
+      // the editor keeps the exact choices visible instead of throwing.
+      const valid = question.kind === 'text'
+        ? Boolean(text)
+        : selectedOptions.length > 0 || Boolean(text);
       return valid ? {
         questionId: question.id,
         answer: text,
@@ -4917,13 +5332,22 @@ export class HhBrowserAssistant {
       } : null;
     };
 
-    if (existingDraft) {
-      const resumeText = await this.getSelectedResumeText(vacancy.title);
+    if (
+      existingDraft
+      && !isCurrentLocationQuestion(question.prompt)
+      && !isSalaryRelatedQuestion(question.prompt)
+    ) {
+      const resumeText = await this.getSelectedResumeText(vacancy.title, {
+        selectedResumeTitle: vacancy.selectedResumeTitle,
+      });
       const confirmedAnswers = selectRelevantScreeningFacts(
         this.state.screeningFacts,
         [question],
         30,
-      ).map((fact) => ({
+      ).filter((fact) => (
+        !isSalaryRelatedQuestion(fact.question)
+        && !(vacancy.selectedResumeTitle?.trim() && isCurrentLocationQuestion(fact.question))
+      )).map((fact) => ({
         question: fact.question,
         answer: fact.answer,
         selectedOptions: fact.selectedOptions,
@@ -4971,44 +5395,99 @@ export class HhBrowserAssistant {
             : 'Применена базовая редактура без изменения смысла ответа.',
         };
       }
-      if (/лимит.*(?:токен|тариф).*исчерпан|месячн.*лимит/i.test(generationError)) {
-        throw new Error('Онлайн-ИИ временно недоступен из-за месячного лимита. Ваш ответ сохранён без изменений — SkillCue не будет заменять его чужим предположением.');
-      }
-      throw new Error(generationError || 'Не удалось улучшить формулировку. Ваш исходный ответ сохранён без изменений.');
+      return {
+        questionId: question.id,
+        answer: existingDraft,
+        selectedOptions: [],
+        source: 'local',
+        note: generationError
+          ? 'Онлайн-ИИ сейчас недоступен. Ваш исходный ответ сохранён без изменений и готов для дальнейшего редактирования.'
+          : 'Ваш ответ уже достаточно аккуратный; SkillCue сохранил его без изменения фактов и смысла.',
+      };
     }
 
     const exactFact = this.state.screeningFacts.find(
       (fact) => screeningQuestionSemanticKey(fact.question) === screeningQuestionSemanticKey(question.prompt),
     );
-    const remoteOnlyRussia = this.state.config.schedule === 'remote'
-      && screeningRelocationScope(question.prompt) === 'russia';
-    if (remoteOnlyRussia) {
-      const preference = knownScreeningAnswer(question, null, '', { remoteOnly: true });
-      const suggestion = preference && normalizeSuggestion(
-        preference,
+    const exactVacancyAnswer = findExactVacancyScreeningAnswer(
+      question,
+      vacancy.screeningAnswers,
+    );
+    if (exactVacancyAnswer) {
+      const mapped = reusableScreeningAnswer(question, exactVacancyAnswer);
+      const suggestion = normalizeSuggestion(
+        mapped,
         'profile',
-        'Использован ваш текущий фильтр: только удалённая работа, без переезда по России.',
+        'Использован ответ, который вы уже подтвердили именно для этой вакансии.',
       );
       if (suggestion) return suggestion;
-      throw new Error('В форме нет безопасного варианта «без переезда по России». Проверьте этот вопрос вручную.');
     }
-    if (exactFact) {
+    const reusableProfileFact = exactFact
+      ?? findReusableScreeningFact(question, this.state.screeningFacts);
+    const factMatchesExactPrompt = Boolean(exactFact)
+      && screeningQuestionKey(exactFact!.question) === screeningQuestionKey(question.prompt);
+    if (
+      reusableProfileFact
+      && (!isCurrentLocationQuestion(question.prompt) || !vacancy.selectedResumeTitle?.trim())
+      && !isSalaryRelatedQuestion(question.prompt)
+    ) {
+      const reusable = reusableScreeningAnswer(question, reusableProfileFact);
+      const currentCityNeedsResumeConfirmation = isCurrentLocationQuestion(question.prompt);
       const suggestion = normalizeSuggestion(
-        reusableScreeningAnswer(question, exactFact) ?? exactFact,
-        'profile',
-        'Ответ найден в вашем подтверждённом профиле. Проверьте, что он по-прежнему актуален.',
+        reusable ?? (factMatchesExactPrompt ? reusableProfileFact : null),
+        currentCityNeedsResumeConfirmation ? 'local' : 'profile',
+        currentCityNeedsResumeConfirmation
+          ? 'Город найден в ранее сохранённом ответе, но резюме для этой вакансии ещё не подтверждено. Проверьте значение.'
+          : 'Ответ найден в вашем подтверждённом профиле. Проверьте, что он по-прежнему актуален.',
       );
       if (suggestion) return suggestion;
     }
 
-    const resumeText = await this.getSelectedResumeText(vacancy.title);
-    const salaryExpectation = findSalaryExpectation(
-      this.state.config.salaryFrom,
-      [...this.state.config.resumeTitles, resumeText],
+    const resumeTitleSources = resumeTitleFactSources(
+      vacancy.selectedResumeTitle,
+      this.state.config.resumeTitles,
     );
-    const known = knownScreeningAnswer(question, salaryExpectation, resumeText, {
-      remoteOnly: this.state.config.schedule === 'remote',
-    });
+    const resumeTitleContext = resumeTitleSources.join('\n').trim();
+    const titleSalaryExpectation = findSalaryExpectation(
+      null,
+      resumeTitleSources,
+    );
+    const titleKnown = knownScreeningAnswer(
+      question,
+      titleSalaryExpectation,
+      resumeTitleContext,
+    );
+    if (titleKnown) {
+      const suggestion = normalizeSuggestion(
+        titleKnown,
+        'profile',
+        'SkillCue составил ответ из данных выбранного резюме. Проверьте формулировку перед сохранением.',
+      );
+      if (suggestion) return suggestion;
+    }
+
+    let resumeText = resumeTitleContext;
+    let resumeLoadError = '';
+    try {
+      if (isCurrentLocationQuestion(question.prompt) && !this.context) {
+        await this.ensureBrowser('background');
+      }
+      resumeText = await this.getSelectedResumeText(vacancy.title, {
+        throwOnFailure: Boolean(vacancy.selectedResumeTitle),
+        selectedResumeTitle: vacancy.selectedResumeTitle,
+      });
+    } catch (error) {
+      resumeLoadError = error instanceof Error ? error.message : String(error);
+    }
+    const salaryExpectation = findSalaryExpectation(
+      null,
+      selectedResumeFactSources(
+        vacancy.selectedResumeTitle,
+        resumeText,
+        this.state.config.resumeTitles,
+      ),
+    );
+    const known = knownScreeningAnswer(question, salaryExpectation, resumeText);
     if (known) {
       const suggestion = normalizeSuggestion(
         known,
@@ -5018,7 +5497,22 @@ export class HhBrowserAssistant {
       if (suggestion) return suggestion;
     }
 
-    let generationError = '';
+    if (
+      exactFact
+      && !isSalaryRelatedQuestion(question.prompt)
+      && (!isCurrentLocationQuestion(question.prompt)
+        || !vacancy.selectedResumeTitle?.trim())
+    ) {
+      const reusable = reusableScreeningAnswer(question, exactFact);
+      const suggestion = normalizeSuggestion(
+        reusable ?? (factMatchesExactPrompt ? exactFact : null),
+        'profile',
+        'В выбранном резюме город не указан, поэтому использован подтверждённый ответ из профиля. Проверьте, что он по-прежнему актуален.',
+      );
+      if (suggestion) return suggestion;
+    }
+
+    let generationError = resumeLoadError;
     if (this.generateScreeningAnswers) {
       const confirmedAnswers = selectRelevantScreeningFacts(
         this.state.screeningFacts,
@@ -5054,21 +5548,19 @@ export class HhBrowserAssistant {
       }
     }
 
-    const fallback = localScreeningDraft(question, vacancy.title, vacancy.company);
-    if (fallback) {
-      const suggestion = normalizeSuggestion(
-        fallback,
-        'local',
-        generationError
-          ? 'Онлайн-генератор сейчас недоступен, поэтому SkillCue подготовил нейтральное предположение локально. Обязательно проверьте факты.'
-          : 'SkillCue подготовил нейтральное предположение. Обязательно проверьте факты перед сохранением.',
-      );
-      if (suggestion) return suggestion;
-    }
-    if (/лимит.*(?:токен|тариф).*исчерпан|месячн.*лимит/i.test(generationError)) {
-      throw new Error('Онлайн-ИИ временно недоступен из-за месячного лимита. Для этого вопроса SkillCue не может безопасно придумать личный факт — введите его один раз, и он сохранится в профиле.');
-    }
-    throw new Error(generationError || 'Для этого вопроса не удалось подготовить безопасное предположение.');
+    const fallback = localScreeningDraft(question, vacancy.title, vacancy.company)
+      ?? buildHhScreeningReviewDraft(question, {
+        vacancyTitle: vacancy.title,
+        vacancyCompany: vacancy.company,
+        resumeText,
+      });
+    return normalizeSuggestion(
+      fallback,
+      'local',
+      generationError
+        ? 'Онлайн-генератор сейчас недоступен. SkillCue подготовил локальный черновик; неподтверждённые личные сведения нужно проверить.'
+        : 'SkillCue подготовил локальный черновик. Проверьте личные сведения перед сохранением.',
+    )!;
   }
 
   async answerScreeningQuestions(
@@ -5126,6 +5618,7 @@ export class HhBrowserAssistant {
         question: question.prompt,
         answer,
         selectedOptions,
+        confirmedByUser: true,
       };
       submittedAnswers.set(question.id, stored);
       submittedByMeaning.set(screeningQuestionSemanticKey(question.prompt), stored);
@@ -5138,7 +5631,8 @@ export class HhBrowserAssistant {
         accepted.push(direct);
         continue;
       }
-      const reusable = submittedByMeaning.get(screeningQuestionSemanticKey(question.prompt));
+      const reusable = submittedByMeaning.get(screeningQuestionSemanticKey(question.prompt))
+        ?? findReusableScreeningFact(question, submittedByMeaning.values());
       const mapped = reusable && reusableScreeningAnswer(question, reusable);
       if (!mapped?.canAutoFill) {
         this.update({
@@ -5152,6 +5646,7 @@ export class HhBrowserAssistant {
         question: question.prompt,
         answer: mapped.answer,
         selectedOptions: mapped.selectedOptions,
+        confirmedByUser: true,
       });
     }
 
@@ -5176,7 +5671,15 @@ export class HhBrowserAssistant {
     }
     this.state.screeningFacts = [...facts.values()].slice(-100);
     const reusableAnswers = new Map(
-      remembered.map((answer) => [screeningQuestionSemanticKey(answer.question), answer]),
+      remembered
+        // Salary and current city are scoped to the exact résumé/vacancy. A
+        // remembered value remains available as a review hint, but must never
+        // become a user-confirmed answer on other queued applications.
+        .filter((answer) => (
+          !isSalaryRelatedQuestion(answer.question)
+          && !isCurrentLocationQuestion(answer.question)
+        ))
+        .map((answer) => [screeningQuestionSemanticKey(answer.question), answer]),
     );
     let reusedVacancies = 0;
     if (reusableAnswers.size > 0) {
@@ -5186,7 +5689,8 @@ export class HhBrowserAssistant {
         }
         const reused: HhStoredScreeningAnswer[] = [];
         const pendingQuestions = item.pendingQuestions.filter((question) => {
-          const reusable = reusableAnswers.get(screeningQuestionSemanticKey(question.prompt));
+          const reusable = reusableAnswers.get(screeningQuestionSemanticKey(question.prompt))
+            ?? findReusableScreeningFact(question, reusableAnswers.values());
           if (!reusable) return true;
           const mapped = reusableScreeningAnswer(question, reusable);
           if (!mapped?.canAutoFill) return true;
@@ -5195,6 +5699,7 @@ export class HhBrowserAssistant {
             question: question.prompt,
             answer: mapped.answer,
             selectedOptions: mapped.selectedOptions,
+            confirmedByUser: true,
           });
           return false;
         });

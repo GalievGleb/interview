@@ -18,16 +18,19 @@ import os from 'os';
 import crypto from 'crypto';
 import { spawn, type ChildProcess } from 'child_process';
 import { autoUpdater } from 'electron-updater';
-import { HhBrowserAssistant } from './hhBrowserAssistant';
+import { HhBrowserAssistant, type HhAssistantConfigUpdate } from './hhBrowserAssistant';
 import {
   buildGroundedLocalHhCoverLetter,
   type HhCoverLetterResponse,
   validateGeneratedHhCoverLetter,
 } from './hhCoverLetter';
 import { parseHhScreeningAnswersResponse } from './hhScreeningQuestions';
-import type { HhAssistantConfig } from './hhAssistantPolicy';
 import { HhOAuthService } from './hhOAuthService';
-import { HhChatBrowser } from './hhChatBrowser';
+import {
+  HhChatBrowser,
+  resolveHhRecruiterProfileSelection,
+  type HhChatCandidateProfile,
+} from './hhChatBrowser';
 import { InterviewCalendarStore } from './interviewCalendar';
 import { isReservedOverlayShortcut } from './shortcutPolicy';
 import { createAutoUpdateCoordinator } from './autoUpdateCoordinator';
@@ -553,7 +556,7 @@ function registerIpc(): void {
   ipcMain.handle('hh-assistant:get-state', () => hhBrowserAssistant?.getState());
   ipcMain.handle(
     'hh-assistant:save-config',
-    (_e, config: Partial<HhAssistantConfig>) => hhBrowserAssistant?.saveConfig(config),
+    (_e, config: HhAssistantConfigUpdate) => hhBrowserAssistant?.saveConfig(config),
   );
   ipcMain.handle('hh-assistant:open-browser', (_e, platform) => hhBrowserAssistant?.openBrowser(platform));
   ipcMain.handle('hh-assistant:scan', (_e, platform) => hhBrowserAssistant?.scan(platform));
@@ -1343,7 +1346,10 @@ if (!hasSingleInstanceLock) {
     interviewCalendar = new InterviewCalendarStore(app.getPath('userData'), (state) => {
       sendToWindows('interview-calendar:state', state);
     });
-    const recruiterProfileCache = new Map<string, { content: string; expiresAt: number }>();
+    const recruiterProfileCache = new Map<
+      string,
+      { profile: HhChatCandidateProfile | ''; expiresAt: number }
+    >();
     hhChatBrowser = new HhChatBrowser(
       app.getPath('userData'),
       // Плановая проверка не создаёт видимую вкладку negotiations рядом с
@@ -1423,17 +1429,35 @@ if (!hasSingleInstanceLock) {
         });
         notification.show();
       },
-      async (vacancyTitle: string) => {
-        const cacheKey = vacancyTitle.replace(/\s+/g, ' ').trim().toLocaleLowerCase('ru');
+      async (context) => {
+        const assistant = hhBrowserAssistant;
+        if (!assistant) return '';
+        const selection = resolveHhRecruiterProfileSelection(
+          assistant.getState().queue,
+          context,
+        );
+        if (!selection) return '';
+        const { vacancy, selectedResumeTitle, cacheKey } = selection;
         const cached = recruiterProfileCache.get(cacheKey);
-        if (cached && cached.expiresAt > Date.now()) return cached.content;
+        if (cached && cached.expiresAt > Date.now()) return cached.profile;
 
         // The resume selected for this vacancy is the primary source. It may
         // contain current salary expectations that are absent from the local
         // profile pack, and it must win over older uploaded documents.
-        const selectedResume = await hhBrowserAssistant
-          ?.getSelectedResumeText(vacancyTitle)
-          .catch(() => '') ?? '';
+        const selectedResume = await assistant.getSelectedResumeText(vacancy.title, {
+          throwOnFailure: true,
+          selectedResumeTitle,
+        }).catch((error) => {
+          console.warn('[hh-chat-browser] selected resume lookup failed:', error);
+          return '';
+        });
+        if (!selectedResume.trim()) {
+          recruiterProfileCache.set(cacheKey, {
+            profile: '',
+            expiresAt: Date.now() + 30_000,
+          });
+          return '';
+        }
         let localProfile = '';
         try {
           const headers: Record<string, string> = {};
@@ -1450,14 +1474,15 @@ if (!hasSingleInstanceLock) {
           console.warn('[hh-chat-browser] local candidate profile lookup failed:', error);
         }
 
-        const content = [selectedResume.trim(), localProfile]
-          .filter((part, index, parts) => part && parts.indexOf(part) === index)
-          .join('\n\n');
+        const profile: HhChatCandidateProfile = {
+          selectedResumeText: selectedResume.trim().slice(0, 12_000),
+          supplementalProfileText: localProfile.slice(0, 12_000),
+        };
         recruiterProfileCache.set(cacheKey, {
-          content: content.slice(0, 12_000),
-          expiresAt: Date.now() + (content ? 5 * 60_000 : 30_000),
+          profile,
+          expiresAt: Date.now() + 5 * 60_000,
         });
-        return content.slice(0, 12_000);
+        return profile;
       },
       async () => {
         await hhBrowserAssistant?.restoreInteractivePage();

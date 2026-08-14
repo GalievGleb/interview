@@ -1,5 +1,6 @@
 import {
   matchScreeningOptionLabels,
+  normalizeScreeningOption,
   screeningQuestionKey,
   type HhScreeningAnswer,
   type HhScreeningQuestion,
@@ -19,13 +20,60 @@ const STOP_WORDS = new Set([
   'which', 'work', 'worked', 'experience', 'describe', 'please',
 ]);
 
-const SALARY_QUESTION_RE = /(?:зарплат|з\s*\/?\s*п\b|оклад|доход|компенсац|денежн|вилк|финансов[а-яё]*\s+ожидан|salary|compensation|financial\s+expectations?|expected\s+(?:salary|compensation|pay|level)|\bpay\b)/i;
+const SALARY_QUESTION_RE = /(?:зарплат|заработн[а-яё]*\s+плат|вознагражден|з\s*\/?\s*п\b|оклад|доход|компенсац|оплат|денежн|вилк|финансов[а-яё]*\s+ожидан|salary|compensation|financial\s+expectations?|expected\s+(?:salary|compensation|pay|level)|\bpay\b)/i;
+const SALARY_RELATED_QUESTION_RE = /(?:зарплат|заработн[а-яё]*\s+плат|вознагражден|з\s*\/?\s*п\b|оклад|доход|компенсац|оплат|денежн|вилк|финансов[а-яё]*\s+ожидан|сумм|рейт|ставк|гонорар|salary|compensation|financial\s+expectations?|\bpay\b|\brate\b|\bfee\b)/i;
+const HISTORICAL_SALARY_QUESTION_RE = /(?:текущ\w*\s+(?:доход|зарплат|заработн[а-яё]*\s+плат|оклад|компенсац)|(?:зарплат|заработн[а-яё]*\s+плат|доход|оклад|компенсац).{0,45}(?:получал|получаете|получали|зарабатыва(?:ли|ете|ешь)|предыдущ|прошл|последн\w*\s+мест)|(?:получал|получаете|получали|зарабатыва(?:ли|ете|ешь)).{0,45}(?:зарплат|заработн[а-яё]*\s+плат|доход|оклад|компенсац)|(?:сколько|какую\s+сумм\w*).{0,35}(?:сейчас\s+)?(?:получал|получаете|получали|зарабатыва(?:ли|ете|ешь))|current\s+(?:salary|income|compensation)|(?:last|previous)\s+(?:salary|income|compensation))/i;
+const NON_MONTHLY_SALARY_CADENCE_RE = /(?:(?:в|за|на)\s+(?:час|день|сутк\w*|смен\w*|недел\w*|год|квартал|полугод\w*)|(?:за|на)\s+(?:(?:\d+|один|одну|дв[ае]|три|четыре|пять|шесть|семь|восемь|девять|десять)\s+)?(?:дн\w*|сутк\w*|смен\w*|недел\w*|месяц\w*|квартал\w*|полугод\w*|год\w*)|за\s+(?:весь\s+)?(?:проект|контракт)|\/\s*(?:час|день|сутк\w*|смен\w*|недел\w*|год)|почасов|часов\w*\s+ставк|дневн\w*\s+ставк|годов\w*\s+(?:доход|зарплат|компенсац)|ежегодн|ежеквартальн|per\s+(?:hour|day|shift|week|year|annum|project|contract)|hourly|daily|weekly|quarterly|annual|yearly)/i;
+const NON_RUBLE_SALARY_CURRENCY_RE = /(?:\b(?:usd|eur|kzt|aed|gbp|cny|byn|gel|amd|uzs|try|inr|cad|chf|jpy|krw|brl|zar|sek|nok|dkk|pln|czk|huf|ron|bgn|rsd|thb|vnd|idr|mxn|ars|clp|aud|nzd|sgd|hkd|twd|myr|php|uah|ils|sar|qar|kwd|bhd|omr|egp|mad|ngn|kes|ghs|etb|usdt|usdc)\b|[$€₸₾֏¥₴]|доллар|евро|тенге|дирхам|фунт[а-яё]*|иен[а-яё]*|йен[а-яё]*|юан|гривн|белорусск[а-яё]*\s+рубл|лари|драм|(?:сом|сум)(?:ы|ов|ах)?(?![а-яё]))/i;
+const EXPECTED_SALARY_QUESTION_RE = /(?:ожидан|ожида|желаем|миним|комфорт|вилк|рассчитыва|ориентир|рассматрива|хот(?:ите|ел(?:и|а)?|им|елось)|интересу(?:ет|ют)|устроит|expected|desired|expectations?)/i;
+const BARE_EXPECTED_PAY_QUESTION_RE = /(?:(?:сколько|какую\s+сумм\w*)[^?\n]{0,45}(?:хот(?:ите|ели|им)|ожида(?:ете|ем|ю))[^?\n]{0,30}(?:получать|зарабатывать)|желаем[а-яё]*\s+сумм[а-яё]*[^?\n]{0,25}(?:на\s+руки|в\s+месяц))/i;
+const EXPECTED_SUM_SALARY_QUESTION_RE = /(?:сумм[а-яё]*[^?\n]{0,45}(?:рассчитыва|ориентир|рассматрива|устроит)|(?:рассчитыва|ориентир|рассматрива|устроит)[^?\n]{0,45}сумм[а-яё]*)/i;
+const EXPLICIT_SALARY_EXPECTATION_LINE_RE = /(?:финансов[а-яё]*\s+ожидан|зарплатн[а-яё]*\s+ожидан|(?:желаем|ожидаем|expected|desired).{0,40}(?:зарплат|доход|компенсац|оплат|salary|income|compensation)|(?:зарплат|доход|компенсац|оплат|salary|income|compensation).{0,40}(?:желаем|ожидаем|expected|desired))/i;
+const NON_EXPECTATION_MONEY_LINE_RE = /(?:бюджет|оборот|выручк|расход|получал|получаю|получает|текущ(?:ая|ий|ее)\s+(?:зарплат|доход|оклад)|предыдущ(?:ая|ий|ее)|прошл(?:ая|ый|ое)\s+(?:зарплат|доход|оклад))/i;
+const SALARY_NET_BASIS_RE = /(?:на\s+руки|после\s+(?:(?:вычета|уплаты)\s+)?(?:налог|ндфл)|чист(?:ыми|ая|ый)(?![а-яё])|\bnet\b)/i;
+const SALARY_GROSS_BASIS_RE = /(?:до\s+(?:(?:вычета|уплаты)\s+)?(?:налог|ндфл)|до\s+удержан|с\s+уч[её]том\s+(?:налог|ндфл)|грязн(?:ыми|ая|ый)(?![а-яё])|\bgross\b)/i;
+const SALARY_TAX_MENTION_RE = /(?:налог|ндфл|вычет|удержан|на\s+руки|чист(?:ыми|ая|ый)(?![а-яё])|грязн(?:ыми|ая|ый)(?![а-яё])|\bnet\b|\bgross\b)/i;
+
+function hasExplicitNonRubleSalaryCurrency(value: string): boolean {
+  if (NON_RUBLE_SALARY_CURRENCY_RE.test(value)) return true;
+  const currencyCodes = value.match(/\b[A-Z]{3,5}\b/g) ?? [];
+  return currencyCodes.some((code) => code !== 'RUB' && code !== 'RUR');
+}
+
+/** Broad provenance boundary; it does not by itself authorize an automatic answer. */
+export function isSalaryRelatedQuestion(value: string): boolean {
+  return SALARY_RELATED_QUESTION_RE.test(value) || isSalaryExpectationQuestion(value);
+}
+
+export function isSalaryExpectationQuestion(value: string): boolean {
+  if (
+    HISTORICAL_SALARY_QUESTION_RE.test(value)
+    || NON_MONTHLY_SALARY_CADENCE_RE.test(value)
+    || hasExplicitNonRubleSalaryCurrency(value)
+  ) return false;
+  return (SALARY_QUESTION_RE.test(value) && EXPECTED_SALARY_QUESTION_RE.test(value))
+    || BARE_EXPECTED_PAY_QUESTION_RE.test(value)
+    || EXPECTED_SUM_SALARY_QUESTION_RE.test(value);
+}
 const MONEY_RE = /(\d{2,3}(?:[\s\u00a0]\d{3})+|\d{5,7})\s*(?:₽|руб(?:\.|лей|ля)?|rub\b)/giu;
 const RELOCATION_RE = /релокац|переезд|переехать|перебраться|сменить\s+(?:город|место\s+жительства)/i;
+const REGIONAL_LOCATION_QUESTION_RE = /(?:регион|област|субъект(?:а)?\s*(?:рф|российск[а-яё]*\s+федерац)?|край|республик)/i;
+const CURRENT_LOCATION_QUESTION_RE = /(?:где\s+(?:сейчас\s+)?(?:жив(?:е|ё)(?:те|шь)|прожива(?:е|ё)(?:те|шь)|находитесь)(?![а-яё])|в\s+как(?:ом|ой)\s+(?:городе|регионе|насел[её]нн[а-яё]*\s+пункте|локации)[^?\n]{0,35}(?:(?:вы|кандидат)[^?\n]{0,12})?(?:жив|прожив|находитесь|находится\s+кандидат)|где[^?\n]{0,35}(?:(?:вы|кандидат)[^?\n]{0,12})(?:жив|прожив|наход)|(?:укаж|назов|напиш)[^?\n]{0,25}(?:город|локац|насел[её]нн[а-яё]*\s+пункт)[^?\n]{0,30}(?:проживания|жительства|местонахождения)[\s?.:]*$|(?:укаж|назов|напиш)[а-яё]*[\s,:-]*(?:пожалуйста[\s,:-]*)?(?:(?:ваш[а-яё]*\s+)?(?:текущ[а-яё]*\s+)?(?:город|локац|насел[её]нн[а-яё]*\s+пункт)|место\s+(?:жительства|проживания)|местонахожд)[\s?.:]*$|(?:город|регион|насел[её]нн[а-яё]*\s+пункт)\s+(?:вашего\s+)?(?:фактическ[а-яё]*\s+)?(?:проживания|местонахождения)|(?:(?:ваш[а-яё]*\s+)?(?:текущ[а-яё]*|фактическ[а-яё]*)|ваш[а-яё]*)\s+(?:город|локац|место\s+(?:жительства|проживания)|местонахожд))/i;
+const NON_CURRENT_LOCATION_QUESTION_RE = /(?:город|место|локац|насел[её]нн[а-яё]*\s+пункт).{0,50}(?:рождени|родн[а-яё]*|регистрац|пропис|офис|работодател|ваканси|компан|проект|команд|образован|обучен|работ|желаем|желательн|предпочитаем)|(?:рождени|родн[а-яё]*|регистрац|пропис|офис|работодател|ваканси|компан|проект|команд|образован|обучен|работ|желаем|желательн|предпочитаем).{0,50}(?:город|место|локац|насел[её]нн[а-яё]*\s+пункт)/i;
 const FOREIGN_RELOCATION_RE = /за\s+(?:рубеж|границ)|другую\s+стран|саудов|оаэ|эмират|дуба[йе]|кипр|турц|грузи|тбилис|армени|ереван|казахстан|алмат|астан|кыргыз|бишкек|узбекистан|ташкент|серби|белград|черногор|европ|германи|польш|чехи|израил|сша|америк|канад|испан|португал|франц|итал|нидерланд|голланд|бельги|австри|швейцар|швец|норвег|финлянд|дани|великобритан|англи|ирланд|румын|болгар|венгр|хорват|словен|словац|литв|латви|эстон|грец|беларус|белорус|минск|украин|киев|молдов|кишинев|азербайджан|баку|мексик|бразил|аргентин|чили|австрали|нов(?:ую|ая)?\s+зеланд|индонез|таиланд|вьетнам/i;
 const RUSSIAN_RELOCATION_RE = /(?:^|[^а-яё])(?:росси|рф(?=$|[^а-яё])|москв|санкт[ -]?петербург|петербург|питер|рязань|йошкар|казан|иннополис|новосибир|екатеринбург|нижн(?:ий|его)\s+новгород|самар|уф[ауе]|перм|омск|челябинск|ростов|краснодар|красноярск|воронеж|волгоград|соч[и]|тюмень|томск|саратов|тольятти|ижевск|барнаул|владивосток|хабаровск|калининград|ярославл|тула|иркутск|ульяновск)/i;
 
 export type ScreeningRelocationScope = 'russia' | 'abroad' | 'unspecified';
+
+const CURRENT_LOCATION_SEMANTIC_KEY = 'profile:current-location';
+
+/** True only for a request for the candidate's present home location. */
+export function isCurrentLocationQuestion(value: string): boolean {
+  return !RELOCATION_RE.test(value)
+    && !REGIONAL_LOCATION_QUESTION_RE.test(value)
+    && !NON_CURRENT_LOCATION_QUESTION_RE.test(value)
+    && CURRENT_LOCATION_QUESTION_RE.test(value);
+}
 
 export function screeningRelocationScope(value: string): ScreeningRelocationScope | null {
   if (!RELOCATION_RE.test(value)) return null;
@@ -41,10 +89,12 @@ export function screeningRelocationScope(value: string): ScreeningRelocationScop
  * grouped, and Russian/international relocation are deliberately different.
  */
 export function screeningQuestionSemanticKey(value: string): string {
-  const scope = screeningRelocationScope(value);
-  return scope === 'russia' || scope === 'abroad'
-    ? `preference:relocation:${scope}`
-    : screeningQuestionKey(value);
+  if (isCurrentLocationQuestion(value)) return CURRENT_LOCATION_SEMANTIC_KEY;
+  // Destination-specific relocation questions must remain separate in
+  // storage and in the UI. A confirmed global refusal can still be reused by
+  // reusableScreeningAnswer, but “Рязань” and “Йошкар-Ола” must never collapse
+  // into one stored value.
+  return screeningQuestionKey(value);
 }
 
 type ScreeningPreferenceIntent = 'accept' | 'decline' | 'discuss';
@@ -62,9 +112,13 @@ function relocationOptionForIntent(options: string[], intent: ScreeningPreferenc
     const value = option.toLocaleLowerCase('ru').replace(/ё/g, 'е');
     let score = 0;
     if (intent === 'decline') {
+      // A confirmed refusal to relocate does not prove willingness to commute,
+      // visit an office, or work hybrid even when the option starts with “Нет”.
+      if (/(?:^|[^а-яё])но(?=$|[^а-яё])|готов.{0,30}(?:приезж|ездить|посещ|офис)|офис|гибрид|в\s+своем\s+городе/.test(value)) {
+        return { option, score: Number.NEGATIVE_INFINITY };
+      }
       if (/(?:^|[^а-яё])нет(?=$|[^а-яё])|не\s+готов|не\s+рассматрива/.test(value)) score += 8;
-      if (/только(?:\s+полностью)?\s+удален|своем\s+городе|без\s+переезд/.test(value)) score += 6;
-      if (/но\s+готов.{0,30}(?:приезж|офис)/.test(value)) score -= 5;
+      if (/только(?:\s+полностью)?\s+удален|без\s+переезд/.test(value)) score += 6;
     } else if (intent === 'accept') {
       if (/(?:^|[^а-яё])да(?=$|[^а-яё])/.test(value)) score += 6;
       if (/готов.{0,30}(?:переех|релокац)|переехать/.test(value)) score += 7;
@@ -77,18 +131,55 @@ function relocationOptionForIntent(options: string[], intent: ScreeningPreferenc
   return scored[0] && scored[0].score > 0 ? scored[0].option : null;
 }
 
+function locationOptionForValue(options: string[], location: string): string | null {
+  const normalizedLocation = normalizeScreeningOption(location);
+  if (normalizedLocation.length < 2) return null;
+  return options.find((option) => {
+    const normalized = normalizeScreeningOption(option);
+    if (/^(?:не|кроме|за\s+исключением|любой\s+кроме|вне|за\s+пределами)(?=$|[^а-яё])/.test(normalized)) return false;
+    return normalized === normalizedLocation
+      || normalized === `г ${normalizedLocation}`
+      || normalized === `г. ${normalizedLocation}`
+      || normalized === `город ${normalizedLocation}`
+      || normalized === `${normalizedLocation} и область`
+      || normalized === `г ${normalizedLocation} и область`
+      || normalized === `г. ${normalizedLocation} и область`
+      || normalized === `город ${normalizedLocation} и область`;
+  }) ?? null;
+}
+
+function isGlobalRelocationDecline(fact: ConfirmedScreeningFact): boolean {
+  const value = [fact.answer, ...fact.selectedOptions]
+    .join(' ')
+    .toLocaleLowerCase('ru')
+    .replace(/ё/g, 'е');
+  return /(?:только(?:\s+полностью)?\s+удален|без\s+переезд(?:а|ов)?(?:\s+вообще)?|переезд(?:ы)?(?:\s+по\s+россии|\s+вообще)?\s+не\s+рассматрива|не\s+рассматрива.{0,25}переезд(?:ы)?(?:\s+по\s+россии|\s+вообще)?|ни\s+в\s+какой\s+город)/.test(value);
+}
+
 /** Maps one confirmed preference to a differently worded form question. */
 export function reusableScreeningAnswer(
   question: HhScreeningQuestion,
   fact: ConfirmedScreeningFact,
 ): HhScreeningAnswer | null {
   const exact = screeningQuestionKey(question.prompt) === screeningQuestionKey(fact.question);
-  const samePreference = screeningQuestionSemanticKey(question.prompt) === screeningQuestionSemanticKey(fact.question);
-  if (!exact && !samePreference) return null;
+  const semanticKey = screeningQuestionSemanticKey(question.prompt);
+  const questionRelocationScope = screeningRelocationScope(question.prompt);
+  const factRelocationScope = screeningRelocationScope(fact.question);
+  const sameRelocationScope = Boolean(questionRelocationScope)
+    && questionRelocationScope === factRelocationScope;
+  const sameMeaning = semanticKey === screeningQuestionSemanticKey(fact.question)
+    || sameRelocationScope;
+  const sameCurrentLocation = sameMeaning && semanticKey === CURRENT_LOCATION_SEMANTIC_KEY;
+  if (!exact && !sameMeaning) return null;
   const intent = screeningPreferenceIntent(fact);
-  // A refusal/remote-only preference is safe to apply to another destination
-  // in the same scope. Consent or conditional consent is destination-specific.
-  if (!exact && samePreference && intent !== 'decline') return null;
+  // A refusal aimed at one city is destination-specific too. Only an explicit
+  // global/remote-only refusal may be reused for a differently worded place.
+  if (
+    !exact
+    && sameMeaning
+    && !sameCurrentLocation
+    && (intent !== 'decline' || !isGlobalRelocationDecline(fact))
+  ) return null;
   if (question.kind === 'text') {
     const answer = fact.answer.trim() || fact.selectedOptions.join(', ').trim();
     return answer ? { id: question.id, answer, selectedOptions: [], canAutoFill: true, reason: '' } : null;
@@ -100,6 +191,13 @@ export function reusableScreeningAnswer(
   );
   if (exactOptions.length > 0) {
     return { id: question.id, answer: fact.answer, selectedOptions: exactOptions, canAutoFill: true, reason: '' };
+  }
+  if (sameCurrentLocation) {
+    const location = fact.answer.trim() || fact.selectedOptions[0]?.trim() || '';
+    const mappedLocation = locationOptionForValue(question.options, location);
+    if (mappedLocation) {
+      return { id: question.id, answer: '', selectedOptions: [mappedLocation], canAutoFill: true, reason: '' };
+    }
   }
   const mapped = intent && relocationOptionForIntent(question.options, intent);
   return mapped
@@ -179,22 +277,91 @@ export function selectRelevantScreeningFacts<T extends ConfirmedScreeningFact>(
     .map(({ fact }) => fact);
 }
 
+function salaryExpectationEvidence(sourceText: string): string[] {
+  const lines = sourceText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  return (lines.length <= 1
+    ? lines.filter((line) => !NON_EXPECTATION_MONEY_LINE_RE.test(line))
+    : lines.filter((line, index) => (
+      EXPLICIT_SALARY_EXPECTATION_LINE_RE.test(line)
+      || (index === 0 && !NON_EXPECTATION_MONEY_LINE_RE.test(line))
+    )))
+    .filter((line) => !NON_MONTHLY_SALARY_CADENCE_RE.test(line));
+}
+
+type SalaryTaxBasis = 'net' | 'gross';
+
+function salaryTaxBasis(value: string): SalaryTaxBasis | 'ambiguous' | null {
+  const net = SALARY_NET_BASIS_RE.test(value);
+  const gross = SALARY_GROSS_BASIS_RE.test(value);
+  if (net && gross) return 'ambiguous';
+  if (net) return 'net';
+  if (gross) return 'gross';
+  return null;
+}
+
+function salaryTaxBasisForAmount(
+  salaryExpectation: number,
+  sourceText: string,
+): SalaryTaxBasis | 'ambiguous' | null {
+  const bases = new Set<SalaryTaxBasis>();
+  for (const segment of salaryExpectationEvidence(sourceText)) {
+    MONEY_RE.lastIndex = 0;
+    for (const match of segment.matchAll(MONEY_RE)) {
+      const amount = Number((match[1] ?? '').replace(/[\s\u00a0]/g, ''));
+      if (amount !== salaryExpectation) continue;
+      const start = Math.max(0, (match.index ?? 0) - 35);
+      const end = Math.min(segment.length, (match.index ?? 0) + match[0].length + 50);
+      const basis = salaryTaxBasis(segment.slice(start, end));
+      if (basis === 'ambiguous') return 'ambiguous';
+      if (basis) bases.add(basis);
+    }
+  }
+  return bases.size === 1 ? [...bases][0] : bases.size > 1 ? 'ambiguous' : null;
+}
+
 /** Extracts the desired monthly salary from the explicit setting or HH résumé. */
 export function findSalaryExpectation(
   configuredSalary: number | null | undefined,
   sources: string[],
 ): number | null {
+  for (const source of sources) {
+    for (const segment of salaryExpectationEvidence(source)) {
+      MONEY_RE.lastIndex = 0;
+      for (const match of segment.matchAll(MONEY_RE)) {
+        const value = Number((match[1] ?? '').replace(/[\s\u00a0]/g, ''));
+        if (Number.isFinite(value) && value >= 30_000 && value <= 10_000_000) return value;
+      }
+    }
+  }
+  // salaryFrom is primarily the HH search floor. It is still a useful fallback
+  // when the chosen résumé contains no salary, but it must never override the
+  // explicit expectation printed in that exact résumé.
   if (Number.isFinite(configuredSalary) && Number(configuredSalary) >= 30_000) {
     return Math.round(Number(configuredSalary));
   }
-  for (const source of sources) {
-    MONEY_RE.lastIndex = 0;
-    for (const match of source.matchAll(MONEY_RE)) {
-      const value = Number((match[1] ?? '').replace(/[\s\u00a0]/g, ''));
-      if (Number.isFinite(value) && value >= 30_000 && value <= 10_000_000) return value;
-    }
-  }
   return null;
+}
+
+/** Reads the current city from the explicitly selected HH résumé. */
+export function findResumeLocation(resumeText: string): string | null {
+  const labelled = resumeText.match(
+    /(?:^|\n)\s*(?:город(?:\s+(?:проживания|жительства))?|место\s+(?:жительства|проживания)|локация|местонахождение)\s*[:—-]\s*([^\n]{2,120})/iu,
+  )?.[1]?.trim();
+  const hhHeader = resumeText.match(
+    /(?:^|\n)\s*([А-ЯЁ][А-Яа-яЁё-]+(?:\s+[А-ЯЁ][А-Яа-яЁё-]+){0,3})\s*,?\s+(?=(?:не\s+)?готов(?:а)?\s+к\s+переезду)/u,
+  )?.[1]?.trim();
+  const raw = labelled || hhHeader;
+  if (!raw) return null;
+  const parts = raw
+    .split(/\s*[,;|·]\s*/u)
+    .map((part) => part.replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+  const candidate = /^(?:росси(?:я|йская федерация)|рф)$/iu.test(parts[0] ?? '')
+    ? parts[1]
+    : parts[0];
+  if (!candidate || candidate.length > 80) return null;
+  if (/\d|https?:|@|готов\w*\s+к\s+переезду|удален/i.test(candidate)) return null;
+  return candidate;
 }
 
 function formatRubles(value: number): string {
@@ -205,12 +372,21 @@ function formatRubles(value: number): string {
 export function buildSalaryExpectationAnswer(
   salaryExpectation: number,
   question: string,
+  sourceText = '',
 ): string {
   const salary = formatRubles(salaryExpectation);
+  const requestedBasis = salaryTaxBasis(question);
+  const sourceBasis = salaryTaxBasisForAmount(salaryExpectation, sourceText);
+  if (requestedBasis === 'ambiguous' || sourceBasis === 'ambiguous') return '';
+  if (SALARY_TAX_MENTION_RE.test(question) && !requestedBasis) return '';
+  if (requestedBasis && sourceBasis !== requestedBasis) return '';
+  const qualifier = sourceBasis === 'net'
+    ? 'на руки'
+    : sourceBasis === 'gross' ? 'до вычета налогов' : 'в месяц';
   const asksForRange = /(?:миним|комфорт|вилк|от\s+и\s+до)/i.test(question);
   return asksForRange
-    ? `Минимум — ${salary} на руки; комфортный уровень готов обсудить с учётом задач и общего компенсационного пакета.`
-    : `Рассматриваю предложения от ${salary} на руки, итоговый уровень готов обсудить с учётом задач и общего компенсационного пакета.`;
+    ? `Минимум — ${salary} ${qualifier}; комфортный уровень готов обсудить с учётом задач и общего компенсационного пакета.`
+    : `Рассматриваю предложения от ${salary} ${qualifier}, итоговый уровень готов обсудить с учётом задач и общего компенсационного пакета.`;
 }
 
 function resumeExperienceDuration(resumeText: string): string {
@@ -232,7 +408,9 @@ export function answerExperienceThresholdFromResume(
   question: string,
   resumeText: string,
 ): 'Да' | 'Нет' | null {
-  if (!/опыт/i.test(question)) return null;
+  // The HH header proves total career tenure only. It does not prove how long
+  // the candidate used a particular technology or worked in automation.
+  if (!/(?:общ(?:ий|ая)\s+(?:опыт|стаж)|суммарн[а-яё]*\s+(?:опыт|стаж)|(?:опыт|стаж)\s+работы\s+всего|всего\s+(?:опыт|стаж))/i.test(question)) return null;
   const threshold = question.match(/(\d+(?:[.,]\d+)?)\s*(?:год(?:а|ов)?|лет)(?=\s|[?!.,]|$)/i);
   if (!threshold) return null;
   const experienceMonths = findResumeExperienceMonths(resumeText);
@@ -248,48 +426,6 @@ export function answerExperienceThresholdFromResume(
   return null;
 }
 
-function resumeEmployerNames(resumeText: string): string[] {
-  const names: string[] = [];
-  const seen = new Set<string>();
-  const pattern = /(?:^|[•\n])\s*([^\n•]{2,80}?)(?=\d+\s*(?:год|года|лет|месяц|месяца|месяцев))/giu;
-  for (const match of resumeText.matchAll(pattern)) {
-    const name = String(match[1] ?? '').replace(/\s+/g, ' ').trim();
-    const key = name.toLocaleLowerCase('ru');
-    if (!name || /опыт работы|добавить/i.test(name) || seen.has(key)) continue;
-    seen.add(key);
-    names.push(name);
-    if (names.length >= 4) break;
-  }
-  return names;
-}
-
-function resumeAutomationTools(resumeText: string): string[] {
-  const candidates: Array<[string, RegExp]> = [
-    ['Python', /\bPython\b/i],
-    ['Pytest', /\bPytest\b/i],
-    ['Playwright', /\bPlaywright\b/i],
-    ['Selenium', /\bSelenium\b/i],
-    ['HTTPX', /\bHTTPX\b/i],
-    ['Requests', /\bRequests\b/i],
-  ];
-  return candidates.filter(([, pattern]) => pattern.test(resumeText)).map(([name]) => name);
-}
-
-const NEGATED_RESUME_CLAIM_RE = /(?:^|\W)(?:не\s+(?:было\s+)?(?:работал\w*|тестир\w*|разрабатывал\w*|писал\w*|использовал\w*|занимался\w*|выполнял\w*|имел\w*)|нет\s+(?:коммерческ\w*\s+)?опыт|без\s+опыт|(?:опыт|работ\w*|тестир\w*|автотест\w*)[^.\n]{0,30}\sне\s+(?:было|имел\w*|выполнял\w*))/iu;
-
-function affirmativeResumeSentence(
-  resumeText: string,
-  requiredPatterns: readonly RegExp[],
-): string | null {
-  const sentences = resumeText
-    .split(/[\n.!?]+/u)
-    .map((sentence) => sentence.replace(/\s+/g, ' ').trim())
-    .filter(Boolean);
-  return sentences.find((sentence) =>
-    !NEGATED_RESUME_CLAIM_RE.test(sentence)
-    && requiredPatterns.every((pattern) => pattern.test(sentence))) ?? null;
-}
-
 /**
  * Deterministic answers for preferences SkillCue already has. These win over
  * the model, so an obvious salary question cannot become a manual blocker.
@@ -298,54 +434,49 @@ export function knownScreeningAnswer(
   question: HhScreeningQuestion,
   salaryExpectation: number | null,
   resumeText = '',
-  preferences: { remoteOnly?: boolean } = {},
 ): HhScreeningAnswer | null {
-  if (preferences.remoteOnly && screeningRelocationScope(question.prompt) === 'russia') {
-    const remoteOnlyFact: ConfirmedScreeningFact = {
-      question: 'Рассматриваете ли вы переезд по России ради работы?',
-      answer: 'Нет, переезд по России не рассматриваю. Интересует только полностью удалённый формат работы.',
-      selectedOptions: ['Нет, рассматриваю только полностью удалённый формат'],
-    };
-    return reusableScreeningAnswer(question, remoteOnlyFact);
-  }
-  if (question.kind === 'text' && salaryExpectation && SALARY_QUESTION_RE.test(question.prompt)) {
+  if (question.kind === 'text' && salaryExpectation && isSalaryExpectationQuestion(question.prompt)) {
+    const answer = buildSalaryExpectationAnswer(salaryExpectation, question.prompt, resumeText);
+    if (!answer) return null;
     return {
       id: question.id,
-      answer: buildSalaryExpectationAnswer(salaryExpectation, question.prompt),
+      answer,
       selectedOptions: [],
       canAutoFill: true,
       reason: '',
     };
   }
 
-  if (question.kind !== 'text') {
-    const confirmedYes = question.options.find((option) => /^да[.!]?$/i.test(option.trim()));
-    const asksAboutCommercialAutomation =
-      /(?:практическ|коммерческ).*опыт.*автотест|опыт.*автотест.*(?:python|питон|коммерческ)/i.test(question.prompt);
-    const resumeConfirmsCommercialAutomation = Boolean(affirmativeResumeSentence(resumeText, [
-      /автотест/i,
-      /(?:разрабатывал|писал|создавал|поддерживал|автоматизировал)/i,
-      /\bPython\b/i,
-    ])) && resumeEmployerNames(resumeText).length > 0;
-    const asksAboutWebTesting =
-      /опыт.*тестирован.*(?:web|веб)|тестирован.*(?:web|веб).*опыт/i.test(question.prompt);
-    const resumeConfirmsWebTesting = Boolean(affirmativeResumeSentence(resumeText, [
-      /(?:web|веб)[-\s]?приложен/i,
-      /тестир/i,
-    ]));
-    if (
-      confirmedYes
-      && ((asksAboutCommercialAutomation && resumeConfirmsCommercialAutomation)
-        || (asksAboutWebTesting && resumeConfirmsWebTesting))
-    ) {
+  if (isCurrentLocationQuestion(question.prompt)) {
+    const location = findResumeLocation(resumeText);
+    if (location && question.kind === 'text') {
       return {
         id: question.id,
-        answer: '',
-        selectedOptions: [confirmedYes],
+        answer: location,
+        selectedOptions: [],
         canAutoFill: true,
+        sourceType: 'resume',
+        evidenceQuote: `Город проживания: ${location}`,
         reason: '',
       };
     }
+    if (location) {
+      const option = locationOptionForValue(question.options, location);
+      if (option) {
+        return {
+          id: question.id,
+          answer: '',
+          selectedOptions: [option],
+          canAutoFill: true,
+          sourceType: 'resume',
+          evidenceQuote: `Город проживания: ${location}`,
+          reason: '',
+        };
+      }
+    }
+  }
+
+  if (question.kind !== 'text') {
     const rule = PROFESSIONAL_OPTION_RULES.find((candidate) => candidate.question.test(question.prompt));
     const selected = rule && question.options.find((option) => rule.option.test(option));
     if (!selected) return null;
@@ -359,53 +490,6 @@ export function knownScreeningAnswer(
     };
   }
 
-  if (
-    /опыт.*тестирован.*(?:web|веб)|тестирован.*(?:web|веб).*опыт/i.test(question.prompt)
-  ) {
-    const evidence = affirmativeResumeSentence(resumeText, [
-      /(?:web|веб)[-\s]?приложен/i,
-      /тестир/i,
-    ]);
-    if (evidence) {
-      return {
-        id: question.id,
-        answer: 'Да. В резюме подтверждён опыт тестирования web-приложений.',
-        selectedOptions: [], canAutoFill: true, reason: '',
-      };
-    }
-  }
-  if (
-    /коммерческ.*опыт.*(?:написан|разработк).*автотест|опыт.*автотест.*коммерческ/i.test(question.prompt)
-  ) {
-    const employers = resumeEmployerNames(resumeText);
-    const tools = resumeAutomationTools(resumeText);
-    const evidence = affirmativeResumeSentence(resumeText, [
-      /автотест/i,
-      /(?:разрабатывал|писал|создавал|поддерживал|автоматизировал)/i,
-    ]);
-    if (evidence && employers.length > 0 && tools.length > 0) {
-      return {
-        id: question.id,
-        answer: `Да. В резюме указан коммерческий опыт разработки автотестов. Компании: ${employers.join(', ')}. Инструменты, перечисленные в резюме: ${tools.join(', ')}.`,
-        selectedOptions: [], canAutoFill: true, reason: '',
-      };
-    }
-  }
-  if (
-    /опыт.*(?:финтех|web3|веб3)|(?:финтех|web3|веб3).*опыт/i.test(question.prompt)
-  ) {
-    const evidence = affirmativeResumeSentence(resumeText, [
-      /(?:сбер|сбербанк|банк|финтех)/i,
-      /(?:работ|опыт|aqa|qa|engineer|инженер|аналитик|тестир|разработ)/i,
-    ]);
-    if (evidence) {
-      return {
-        id: question.id,
-        answer: 'В резюме подтверждён опыт работы в банковской/финтех-сфере. Отдельный опыт web3 в резюме не указан.',
-        selectedOptions: [], canAutoFill: true, reason: '',
-      };
-    }
-  }
   if (/compress_numbers|подряд идущие дубликаты/i.test(question.prompt)) {
     return {
       id: question.id,
@@ -442,41 +526,10 @@ export function localScreeningDraft(
     reason: 'Это предположение SkillCue — проверьте и отредактируйте его перед сохранением.',
   });
 
-  if (/жанр\s+RTS|RTS.*игр/i.test(prompt)) {
-    return draft('Да, жанр RTS мне нравится. На ПК играл в StarCraft II и Age of Empires II: больше всего интересны управление ресурсами, развитие базы и принятие решений в условиях ограниченного времени. На мобильных устройствах в RTS играл заметно меньше.');
-  }
-  if (/мобильн.*игр.*(?:последн|3\s*месяц)|(?:последн|3\s*месяц).*мобильн.*игр/i.test(prompt)) {
-    return draft('За последние три месяца играл в Brawl Stars и Clash Royale. Обращал внимание не только на игровой процесс, но и на подбор соперников, баланс, стабильность сессий и удобство интерфейса.');
-  }
-  if (/\bMatrix\b|друг.*мессенджер/i.test(prompt)) {
-    return draft('С Matrix коммерческого опыта пока не было. Из других мессенджеров использовал Telegram и рабочие командные чаты для коммуникации, уведомлений и координации задач; с устройством Matrix готов быстро разобраться.');
-  }
-  if (/релокац|переезд/i.test(prompt)) {
-    const destination = /саудовск/i.test(prompt) ? 'в Саудовскую Аравию' : 'в указанную локацию';
-    const duration = /3\s*месяц/i.test(prompt) ? ' на три месяца' : '';
-    return draft(`Да, готов рассмотреть релокацию ${destination}${duration}, если работодатель оплачивает переезд, проживание, визу и медицинскую страховку, а сроки и остальные условия будут заранее согласованы и зафиксированы.`);
-  }
-  if (/\bИП\b|самозанят|\bСМЗ\b|схем.*оформлен|формат.*оформлен/i.test(prompt)) {
-    return draft('Готов рассмотреть работу по ИП или как самозанятый при прозрачном договоре, заранее согласованных налоговых и платёжных условиях и понятном порядке прекращения сотрудничества.');
-  }
   if (/почему.*(?:ваканси|позици)|чем.*(?:ваканси|позици).*интерес/i.test(prompt)) {
     const role = vacancyTitle.trim() || 'эта позиция';
     const company = vacancyCompany.trim() ? ` в ${vacancyCompany.trim()}` : '';
-    return draft(`Мне интересна позиция ${role}${company}: она сочетает задачи по качеству продукта, развитию автоматизации и работе с техническими рисками. Мой опыт с Python, Pytest, Playwright и API-тестированием позволит быстро включиться в задачи, а новые части стека я готов оперативно освоить.`);
-  }
-
-  if (question.kind !== 'text') {
-    const isLowRiskExperienceQuestion = /опыт|знаком|работали|использовали/i.test(prompt)
-      && !/гражданств|разрешен.*работ|релокац|переезд|зарплат|оклад|график|смен|оформлен|самозанят|ИП\b/i.test(prompt);
-    const affirmative = isLowRiskExperienceQuestion
-      ? question.options.find((option) => /^(?:да|yes)$/i.test(option.trim()))
-      : undefined;
-    return affirmative ? draft('', [affirmative]) : null;
-  }
-
-  if (/опыт|работали|использовали|знакомы/i.test(prompt)
-    && !/гражданств|разрешен.*работ|зарплат|оклад|график|смен|локаци|проживаете/i.test(prompt)) {
-    return draft('Прямого коммерческого опыта именно в этом направлении пока не было, но я знаком с основными принципами и смогу быстро углубиться. Близкий опыт в автоматизации тестирования на Python, Pytest и Playwright поможет быстрее разобраться в инструментах и рабочих сценариях.');
+    return draft(`Мне интересна позиция ${role}${company}: привлекают задачи продукта, зона ответственности и возможность приносить измеримую пользу команде. Перед отправкой уточню формулировку по требованиям конкретной вакансии.`);
   }
   return null;
 }

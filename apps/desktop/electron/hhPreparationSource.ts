@@ -63,7 +63,28 @@ export function parseHhResumeText(html: string): string {
       .map((element) => hhHtmlToText($.html(element)))
       .filter((part) => part.length >= 2),
   );
-  return [...new Set(parts)].join('\n\n').slice(0, 16_000).trim();
+  // The current city is rendered outside the position/experience cards on HH.
+  // Keep only the explicit visible address node (never the whole personal card,
+  // which may also contain phone/e-mail) and label it for deterministic use by
+  // employer questionnaires.
+  const locationSelectors = [
+    '[data-qa="resume-personal-address"]',
+    '[data-qa="resume-personal-address-text"]',
+    '[data-qa="resume-personal-location"]',
+    '[data-qa="resume-address"]',
+    '[data-qa="resume-block-location"]',
+  ];
+  const locations = locationSelectors.flatMap((selector) =>
+    $(selector)
+      .toArray()
+      .map((element) => hhHtmlToText($.html(element)))
+      .map((part) => part.replace(/\s+/g, ' ').trim())
+      .map((part) => part.replace(/\s*[,;|·—-]\s*(?:не\s+)?готов(?:а)?\s+к\s+переезду.*$/i, '').trim())
+      .filter((part) => part.length >= 2 && part.length <= 160)
+      .filter((part) => !/@|https?:|телефон|(?:не\s+)?готов(?:а)?\s+к\s+переезду|релокац/i.test(part))
+      .map((part) => `Город проживания: ${part}`),
+  );
+  return [...new Set([...locations, ...parts])].join('\n\n').slice(0, 16_000).trim();
 }
 
 function jobPostingFromJsonLd(value: unknown): JsonRecord | null {

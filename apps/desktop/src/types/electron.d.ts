@@ -26,6 +26,10 @@ export interface HhAssistantConfig {
   avitoCity: string;
 }
 
+export type HhAssistantConfigUpdate = Partial<HhAssistantConfig> & {
+  resumeSelectionExplicitlyConfirmed?: boolean;
+};
+
 export type HhQueueStatus = 'new' | 'opened' | 'prepared' | 'needs_input' | 'sent' | 'already_applied' | 'skipped';
 
 export interface HhScreeningQuestion {
@@ -354,7 +358,7 @@ export interface ElectronAPI {
   };
   hhAssistant?: {
     getState: () => Promise<HhAssistantState>;
-    saveConfig: (config: Partial<HhAssistantConfig>) => Promise<HhAssistantState>;
+    saveConfig: (config: HhAssistantConfigUpdate) => Promise<HhAssistantState>;
     openBrowser: (platform?: 'hh' | 'linkedin' | 'avito') => Promise<HhAssistantState>;
     scan: (platform?: 'hh' | 'linkedin' | 'avito') => Promise<HhAssistantState>;
     runNow: () => Promise<HhAssistantState>;

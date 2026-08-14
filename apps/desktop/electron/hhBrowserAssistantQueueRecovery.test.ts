@@ -52,6 +52,88 @@ describe('HH persisted queue recovery', () => {
     );
   });
 
+  it('backfills legacy pending text questions with a non-empty review draft', () => {
+    const [item] = normalizePersistedQueue([pending('1', {
+      pendingQuestions: [{
+        id: 'legacy-city',
+        prompt: 'В каком городе вы сейчас проживаете?',
+        kind: 'text',
+        options: [],
+        required: true,
+      }],
+    })]);
+
+    expect(item?.pendingQuestions?.[0]?.suggestedAnswer).toContain('город проживания');
+    expect(item?.pendingQuestions?.[0]?.assistantReason).toContain('неподтверждённый');
+  });
+
+  it('scrubs a guessed legacy city so the selected resume can rehydrate it', () => {
+    const [item] = normalizePersistedQueue([pending('1', {
+      pendingQuestions: [{
+        id: 'legacy-guessed-city',
+        prompt: 'Где вы сейчас живёте?',
+        kind: 'text',
+        options: [],
+        required: true,
+        suggestedAnswer: 'Москва',
+      }],
+    })]);
+
+    expect(item?.pendingQuestions?.[0]?.suggestedAnswer).not.toBe('Москва');
+    expect(item?.pendingQuestions?.[0]?.suggestedAnswer).toContain('город проживания');
+  });
+
+  it('scrubs an unproven legacy legal-status option instead of restoring the guessed answer', () => {
+    const [item] = normalizePersistedQueue([pending('1', {
+      pendingQuestions: [{
+        id: 'legacy-official-work',
+        prompt: 'Твой опыт работы за последние 3 года — официальный (по ТК РФ)?',
+        kind: 'single',
+        options: ['Да', 'Нет (ИП/ГПХ/другое)'],
+        required: true,
+        suggestedOptions: ['Нет (ИП/ГПХ/другое)'],
+      }],
+    })]);
+
+    expect(item?.pendingQuestions?.[0]?.suggestedOptions).toBeUndefined();
+    expect(item?.pendingQuestions?.[0]?.suggestedAnswer).toContain('не будет угадывать');
+    expect(item?.pendingQuestions?.[0]?.assistantReason).toContain('неподтверждённый');
+  });
+
+  it('scrubs every legacy closed-choice preselection without provenance', () => {
+    const [item] = normalizePersistedQueue([pending('1', {
+      pendingQuestions: [{
+        id: 'legacy-office-commitment',
+        prompt: 'Какой формат посещения офиса вам подходит?',
+        kind: 'single',
+        options: ['Каждый день', 'Гибрид', 'Только удалённо'],
+        required: true,
+        suggestedOptions: ['Каждый день'],
+      }],
+    })]);
+
+    expect(item?.pendingQuestions?.[0]?.suggestedOptions).toBeUndefined();
+    expect(item?.pendingQuestions?.[0]?.suggestedAnswer).toContain('не будет угадывать');
+  });
+
+  it('scrubs an unproven legacy personal-history text suggestion', () => {
+    const [item] = normalizePersistedQueue([pending('1', {
+      pendingQuestions: [{
+        id: 'legacy-games',
+        prompt: 'Нравятся ли вам игры жанра RTS? В какие игры этого жанра вы играли?',
+        kind: 'text',
+        options: [],
+        required: true,
+        suggestedAnswer: 'Да, играл в StarCraft II и Age of Empires II.',
+      }],
+    })]);
+
+    const question = item?.pendingQuestions?.[0];
+    expect(question?.suggestedAnswer).toBeTruthy();
+    expect(question?.suggestedAnswer).not.toMatch(/StarCraft|Age of Empires/);
+    expect(question?.assistantReason).toContain('неподтверждённый');
+  });
+
   it('keeps one owner for exact employer-description duplicates and preserves a different description', () => {
     const stored = [
       pending('1'),
