@@ -94,20 +94,30 @@ describe('packaged product surface', () => {
     expect(settingsSource.match(/openSupportLink\(SUPPORT_TELEGRAM_URL\)/g)).toHaveLength(1);
   });
 
-  it('shows the old stealth shortcuts only in the developer build', () => {
+  it('shows stealth and taskbar shortcuts in the sidebar for every build', () => {
     const sidebarSource = fs.readFileSync(
       path.join(desktopRoot, 'src', 'components', 'Sidebar.tsx'),
       'utf8',
     );
     const preloadSource = fs.readFileSync(path.join(desktopRoot, 'electron', 'preload.ts'), 'utf8');
     const mainSource = fs.readFileSync(path.join(desktopRoot, 'electron', 'main.ts'), 'utf8');
+    const settingsSource = fs.readFileSync(
+      path.join(desktopRoot, 'src', 'pages', 'SettingsPage.tsx'),
+      'utf8',
+    );
+    const licenseCardSource = fs.readFileSync(
+      path.join(desktopRoot, 'src', 'components', 'LicenseCard.tsx'),
+      'utf8',
+    );
 
-    expect(sidebarSource).toContain('useBuildChannel()');
-    expect(sidebarSource).toContain("buildChannel === 'dev'");
-    expect(sidebarSource).toContain('{isDeveloperBuild && (');
+    expect(sidebarSource).not.toContain('{isDeveloperBuild && (');
     expect(sidebarSource).toContain('skillcue-sidebar__utility-row');
     expect(sidebarSource).toContain('<ShieldCheck');
     expect(sidebarSource).toContain('<EyeOff');
+    expect(licenseCardSource).not.toContain('if (!license) return null');
+    expect(licenseCardSource).toContain("placeholder=\"SKILLCUE-…\"");
+    expect(licenseCardSource).toContain("t('license.keyPrompt')");
+    expect(settingsSource.indexOf('<LicenseCard')).toBeLessThan(settingsSource.indexOf('<PlanPicker'));
     expect(preloadSource).toContain("ipcRenderer.invoke('app:getBuildChannel')");
     expect(mainSource).toContain("ipcMain.handle('app:getBuildChannel', () => BUILD_CHANNEL)");
     expect(preloadSource).toContain("ipcRenderer.invoke('overlay:get-window-state')");

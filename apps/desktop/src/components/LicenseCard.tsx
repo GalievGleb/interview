@@ -13,7 +13,7 @@ const PLAN_LABEL_KEYS: Record<string, I18nKey> = {
  *
  * `autoActivateKey` приходит по deep-link skillcue://activate?key=… (после оплаты
  * на сайте) — активируем его автоматически с тем же фидбэком, что и ручной ввод,
- * в любом статусе (в т.ч. апгрейд basic→max, когда поля ввода не видно). */
+ * в любом статусе (в т.ч. апгрейд basic→max). */
 export default function LicenseCard({ autoActivateKey }: { autoActivateKey?: string }) {
   const { license, refreshLicense } = useApp();
   const { t } = useI18n();
@@ -57,22 +57,34 @@ export default function LicenseCard({ autoActivateKey }: { autoActivateKey?: str
     }
   }, [autoActivateKey, activateKey]);
 
-  if (!license) return null;
-
   const minutesLeft =
-    license.live_seconds_left != null ? Math.ceil(license.live_seconds_left / 60) : null;
+    license?.live_seconds_left != null ? Math.ceil(license.live_seconds_left / 60) : null;
 
   const badge =
-    license.status === 'active' ? (
+    license?.status === 'active' ? (
       <span className="sc-badge sc-badge--success">
         <span className="sc-dot sc-dot--success" /> {planLabel(license.plan)}
       </span>
-    ) : license.status === 'trial' ? (
+    ) : license?.status === 'trial' ? (
       <span className="sc-badge sc-badge--accent">
         {t('license.trialLeftPre')} {minutesLeft} {t('license.trialLeftPost')}
       </span>
-    ) : (
+    ) : license ? (
       <span className="sc-badge sc-badge--error">{t('license.trialEnded')}</span>
+    ) : null;
+
+  const statusText =
+    license?.status === 'active' ? (
+      <>
+        {t('license.issuedTo')} <span className="text-ink">{license.licensed_to}</span>.
+        {license.plan === 'basic' && t('license.basicUpsell')}
+      </>
+    ) : license?.status === 'trial' ? (
+      t('license.trialPrompt')
+    ) : license ? (
+      t('license.expiredPrompt')
+    ) : (
+      t('license.keyPrompt')
     );
 
   return (
@@ -82,34 +94,26 @@ export default function LicenseCard({ autoActivateKey }: { autoActivateKey?: str
         {badge}
       </div>
 
-      {license.status === 'active' ? (
-        <p className="text-sm text-ink-muted">
-          {t('license.issuedTo')} <span className="text-ink">{license.licensed_to}</span>.
-          {license.plan === 'basic' && t('license.basicUpsell')}
-        </p>
-      ) : (
-        <>
-          <p className="mb-3 text-sm text-ink-muted">
-            {license.status === 'trial' ? t('license.trialPrompt') : t('license.expiredPrompt')}
-          </p>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <input
-              value={key}
-              onChange={(e) => setKey(e.target.value)}
-              placeholder="SKILLCUE-…"
-              className="field flex-1 font-mono text-xs"
-            />
-            <button
-              type="button"
-              onClick={() => void activateKey(key)}
-              disabled={busy || !key.trim()}
-              className="btn-primary btn-sm shrink-0"
-            >
-              {busy ? t('common.checking') : t('license.activate')}
-            </button>
-          </div>
-        </>
+      <p className="mb-3 text-sm text-ink-muted">{statusText}</p>
+      {license?.status === 'active' && (
+        <p className="mb-3 text-sm text-ink-muted">{t('license.keyPrompt')}</p>
       )}
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <input
+          value={key}
+          onChange={(e) => setKey(e.target.value)}
+          placeholder="SKILLCUE-…"
+          className="field flex-1 font-mono text-xs"
+        />
+        <button
+          type="button"
+          onClick={() => void activateKey(key)}
+          disabled={busy || !key.trim()}
+          className="btn-primary btn-sm shrink-0"
+        >
+          {busy ? t('common.checking') : t('license.activate')}
+        </button>
+      </div>
 
       {/* Результат активации (ручной или по deep-link) — виден в любом статусе,
           чтобы фидбэк не терялся при апгрейде уже активной лицензии. */}
@@ -118,7 +122,7 @@ export default function LicenseCard({ autoActivateKey }: { autoActivateKey?: str
 
       {/* Токены пользователю не показываем — только мягкое уведомление, если
           серверный месячный лимит тарифа исчерпан и AI временно недоступен. */}
-      {license.tokens_left_month === 0 && (
+      {license?.tokens_left_month === 0 && (
         <p className="mt-4 text-xs text-amber-300">{t('license.monthLimit')}</p>
       )}
     </div>

@@ -1159,6 +1159,7 @@ export const en: Record<I18nKey, string> = {
     'Try live mode: 15 minutes free, plus a small prep limit. After that — with a licence.',
   'license.expiredPrompt':
     'Trial live minutes are used up: live is paused, prep works within the limit. Enter a key to continue.',
+  'license.keyPrompt': 'Enter a SKILLCUE-… key to activate or switch plan.',
   'license.activate': 'Activate',
   'license.monthLimit': "The plan's monthly limit is used up — AI features resume on the 1st.",
 

@@ -36,13 +36,12 @@ describe('desktop polish contracts', () => {
     expect(cockpitCss).not.toContain('focus-within:border-accent/50');
   });
 
-  it('keeps quick controls dev-only while stable stays focused on navigation', () => {
+  it('keeps stealth and taskbar shortcuts in the sidebar utility row', () => {
     expect(sidebar).not.toContain("t('sidebar.ready')");
     expect(sidebar).toContain("t('sidebar.unavailable')");
     expect(sidebar).not.toContain("t('sidebar.quickActions')");
     expect(sidebar).not.toContain('skillcue:open-palette');
-    expect(sidebar).toContain('useBuildChannel');
-    expect(sidebar).toContain('{isDeveloperBuild && (');
+    expect(sidebar).not.toContain('{isDeveloperBuild && (');
     expect(sidebar).toContain('setContentProtection');
     expect(sidebar).toContain('setSkipTaskbar');
     expect(sidebar).toContain('skillcue-sidebar__utility-row');

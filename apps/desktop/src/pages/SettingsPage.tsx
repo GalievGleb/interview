@@ -736,8 +736,8 @@ export default function SettingsPage() {
         {tab === 'billing' && (
           <>
             <AiQuotaNotice />
-            <PlanPicker />
             <LicenseCard autoActivateKey={activateKey} />
+            <PlanPicker />
           </>
         )}
 

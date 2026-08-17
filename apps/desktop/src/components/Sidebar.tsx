@@ -19,7 +19,6 @@ import {
 import { useI18n, type I18nKey } from '../lib/i18n';
 import { useApp } from '../context/AppContext';
 import { launchLive } from '../lib/launchLive';
-import { useBuildChannel } from '../lib/buildChannel';
 import type { InterviewCalendarEvent, InterviewCalendarState } from '../types/electron';
 import skillCueAppIcon from '../../assets/branding/skillcue-app-icon-512.png';
 
@@ -69,8 +68,6 @@ export default function Sidebar() {
   const [compactViewport, setCompactViewport] = useState(
     () => window.matchMedia('(max-width: 45rem)').matches,
   );
-  const buildChannel = useBuildChannel();
-  const isDeveloperBuild = buildChannel === 'dev';
   const [undetected, setUndetected] = useState(
     () => localStorage.getItem(STEALTH_KEY) === '1',
   );
@@ -239,50 +236,46 @@ export default function Sidebar() {
           >
             <Settings size={17} aria-hidden="true" />
           </NavLink>
-          {isDeveloperBuild && (
-            <>
-            <button
-              type="button"
-              className={`skillcue-sidebar__icon-button ${undetected ? 'is-active' : ''}`}
-              onClick={async () => {
-                const next = !undetected;
-                setUndetected(next);
-                localStorage.setItem(STEALTH_KEY, next ? '1' : '0');
-                try {
-                  await window.electronAPI?.overlay.setContentProtection(next);
-                } catch {
-                  setUndetected(!next);
-                  localStorage.setItem(STEALTH_KEY, !next ? '1' : '0');
-                }
-              }}
-              aria-pressed={undetected}
-              aria-label={t('sidebar.stealthTitle')}
-              title={t('sidebar.stealthTitle')}
-            >
-              <ShieldCheck size={16} aria-hidden="true" />
-            </button>
-            <button
-              type="button"
-              className={`skillcue-sidebar__icon-button ${hiddenTaskbar ? 'is-active' : ''}`}
-              onClick={async () => {
-                const next = !hiddenTaskbar;
-                setHiddenTaskbar(next);
-                localStorage.setItem(SKIP_TASKBAR_KEY, next ? '1' : '0');
-                try {
-                  await window.electronAPI?.window.setSkipTaskbar(next);
-                } catch {
-                  setHiddenTaskbar(!next);
-                  localStorage.setItem(SKIP_TASKBAR_KEY, !next ? '1' : '0');
-                }
-              }}
-              aria-pressed={hiddenTaskbar}
-              aria-label={t('sidebar.taskbarTitle')}
-              title={t('sidebar.taskbarTitle')}
-            >
-              <EyeOff size={16} aria-hidden="true" />
-            </button>
-            </>
-          )}
+          <button
+            type="button"
+            className={`skillcue-sidebar__icon-button ${undetected ? 'is-active' : ''}`}
+            onClick={async () => {
+              const next = !undetected;
+              setUndetected(next);
+              localStorage.setItem(STEALTH_KEY, next ? '1' : '0');
+              try {
+                await window.electronAPI?.overlay.setContentProtection(next);
+              } catch {
+                setUndetected(!next);
+                localStorage.setItem(STEALTH_KEY, !next ? '1' : '0');
+              }
+            }}
+            aria-pressed={undetected}
+            aria-label={t('sidebar.stealthTitle')}
+            title={t('sidebar.stealthTitle')}
+          >
+            <ShieldCheck size={16} aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            className={`skillcue-sidebar__icon-button ${hiddenTaskbar ? 'is-active' : ''}`}
+            onClick={async () => {
+              const next = !hiddenTaskbar;
+              setHiddenTaskbar(next);
+              localStorage.setItem(SKIP_TASKBAR_KEY, next ? '1' : '0');
+              try {
+                await window.electronAPI?.window.setSkipTaskbar(next);
+              } catch {
+                setHiddenTaskbar(!next);
+                localStorage.setItem(SKIP_TASKBAR_KEY, !next ? '1' : '0');
+              }
+            }}
+            aria-pressed={hiddenTaskbar}
+            aria-label={t('sidebar.taskbarTitle')}
+            title={t('sidebar.taskbarTitle')}
+          >
+            <EyeOff size={16} aria-hidden="true" />
+          </button>
         </div>
       </div>
     </aside>
