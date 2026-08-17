@@ -1397,7 +1397,7 @@ if (!hasSingleInstanceLock) {
         return chunks.join('').trim();
       },
       interviewCalendar,
-      ({ vacancyTitle, companyName, recruiterMessage, kind }) => {
+      ({ vacancyTitle, companyName, recruiterMessage, kind, negotiationKey }) => {
         const normalizedTitle = vacancyTitle.replace(/\s+/g, ' ').trim().toLocaleLowerCase('ru');
         const normalizedCompany = companyName.replace(/\s+/g, ' ').trim().toLocaleLowerCase('ru');
         const vacancy = hhBrowserAssistant?.getState().queue.find((item) => {
@@ -1413,19 +1413,30 @@ if (!hasSingleInstanceLock) {
         });
         const preparation = vacancy?.preparationNotes ?? [];
         if (!Notification.isSupported()) return;
+        const fallbackTitle = kind === 'telegram'
+          ? 'Рекрутер прислал Telegram'
+          : kind === 'interview'
+            ? 'Приглашение на интервью с HH'
+            : 'Новое сообщение с HH';
         const notification = new Notification({
           title: companyName
-            ? `${companyName} · ${vacancyTitle || (kind === 'telegram' ? 'Контакт Telegram' : 'Интервью')}`
-            : vacancyTitle || (kind === 'telegram' ? 'Рекрутер прислал Telegram' : 'Приглашение на интервью с HH'),
+            ? `${companyName} · ${vacancyTitle || fallbackTitle}`
+            : vacancyTitle || fallbackTitle,
           body: recruiterMessage.replace(/\s+/g, ' ').trim().slice(0, 260) || (
             preparation.length > 0
               ? `Перед интервью повторите: ${preparation.join('; ')}`.slice(0, 260)
-              : 'Работодатель предлагает обсудить интервью.'
+              : 'Работодатель написал в чат HH.'
           ),
           icon: BRAND_ICON,
         });
         notification.on('click', () => {
-          void hhBrowserAssistant?.showChatPage();
+          if (!isLiveWindow(mainWindow)) mainWindow = createMainWindow();
+          if (mainWindow.isMinimized()) mainWindow.restore();
+          hideOverlayAndShowMain(overlayWindow, mainWindow);
+          if (!isLiveWindow(mainWindow)) return;
+          const params = new URLSearchParams({ view: 'dialogs' });
+          if (negotiationKey) params.set('conversation', negotiationKey);
+          mainWindow.webContents.send('app:navigate', `/applications?${params.toString()}`);
         });
         notification.show();
       },

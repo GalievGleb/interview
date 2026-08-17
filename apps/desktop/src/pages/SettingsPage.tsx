@@ -16,6 +16,7 @@ import {
 } from '../lib/answerLanguage';
 import { openSupportLink, SUPPORT_TELEGRAM_URL } from '../lib/support';
 import { summarizePendingHhScreening } from '../lib/hhScreening';
+import { shouldShowUpdateButton } from '../lib/updaterPrompt';
 import type { HhAssistantState, UpdaterStatus } from '../types/electron';
 
 /**
@@ -256,6 +257,16 @@ function GeneralSection() {
                 onClick={() => void checkUpdates()}
               >
                 {t('settings.update.check')}
+              </button>
+            )}
+            {shouldShowUpdateButton(updaterStatus.state) && (
+              <button
+                type="button"
+                className="btn-primary btn-sm"
+                disabled={updaterStatus.state === 'installing'}
+                onClick={() => void window.electronAPI?.updater?.install()}
+              >
+                {t('update.apply')}
               </button>
             )}
           </div>

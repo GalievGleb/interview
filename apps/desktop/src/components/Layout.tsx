@@ -7,6 +7,8 @@ import { useApp } from '../context/AppContext';
 import { useI18n, type I18nKey } from '../lib/i18n';
 import { getBackendBannerKind } from './layout/backendBanner';
 import { formatLiveElapsed } from '../lib/liveElapsed';
+import { useUpdaterStatus } from '../hooks/useUpdaterStatus';
+import { shouldShowUpdateButton } from '../lib/updaterPrompt';
 
 const WIDE_ROUTES = new Set(['/meeting']);
 const PREP_ROUTES = new Set(['/home', '/prepare', '/documents', '/practice', '/history']);
@@ -28,6 +30,7 @@ const ROUTE_TITLE_KEYS: Record<string, I18nKey> = {
 
 function TitleBar({ pathname }: { pathname: string }) {
   const { t } = useI18n();
+  const updaterStatus = useUpdaterStatus();
   const [live, setLive] = useState(false);
   const [liveStart, setLiveStart] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -65,15 +68,27 @@ function TitleBar({ pathname }: { pathname: string }) {
       <span className="text-[13px] font-medium text-ink-muted">
         {t(ROUTE_TITLE_KEYS[pathname] ?? 'nav.home')}
       </span>
-      {live && (
-        <div className="ml-auto flex items-center gap-2 text-[12px] text-ink-muted">
-          <span className="sc-dot sc-dot--live" />
-          <span>{t('shell.liveSession')}</span>
-          {liveStart != null && (
-            <span className="sc-mono">{formatLiveElapsed(now - liveStart)}</span>
-          )}
-        </div>
-      )}
+      <div className="ml-auto flex items-center gap-2">
+        {updaterStatus && shouldShowUpdateButton(updaterStatus.state) && (
+          <button
+            type="button"
+            className="btn-primary btn-sm"
+            disabled={updaterStatus.state === 'installing'}
+            onClick={() => void window.electronAPI?.updater?.install()}
+          >
+            {t('update.apply')}
+          </button>
+        )}
+        {live && (
+          <div className="flex items-center gap-2 text-[12px] text-ink-muted">
+            <span className="sc-dot sc-dot--live" />
+            <span>{t('shell.liveSession')}</span>
+            {liveStart != null && (
+              <span className="sc-mono">{formatLiveElapsed(now - liveStart)}</span>
+            )}
+          </div>
+        )}
+      </div>
     </header>
   );
 }

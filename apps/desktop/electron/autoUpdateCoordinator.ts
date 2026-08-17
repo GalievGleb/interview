@@ -12,6 +12,7 @@ export function createAutoUpdateCoordinator(deps: AutoUpdateDeps) {
   let updateCycleActive = false;
   let live = false;
   let downloadedVersion: string | null = null;
+  let installRequested = false;
   let installScheduled = false;
   let installStarted = false;
 
@@ -21,7 +22,7 @@ export function createAutoUpdateCoordinator(deps: AutoUpdateDeps) {
   };
 
   const maybeInstall = () => {
-    if (!downloadedVersion || installStarted) return;
+    if (!downloadedVersion || installStarted || !installRequested) return;
     if (live) {
       publishWaiting();
       return;
@@ -58,15 +59,18 @@ export function createAutoUpdateCoordinator(deps: AutoUpdateDeps) {
       updateCycleActive = false;
       checkPromise = null;
       downloadedVersion = version;
-      maybeInstall();
+      deps.publish({ state: 'ready', version });
+      if (installRequested) maybeInstall();
     },
     requestInstall(): void {
+      installRequested = true;
       maybeInstall();
     },
     markNoUpdate(): void {
       updateCycleActive = false;
       checkPromise = null;
       downloadedVersion = null;
+      installRequested = false;
       installScheduled = false;
       installStarted = false;
       deps.publish({ state: 'none' });
@@ -75,6 +79,7 @@ export function createAutoUpdateCoordinator(deps: AutoUpdateDeps) {
       updateCycleActive = false;
       checkPromise = null;
       downloadedVersion = null;
+      installRequested = false;
       installScheduled = false;
       installStarted = false;
       deps.publish({ state: 'error', message });

@@ -15,8 +15,9 @@ describe('vacancy preparation from HH', () => {
     expect(setupSource).toContain('Резюме из HH.ru');
     expect(setupSource).toContain('Загруженные в SkillCue');
     expect(setupSource).toContain('Вставить резюме вручную');
+    expect(setupSource).toContain('pickPreferredResumeSource');
     expect(setupSource).toContain('assistant.getResumeContent(source.slice(3))');
-    expect(setupSource).toContain('skillcue.prepare.resume-source');
+    expect(setupSource).toContain('RESUME_SOURCE_STORAGE_KEY');
   });
 
   it('recognizes a standalone HH vacancy link and keeps additional HR context', () => {

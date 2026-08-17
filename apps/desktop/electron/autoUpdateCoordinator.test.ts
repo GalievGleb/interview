@@ -35,6 +35,41 @@ describe('auto update coordinator', () => {
     await nextCycle;
   });
 
+  it('keeps a downloaded update ready until the user clicks Update', () => {
+    const installSilently = vi.fn();
+    const publish = vi.fn();
+    const coordinator = createAutoUpdateCoordinator({
+      checkForUpdates: vi.fn(async () => undefined),
+      installSilently,
+      publish,
+      schedule: (fn) => fn(),
+    });
+
+    coordinator.markDownloaded('0.0.16');
+
+    expect(installSilently).not.toHaveBeenCalled();
+    expect(publish).toHaveBeenLastCalledWith({ state: 'ready', version: '0.0.16' });
+
+    coordinator.requestInstall();
+    expect(installSilently).toHaveBeenCalledOnce();
+  });
+
+  it('installs after download if Update was clicked earlier', () => {
+    const installSilently = vi.fn();
+    const coordinator = createAutoUpdateCoordinator({
+      checkForUpdates: vi.fn(async () => undefined),
+      installSilently,
+      publish: vi.fn(),
+      schedule: (fn) => fn(),
+    });
+
+    coordinator.requestInstall();
+    expect(installSilently).not.toHaveBeenCalled();
+
+    coordinator.markDownloaded('0.0.16');
+    expect(installSilently).toHaveBeenCalledOnce();
+  });
+
   it('waits for a live session to end before installing once', () => {
     const installSilently = vi.fn();
     const publish = vi.fn();
@@ -47,6 +82,7 @@ describe('auto update coordinator', () => {
 
     coordinator.setLive(true);
     coordinator.markDownloaded('0.0.16');
+    coordinator.requestInstall();
 
     expect(installSilently).not.toHaveBeenCalled();
     expect(publish).toHaveBeenLastCalledWith({
@@ -69,6 +105,7 @@ describe('auto update coordinator', () => {
     });
 
     coordinator.markDownloaded('0.0.16');
+    coordinator.requestInstall();
 
     expect(installSilently).toHaveBeenCalledOnce();
   });
@@ -85,6 +122,7 @@ describe('auto update coordinator', () => {
     });
 
     coordinator.markDownloaded('0.0.16');
+    coordinator.requestInstall();
     coordinator.setLive(true);
     scheduled.shift()?.();
 

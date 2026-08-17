@@ -12,6 +12,17 @@ describe('automatic update UI', () => {
     expect(main).toContain('updateCoordinator.markDownloaded(info.version)');
   });
 
+  it('shows an Update button on the right when a newer build exists', () => {
+    const layout = fs.readFileSync(path.resolve(__dirname, 'Layout.tsx'), 'utf8');
+    expect(layout).toContain("t('update.apply')");
+    expect(layout).toContain('shouldShowUpdateButton');
+    expect(layout).toContain("window.electronAPI?.updater?.install()");
+    expect(settings).toContain("t('update.apply')");
+    expect(settings).toContain('shouldShowUpdateButton(updaterStatus.state)');
+    expect(toast).toContain("t('update.apply')");
+    expect(toast).toContain("window.electronAPI?.updater?.install()");
+  });
+
   it('does not repeat download percentage in status text and a disabled button', () => {
     expect(settings).toContain('sc-progress');
     expect(settings).not.toContain(

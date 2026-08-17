@@ -83,6 +83,7 @@ export const en: Record<I18nKey, string> = {
   'update.downloading': 'Downloading update…',
   'update.readyPre': 'Update',
   'update.readyPost': 'is ready',
+  'update.apply': 'Update',
   'update.restart': 'Restart',
   'update.waitingForSessionEnd':
     'The update will install as soon as the live session ends.',
@@ -935,7 +936,8 @@ export const en: Record<I18nKey, string> = {
 
   // Settings — General
   'settings.version': 'SkillCue version',
-  'settings.version.desc': 'Updates download in the background and install automatically',
+  'settings.version.desc':
+    'Updates download in the background. An Update button appears on the right.',
   'settings.update.checking': 'Checking…',
   'settings.update.check': 'Check for updates',
   'settings.update.unavailable': 'Update checks are available in the installed app.',

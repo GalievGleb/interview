@@ -226,6 +226,22 @@ export default function HhApplicationsPage() {
   }, [searchParams]);
 
   useEffect(() => {
+    const conversation = searchParams.get('conversation');
+    if (!conversation) return;
+    setPageMode('activity');
+    setQueueView('dialogs');
+    setConversationStage('all');
+    setSelectedConversationKey(conversation);
+    setVisibleLimit((current) => Math.max(current, 100));
+    window.setTimeout(() => {
+      document.getElementById('hh-conversations-panel')?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      });
+    }, 0);
+  }, [searchParams]);
+
+  useEffect(() => {
     const requestedUrl = searchParams.get('vacancyUrl')?.trim() ?? '';
     if (!requestedUrl) return;
     setVacancyUrl(requestedUrl);

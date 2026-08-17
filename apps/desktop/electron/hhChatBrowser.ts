@@ -185,13 +185,16 @@ interface PersistedChatState {
   pollCursor?: number;
 }
 
+export type HhChatNoticeKind = 'interview' | 'telegram' | 'message';
+
 export interface HhInterviewInvitationNotice {
   messageId: string;
+  negotiationKey: string;
   vacancyTitle: string;
   companyName: string;
   recruiterMessage: string;
   chatUrl: string;
-  kind: 'interview' | 'telegram';
+  kind: HhChatNoticeKind;
 }
 
 interface NegotiationSummary {
@@ -665,6 +668,20 @@ export function isTelegramHandoffMessage(text: string): boolean {
   return mentionsTelegram && hasContact;
 }
 
+export function isNotifiableRecruiterMessage(
+  verifiedBot: boolean,
+  message: Pick<ChatMessage, 'text' | 'isMine' | 'isSystem'>,
+): boolean {
+  if (verifiedBot || message.isMine || message.isSystem) return false;
+  return !isHhPlatformAssistantMessage(message.text);
+}
+
+export function recruiterNoticeKind(text: string, now = new Date()): HhChatNoticeKind {
+  if (isTelegramHandoffMessage(text)) return 'telegram';
+  if (analyzeInterviewMessage(text, now).isSchedulingMessage) return 'interview';
+  return 'message';
+}
+
 export function isOutgoingChatClassName(value: string): boolean {
   return /(?:message_my|chat-bubble_outgoing|(?:^|[_-])outgoing(?:[_-]|$))/i.test(value);
 }
@@ -1062,6 +1079,32 @@ export class HhChatBrowser {
           shouldPersist = true;
           continue;
         }
+        if (
+          isNotifiableRecruiterMessage(verifiedBot, lastMessage)
+          && !this.notifiedInterviewMessageIds.has(messageId)
+        ) {
+          this.notifiedInterviewMessageIds.add(messageId);
+          let chatUrl = '';
+          try {
+            chatUrl = frame.url();
+          } catch {
+            chatUrl = '';
+          }
+          try {
+            this.onInterviewInvitation?.({
+              messageId,
+              negotiationKey: negotiation.key,
+              vacancyTitle: negotiation.vacancyTitle,
+              companyName: negotiation.companyName,
+              recruiterMessage: lastMessage.text,
+              chatUrl,
+              kind: recruiterNoticeKind(lastMessage.text),
+            });
+          } catch (error) {
+            console.warn('[hh-chat-browser] recruiter notification failed:', error);
+          }
+          shouldPersist = true;
+        }
         const chatInputVisible = await frame
           .locator(CHAT_INPUT_SELECTOR)
           .first()
@@ -1069,28 +1112,6 @@ export class HhChatBrowser {
           .catch(() => false);
         const quickReplyVisible = chatInputVisible ? false : await this.hasVisibleYesNoReply(frame);
         if (!chatInputVisible && !quickReplyVisible) continue;
-        const invitation = analyzeInterviewMessage(lastMessage.text, new Date());
-        const telegramHandoff = isTelegramHandoffMessage(lastMessage.text);
-        if (
-          !questionnaire &&
-          (invitation.isSchedulingMessage || telegramHandoff) &&
-          !this.notifiedInterviewMessageIds.has(messageId)
-        ) {
-          this.notifiedInterviewMessageIds.add(messageId);
-          try {
-            this.onInterviewInvitation?.({
-              messageId,
-              vacancyTitle: negotiation.vacancyTitle,
-              companyName: negotiation.companyName,
-              recruiterMessage: lastMessage.text,
-              chatUrl: frame.url(),
-              kind: telegramHandoff ? 'telegram' : 'interview',
-            });
-          } catch (error) {
-            console.warn('[hh-chat-browser] interview notification failed:', error);
-          }
-          shouldPersist = true;
-        }
         // A numbered questionnaire may contain words such as "интервью",
         // "дата" or "время". It still has to reach the questionnaire prompt
         // and be answered point by point instead of becoming a calendar reply.

@@ -21,6 +21,7 @@ import {
   mergeVacancyWithAdditionalContext,
 } from '../../lib/vacancyInput';
 import { listSessions } from '../../lib/vacancyReview/vacancyReviewStore';
+import { pickPreferredResumeSource, RESUME_SOURCE_STORAGE_KEY } from '../../lib/resumeContext';
 import type { AnswerLanguage, VacancyReviewInput } from '../../lib/vacancyReview/types';
 import type { HhApplicantResume } from '../../types/electron';
 
@@ -32,7 +33,6 @@ interface Props {
   initialResumeTitle?: string;
 }
 
-const RESUME_SOURCE_STORAGE_KEY = 'skillcue.prepare.resume-source';
 const PREPARE_DRAFT_STORAGE_KEY = 'skillcue.prepare.draft.v1';
 
 interface PrepareDraft {
@@ -128,30 +128,18 @@ export default function VacancySetup({
       const localResumes = documentResult.documents.filter((document) => document.kind === 'resume');
       let stored = '';
       try { stored = localStorage.getItem(RESUME_SOURCE_STORAGE_KEY) ?? ''; } catch { /* noop */ }
-      const storedExists = stored === 'none' || stored === 'manual'
-        || (stored.startsWith('hh:') && foundHhResumes.some((resume) => `hh:${resume.id}` === stored))
-        || (stored.startsWith('doc:') && localResumes.some((document) => `doc:${document.id}` === stored))
-        || (stored.startsWith('session:') && reusableResumeSessions.some((session) => `session:${session.id}` === stored));
-      const preferredHh = foundHhResumes.find((resume) => resume.title === preferredHhTitle)
-        ?? foundHhResumes[0];
-      const requestedSource = initialResumeTitle
-        ? foundHhResumes.find((resume) => resume.title === initialResumeTitle)
-          ? `hh:${foundHhResumes.find((resume) => resume.title === initialResumeTitle)!.id}`
-          : localResumes.find((document) => document.title === initialResumeTitle)
-            ? `doc:${localResumes.find((document) => document.title === initialResumeTitle)!.id}`
-            : reusableResumeSessions.find((session) => session.vacancyAnalysis.resumeSource?.title === initialResumeTitle)
-              ? `session:${reusableResumeSessions.find((session) => session.vacancyAnalysis.resumeSource?.title === initialResumeTitle)!.id}`
-              : ''
-        : '';
-      const source = requestedSource || (storedExists
-        ? stored
-        : preferredHh
-          ? `hh:${preferredHh.id}`
-          : localResumes[0]
-            ? `doc:${localResumes[0].id}`
-            : reusableResumeSessions[0]
-              ? `session:${reusableResumeSessions[0].id}`
-              : 'none');
+      const source = pickPreferredResumeSource({
+        hhResumes: foundHhResumes,
+        preferredHhTitle,
+        localResumes,
+        sessions: reusableResumeSessions.map((session) => ({
+          id: session.id,
+          resumeTitle: session.vacancyAnalysis.resumeSource?.title,
+          resumeText: session.vacancyAnalysis.resumeText,
+        })),
+        stored,
+        initialResumeTitle,
+      });
       setResumeSource(source);
 
       try {

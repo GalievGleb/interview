@@ -8,7 +8,7 @@ import {
   readGrowthProfile,
   type GrowthRoleId,
 } from '../../lib/growthProfile';
-import { listSessions } from '../../lib/vacancyReview/vacancyReviewStore';
+import { resolvePreferredResume } from '../../lib/resumeContext';
 import type { AnswerLanguage, ResumeSourceRef, VacancyReviewInput } from '../../lib/vacancyReview/types';
 
 interface Props {
@@ -44,28 +44,28 @@ export default function GeneralPracticeSetup({ onAnalyze, analyzing, error }: Pr
   useEffect(() => {
     let active = true;
     const loadContext = async () => {
-      const previous = listSessions().find((session) => session.vacancyAnalysis.resumeText?.trim());
-      if (previous?.vacancyAnalysis.resumeText && active) {
-        setResumeText(previous.vacancyAnalysis.resumeText);
-        setResumeSource(previous.vacancyAnalysis.resumeSource);
-      }
+      setContextLoading(true);
+      const preferred = await resolvePreferredResume();
       const result = await api.listDocuments().catch(() => ({ documents: [] }));
-      const resume = result.documents.find((document) => document.kind === 'resume');
       const legend = result.documents.find((document) => document.kind === 'legend');
-      const [fullResume, fullLegend] = await Promise.all([
-        resume ? api.getDocument(resume.id).catch(() => null) : Promise.resolve(null),
-        legend ? api.getDocument(legend.id).catch(() => null) : Promise.resolve(null),
-      ]);
+      const fullLegend = legend ? await api.getDocument(legend.id).catch(() => null) : null;
       if (!active) return;
-      if (fullResume?.text.trim()) {
-        setResumeText(fullResume.text);
-        setResumeSource({ kind: 'document', id: resume?.id, title: resume?.title || 'Резюме' });
+      if (preferred.text.trim()) {
+        setResumeText(preferred.text);
+        setResumeSource(preferred.source);
+      } else {
+        setResumeText('');
+        setResumeSource(undefined);
       }
       if (fullLegend?.text.trim()) setLegendText(fullLegend.text);
       setContextLoading(false);
     };
     void loadContext();
-    return () => { active = false; };
+    window.addEventListener('skillcue:candidate-sources-updated', loadContext);
+    return () => {
+      active = false;
+      window.removeEventListener('skillcue:candidate-sources-updated', loadContext);
+    };
   }, []);
 
   const role = !roleId

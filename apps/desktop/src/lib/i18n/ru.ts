@@ -87,6 +87,7 @@ export const ru = {
   'update.downloading': 'Загрузка обновления…',
   'update.readyPre': 'Обновление',
   'update.readyPost': 'готово',
+  'update.apply': 'Обновить',
   'update.restart': 'Перезапустить',
   'update.waitingForSessionEnd':
     'Обновление установится сразу после завершения live-сессии.',
@@ -940,7 +941,8 @@ export const ru = {
 
   // Настройки — Общие
   'settings.version': 'Версия SkillCue',
-  'settings.version.desc': 'Обновления скачиваются в фоне и устанавливаются автоматически',
+  'settings.version.desc':
+    'Обновления скачиваются в фоне. Справа появится кнопка «Обновить».',
   'settings.update.checking': 'Проверяю…',
   'settings.update.check': 'Проверить обновления',
   'settings.update.unavailable': 'Проверка обновлений доступна в установленном приложении.',

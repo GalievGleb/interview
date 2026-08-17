@@ -20,6 +20,8 @@ import {
   isOutgoingChatClassName,
   isRecruiterQuestionnaire,
   isRejectedNegotiationStatus,
+  isNotifiableRecruiterMessage,
+  recruiterNoticeKind,
   isTerminalChatText,
   normalizeHhNegotiationVacancyUrl,
   prepareRecruiterReply,
@@ -862,7 +864,11 @@ describe('HhChatBrowser current HH contract', () => {
         vacancyUrl: undefined,
       });
       expect(sendChatMessage).not.toHaveBeenCalled();
-      expect(onInterviewInvitation).not.toHaveBeenCalled();
+      expect(onInterviewInvitation).toHaveBeenCalledWith(expect.objectContaining({
+        negotiationKey,
+        recruiterMessage: questionnaire,
+        kind: recruiterNoticeKind(questionnaire),
+      }));
       expect(chat.getState().replyHistory).not.toContainEqual(expect.objectContaining({
         recruiterMessage: questionnaire,
         messageId: `${negotiationKey}:${inboundId}:questionnaire-v2`,
@@ -1116,6 +1122,99 @@ describe('HhChatBrowser current HH contract', () => {
     expect(isTelegramHandoffMessage('Продолжим в Telegram, напишите мне @maria_hr')).toBe(true);
     expect(isTelegramHandoffMessage('Ссылка на чат: https://t.me/maria_hr')).toBe(true);
     expect(isTelegramHandoffMessage('У нас есть корпоративный Telegram-канал')).toBe(false);
+    expect(isNotifiableRecruiterMessage(false, {
+      text: 'Здравствуйте, готовы обсудить вакансию?',
+      isMine: false,
+    })).toBe(true);
+    expect(isNotifiableRecruiterMessage(true, {
+      text: 'Здравствуйте, готовы обсудить вакансию?',
+      isMine: false,
+    })).toBe(false);
+    expect(isNotifiableRecruiterMessage(false, {
+      text: 'Бот-помощник Хэдди. Ответьте на приглашение.',
+      isMine: false,
+    })).toBe(false);
+    expect(recruiterNoticeKind('Продолжим в Telegram, напишите мне @maria_hr')).toBe('telegram');
+    expect(recruiterNoticeKind('Здравствуйте, давайте обсудим ваш опыт.')).toBe('message');
+    expect(mainSource).toContain("app:navigate', `/applications?");
+    expect(mainSource).toContain("params.set('conversation', negotiationKey)");
+    expect(mainSource).not.toContain('void hhBrowserAssistant?.showChatPage()');
+    expect(mainSource).toContain('hideOverlayAndShowMain(overlayWindow, mainWindow)');
+  });
+
+  it('notifies about a live recruiter message and skips HH robot recruiters', async () => {
+    const recruiterMessage = 'Здравствуйте! Давайте обсудим ваш опыт с Playwright.';
+    const runPoll = async (label: string, onNotice: ReturnType<typeof vi.fn>) => {
+      const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skillcue-hh-chat-notice-'));
+      const negotiationKey = 'QA Automation Engineer\u0000Живой HR';
+      try {
+        const page = {
+          isClosed: () => false,
+          url: () => HH_NEGOTIATIONS_URL,
+          locator: () => ({ first: () => ({ waitFor: () => Promise.resolve() }) }),
+        };
+        const frame = {
+          url: () => 'https://chatik.hh.ru/chat/abc',
+          locator: (selector: string) => selector === 'body'
+            ? { innerText: () => Promise.resolve(label) }
+            : { first: () => ({ isVisible: () => Promise.resolve(true) }) },
+        };
+        const chat = new HhChatBrowser(
+          userDataDir,
+          async () => page as never,
+          async () => 'Готов обсудить.',
+          undefined,
+          onNotice,
+        );
+        chat.saveConfig({ replyDelaySec: 0 });
+        const internals = chat as unknown as {
+          scrapeNegotiations: () => Promise<Array<{
+            index: number;
+            key: string;
+            vacancyTitle: string;
+            companyName: string;
+            isDiscussion: boolean;
+            hasUnread: boolean;
+            isRejected: boolean;
+          }>>;
+          openNegotiation: () => Promise<typeof frame>;
+          scrapeMessages: () => Promise<Array<{ id: string; text: string; isMine: boolean }>>;
+          sendChatMessage: () => Promise<void>;
+          pollOnce: () => Promise<void>;
+        };
+        vi.spyOn(internals, 'scrapeNegotiations').mockResolvedValue([{
+          index: 0,
+          key: negotiationKey,
+          vacancyTitle: 'QA Automation Engineer',
+          companyName: 'Живой HR',
+          isDiscussion: true,
+          hasUnread: true,
+          isRejected: false,
+        }]);
+        vi.spyOn(internals, 'openNegotiation').mockResolvedValue(frame);
+        vi.spyOn(internals, 'scrapeMessages').mockResolvedValue([{
+          id: 'chatik-chat-message-live-hr',
+          text: recruiterMessage,
+          isMine: false,
+        }]);
+        vi.spyOn(internals, 'sendChatMessage').mockResolvedValue();
+        await internals.pollOnce();
+        return negotiationKey;
+      } finally {
+        fs.rmSync(userDataDir, { recursive: true, force: true });
+      }
+    };
+    const botNotice = vi.fn();
+    await runPoll('Сообщение от робота-рекрутера', botNotice);
+    expect(botNotice).not.toHaveBeenCalled();
+
+    const hrNotice = vi.fn();
+    const negotiationKey = await runPoll('Обычный активный чат', hrNotice);
+    expect(hrNotice).toHaveBeenCalledWith(expect.objectContaining({
+      negotiationKey,
+      recruiterMessage,
+      kind: 'message',
+    }));
   });
 
   it('stores the exact recruiter message and confirmed answer after HH accepts it', async () => {

@@ -376,7 +376,9 @@ describe('HH applications redesign', () => {
     expect(pageSource).toContain('Ответы сегодня:');
     expect(pageSource).toContain("openExternal('https://hh.ru/applicant/negotiations')");
     expect(pageSource).toContain('aria-expanded={expanded}');
-    expect(pageSource).toContain('Сообщение работодателя');
+    expect(pageSource).toContain("searchParams.get('conversation')");
+    expect(pageSource).toContain('setSelectedConversationKey(conversation)');
+    expect(pageSource).toContain("setQueueView('dialogs')");
     expect(mainSource).toContain('signal: AbortSignal.timeout(20_000)');
   });
 

@@ -34,6 +34,7 @@ import {
 import AvailabilityEditor, { AVAILABILITY_DAYS, formatAvailabilitySummary } from '../components/interview/AvailabilityEditor';
 import Modal from '../components/Modal';
 import { api } from '../lib/api';
+import { resolvePreferredResume } from '../lib/resumeContext';
 import {
   buildInterviewBrief,
   canReuseStoredVacancyContext,
@@ -703,13 +704,11 @@ export default function InterviewCalendarPage() {
       } catch {
         // Fall back to the current HH résumé below.
       }
-      if (!profileText && assistant) {
-        try {
-          const resumes = await assistant.getResumes();
-          const selectedResume = resumes.find((resume) => resume.title === selectedResumeTitle) ?? resumes[0];
-          if (selectedResume) profileText = (await assistant.getResumeContent(selectedResume.id)).text.trim();
-        } catch {
-          // Vacancy analysis remains useful even without a readiness percentage.
+      if (!profileText) {
+        const preferred = await resolvePreferredResume(selectedResumeTitle);
+        profileText = preferred.text;
+        if (!selectedResumeTitle && preferred.source?.title) {
+          selectedResumeTitle = preferred.source.title;
         }
       }
       analysis = await analyzeVacancy({
