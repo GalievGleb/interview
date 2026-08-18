@@ -13,6 +13,27 @@ import { AuthResponse } from '@interview/shared';
 
 const HWID_CHANGE_COOLDOWN_DAYS = 30;
 
+/**
+ * Fail-closed: never fall back to a hardcoded dev secret. If the environment
+ * does not provide a JWT secret, refuse to sign/verify instead of minting
+ * forgeable tokens (a known secret in public source = anyone can impersonate).
+ */
+function accessSecretOrThrow(): string {
+  const secret = process.env.JWT_ACCESS_SECRET;
+  if (!secret || !secret.length) {
+    throw new Error('JWT_ACCESS_SECRET is not configured');
+  }
+  return secret;
+}
+
+function refreshSecretOrThrow(): string {
+  const secret = process.env.JWT_REFRESH_SECRET;
+  if (!secret || !secret.length) {
+    throw new Error('JWT_REFRESH_SECRET is not configured');
+  }
+  return secret;
+}
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -68,7 +89,7 @@ export class AuthService {
     let payload: { sub: string; email: string };
     try {
       payload = this.jwtService.verify(refreshToken, {
-        secret: process.env.JWT_REFRESH_SECRET ?? 'dev-refresh-secret-change-me',
+        secret: refreshSecretOrThrow(),
       });
     } catch {
       throw new UnauthorizedException('Invalid refresh token');
@@ -124,14 +145,14 @@ export class AuthService {
     const accessToken = this.jwtService.sign(
       { sub: userId, email },
       {
-        secret: process.env.JWT_ACCESS_SECRET ?? 'dev-access-secret-change-me',
+        secret: accessSecretOrThrow(),
         expiresIn: accessExpiresSec,
       },
     );
     const refreshToken = this.jwtService.sign(
       { sub: userId, email },
       {
-        secret: process.env.JWT_REFRESH_SECRET ?? 'dev-refresh-secret-change-me',
+        secret: refreshSecretOrThrow(),
         expiresIn: refreshExpiresSec,
       },
     );

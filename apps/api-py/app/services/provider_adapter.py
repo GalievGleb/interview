@@ -149,6 +149,7 @@ def parse_provider_error(status: int, body: str, provider: str = "openrouter") -
 
 # Гейтвей-фолбэк: кэш лицензии на минуту, чтобы не ходить в SQLite на каждый запрос.
 _gateway_cache: dict = {"at": 0.0, "key": ""}
+_gateway_cache_lock = asyncio.Lock()
 
 
 def _stored_gateway_license_key() -> str:
@@ -201,12 +202,12 @@ def _store_gateway_license_key(key: str, email: str = "") -> None:
         db.commit()
 
 
-def _claim_gateway_trial_key(gateway_url: str) -> str:
+async def _claim_gateway_trial_key(gateway_url: str) -> str:
     try:
         install_id = _get_or_create_install_id()
         root = _gateway_root_url(gateway_url)
-        with httpx.Client(timeout=8.0) as client:
-            resp = client.post(f"{root}/gateway/trial", json={"clientId": install_id})
+        client = get_client()
+        resp = await client.post(f"{root}/gateway/trial", json={"clientId": install_id})
         if resp.status_code >= 400:
             logger.warning("gateway trial claim failed: %s %s", resp.status_code, resp.text[:200])
             return ""
@@ -220,22 +221,23 @@ def _claim_gateway_trial_key(gateway_url: str) -> str:
         return ""
 
 
-def _gateway_license_key() -> str:
+async def _gateway_license_key() -> str:
     """Валидный лицензионный ключ из AppMeta (или ''), с минутным кэшем."""
     import time
 
-    now = time.monotonic()
-    if now - _gateway_cache["at"] < 60:
-        return _gateway_cache["key"]
-    key = _stored_gateway_license_key()
-    if not key and get_settings().skillcue_gateway_url:
-        key = _claim_gateway_trial_key(get_settings().skillcue_gateway_url)
-    _gateway_cache["at"] = now
-    _gateway_cache["key"] = key
-    return key
+    async with _gateway_cache_lock:
+        now = time.monotonic()
+        if now - _gateway_cache["at"] < 60:
+            return _gateway_cache["key"]
+        key = await asyncio.to_thread(_stored_gateway_license_key)
+        if not key and get_settings().skillcue_gateway_url:
+            key = await _claim_gateway_trial_key(get_settings().skillcue_gateway_url)
+        _gateway_cache["at"] = now
+        _gateway_cache["key"] = key
+        return key
 
 
-def _resolve(provider: str | None) -> tuple[str, str, str]:
+async def _resolve(provider: str | None) -> tuple[str, str, str]:
     settings = get_settings()
     provider = provider or settings.default_provider
     if provider not in PROVIDER_CONFIG:
@@ -247,7 +249,7 @@ def _resolve(provider: str | None) -> tuple[str, str, str]:
     if not key and provider == "openrouter" and settings.skillcue_gateway_url:
         # Покупательский путь: свой OpenRouter-ключ не нужен — валидная лицензия
         # открывает серверный гейтвей SkillCue (тот же OpenAI-совместимый API).
-        license_key = _gateway_license_key()
+        license_key = await _gateway_license_key()
         if license_key:
             return provider, settings.skillcue_gateway_url.rstrip("/"), license_key
     if not key:
@@ -458,7 +460,7 @@ def _apply_completion_limit(payload: dict, *, provider: str, model: str) -> None
 
 
 async def test_provider(provider: str | None, model: str | None) -> dict:
-    provider, base_url, key = _resolve(provider)
+    provider, base_url, key = await _resolve(provider)
     settings = get_settings()
     model = model or settings.default_model
     model = _model_for_provider(provider, model)
@@ -480,7 +482,7 @@ async def test_provider(provider: str | None, model: str | None) -> dict:
 
 
 async def list_models(provider: str | None) -> list[str]:
-    provider, base_url, key = _resolve(provider)
+    provider, base_url, key = await _resolve(provider)
     resp = await get_client().get(f"{base_url}/models", headers=_headers(provider, key), timeout=30)
     if resp.status_code >= 400:
         raise parse_provider_error(resp.status_code, resp.text, provider)
@@ -561,7 +563,7 @@ async def stream_chat(
     live_fast: bool = False,
     route_fast: bool = False,
 ) -> AsyncGenerator[str, None]:
-    provider, base_url, key = _resolve(provider)
+    provider, base_url, key = await _resolve(provider)
     settings = get_settings()
     model = model or settings.default_model
     model = _model_for_provider(provider, model)
@@ -621,7 +623,7 @@ async def complete(
     "exclude": True}) — pass it for latency-sensitive JSON calls so a
     thinking-capable model doesn't burn the response budget on hidden
     reasoning tokens (see is_thinking_model / vacancy_eval_options)."""
-    provider, base_url, key = _resolve(provider)
+    provider, base_url, key = await _resolve(provider)
     settings = get_settings()
     model = model or settings.default_model
     model = _model_for_provider(provider, model)

@@ -209,7 +209,7 @@ async def fetch_openrouter_models(*, use_cache: bool = False) -> list[Normalized
 
         settings = get_settings()
         if settings.skillcue_gateway_url:
-            license_key = _gateway_license_key()
+            license_key = await _gateway_license_key()
             if license_key:
                 key = license_key
                 base_url = settings.skillcue_gateway_url.rstrip("/")

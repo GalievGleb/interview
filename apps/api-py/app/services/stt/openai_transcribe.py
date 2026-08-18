@@ -127,7 +127,7 @@ class OpenAiMiniTranscribeProvider(BaseTranscriptionProvider):
         settings = get_settings()
         if not settings.skillcue_gateway_url:
             raise RuntimeError("SkillCue cloud is not configured")
-        license_key = await asyncio.to_thread(_gateway_license_key)
+        license_key = await _gateway_license_key()
         if not license_key:
             raise RuntimeError("SkillCue license is unavailable")
         root = _gateway_root_url(settings.skillcue_gateway_url)
@@ -195,7 +195,7 @@ class OpenAiMiniTranscribeProvider(BaseTranscriptionProvider):
         settings = get_settings()
         if not settings.skillcue_gateway_url:
             raise RuntimeError("SkillCue cloud is not configured")
-        license_key = _gateway_license_key()
+        license_key = await _gateway_license_key()
         if not license_key:
             raise RuntimeError("SkillCue license is unavailable")
         root = _gateway_root_url(settings.skillcue_gateway_url)

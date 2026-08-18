@@ -8,7 +8,6 @@ allowBuilds:
   bcrypt: true
   electron: true
   esbuild: true
-  keytar: true
   prisma: true
   protobufjs: true
 
@@ -18,5 +17,4 @@ onlyBuiltDependencies:
   - bcrypt
   - electron
   - esbuild
-  - keytar
   - prisma

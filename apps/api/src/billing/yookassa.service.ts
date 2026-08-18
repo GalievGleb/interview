@@ -8,9 +8,10 @@ interface YooKassaPaymentResponse {
   confirmation?: { confirmation_url?: string };
 }
 
+// Prices mirror yookassa.util.ts (the active billing module). The old billing
+// module is kept for Stripe compatibility; these values must stay in sync.
 const PLAN_PRICES_RUB: Record<Plan, number> = {
-  [Plan.BASIC]: 790,
-  [Plan.PRO]: 1690,
+  [Plan.PRO]: 2990,
 };
 
 @Injectable()
@@ -71,7 +72,27 @@ export class YookassaService {
     return url;
   }
 
+  /**
+   * Re-read a payment from the YooKassa API. This is the single source of
+   * truth about whether a payment really succeeded — the webhook body is
+   * unsigned and must never be trusted on its own.
+   */
+  async getPayment(paymentId: string): Promise<{ status: string; paid: boolean }> {
+    const response = await fetch(
+      `https://api.yookassa.ru/v3/payments/${encodeURIComponent(paymentId)}`,
+      { headers: { Authorization: this.getAuthHeader() } },
+    );
+    if (!response.ok) {
+      throw new Error(`YooKassa getPayment ${response.status}`);
+    }
+    const data = (await response.json()) as { status?: string; paid?: boolean };
+    return { status: data.status ?? '', paid: Boolean(data.paid) };
+  }
+
   verifyWebhookIp(_ip: string): boolean {
+    // Kept for API compatibility; IP allow-listing is unreliable behind a
+    // proxy and payment correctness is enforced by getPayment() re-verification
+    // instead of by the notification source.
     return true;
   }
 }

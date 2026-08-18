@@ -66,21 +66,41 @@ export class BillingService {
     const event = body.event as string;
     const object = body.object as Record<string, unknown>;
 
-    if (event === 'payment.succeeded' && object?.status === 'succeeded') {
-      const metadata = object.metadata as { userId?: string; plan?: string };
-      const userId = metadata?.userId;
-      const plan = metadata?.plan as Plan | undefined;
-      if (userId && plan) {
-        const periodEnd = new Date();
-        periodEnd.setMonth(periodEnd.getMonth() + 1);
-        await this.subscriptionsService.activateSubscription(
-          userId,
-          plan as PrismaPlan,
-          PaymentProvider.YOOKASSA,
-          String(object.id),
-          periodEnd,
-        );
-      }
+    // Security: never trust the webhook body. YooKassa delivers unsigned
+    // notifications, so a forged POST here would otherwise activate a paid
+    // subscription for free. Re-verify the payment against the YooKassa API
+    // before activating; only `paid === true` and `status === 'succeeded'`
+    // count. The failure path is safe: we simply do not activate.
+    if (event !== 'payment.succeeded') return;
+
+    const paymentId = typeof object?.id === 'string' ? object.id : '';
+    if (!paymentId) return;
+
+    let verified: { status: string; paid: boolean } | null = null;
+    try {
+      verified = await this.yookassaService.getPayment(paymentId);
+    } catch (err) {
+      this.logger?.error?.(`YooKassa webhook verification failed: ${err}`);
+      return;
+    }
+
+    if (!verified || verified.status !== 'succeeded' || !verified.paid) {
+      return; // not paid — do not activate
+    }
+
+    const metadata = object.metadata as { userId?: string; plan?: string } | undefined;
+    const userId = metadata?.userId;
+    const plan = metadata?.plan as Plan | undefined;
+    if (userId && plan) {
+      const periodEnd = new Date();
+      periodEnd.setMonth(periodEnd.getMonth() + 1);
+      await this.subscriptionsService.activateSubscription(
+        userId,
+        plan as PrismaPlan,
+        PaymentProvider.YOOKASSA,
+        String(object.id),
+        periodEnd,
+      );
     }
 
     await this.recordEvent(PaymentProvider.YOOKASSA, String(object?.id ?? 'unknown'), body);

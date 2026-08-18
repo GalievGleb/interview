@@ -7,7 +7,7 @@
 
 | Угроза | Защита |
 |---|---|
-| Кража API-ключей пользователя | Ключи в OS secure storage (keyring/keytar), не в файлах и не в localStorage |
+| Кража API-ключей пользователя | Ключи провайдеров (OpenAI, OpenRouter) — в OS secure storage (Python `keyring`), **не** в файлах и не в localStorage. OAuth-токены и пароль HH — в `safeStorage` Electron. `keytar` (старый Electron-бандлер) не используется. |
 | Чужой сайт/процесс дёргает localhost-API (жжёт токены, читает данные) | Per-run токен: Electron генерирует случайный секрет, передаёт бэкенду через env `SKILLCUE_API_TOKEN`; HTTP — заголовок `X-SkillCue-Token`, WebSocket — query `token`; без совпадения — 401. Активен всегда в упакованном приложении (бэкенд спавнится Electron'ом) |
 | Компрометация renderer'а (XSS → системный доступ) | Electron hardening: `contextIsolation`, `sandbox`, без `nodeIntegration`, CSP в проде, `setWindowOpenHandler` deny, навигация только на свои origin'ы |
 | Подделка лицензии «на глаз» | Ed25519-подпись: ключ проверяется оффлайн по публичному ключу; payload (email, план, бюджет, срок) изменить без приватного ключа нельзя |

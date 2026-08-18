@@ -673,14 +673,17 @@ async def answer_variant(payload: AnswerVariantPayload, db: Session = Depends(ge
 async def interview_stream(payload: InterviewPayload, db: Session = Depends(get_db)):
     _ensure_quota(db)
     """SSE-стрим live-подсказки — первые токены сразу."""
-    db = SessionLocal()
+    # We use a separate session for the streaming event to keep the Depends()
+    # session free for the caller. Close it in a finally block so the connection
+    # pool does not leak on exceptions between try and event_stream.
+    stream_db = SessionLocal()
     try:
-        resume = _clip(rag_service.get_context_text(db, "resume"), RESUME_CONTEXT_LIMIT)
-        vacancy = _clip(rag_service.get_context_text(db, "vacancy"), VACANCY_CONTEXT_LIMIT)
-        legend = _clip(rag_service.get_context_text(db, "legend"), LEGEND_CONTEXT_LIMIT)
-        profile_block = get_profile_block(db)
+        resume = _clip(rag_service.get_context_text(stream_db, "resume"), RESUME_CONTEXT_LIMIT)
+        vacancy = _clip(rag_service.get_context_text(stream_db, "vacancy"), VACANCY_CONTEXT_LIMIT)
+        legend = _clip(rag_service.get_context_text(stream_db, "legend"), LEGEND_CONTEXT_LIMIT)
+        profile_block = get_profile_block(stream_db)
     except Exception:
-        db.close()
+        stream_db.close()
         raise
 
     provider, model, source = _resolve_chat(
@@ -701,11 +704,11 @@ async def interview_stream(payload: InterviewPayload, db: Session = Depends(get_
                 vacancy=vacancy or "(нет)",
                 legend=legend or "(нет)",
                 candidate_profile=profile_block,
-                db=db,
+                db=stream_db,
             ):
                 yield line
         finally:
-            db.close()
+            stream_db.close()
 
     return StreamingResponse(
         event_stream(),

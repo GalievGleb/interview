@@ -44,12 +44,17 @@ def get_case(case_id: str) -> dict | None:
 def resolve_audio_path(audio_file: str) -> Path:
     raw = Path(audio_file)
     if raw.is_absolute():
-        return raw.resolve()
-    normalized = audio_file.replace("\\", "/")
-    candidate = REPO_ROOT / normalized
-    if candidate.exists():
-        return candidate.resolve()
-    return (AUDIO_DIR / raw.name).resolve()
+        resolved = raw.resolve()
+    else:
+        normalized = audio_file.replace("\\", "/")
+        candidate = REPO_ROOT / normalized
+        if candidate.exists():
+            resolved = candidate.resolve()
+        else:
+            resolved = (AUDIO_DIR / raw.name).resolve()
+    if not str(resolved).startswith(str(REPO_ROOT.resolve())):
+        raise ValueError(f"Audio file outside permitted directory: {resolved}")
+    return resolved
 
 
 # --- fuzzy/semantic scoring (no audio, no model) -------------------------

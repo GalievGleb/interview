@@ -5,6 +5,24 @@
 
 ## [Unreleased]
 
+## [0.0.37-dev] — 2026-08-19 (dev-сборка с hardening)
+
+### Security
+- **JWT-секреты fail-closed:** убраны хардкод-дефолты `dev-access-secret-change-me` / `dev-refresh-secret-change-me` — при отсутствии env-ключей сервер отказывает, а не подписывает подделываемые токены (`apps/api/src/auth/auth.service.ts`).
+- **ЮKassa webhook перестал верить телу запроса:** старый `handleYookassaWebhook` теперь перепроверяет платёж через API ЮKassa (`getPayment`) и активирует подписку только для реально оплаченных (`paid === true && status === 'succeeded'`); заглушка `verifyWebhookIp` задокументирована как устаревшая (`apps/api/src/billing/*`).
+- **HH OAuth-токены и клиентский секрет шифруются** через Electron `safeStorage`; старый незашифрованный `hh-oauth.json` прозрачно мигрируется при следующем сохранении (`apps/desktop/electron/hhOAuthService.ts`).
+- **Path traversal guard** в voice-tests и STT-бенчмарке: аудиофайлы допускаются только внутри разрешённой тестовой директории.
+
+### Changed
+- Синхронный `httpx.Client` для claim trial-ключа заменён на `httpx.AsyncClient` — устранена блокировка event loop (фризы всех запросов на ~8 с при холодном кэше).
+- SQLite переведён в WAL-режим + `busy_timeout` — устранён класс ошибок `database is locked` при конкурентных STT-stream и HTTP-запросах.
+- Устранена утечка дублирующей SQLAlchemy-сессии в `/chat/interview/stream`.
+- `datetime.utcnow()` заменён на timezone-aware вариант — совместимость с Python 3.13+.
+- Убрана мёртвая зависимость `keytar` из десктопного пакета и `pnpm-workspace.yaml`; `SECURITY.md` приведён к реальной картине (LLM-ключи — в Python `keyring`, HH-токены — в `safeStorage`).
+
+### Fixed
+- Уточнены тесты `test_gateway_fallback`, `test_provider_adapter`, `test_tts` под асинхронный `_resolve`/`_gateway_license_key` (336 пройдено).
+
 ## [0.0.36] — 2026-08-18
 
 ### Added

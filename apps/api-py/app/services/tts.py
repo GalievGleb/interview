@@ -93,7 +93,7 @@ async def synthesize_speech(input_text: str, language: str) -> bytes:
         authorization = own_key
         body = _direct_body(normalized, normalized_language)
     else:
-        license_key = await asyncio.to_thread(_gateway_license_key)
+        license_key = await _gateway_license_key()
         if not settings.skillcue_gateway_url or not license_key:
             raise AppError(
                 "Озвучка недоступна без подключения к AI.",

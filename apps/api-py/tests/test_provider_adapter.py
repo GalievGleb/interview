@@ -64,7 +64,9 @@ def test_fast_routing_option_is_only_sent_to_openrouter_itself():
 
 # --- retry ----------------------------------------------------------------
 def _patch_common(monkeypatch, client):
-    monkeypatch.setattr(provider_adapter, "_resolve", lambda p: ("openrouter", "http://x", "k"))
+    async def fake_resolve(_p):
+        return ("openrouter", "http://x", "k")
+    monkeypatch.setattr(provider_adapter, "_resolve", fake_resolve)
     monkeypatch.setattr(provider_adapter, "get_client", lambda: client)
 
     async def _no_sleep(_seconds):
@@ -105,8 +107,10 @@ def test_direct_openai_gpt5_uses_native_reasoning_and_completion_fields(monkeypa
             captured["json"] = json
             return _Resp(200, {"choices": [{"message": {"content": "ok"}}]})
 
+    async def fake_openai_resolve(_p):
+        return ("openai", "https://api.openai.test/v1", "k")
     monkeypatch.setattr(
-        provider_adapter, "_resolve", lambda _p: ("openai", "https://api.openai.test/v1", "k")
+        provider_adapter, "_resolve", fake_openai_resolve
     )
     monkeypatch.setattr(provider_adapter, "get_client", lambda: CapClient())
 
@@ -138,8 +142,10 @@ def test_openrouter_keeps_unified_reasoning_shape(monkeypatch):
             captured["json"] = json
             return _Resp(200, {"choices": [{"message": {"content": "ok"}}]})
 
+    async def fake_router_resolve(_p):
+        return ("openrouter", "https://router.test/v1", "k")
     monkeypatch.setattr(
-        provider_adapter, "_resolve", lambda _p: ("openrouter", "https://router.test/v1", "k")
+        provider_adapter, "_resolve", fake_router_resolve
     )
     monkeypatch.setattr(provider_adapter, "get_client", lambda: CapClient())
 
@@ -241,8 +247,8 @@ def test_complete_strictly_cancels_each_hung_attempt(monkeypatch):
 
 
 # --- local LLM (Ollama, keyless) ------------------------------------------
-def test_ollama_resolve_is_keyless():
-    provider, base_url, key = provider_adapter._resolve("ollama")
+async def test_ollama_resolve_is_keyless():
+    provider, base_url, key = await provider_adapter._resolve("ollama")
     assert provider == "ollama"
     assert key == ""  # no secret required
     assert "11434" in base_url

@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import http from 'http';
 import { URL } from 'url';
-import { shell } from 'electron';
+import { safeStorage, shell } from 'electron';
 
 // ─── Константы HH OAuth ────────────────────────────────────────────────────
 
@@ -322,7 +322,13 @@ export class HhOAuthService {
   private load(): PersistedHhAuth | null {
     try {
       const raw = fs.readFileSync(oauthStatePath(this.userDataDir), 'utf8');
-      return JSON.parse(raw) as PersistedHhAuth;
+      // Migrate from the legacy plaintext format to an encrypted blob. If the
+      // file holds a JSON object, transparently rewrite it encrypted once.
+      const parsed = JSON.parse(raw) as PersistedHhAuth | { __encrypted: string };
+      if ('__encrypted' in parsed && typeof parsed.__encrypted === 'string') {
+        return JSON.parse(safeStorage.decryptString(Buffer.from(parsed.__encrypted, 'base64'))) as PersistedHhAuth;
+      }
+      return parsed as PersistedHhAuth;
     } catch {
       return null;
     }
@@ -331,11 +337,16 @@ export class HhOAuthService {
   private persist(): void {
     try {
       fs.mkdirSync(path.dirname(oauthStatePath(this.userDataDir)), { recursive: true });
-      fs.writeFileSync(
-        oauthStatePath(this.userDataDir),
-        JSON.stringify({ config: this.config, tokens: this.tokens } satisfies PersistedHhAuth, null, 2),
-        'utf8',
-      );
+      const value: PersistedHhAuth = { config: this.config, tokens: this.tokens };
+      if (safeStorage.isEncryptionAvailable()) {
+        const encrypted = safeStorage.encryptString(JSON.stringify(value)).toString('base64');
+        fs.writeFileSync(oauthStatePath(this.userDataDir), JSON.stringify({ __encrypted: encrypted }), 'utf8');
+      } else {
+        // No OS keystore (e.g. CI/headless). Fall back to plaintext and log it —
+        // the alternative is losing OAuth state entirely on every restart.
+        console.warn('[hh-oauth] safeStorage unavailable — tokens stored unencrypted');
+        fs.writeFileSync(oauthStatePath(this.userDataDir), JSON.stringify(value, null, 2), 'utf8');
+      }
     } catch (error) {
       console.warn('[hh-oauth] persist failed:', error);
     }

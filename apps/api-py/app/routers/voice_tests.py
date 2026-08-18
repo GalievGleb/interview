@@ -34,7 +34,12 @@ def _resolve_audio_path(audio_file: str) -> Path:
             path = VOICE_TESTS_DIR / normalized
     if not path.exists():
         path = AUDIO_DIR / Path(audio_file).name
-    return path.resolve()
+    resolved = path.resolve()
+    # Defense in depth: the audio file should live under the voice tests
+    # directory. Absolute paths that escape it are discarded.
+    if not str(resolved).startswith(str(VOICE_TESTS_DIR.resolve())):
+        raise ValueError(f"Audio file outside permitted directory: {resolved}")
+    return resolved
 
 
 class VoiceTestReportPayload(BaseModel):
@@ -64,7 +69,10 @@ def audio_exists(case_id: str) -> dict:
     case = next((c for c in cases if c.get("id") == case_id), None)
     if not case:
         raise HTTPException(status_code=404, detail=f"Case {case_id} not found")
-    path = _resolve_audio_path(case["audioFile"])
+    try:
+        path = _resolve_audio_path(case["audioFile"])
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     return {"caseId": case_id, "path": str(path), "exists": path.is_file()}
 
 
@@ -75,7 +83,10 @@ async def transcribe_case(case_id: str) -> dict:
     if not case:
         raise HTTPException(status_code=404, detail=f"Case {case_id} not found")
 
-    audio_path = _resolve_audio_path(case["audioFile"])
+    try:
+        audio_path = _resolve_audio_path(case["audioFile"])
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     if not audio_path.is_file():
         raise HTTPException(
             status_code=404,
