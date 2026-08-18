@@ -309,6 +309,62 @@
       box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, .07);
     }
 
+    .preview-tabs {
+      display: flex;
+      gap: 6px;
+      margin-block-end: 16px;
+      padding: 5px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: rgba(3, 10, 19, .5);
+    }
+
+    .preview-tab {
+      flex: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      min-height: 38px;
+      padding: 0 10px;
+      border: 1px solid transparent;
+      border-radius: 10px;
+      background: transparent;
+      color: #8f9db0;
+      font-size: 12px;
+      font-weight: 750;
+      white-space: nowrap;
+      cursor: pointer;
+      transition: background-color .15s, color .15s, border-color .15s;
+    }
+
+    .preview-tab:hover { color: var(--text); }
+    .preview-tab.active {
+      border-color: rgba(62, 229, 143, .3);
+      background: rgba(62, 229, 143, .1);
+      color: #dff9ea;
+    }
+
+    .preview-tab .ptab-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: currentColor;
+      opacity: .85;
+    }
+
+    .shot {
+      position: relative;
+      display: none;
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      overflow: hidden;
+      background: #08111f;
+    }
+
+    .shot.active { display: block; }
+    .shot[hidden] { display: none; }
+
     .app-preview::after {
       content: "";
       position: absolute;
@@ -317,19 +373,6 @@
       border-radius: 50%;
       background: rgba(35, 202, 115, .15);
       filter: blur(68px);
-    }
-
-    .window-bar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 16px;
-      min-height: 40px;
-      margin-block-end: 14px;
-      padding-inline: 4px;
-      color: #8e9cb0;
-      font-size: 12px;
-      font-weight: 700;
     }
 
     .window-brand {
@@ -345,120 +388,383 @@
       border-radius: 8px;
     }
 
-    .status {
-      display: inline-flex;
-      align-items: center;
-      gap: 7px;
-      color: #7ee8aa;
+    .shot-overlay {
+      position: relative;
+      aspect-ratio: 16 / 11;
+      background:
+        linear-gradient(135deg, #1a2a3e 0%, #0d1b2f 40%, #081425 100%);
+      overflow: hidden;
     }
 
-    .status::before {
-      content: "";
+    .shot-overlay-bg {
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 60% 55% at 70% 20%, rgba(60,140,220,.28), transparent),
+        radial-gradient(circle 22% at 12% 40%, rgba(255,200,100,.12), transparent);
+    }
+
+    .shot-overlay .ov-participants {
+      display: flex;
+      gap: 8px;
+      padding: 16px 18px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .ov-participant {
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      background: linear-gradient(150deg, #2a4560, #162838);
+      border: 2px solid rgba(255,255,255,.08);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 26px;
+      font-weight: 800;
+      color: #cde0f5;
+    }
+
+    .ov-participant.speaking {
+      border-color: var(--green);
+      box-shadow: 0 0 0 4px rgba(62, 229, 143, .15);
+    }
+
+    .ov-share-bar {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 0 18px 10px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      background: rgba(255,255,255,.06);
+      backdrop-filter: blur(4px);
+      color: #a3b3c8;
+      font-size: 10px;
+      font-weight: 700;
+    }
+
+    .ov-share-bar .red-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #f54337;
+      flex-shrink: 0;
+    }
+
+    .ov-share-bar .sharing-label { flex: 1; }
+
+    .overlay-pill {
+      position: absolute;
+      z-index: 2;
+      inset-block-end: 20px;
+      inset-inline-end: 18px;
+      width: 264px;
+      padding: 12px 14px;
+      border-radius: 18px;
+      background: rgba(3, 10, 19, .92);
+      border: 1px solid rgba(255,255,255,.1);
+      box-shadow: 0 16px 40px rgba(0,0,0,.5), 0 1px 0 rgba(255,255,255,.06);
+      backdrop-filter: blur(6px);
+    }
+
+    .overlay-pill-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-block-end: 7px;
+    }
+
+    .overlay-pill-header .pill-icon {
+      width: 20px;
+      height: 20px;
+      border-radius: 6px;
+      background: var(--green);
+    }
+
+    .overlay-pill-header .pill-title {
+      flex: 1;
+      color: #d4e3f2;
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    .overlay-pill-header .pill-status {
       width: 7px;
       height: 7px;
       border-radius: 50%;
       background: var(--green);
-      box-shadow: 0 0 0 4px rgba(62, 229, 143, .11);
+      box-shadow: 0 0 0 3px rgba(62, 229, 143, .15);
     }
 
-    .preview-body {
-      display: grid;
-      grid-template-columns: 190px minmax(0, 1fr);
-      gap: 14px;
+    .overlay-pill .pill-reply {
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: #101b2e;
+      color: #e2edfb;
+      font-size: 12.5px;
+      line-height: 1.45;
+      border: 1px solid rgba(62, 229, 143, .18);
     }
 
-    .preview-side,
-    .preview-main {
-      border: 1px solid var(--line);
-      border-radius: 22px;
-      background: rgba(3, 10, 19, .62);
-    }
-
-    .preview-side {
-      display: grid;
-      align-content: start;
-      gap: 9px;
-      padding: 16px;
-    }
-
-    .side-label {
+    .overlay-pill .pill-reply strong {
+      display: block;
       margin-block-end: 3px;
-      color: #718197;
-      font-size: 10px;
-      font-weight: 800;
+      color: var(--green);
+      font-size: 9px;
       text-transform: uppercase;
       letter-spacing: .08em;
     }
 
-    .side-item {
-      padding: 10px 11px;
-      border: 1px solid transparent;
-      border-radius: 11px;
-      color: #8f9db0;
+    .ov-mic-btn {
+      position: absolute;
+      z-index: 2;
+      inset-block-end: 24px;
+      inset-inline-start: 50%;
+      transform: translateX(-50%);
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: linear-gradient(150deg, #3e5f8a, #1e3a60);
+      border: 2px solid rgba(255,255,255,.15);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #d0e2f7;
+      font-size: 18px;
+      box-shadow: 0 8px 24px rgba(0,0,0,.3);
+      pointer-events: none;
+    }
+
+    .shot-answers {
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      overflow: hidden;
+      background: #08111f;
+    }
+
+    .shot-answers .sa-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 16px 20px;
+      border-block-end: 1px solid var(--line);
+      background: rgba(10, 22, 38, .8);
+    }
+
+    .sa-header .sa-icon {
+      width: 26px;
+      height: 26px;
+      border-radius: 7px;
+      background: var(--green);
+      flex-shrink: 0;
+    }
+
+    .sa-header span {
+      flex: 1;
+      color: #dce5f0;
+      font-size: 13px;
+      font-weight: 750;
+    }
+
+    .sa-header .sa-status {
+      color: var(--green);
       font-size: 11px;
       font-weight: 700;
     }
 
-    .side-item.active {
-      border-color: rgba(62, 229, 143, .22);
-      background: var(--green-soft);
-      color: #dff9ea;
+    .sa-body {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1px;
+      background: var(--line);
     }
 
-    .preview-main { padding: 22px; }
+    .sa-body > div {
+      padding: 18px 18px 22px;
+      background: #08111f;
+    }
 
-    .question {
-      margin-block-end: 14px;
-      padding: 17px 18px;
-      border-radius: 16px;
+    .sa-col-label {
+      display: block;
+      margin-block-end: 10px;
+      color: #718197;
+      font-size: 9px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+    }
+
+    .sa-question {
+      padding: 12px 14px;
+      border-radius: 12px;
       background: #edf3f6;
       color: #101a28;
-      font-size: 17px;
-      font-weight: 850;
-      line-height: 1.35;
-      letter-spacing: -.02em;
-    }
-
-    .cue {
-      padding: 17px 18px;
-      border: 1px solid rgba(62, 229, 143, .26);
-      border-radius: 16px;
-      background: rgba(11, 50, 36, .72);
-      color: #d8f7e5;
       font-size: 13px;
-      line-height: 1.55;
+      font-weight: 750;
+      line-height: 1.35;
+      margin-block-end: 8px;
     }
 
-    .cue strong {
+    .sa-answer {
+      padding: 12px 14px;
+      border-radius: 12px;
+      background: rgba(35, 202, 115, .08);
+      border: 1px solid rgba(62, 229, 143, .18);
+      color: #d8f7e5;
+      font-size: 12.5px;
+      line-height: 1.45;
+    }
+
+    .sa-answer strong {
       display: block;
-      margin-block-end: 7px;
+      margin-block-end: 3px;
       color: var(--green);
-      font-size: 10px;
-      letter-spacing: .08em;
+      font-size: 9px;
       text-transform: uppercase;
+      letter-spacing: .06em;
     }
 
-    .preview-chips {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin-block-start: 14px;
+    .sa-feedback {
+      margin-block-start: 8px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: rgba(108, 201, 255, .05);
+      border: 1px solid rgba(108, 201, 255, .1);
+      color: #b3ceeb;
+      font-size: 11px;
+      line-height: 1.4;
     }
 
-    .chip {
-      padding: 7px 10px;
-      border: 1px solid var(--line);
-      border-radius: 999px;
-      background: rgba(255, 255, 255, .025);
-      color: #aebacd;
-      font-size: 10px;
+    .sa-feedback strong {
+      color: var(--blue);
       font-weight: 800;
     }
 
-    .chip.good {
-      border-color: rgba(62, 229, 143, .28);
-      background: var(--green-soft);
-      color: #8aefb5;
+    .shot-hh {
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      overflow: hidden;
+      background: #08111f;
+    }
+
+    .hh-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 16px 20px;
+      border-block-end: 1px solid var(--line);
+      background: rgba(10, 22, 38, .8);
+    }
+
+    .hh-header .hh-icon {
+      width: 26px;
+      height: 26px;
+      border-radius: 7px;
+      background: #de4b37;
+      flex-shrink: 0;
+    }
+
+    .hh-header span { flex: 1; color: #dce5f0; font-size: 13px; font-weight: 750; }
+    .hh-header .hh-running {
+      color: var(--green);
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .hh-stats {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1px;
+      background: var(--line);
+    }
+
+    .hh-stat {
+      padding: 14px 10px;
+      text-align: center;
+      background: #08111f;
+    }
+
+    .hh-stat strong {
+      display: block;
+      color: var(--green);
+      font-size: 22px;
+      line-height: 1;
+    }
+
+    .hh-stat span {
+      color: #8f9db0;
+      font-size: 10px;
+      font-weight: 700;
+    }
+
+    .hh-queue {
+      padding: 12px 18px;
+      border-block-start: 1px solid var(--line);
+    }
+
+    .hh-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 0;
+      border-block-end: 1px solid var(--line);
+    }
+
+    .hh-row:last-child { border-block-end: none; }
+
+    .hh-row .hh-company {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .hh-company .co-name {
+      color: #c9d5e4;
+      font-size: 13px;
+      font-weight: 750;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .hh-company .co-role {
+      color: #8f9db0;
+      font-size: 11px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .hh-row .hh-badge {
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 800;
+      flex-shrink: 0;
+    }
+
+    .hh-badge.sent {
+      background: rgba(62, 229, 143, .12);
+      color: #7eeba9;
+    }
+
+    .hh-badge.pending {
+      background: rgba(255, 212, 121, .12);
+      color: #f7d07e;
+    }
+
+    .hh-badge.skipped {
+      background: rgba(255, 255, 255, .04);
+      color: #8895aa;
+    }
+
+    .hh-arrow {
+      flex-shrink: 0;
+      color: #5f7085;
+      font-size: 14px;
     }
 
     .metrics {
@@ -856,23 +1162,16 @@
         border-radius: 25px;
       }
 
-      .window-bar { margin-block-end: 10px; }
-      .window-bar > span:not(.window-brand) { display: none; }
+      .preview-tabs { gap: 4px; padding: 4px; }
+      .preview-tab { font-size: 11px; min-height: 34px; }
+      .preview-tab .ptab-dot { display: none; }
 
-      .preview-body { grid-template-columns: 1fr; }
-      .preview-side { display: none; }
-
-      .preview-main {
-        padding: 16px;
-        border-radius: 18px;
-      }
-
-      .question {
-        padding: 15px;
-        font-size: 15px;
-      }
-
-      .cue { padding: 15px; font-size: 12px; }
+      .shot-overlay { aspect-ratio: 16 / 13; }
+      .ov-participant { width: 52px; height: 52px; font-size: 20px; }
+      .overlay-pill { width: 200px; inset-block-end: 12px; inset-inline-end: 10px; padding: 10px; }
+      .overlay-pill .pill-reply { font-size: 11px; }
+      .sa-body { grid-template-columns: 1fr; }
+      .hh-stats { grid-template-columns: repeat(4, 1fr); }
 
       .metrics {
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -999,30 +1298,117 @@
         <p class="hero-note">Windows 10/11 · macOS 12+ · <a href="https://github.com/GalievGleb/SkillCue/releases/latest/download/SkillCue-macOS-x64.dmg">Mac с Intel</a></p>
       </div>
 
-      <div class="app-preview" aria-label="Пример подсказки SkillCue">
-        <div class="window-bar">
-          <span class="window-brand"><img src="/skillcue-icon.png" alt="" width="26" height="26" /> SkillCue</span>
-          <span>Техническое интервью</span>
-          <span class="status">Готов к вопросу</span>
+      <div class="app-preview" aria-label="Примеры работы SkillCue">
+        <div class="preview-tabs" role="tablist" aria-label="Переключение экранов">
+          <button class="preview-tab active" role="tab" aria-selected="true" data-shot="overlay" onclick="switchShot('overlay')">
+            <span class="ptab-dot"></span> На созвоне
+          </button>
+          <button class="preview-tab" role="tab" aria-selected="false" data-shot="answers" onclick="switchShot('answers')">
+            <span class="ptab-dot" style="background:var(--blue)"></span> Разбор ответов
+          </button>
+          <button class="preview-tab" role="tab" aria-selected="false" data-shot="hh" onclick="switchShot('hh')">
+            <span class="ptab-dot" style="background:#de4b37"></span> HH Автоотклики
+          </button>
         </div>
-        <div class="preview-body">
-          <div class="preview-side" aria-hidden="true">
-            <span class="side-label">Подготовка</span>
-            <span class="side-item active">Вопросы по вакансии</span>
-            <span class="side-item">Слабые темы</span>
-            <span class="side-item">Практика ответов</span>
-            <span class="side-item">История опыта</span>
-          </div>
-          <div class="preview-main">
-            <div class="question">Что проверяли в API-тестах кроме статус-кода 200?</div>
-            <div class="cue">
-              <strong>Короткая подсказка</strong>
-              Назовите контракт ответа: поля, типы и схему. Затем — негативные сценарии и проверку логов.
+
+        <div class="shot active" id="shot-overlay" role="tabpanel">
+          <div class="shot-overlay">
+            <div class="shot-overlay-bg"></div>
+            <div class="ov-participants">
+              <div class="ov-participant" style="background:linear-gradient(150deg,#3d6999,#1b3a60)">Г</div>
+              <div class="ov-participant speaking" style="background:linear-gradient(150deg,#2b7c5a,#16503b)">В</div>
+              <div class="ov-participant" style="background:linear-gradient(150deg,#5a4f88,#362d5a)">А</div>
             </div>
-            <div class="preview-chips">
-              <span class="chip good">Вакансия учтена</span>
-              <span class="chip">Резюме учтено</span>
-              <span class="chip">Готовность 78%</span>
+            <div class="ov-share-bar"><span class="red-dot" aria-hidden="true"></span><span class="sharing-label">Вы делитесь экраном</span><span>00:12:34</span></div>
+
+            <div class="ov-mic-btn" aria-hidden="true">🎤</div>
+
+            <div class="overlay-pill">
+              <div class="overlay-pill-header">
+                <span class="pill-icon" aria-hidden="true"></span>
+                <span class="pill-title">SkillCue</span>
+                <span class="pill-status" aria-label="Готов к запросу"></span>
+              </div>
+              <div class="pill-reply">
+                <strong>Подсказка</strong>
+                Назовите структуру ответа: статус-код, тело, заголовки и время. Затем — как проверяли граничные случаи и падение сервиса.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="shot" id="shot-answers" role="tabpanel" hidden>
+          <div class="shot-answers">
+            <div class="sa-header">
+              <span class="sa-icon" aria-hidden="true"></span>
+              <span>Live-сессия · Техническое интервью</span>
+              <span class="sa-status">Завершено</span>
+            </div>
+            <div class="sa-body">
+              <div>
+                <span class="sa-col-label">Мой ответ</span>
+                <div class="sa-question">Что проверяли в API-тестах кроме статус-кода 200?</div>
+                <div class="sa-answer">
+                  <strong>Сказано</strong>
+                  Проверяли тело ответа, схему JSON, заголовки и время ответа. Ещё негативные тесты — 403, 500, таймауты.
+                </div>
+                <div class="sa-feedback"><strong>✓</strong> Ключевые аспекты покрыты. Можно добавить проверку идемпотентности и логов.</div>
+              </div>
+              <div>
+                <span class="sa-col-label">Оценка</span>
+                <div style="display:flex;gap:6px;flex-wrap:wrap;margin-block-end:10px">
+                  <span style="display:inline-flex;align-items:center;gap:5px;padding:5px 10px;border-radius:999px;background:rgba(62,229,143,.1);color:#7eeba9;font-size:11px;font-weight:800">Структура ●</span>
+                  <span style="display:inline-flex;align-items:center;gap:5px;padding:5px 10px;border-radius:999px;background:rgba(255,212,121,.1);color:#f7d07e;font-size:11px;font-weight:800">Глубина ○</span>
+                  <span style="display:inline-flex;align-items:center;gap:5px;padding:5px 10px;border-radius:999px;background:rgba(62,229,143,.1);color:#7eeba9;font-size:11px;font-weight:800">Примеры ●</span>
+                </div>
+                <div class="sa-answer" style="background:rgba(108,201,255,.06);border-color:rgba(108,201,255,.12)">
+                  <strong>Улучшенный вариант</strong>
+                  Мы проверяли не только 200, но и контракт ответа: схему, типы полей, заголовки Cache-Control и Content-Type, время ответа &lt;200ms. Отдельно — 403 без токена, 500 с фолбэком, 404 для несуществующего ресурса. Важно: идемпотентность POST и корректный лог при падении.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="shot" id="shot-hh" role="tabpanel" hidden>
+          <div class="shot-hh">
+            <div class="hh-header">
+              <span class="hh-icon" aria-hidden="true"></span>
+              <span>Автоотклики HH</span>
+              <span class="hh-running">Работает</span>
+            </div>
+            <div class="hh-stats">
+              <div class="hh-stat"><strong>24</strong><span>найдено</span></div>
+              <div class="hh-stat"><strong>9</strong><span>отправлено</span></div>
+              <div class="hh-stat"><strong>3</strong><span>открыто</span></div>
+              <div class="hh-stat"><strong>12</strong><span>пропущено</span></div>
+            </div>
+            <div class="hh-queue">
+              <div class="hh-row">
+                <div class="hh-company"><div class="co-name">Skyeng</div><div class="co-role">Python-разработчик</div></div>
+                <span class="hh-badge sent">Отправлен</span>
+                <span class="hh-arrow">→</span>
+              </div>
+              <div class="hh-row">
+                <div class="hh-company"><div class="co-name">Т-Банк</div><div class="co-role">Java-разработчик</div></div>
+                <span class="hh-badge pending">Анкета</span>
+                <span class="hh-arrow">→</span>
+              </div>
+              <div class="hh-row">
+                <div class="hh-company"><div class="co-name">Яндекс</div><div class="co-role">Middle Frontend</div></div>
+                <span class="hh-badge sent">Отправлен</span>
+                <span class="hh-arrow">→</span>
+              </div>
+              <div class="hh-row">
+                <div class="hh-company"><div class="co-name">Сбер</div><div class="co-role">QA Automation</div></div>
+                <span class="hh-badge skipped">Стек не совпал</span>
+                <span class="hh-arrow">→</span>
+              </div>
+              <div class="hh-row">
+                <div class="hh-company"><div class="co-name">Ozon</div><div class="co-role">Go-разработчик</div></div>
+                <span class="hh-badge pending">Собесед.</span>
+                <span class="hh-arrow">→</span>
+              </div>
             </div>
           </div>
         </div>
@@ -1163,5 +1549,19 @@
       </nav>
     </div>
   </footer>
+
+  <script>
+  function switchShot(name) {
+    document.querySelectorAll('.shot').forEach(el => { el.classList.remove('active'); el.hidden = true; });
+    document.querySelectorAll('.preview-tab').forEach(el => {
+      el.classList.remove('active');
+      el.setAttribute('aria-selected', 'false');
+    });
+    const shot = document.getElementById('shot-' + name);
+    if (shot) { shot.classList.add('active'); shot.hidden = false; }
+    const tab = document.querySelector('.preview-tab[data-shot="' + name + '"]');
+    if (tab) { tab.classList.add('active'); tab.setAttribute('aria-selected', 'true'); }
+  }
+  </script>
 </body>
 </html>
