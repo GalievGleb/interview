@@ -9,7 +9,7 @@ provider_adapter.pop_last_usage), так что лимит меряет имен
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -43,7 +43,7 @@ def _set_meta(db: Session, key: str, value: str) -> None:
 
 
 def month_start() -> datetime:
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = datetime.now(UTC).replace(tzinfo=None)
     return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
 

@@ -72,7 +72,7 @@ def audio_exists(case_id: str) -> dict:
     try:
         path = _resolve_audio_path(case["audioFile"])
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"caseId": case_id, "path": str(path), "exists": path.is_file()}
 
 
@@ -86,7 +86,7 @@ async def transcribe_case(case_id: str) -> dict:
     try:
         audio_path = _resolve_audio_path(case["audioFile"])
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not audio_path.is_file():
         raise HTTPException(
             status_code=404,
