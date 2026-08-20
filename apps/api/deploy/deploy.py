@@ -136,18 +136,24 @@ def build_env() -> str:
     )
     if not signing:
         print("!! нет .license_signing_key — /gateway/issue работать не будет")
+    upstream_key = read_openrouter_key()
+    uses_openrouter = upstream_key.startswith("sk-or-v1-")
+    upstream_base = (
+        "https://openrouter.ai/api/v1"
+        if uses_openrouter
+        else "https://api.proxyapi.ru/openai/v1"
+    )
+    upstream_style = "openrouter" if uses_openrouter else "openai"
     lines = [
         "GATEWAY_PORT=8787",
         "REDIS_URL=redis://127.0.0.1:6379",
-        f"OPENROUTER_API_KEY={read_openrouter_key()}",
+        f"OPENROUTER_API_KEY={upstream_key}",
         f"GATEWAY_ADMIN_SECRET={admin_secret()}",
-        # Апстрим — ProxyAPI (OpenAI-совместимый, работает из РФ напрямую, в отличие
-        # от OpenRouter, который Cloudflare гео-блочит с IP VPS: "Access denied by
-        # security policy"). Ключ OPENROUTER_API_KEY выше — это ключ ProxyAPI (sk-...).
-        # openai-стиль сохраняет quality-first GPT-5 для разбора тренировочного
-        # ответа, а остальные кросс-провайдерные модели сводит к gpt-4o/mini.
-        "GATEWAY_UPSTREAM_BASE=https://api.proxyapi.ru/openai/v1",
-        "GATEWAY_UPSTREAM_STYLE=openai",
+        # The key and upstream must be from the same provider.  A previous
+        # deploy sent an sk-or-v1 OpenRouter key to ProxyAPI and every customer
+        # request failed with 401/402 despite both balances looking healthy.
+        f"GATEWAY_UPSTREAM_BASE={upstream_base}",
+        f"GATEWAY_UPSTREAM_STYLE={upstream_style}",
         # Блок-лист дорогих моделей: даже в рамках токен-лимита нельзя сливать
         # деньги через премиум-тир (цена токена различается в ~100 раз). Матч по
         # префиксу сырого id; gpt-4o/mini, sonnet, haiku, deepseek, gemini-flash

@@ -1,0 +1,1 @@
+*/5 * * * * root /opt/skillcue/apps/api/deploy/monitor.sh

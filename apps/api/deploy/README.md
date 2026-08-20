@@ -1,7 +1,7 @@
-# Эксплуатация SkillCue на VPS
+# Эксплуатация SkillCue на Raspberry Pi
 
-Сервер: `root@109.172.47.103` (Beget, Ubuntu 24.04). Вход по SSH-ключу.
-Рядом живёт чужой проект владельца (магазин на :80 + Swagger на :8000) — **не трогать**.
+Сервер: SSH alias `skillcue-pi` (`gleb@192.168.2.132`). Вход по SSH-ключу из
+`~/.ssh/config`; административные команды выполняются через `sudo`.
 
 ## Что где
 
@@ -15,7 +15,7 @@
 ## Проверить статус (ничего не меняет)
 
 ```bash
-ssh root@109.172.47.103 'bash /opt/skillcue/apps/api/deploy/status.sh'
+ssh skillcue-pi 'sudo bash /opt/skillcue/apps/api/deploy/status.sh'
 ```
 
 ## Логи
@@ -36,7 +36,8 @@ systemctl restart skillcue-leadbot
 
 ```bash
 # в gateway.env строка OPENROUTER_API_KEY=... ; затем:
-systemctl restart skillcue-gateway
+# для ключа sk-or-v1-* upstream обязан быть https://openrouter.ai/api/v1
+sudo systemctl restart skillcue-gateway
 curl -s http://127.0.0.1:8787/health   # upstreamConfigured должно стать true
 ```
 
@@ -44,7 +45,7 @@ curl -s http://127.0.0.1:8787/health   # upstreamConfigured должно ста�
 
 ```bash
 # admin-секрет лежит локально в apps/api/deploy/.admin_secret
-curl -X POST http://109.172.47.103:8787/gateway/issue \
+curl -X POST http://127.0.0.1:8787/gateway/issue \
   -H "x-admin-secret: <секрет>" -H "Content-Type: application/json" \
   -d '{"email":"buyer@mail.com","plan":"max","days":30}'
 ```
@@ -53,33 +54,35 @@ curl -X POST http://109.172.47.103:8787/gateway/issue \
 
 ## Uptime-сторож (алерты в Telegram)
 
-`monitor.sh` каждые 5 минут (cron) проверяет гейтвей/сайт/лидбот/redis/nginx и
-пишет админу в Telegram **при смене состояния** (упало / восстановилось), без
-спама. Использует токен бота из `/opt/skillcue-leadbot/config.json`.
+`monitor.sh` каждые 5 минут проверяет гейтвей/сайт/лидбот/redis/nginx, соответствие
+ключа апстриму и остаток OpenRouter. При балансе ниже $1 или при смене состояния
+пишет админу в Telegram без спама. Использует токен бота из
+`/opt/skillcue-leadbot/config.json`.
 
 ```bash
-bash /opt/skillcue/apps/api/deploy/monitor.sh --test   # прислать тестовый алерт
-crontab -l | grep monitor.sh                            # проверить, что cron стоит
+sudo bash /opt/skillcue/apps/api/deploy/monitor.sh --test
+sudo install -m 0644 apps/api/deploy/skillcue-monitor.cron /etc/cron.d/skillcue-monitor
+sudo cat /etc/cron.d/skillcue-monitor
 ```
 
 ## Мониторинг расхода (счёт OpenRouter)
 
 ```bash
 # сколько лицензий активно и токенов потрачено за текущий месяц
-curl -s http://109.172.47.103:8787/gateway/stats -H "x-admin-secret: <секрет>" | python3 -m json.tool
+curl -s http://127.0.0.1:8787/gateway/stats -H "x-admin-secret: <секрет>" | python3 -m json.tool
 # (публично: https://skill-cue.ru/gateway/stats с тем же заголовком)
 ```
 
 ## Обновить код
 
 - **Гейтвей:** скопировать изменённые файлы `apps/api/src/**` → `cd /opt/skillcue/apps/api && npx tsc -p tsconfig.gateway.json && systemctl restart skillcue-gateway`.
-- **Бот:** `scp tools/leadbot/leadbot.py root@…:/opt/skillcue-leadbot/ && ssh … 'chown leadbot:leadbot /opt/skillcue-leadbot/leadbot.py && systemctl restart skillcue-leadbot'`.
-- **Полный передеплой:** `py -3.12 apps/api/deploy/deploy.py --host 109.172.47.103 --user root`.
+- **Бот:** `scp tools/leadbot/leadbot.py skillcue-pi:/home/gleb/ && ssh skillcue-pi 'sudo install -o leadbot -g leadbot -m 0640 /home/gleb/leadbot.py /opt/skillcue-leadbot/leadbot.py && sudo systemctl restart skillcue-leadbot'`.
+- **Полный передеплой:** запускать на Pi либо адаптировать deploy-команду под `skillcue-pi`; старый Beget больше не является production host.
 
 ## Домен + HTTPS (когда DNS `skill-cue.ru` доедет)
 
 ```bash
-ssh root@109.172.47.103 'DOMAIN=skill-cue.ru bash /opt/skillcue/apps/api/deploy/setup-web.sh'
+ssh skillcue-pi 'sudo DOMAIN=skill-cue.ru bash /opt/skillcue/apps/api/deploy/setup-web.sh'
 ```
 
 Добавит домен соседним nginx-vhost + сертификат certbot. Магазин не трогает.

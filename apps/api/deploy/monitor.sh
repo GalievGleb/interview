@@ -14,6 +14,8 @@ check() { if ! eval "$2" >/dev/null 2>&1; then problems="${problems}
 • $1"; fi; }
 
 check "гейтвей /health"      "curl -fsS --max-time 8 http://127.0.0.1:8787/health | grep -q '\"ok\":true'"
+check "LLM-провайдер или баланс OpenRouter" \
+  "python3 /opt/skillcue/apps/api/deploy/provider_health.py --env /opt/skillcue/gateway.env --warning-threshold 1.0"
 check "сайт skill-cue.ru"    "curl -fskS --max-time 10 -o /dev/null https://skill-cue.ru/"
 check "лидбот"               "systemctl is-active --quiet skillcue-leadbot"
 check "redis"                "systemctl is-active --quiet redis-server"
