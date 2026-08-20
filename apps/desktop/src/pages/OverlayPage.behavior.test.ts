@@ -26,6 +26,10 @@ describe('overlay request behavior', () => {
   it('shows live startup failures instead of silently returning to the record button', () => {
     expect(overlaySource).toMatch(/\{error && \([\s\S]*?role="alert"[\s\S]*?\{error\}/);
     expect(overlaySource).toContain('if (!active && error) void refreshLicense();');
+    expect(overlaySource).toContain('const readiness = await api.providerReadiness();');
+    expect(overlaySource).toContain('Созвон не запущен: ИИ недоступен.');
+    expect(overlaySource).toContain('Завершить созвон и запись');
+    expect(overlaySource).toContain("license?.plan === 'trial'");
   });
 
   it('routes typed requests without silently capturing the screen', () => {
@@ -289,7 +293,8 @@ describe('overlay request behavior', () => {
     const toggleAt = mainSource.indexOf('function toggleOverlay(): void');
     const retryAt = mainSource.indexOf('function scheduleToggleOverlayShortcutRetry', toggleAt);
     const toggleSource = mainSource.slice(toggleAt, retryAt);
-    expect(toggleSource).toContain('else showOverlayWindow(win);');
+    expect(toggleSource).toContain('attachNearestInterviewContext();');
+    expect(toggleSource).toContain('showOverlayWindow(win);');
     expect(toggleSource).not.toContain('prepareOverlayForOpen(win)');
   });
 

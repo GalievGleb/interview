@@ -12,7 +12,7 @@ const EMPTY_CONFIG: HhAssistantConfig = {
   platform: 'hh',
   query: '', includeRelatedQueries: true, additionalQueries: [],
   area: '', experience: '', employment: '', schedule: 'remote', salaryFrom: null,
-  onlyWithSalary: false, excludedKeywords: [], excludedEmployers: [], maxQueueSize: 500, maxPages: 20,
+  onlyWithSalary: false, excludedKeywords: [], excludedEmployers: [], maxQueueSize: 5000, maxPages: 20,
   coverLetterTemplate: 'Здравствуйте! Меня заинтересовала вакансия «{vacancy}» в {company}. Буду рад обсудить мой релевантный опыт и задачи команды на интервью.',
   autoSend: true, resumeTitleContains: '', resumeTitles: [], delayBetweenSec: 20, dailyLimit: 20,
   autoRunDaily: false, autoRunHour: 10,
@@ -1098,6 +1098,10 @@ export default function HhApplicationsPage() {
             {draft.autoRunDaily && state?.nextRunAt && !scheduleDirty && <small>Следующий: {new Date(state.nextRunAt).toLocaleString('ru-RU')}</small>}
           </div>
         </div>}
+
+        {draft.platform === 'hh' && draft.autoSend && state?.nextQueueResumeAt && <p className="mt-3 text-xs text-ink-faint">
+          Сохранённая очередь продолжится {new Date(state.nextQueueResumeAt).toLocaleString('ru-RU')}. Это отдельный повтор очереди, он не зависит от времени ежедневного поиска.
+        </p>}
 
         {automationError && <p role="alert" className="mt-3 text-xs text-red-300">{automationError}</p>}
         <div className="hh-launch-panel__actions">

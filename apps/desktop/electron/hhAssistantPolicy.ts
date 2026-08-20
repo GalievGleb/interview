@@ -103,7 +103,7 @@ export const DEFAULT_HH_ASSISTANT_CONFIG: HhAssistantConfig = {
   onlyWithSalary: false,
   excludedKeywords: [],
   excludedEmployers: [],
-  maxQueueSize: 500,
+  maxQueueSize: 5000,
   maxPages: 20,
   coverLetterTemplate:
     'Здравствуйте! Меня заинтересовала вакансия «{vacancy}» в {company}. ' +
@@ -166,7 +166,7 @@ export function normalizeHhAssistantConfig(
     onlyWithSalary: Boolean(source.onlyWithSalary),
     excludedKeywords: cleanList(source.excludedKeywords),
     excludedEmployers: cleanList(source.excludedEmployers),
-    maxQueueSize: boundedInt(source.maxQueueSize, 500, 20, 500),
+    maxQueueSize: boundedInt(source.maxQueueSize, 5000, 20, 5000),
     maxPages: boundedInt(source.maxPages, 20, 1, 20),
     coverLetterTemplate:
       String(
@@ -277,6 +277,13 @@ export function buildHhSearchQueries(config: HhAssistantConfig, resumeContext = 
       rememberSearchQuery(queries, seen, 'QA Engineer');
       rememberSearchQuery(queries, seen, 'тестировщик');
       rememberSearchQuery(queries, seen, 'инженер по тестированию');
+    } else if (isPython && /developer|разработ|программист|backend|software engineer/i.test(normalized)) {
+      rememberSearchQuery(queries, seen, 'Python Developer');
+      rememberSearchQuery(queries, seen, 'Python разработчик');
+      rememberSearchQuery(queries, seen, 'Backend Python');
+      rememberSearchQuery(queries, seen, 'Backend разработчик Python');
+      rememberSearchQuery(queries, seen, 'Django Developer');
+      rememberSearchQuery(queries, seen, 'FastAPI Developer');
     }
   }
 

@@ -45,6 +45,36 @@ afterEach(() => {
 });
 
 describe('HH remembered screening answers', () => {
+  it('upgrades the legacy 500-vacancy discovery cap for an existing v8 profile', () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'skillcue-hh-cap-migration-'));
+    directories.push(directory);
+    const defaults = new HhBrowserAssistant(directory, () => undefined).getState().config;
+    fs.writeFileSync(path.join(directory, 'hh-browser-assistant.json'), JSON.stringify({
+      version: 8,
+      config: { ...defaults, maxQueueSize: 500 },
+      queue: [],
+    }));
+
+    const restored = new HhBrowserAssistant(directory, () => undefined);
+    expect(restored.getState().config.maxQueueSize).toBe(5000);
+  });
+
+  it('restores more than one thousand discovered vacancies without truncation', () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'skillcue-hh-large-queue-'));
+    directories.push(directory);
+    const defaults = new HhBrowserAssistant(directory, () => undefined).getState().config;
+    const queue = Array.from({ length: 1001 }, (_, index) => ({
+      key: `hh:${index}`, platform: 'hh', id: String(index), title: `QA ${index}`,
+      company: 'Example', salary: '', url: `https://hh.ru/vacancy/${index}`,
+      status: 'new', addedAt: new Date().toISOString(),
+    }));
+    fs.writeFileSync(path.join(directory, 'hh-browser-assistant.json'), JSON.stringify({
+      version: 8, config: { ...defaults, maxQueueSize: 5000 }, queue,
+    }));
+
+    expect(new HhBrowserAssistant(directory, () => undefined).getState().queue).toHaveLength(1001);
+  });
+
   it('does not propagate a remembered city into another vacancy or resume', async () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'skillcue-screening-reuse-'));
     directories.push(directory);

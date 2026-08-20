@@ -19,6 +19,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Verify stable release metadata
+        run: node tools/verify_release_metadata.mjs . "$GITHUB_REF_NAME"
+
       # --- Backend: freeze with PyInstaller into apps/api-py/dist/skillcue-backend ---
       - uses: actions/setup-python@v5
         with:

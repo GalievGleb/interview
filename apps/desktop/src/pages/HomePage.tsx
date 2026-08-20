@@ -34,6 +34,7 @@ import {
 import { countUnansweredHhScreeningQuestions, readHhScreeningDrafts, summarizePendingHhScreening } from '../lib/hhScreening';
 import { findMatchingQueueItem } from '../lib/interviewBrief';
 import { isUpcomingInterview } from '../lib/interviewTiming';
+import { launchLive } from '../lib/launchLive';
 import {
   latestCompleted,
   latestInProgress,
@@ -312,6 +313,8 @@ export default function HomePage() {
     || Boolean(growthProfile.role)
     || hasEvidence;
   const pathChooserVisible = showPathChooser || candidateJourney.path === null;
+  const resumeReady = candidateSources.documents.length > 0 || candidateSources.hhResumeCount > 0;
+  const hhReady = candidateSources.hhResumeCount > 0;
 
   const chooseCandidatePath = (path: CandidatePath, destination?: string) => {
     saveCandidatePath(path);
@@ -520,16 +523,16 @@ export default function HomePage() {
               <h2 id="candidate-path-title">С чего начать?</h2>
             </div>
             <div className="candidate-path-options">
-              <button type="button" className="candidate-path-choice is-primary" onClick={() => chooseCandidatePath('vacancy')}>
-                <span><strong>Добавить вакансию</strong><small>Получить персональный разбор</small></span>
-                <ArrowRight size={17} aria-hidden="true" />
+              <button type="button" className={`candidate-path-choice ${!resumeReady ? 'is-primary' : ''}`} onClick={() => chooseCandidatePath('profile')}>
+                <span><strong>{resumeReady ? 'Резюме добавлено' : 'Добавить резюме'}</strong><small>Основа персональных ответов и подготовки</small></span>
+                {resumeReady ? <CheckCircle2 size={17} aria-hidden="true" /> : <ArrowRight size={17} aria-hidden="true" />}
               </button>
-              <button type="button" className="candidate-path-choice" onClick={() => chooseCandidatePath('profile')}>
-                <span><strong>Добавить резюме</strong><small>Сохранить факты об опыте</small></span>
-                <ArrowRight size={17} aria-hidden="true" />
+              <button type="button" className={`candidate-path-choice ${resumeReady && !hhReady ? 'is-primary' : ''}`} onClick={() => navigate('/applications?mode=settings')}>
+                <span><strong>{hhReady ? 'HH подключён' : 'Подключить HH'}</strong><small>Автоматический поиск и отклики</small></span>
+                {hhReady ? <CheckCircle2 size={17} aria-hidden="true" /> : <ArrowRight size={17} aria-hidden="true" />}
               </button>
-              <button type="button" className="candidate-path-choice" onClick={() => chooseCandidatePath('profile', '/practice')}>
-                <span><strong>Начать практику</strong><small>Без конкретной вакансии</small></span>
+              <button type="button" className={`candidate-path-choice ${resumeReady && hhReady ? 'is-primary' : ''}`} onClick={() => launchLive(() => navigate('/overlay'))}>
+                <span><strong>Запустить оверлей</strong><small>Подсказки во время собеседования</small></span>
                 <ArrowRight size={17} aria-hidden="true" />
               </button>
             </div>

@@ -209,7 +209,9 @@ def test_screen_assist_stream_builds_multimodal_message(client, monkeypatch):
     assert "Декоратор с args и kwargs" in system_prompt
     assert "полный рабочий" in system_prompt
     assert "ответ без исполняемого блока кода считается неправильным" in system_prompt
-    assert system_prompt.index("СНАЧАЛА решение одним блоком кода") < system_prompt.index("После кода")
+    assert system_prompt.index("СНАЧАЛА решение одним блоком кода") < system_prompt.index(
+        "После кода"
+    )
 
 
 def test_screen_assist_default_question_demands_executable_code(client, monkeypatch):
@@ -226,9 +228,7 @@ def test_screen_assist_default_question_demands_executable_code(client, monkeypa
     )
     assert res.status_code == 200, res.text
     text_part = next(
-        part
-        for part in captured["messages"][-1]["content"]
-        if part["type"] == "text"
+        part for part in captured["messages"][-1]["content"] if part["type"] == "text"
     )["text"]
     assert "обязательно дай полный рабочий код" in text_part
 

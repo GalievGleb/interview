@@ -225,10 +225,6 @@ describe('HH applicant resume discovery', () => {
     expect(result).toContain('220 000 ₽');
     expect(result).toContain('Город проживания: Казань');
 
-    await expect(assistant.getSelectedResumeText('QA Automation Engineer', {
-      throwOnFailure: true,
-      selectedResumeTitle: 'QA Automation Engineer Python 230 000 ₽',
-    })).rejects.toThrow('больше не найдено в HH');
   });
 
   it('refreshes an expired resume body before using salary or city facts', async () => {
@@ -354,7 +350,7 @@ describe('HH applicant resume discovery', () => {
     )).rejects.toThrow('не найдено в форме отклика HH');
   });
 
-  it('blocks before navigation when a persisted selected resume is missing', async () => {
+  it('schedules an automatic retry when the current HH resume list cannot be loaded', async () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'skillcue-missing-selected-resume-'));
     directories.push(directory);
     const raw = new HhBrowserAssistant(directory, () => undefined);
@@ -386,12 +382,12 @@ describe('HH applicant resume discovery', () => {
       selectedResumeTitle: 'QA Automation Engineer Python 220 000 ₽',
     });
 
-    expect(result).toMatchObject({ blocked: true, autoRetryBlockedUntil: 'manual' });
-    expect(result.reason).toContain('Отклик не отправлен');
+    expect(result).toMatchObject({ blocked: false, autoRetryBlockedUntil: 'daily' });
+    expect(result.reason).toContain('Автоматически повторю позже');
     expect(page.goto).not.toHaveBeenCalled();
   });
 
-  it('blocks a legacy vacancy when duplicate account resumes cannot be selected exactly', async () => {
+  it('automatically skips one ambiguous vacancy without stopping the queue', async () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'skillcue-ambiguous-legacy-resume-'));
     directories.push(directory);
     const raw = new HhBrowserAssistant(directory, () => undefined);
@@ -427,8 +423,38 @@ describe('HH applicant resume discovery', () => {
       addedAt: new Date().toISOString(),
     });
 
-    expect(result).toMatchObject({ blocked: true, autoRetryBlockedUntil: 'manual' });
-    expect(result.reason).toContain('явно выбрать резюме');
+    expect(result).toMatchObject({ blocked: false, autoRetryBlockedUntil: undefined });
+    expect(result.reason).toContain('Пропущено автоматически');
+    expect(raw.getState().queue.find((item) => item.id === '135603645')?.status).toBeUndefined();
     expect(page.goto).not.toHaveBeenCalled();
+  });
+
+  it('automatically reranks current HH resumes when a persisted title is stale', async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'skillcue-stale-resume-rerank-'));
+    directories.push(directory);
+    const resumes: HhApplicantResume[] = [
+      { id: 'fullstack', title: 'QA Fullstack Engineer Python 240 000 ₽', url: 'https://hh.ru/resume/fullstack000' },
+      { id: 'automation', title: 'QA Automation Engineer Python 220 000 ₽', url: 'https://hh.ru/resume/automation000' },
+    ];
+    const raw = new HhBrowserAssistant(directory, () => undefined);
+    const assistant = raw as unknown as {
+      context: object;
+      applicantResumes: HhApplicantResume[];
+      getApplicantResumeContent: (id: string) => Promise<HhApplicantResume & { text: string }>;
+    };
+    assistant.context = {};
+    assistant.applicantResumes = resumes;
+    assistant.getApplicantResumeContent = vi.fn(async (id: string) => ({
+      ...resumes.find((resume) => resume.id === id)!,
+      text: `resume ${id}`,
+    }));
+
+    const text = await raw.getSelectedResumeText('QA Automation Engineer', {
+      throwOnFailure: true,
+      selectedResumeTitle: 'Старое название резюме, которого больше нет',
+    });
+
+    expect(text).toContain('QA Automation Engineer Python 220 000 ₽');
+    expect(text).toContain('resume automation');
   });
 });

@@ -92,7 +92,7 @@
       <h1>Оплата ещё обрабатывается</h1>
       <p class="sub">ЮKassa пока не подтвердила платёж. Если деньги списаны, ключ придёт
         на почту в течение пары минут. Можно обновить страницу или написать нам.</p>
-      <p class="muted"><a href="#" onclick="location.reload();return false" style="color:var(--green-2)">Обновить</a>
+      <p class="muted"><button class="copy" id="retryBtn" type="button">Проверить ещё раз</button>
         · <a href="https://t.me/SkillCue">Поддержка в Telegram</a></p>
     </section>
   </main>
@@ -116,29 +116,48 @@
       if (window.ym) { try { ym(110472034, 'reachGoal', 'purchase'); } catch (e) {} }
     }
 
-    $('copyBtn').addEventListener('click', () => {
-      navigator.clipboard.writeText($('key').textContent).then(() => {
-        $('copyBtn').textContent = 'Скопировано';
-        setTimeout(() => ($('copyBtn').textContent = 'Копировать'), 1600);
-      });
-    });
+    async function copyActivationKey() {
+      const value = $('key').textContent;
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(value);
+      } else {
+        const field = document.createElement('textarea');
+        field.value = value;
+        field.setAttribute('readonly', '');
+        field.style.position = 'fixed';
+        field.style.opacity = '0';
+        document.body.appendChild(field);
+        field.select();
+        document.execCommand('copy');
+        field.remove();
+      }
+      $('copyBtn').textContent = 'Скопировано';
+      setTimeout(() => ($('copyBtn').textContent = 'Копировать'), 1600);
+    }
+    $('copyBtn').addEventListener('click', () => void copyActivationKey());
 
+    let tries = 0;
+    const MAX = 40; // ~2 минуты (40 × 3 c)
+    async function poll() {
+      tries++;
+      try {
+        const res = await fetch('/gateway/checkout/status?payment=' + encodeURIComponent(paymentId));
+        const data = await res.json().catch(() => ({}));
+        if (data.status === 'succeeded' && data.key) { showKey(data.key); return; }
+      } catch (e) { /* сеть — попробуем ещё */ }
+      if (tries >= MAX) { show('fail'); return; }
+      setTimeout(poll, 3000);
+    }
+    $('retryBtn').addEventListener('click', () => {
+      if (!paymentId) return;
+      tries = 0;
+      show('pending');
+      void poll();
+    });
     if (!paymentId) {
       show('fail');
     } else {
-      let tries = 0;
-      const MAX = 40; // ~2 минуты (40 × 3 c)
-      async function poll() {
-        tries++;
-        try {
-          const res = await fetch('/gateway/checkout/status?payment=' + encodeURIComponent(paymentId));
-          const data = await res.json().catch(() => ({}));
-          if (data.status === 'succeeded' && data.key) { showKey(data.key); return; }
-        } catch (e) { /* сеть — попробуем ещё */ }
-        if (tries >= MAX) { show('fail'); return; }
-        setTimeout(poll, 3000);
-      }
-      poll();
+      void poll();
     }
   </script>
 

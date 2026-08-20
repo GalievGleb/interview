@@ -361,8 +361,7 @@ async def test_transient_provider_failure_keeps_live_stream_recoverable():
 
     assert any(event.get("type") == "transcription_error" for event in ws.sent)
     assert any(
-        event.get("type") == "force_empty"
-        and event.get("force_request_id") == "force-error"
+        event.get("type") == "force_empty" and event.get("force_request_id") == "force-error"
         for event in ws.sent
     )
     assert not any(event.get("type") == "error" for event in ws.sent)

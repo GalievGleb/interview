@@ -174,14 +174,16 @@ def test_screening_answers_rejects_time_bound_fact_even_with_resume_quote(client
     async def fake_complete(*_args, **_kwargs):
         return json.dumps(
             {
-                "answers": [{
-                    "id": "bank-recent",
-                    "answer": "Да",
-                    "selectedOptions": [],
-                    "canAutoFill": True,
-                    "sourceType": "resume",
-                    "evidenceQuote": "взаимодействия с банком были",
-                }]
+                "answers": [
+                    {
+                        "id": "bank-recent",
+                        "answer": "Да",
+                        "selectedOptions": [],
+                        "canAutoFill": True,
+                        "sourceType": "resume",
+                        "evidenceQuote": "взаимодействия с банком были",
+                    }
+                ]
             },
             ensure_ascii=False,
         )
@@ -191,10 +193,15 @@ def test_screening_answers_rejects_time_bound_fact_even_with_resume_quote(client
         "/vacancy/screening-answers",
         json={
             "vacancyTitle": "QA",
-            "questions": [{
-                "id": "bank-recent", "prompt": prompt, "kind": "text",
-                "options": [], "required": True,
-            }],
+            "questions": [
+                {
+                    "id": "bank-recent",
+                    "prompt": prompt,
+                    "kind": "text",
+                    "options": [],
+                    "required": True,
+                }
+            ],
             "language": "ru",
         },
     )
@@ -209,12 +216,14 @@ def test_screening_answers_allows_only_exact_confirmed_restricted_value(client, 
     async def fake_complete(*_args, **_kwargs):
         return json.dumps(
             {
-                "answers": [{
-                    "id": "city",
-                    "answer": "Красноярск",
-                    "selectedOptions": [],
-                    "canAutoFill": True,
-                }]
+                "answers": [
+                    {
+                        "id": "city",
+                        "answer": "Красноярск",
+                        "selectedOptions": [],
+                        "canAutoFill": True,
+                    }
+                ]
             },
             ensure_ascii=False,
         )
@@ -224,15 +233,22 @@ def test_screening_answers_allows_only_exact_confirmed_restricted_value(client, 
         "/vacancy/screening-answers",
         json={
             "vacancyTitle": "QA",
-            "questions": [{
-                "id": "city", "prompt": "В каком городе вы сейчас живёте?", "kind": "text",
-                "options": [], "required": True,
-            }],
-            "confirmedAnswers": [{
-                "question": "В каком городе вы сейчас живете?",
-                "answer": "Красноярск",
-                "selectedOptions": [],
-            }],
+            "questions": [
+                {
+                    "id": "city",
+                    "prompt": "В каком городе вы сейчас живёте?",
+                    "kind": "text",
+                    "options": [],
+                    "required": True,
+                }
+            ],
+            "confirmedAnswers": [
+                {
+                    "question": "В каком городе вы сейчас живете?",
+                    "answer": "Красноярск",
+                    "selectedOptions": [],
+                }
+            ],
             "language": "ru",
         },
     )
@@ -250,13 +266,15 @@ def test_screening_answers_keeps_general_knowledge_in_review_mode(client, monkey
     async def fake_complete(*_args, **_kwargs):
         return json.dumps(
             {
-                "answers": [{
-                    "id": "smoke",
-                    "answer": "Выберу smoke-тест основного сценария.",
-                    "selectedOptions": [],
-                    "canAutoFill": True,
-                    "sourceType": "knowledge",
-                }]
+                "answers": [
+                    {
+                        "id": "smoke",
+                        "answer": "Выберу smoke-тест основного сценария.",
+                        "selectedOptions": [],
+                        "canAutoFill": True,
+                        "sourceType": "knowledge",
+                    }
+                ]
             },
             ensure_ascii=False,
         )
@@ -266,11 +284,15 @@ def test_screening_answers_keeps_general_knowledge_in_review_mode(client, monkey
         "/vacancy/screening-answers",
         json={
             "vacancyTitle": "QA",
-            "questions": [{
-                "id": "smoke",
-                "prompt": "Что вы выберете, чтобы быстро проверить критический модуль?",
-                "kind": "text", "options": [], "required": True,
-            }],
+            "questions": [
+                {
+                    "id": "smoke",
+                    "prompt": "Что вы выберете, чтобы быстро проверить критический модуль?",
+                    "kind": "text",
+                    "options": [],
+                    "required": True,
+                }
+            ],
             "language": "ru",
         },
     )
@@ -448,36 +470,92 @@ def test_screening_server_gate_rejects_personal_fact_in_knowledge_answer(answer)
     ("question", "answer", "selected", "evidence"),
     [
         (
-            {"id": "langs", "prompt": "Работали с Python и Java?", "kind": "single", "options": ["Да", "Нет"]},
-            "", ["Да"], "Работал с Python.",
+            {
+                "id": "langs",
+                "prompt": "Работали с Python и Java?",
+                "kind": "single",
+                "options": ["Да", "Нет"],
+            },
+            "",
+            ["Да"],
+            "Работал с Python.",
         ),
         (
-            {"id": "one-c", "prompt": "Работали с Vanessa, EDT, Git, CI и SonarQube?", "kind": "single", "options": ["Да", "Нет"]},
-            "", ["Да"], "Работал с Vanessa Automation.",
+            {
+                "id": "one-c",
+                "prompt": "Работали с Vanessa, EDT, Git, CI и SonarQube?",
+                "kind": "single",
+                "options": ["Да", "Нет"],
+            },
+            "",
+            ["Да"],
+            "Работал с Vanessa Automation.",
         ),
         (
-            {"id": "cloud", "prompt": "Есть опыт с AWS, C++ и Go?", "kind": "single", "options": ["Да", "Нет"]},
-            "", ["Да"], "Работал с Java.",
+            {
+                "id": "cloud",
+                "prompt": "Есть опыт с AWS, C++ и Go?",
+                "kind": "single",
+                "options": ["Да", "Нет"],
+            },
+            "",
+            ["Да"],
+            "Работал с Java.",
         ),
         (
-            {"id": "python-no", "prompt": "Работали с Python?", "kind": "single", "options": ["Да", "Нет"]},
-            "", ["Нет"], "Работал с Python. Не работал с Java.",
+            {
+                "id": "python-no",
+                "prompt": "Работали с Python?",
+                "kind": "single",
+                "options": ["Да", "Нет"],
+            },
+            "",
+            ["Нет"],
+            "Работал с Python. Не работал с Java.",
         ),
         (
-            {"id": "commercial", "prompt": "Есть коммерческий опыт с Python?", "kind": "single", "options": ["Да", "Нет"]},
-            "", ["Да"], "Учебный проект на Python.",
+            {
+                "id": "commercial",
+                "prompt": "Есть коммерческий опыт с Python?",
+                "kind": "single",
+                "options": ["Да", "Нет"],
+            },
+            "",
+            ["Да"],
+            "Учебный проект на Python.",
         ),
         (
-            {"id": "english", "prompt": "Какой у вас уровень английского?", "kind": "text", "options": []},
-            "Уровень английского — C1.", [], "Английский — B1.",
+            {
+                "id": "english",
+                "prompt": "Какой у вас уровень английского?",
+                "kind": "text",
+                "options": [],
+            },
+            "Уровень английского — C1.",
+            [],
+            "Английский — B1.",
         ),
         (
-            {"id": "travel", "prompt": "Готовы к командировкам?", "kind": "single", "options": ["Да", "Нет"]},
-            "", ["Да"], "Командировки: не готов.",
+            {
+                "id": "travel",
+                "prompt": "Готовы к командировкам?",
+                "kind": "single",
+                "options": ["Да", "Нет"],
+            },
+            "",
+            ["Да"],
+            "Командировки: не готов.",
         ),
         (
-            {"id": "duration", "prompt": "Сколько лет опыта автоматизации?", "kind": "text", "options": []},
-            "Опыт автоматизации — 3 года.", [], "Опыт автоматизации — 3 месяца.",
+            {
+                "id": "duration",
+                "prompt": "Сколько лет опыта автоматизации?",
+                "kind": "text",
+                "options": [],
+            },
+            "Опыт автоматизации — 3 года.",
+            [],
+            "Опыт автоматизации — 3 месяца.",
         ),
     ],
 )
@@ -649,11 +727,13 @@ def test_screening_server_gate_accepts_exact_confirmed_option_but_not_a_changed_
         "kind": "single",
         "options": ["Да", "Нет"],
     }
-    confirmed = [{
-        "question": "Вы сейчас официально трудоустроены?",
-        "answer": "",
-        "selectedOptions": ["Да"],
-    }]
+    confirmed = [
+        {
+            "question": "Вы сейчас официально трудоустроены?",
+            "answer": "",
+            "selectedOptions": ["Да"],
+        }
+    ]
 
     accepted, source, evidence = vacancy_router._screening_server_autofill(
         question,
@@ -698,7 +778,9 @@ def test_screening_answers_accepts_selected_hh_resume(client, monkeypatch):
     assert "Выбранное резюме HH" in captured["prompt"]
 
 
-def test_screening_answers_accepts_user_confirmed_preferences_without_broadening_them(client, monkeypatch):
+def test_screening_answers_accepts_user_confirmed_preferences_without_broadening_them(
+    client, monkeypatch
+):
     captured: dict = {}
     monkeypatch.setattr(rag_service, "get_context_text", lambda *_args: "")
 
@@ -779,29 +861,35 @@ def test_screening_answers_unknown_sensitive_fact_still_gets_review_draft(client
     monkeypatch.setattr(rag_service, "get_context_text", lambda *_args: "")
 
     async def fake_complete(*_args, **_kwargs):
-        return json.dumps({
-            "answers": [{
-                "id": "city",
-                "answer": "",
-                "selectedOptions": [],
-                "canAutoFill": False,
-                "sourceType": "none",
-                "reason": "Город не подтверждён.",
-            }]
-        })
+        return json.dumps(
+            {
+                "answers": [
+                    {
+                        "id": "city",
+                        "answer": "",
+                        "selectedOptions": [],
+                        "canAutoFill": False,
+                        "sourceType": "none",
+                        "reason": "Город не подтверждён.",
+                    }
+                ]
+            }
+        )
 
     monkeypatch.setattr(provider_adapter, "complete", fake_complete)
     response = client.post(
         "/vacancy/screening-answers",
         json={
             "vacancyTitle": "QA Engineer",
-            "questions": [{
-                "id": "city",
-                "prompt": "В каком городе вы сейчас живёте?",
-                "kind": "text",
-                "options": [],
-                "required": True,
-            }],
+            "questions": [
+                {
+                    "id": "city",
+                    "prompt": "В каком городе вы сейчас живёте?",
+                    "kind": "text",
+                    "options": [],
+                    "required": True,
+                }
+            ],
             "draftMode": True,
             "language": "ru",
         },
@@ -816,9 +904,7 @@ def test_screening_answers_unknown_sensitive_fact_still_gets_review_draft(client
 
 
 @pytest.mark.parametrize("kind", ["single", "select", "multiple"])
-def test_screening_answers_empty_option_result_never_guesses_a_choice(
-    client, monkeypatch, kind
-):
+def test_screening_answers_empty_option_result_never_guesses_a_choice(client, monkeypatch, kind):
     monkeypatch.setattr(rag_service, "get_context_text", lambda *_args: "")
 
     async def fake_complete(*_args, **_kwargs):
@@ -829,13 +915,15 @@ def test_screening_answers_empty_option_result_never_guesses_a_choice(
         "/vacancy/screening-answers",
         json={
             "vacancyTitle": "QA Engineer",
-            "questions": [{
-                "id": kind,
-                "prompt": "Готовы обсудить формат работы?",
-                "kind": kind,
-                "options": ["Да", "Нет"],
-                "required": True,
-            }],
+            "questions": [
+                {
+                    "id": kind,
+                    "prompt": "Готовы обсудить формат работы?",
+                    "kind": kind,
+                    "options": ["Да", "Нет"],
+                    "required": True,
+                }
+            ],
             "language": "ru",
         },
     )
@@ -847,22 +935,24 @@ def test_screening_answers_empty_option_result_never_guesses_a_choice(
     assert answer["canAutoFill"] is False
 
 
-def test_screening_answers_does_not_guess_unknown_swift_experience(
-    client, monkeypatch
-):
+def test_screening_answers_does_not_guess_unknown_swift_experience(client, monkeypatch):
     monkeypatch.setattr(rag_service, "get_context_text", lambda *_args: "")
 
     async def fake_complete(*_args, **_kwargs):
-        return json.dumps({
-            "answers": [{
-                "id": "swift-experience",
-                "answer": "",
-                "selectedOptions": ["Да"],
-                "canAutoFill": True,
-                "sourceType": "resume",
-                "evidenceQuote": "QA Automation на Python",
-            }]
-        })
+        return json.dumps(
+            {
+                "answers": [
+                    {
+                        "id": "swift-experience",
+                        "answer": "",
+                        "selectedOptions": ["Да"],
+                        "canAutoFill": True,
+                        "sourceType": "resume",
+                        "evidenceQuote": "QA Automation на Python",
+                    }
+                ]
+            }
+        )
 
     monkeypatch.setattr(provider_adapter, "complete", fake_complete)
     response = client.post(
@@ -870,13 +960,15 @@ def test_screening_answers_does_not_guess_unknown_swift_experience(
         json={
             "vacancyTitle": "iOS QA Engineer",
             "resumeText": "QA Automation на Python: API и UI автотесты.",
-            "questions": [{
-                "id": "swift-experience",
-                "prompt": "Работали ли вы со Swift?",
-                "kind": "single",
-                "options": ["Да", "Нет"],
-                "required": True,
-            }],
+            "questions": [
+                {
+                    "id": "swift-experience",
+                    "prompt": "Работали ли вы со Swift?",
+                    "kind": "single",
+                    "options": ["Да", "Нет"],
+                    "required": True,
+                }
+            ],
             "language": "ru",
         },
     )
@@ -888,9 +980,7 @@ def test_screening_answers_does_not_guess_unknown_swift_experience(
     assert answer["canAutoFill"] is False
 
 
-def test_screening_answers_does_not_guess_official_employment_yes_or_no(
-    client, monkeypatch
-):
+def test_screening_answers_does_not_guess_official_employment_yes_or_no(client, monkeypatch):
     monkeypatch.setattr(rag_service, "get_context_text", lambda *_args: "")
 
     async def fake_complete(*_args, **_kwargs):
@@ -901,13 +991,15 @@ def test_screening_answers_does_not_guess_official_employment_yes_or_no(
         "/vacancy/screening-answers",
         json={
             "vacancyTitle": "QA Engineer",
-            "questions": [{
-                "id": "official-employment",
-                "prompt": "Твой опыт работы за последние 3 года - официальный (по ТК РФ)?",
-                "kind": "single",
-                "options": ["Да", "Нет"],
-                "required": True,
-            }],
+            "questions": [
+                {
+                    "id": "official-employment",
+                    "prompt": "Твой опыт работы за последние 3 года - официальный (по ТК РФ)?",
+                    "kind": "single",
+                    "options": ["Да", "Нет"],
+                    "required": True,
+                }
+            ],
             "language": "ru",
         },
     )

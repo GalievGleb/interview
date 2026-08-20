@@ -536,6 +536,20 @@ export const api = {
       body: JSON.stringify({ provider, model }),
     }),
 
+  providerReadiness: (model?: string) =>
+    request<{
+      ok: boolean;
+      model: string;
+      latency_ms: number;
+      answer: string;
+      matched_concepts: string[];
+      question: string;
+    }>('/providers/readiness', {
+      method: 'POST',
+      timeoutMs: 30_000,
+      body: JSON.stringify({ model }),
+    }),
+
   listModels: (provider?: string) =>
     request<{ models: string[] }>(
       `/providers/models${provider ? `?provider=${provider}` : ''}`,

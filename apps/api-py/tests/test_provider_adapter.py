@@ -57,15 +57,14 @@ def test_fast_routing_option_is_only_sent_to_openrouter_itself():
     assert not provider_adapter._supports_openrouter_routing(
         "openrouter", "https://skill-cue.ru/v1"
     )
-    assert not provider_adapter._supports_openrouter_routing(
-        "openai", "https://api.openai.com/v1"
-    )
+    assert not provider_adapter._supports_openrouter_routing("openai", "https://api.openai.com/v1")
 
 
 # --- retry ----------------------------------------------------------------
 def _patch_common(monkeypatch, client):
     async def fake_resolve(_p):
         return ("openrouter", "http://x", "k")
+
     monkeypatch.setattr(provider_adapter, "_resolve", fake_resolve)
     monkeypatch.setattr(provider_adapter, "get_client", lambda: client)
 
@@ -109,9 +108,8 @@ def test_direct_openai_gpt5_uses_native_reasoning_and_completion_fields(monkeypa
 
     async def fake_openai_resolve(_p):
         return ("openai", "https://api.openai.test/v1", "k")
-    monkeypatch.setattr(
-        provider_adapter, "_resolve", fake_openai_resolve
-    )
+
+    monkeypatch.setattr(provider_adapter, "_resolve", fake_openai_resolve)
     monkeypatch.setattr(provider_adapter, "get_client", lambda: CapClient())
 
     out = asyncio.run(
@@ -144,9 +142,8 @@ def test_openrouter_keeps_unified_reasoning_shape(monkeypatch):
 
     async def fake_router_resolve(_p):
         return ("openrouter", "https://router.test/v1", "k")
-    monkeypatch.setattr(
-        provider_adapter, "_resolve", fake_router_resolve
-    )
+
+    monkeypatch.setattr(provider_adapter, "_resolve", fake_router_resolve)
     monkeypatch.setattr(provider_adapter, "get_client", lambda: CapClient())
 
     asyncio.run(

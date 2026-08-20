@@ -151,7 +151,9 @@ def test_mock_answer_endpoint_preserves_raw_transcript_words(client, monkeypatch
     assert response.json()["text"] == "Проверяю самскада и  JSON — как произнесено."
 
 
-def test_mock_answer_endpoint_returns_retryable_error_when_provider_is_unavailable(client, monkeypatch):
+def test_mock_answer_endpoint_returns_retryable_error_when_provider_is_unavailable(
+    client, monkeypatch
+):
     class UnavailableAnswerTranscriber:
         async def transcribe(self, _audio, **_kwargs):
             raise RuntimeError("upstream failed")

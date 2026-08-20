@@ -120,8 +120,12 @@ export default function LicenseCard({ autoActivateKey }: { autoActivateKey?: str
       {message && <p className="mt-2 text-xs text-emerald-400">{message}</p>}
       {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
 
-      {/* Токены пользователю не показываем — только мягкое уведомление, если
-          серверный месячный лимит тарифа исчерпан и AI временно недоступен. */}
+      {license?.plan === 'trial' && (
+        <p className="mt-4 text-xs text-ink-muted">
+          Осталось токенов: <strong className="text-ink">{Math.max(0, license.tokens_left_month).toLocaleString('ru-RU')}</strong>
+          {' '}из {license.tokens_budget_month.toLocaleString('ru-RU')}.
+        </p>
+      )}
       {license?.tokens_left_month === 0 && (
         <p className="mt-4 text-xs text-amber-300">{t('license.monthLimit')}</p>
       )}

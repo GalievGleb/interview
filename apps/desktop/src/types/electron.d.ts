@@ -134,6 +134,7 @@ export interface HhAssistantState {
   runHistory: HhAutomationRun[];
   lastScanSummary: HhScanSummary | null;
   nextRunAt: string | null;
+  nextQueueResumeAt: string | null;
   updatedAt: string;
 }
 
@@ -349,6 +350,11 @@ export interface ElectronAPI {
   getAutoLaunch?: () => Promise<boolean>;
   setAutoLaunch?: (enable: boolean) => Promise<void>;
   openExternal: (url: string) => Promise<void>;
+  notifyReadinessFailure?: (code: 'provider_unavailable') => Promise<boolean>;
+  operationalTelemetry?: {
+    getState: () => Promise<{ enabled: boolean; events: Array<{ at: string; version: string; category: string; code: string; count: number }> }>;
+    setEnabled: (enabled: boolean) => Promise<{ enabled: boolean; events: Array<{ at: string; version: string; category: string; code: string; count: number }> }>;
+  };
   quit?: () => Promise<void>;
   /** Собирает zip с логами и системной информацией, показывает его в проводнике. */
   collectDiagnostics?: (extra: Array<{ name: string; content: string }>) => Promise<string>;

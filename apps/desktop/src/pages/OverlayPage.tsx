@@ -829,8 +829,8 @@ export default function OverlayPage() {
     const linkedEvent = interviewContext;
     void stop().then(() => {
       if (snapshot.some((l) => l.isFinal)) openRecap(snapshot, endedSessionId, linkedEvent);
-    });
-  }, [active, interviewContext, lines, sessionId, stop, openRecap]);
+    }).finally(() => void refreshLicense());
+  }, [active, interviewContext, lines, sessionId, stop, openRecap, refreshLicense]);
 
   const analyzeRecap = useCallback(async () => {
     if (!recap?.sessionId) {
@@ -845,6 +845,16 @@ export default function OverlayPage() {
     if (liveBlocked) {
       setNotice(t('overlay.rec.needLicense'));
       void window.electronAPI?.overlay.openSettings?.('billing');
+      return;
+    }
+    setNotice('Проверяю ИИ перед созвоном…');
+    try {
+      const readiness = await api.providerReadiness();
+      if (!readiness.ok) throw new Error('ИИ не подтвердил готовность');
+    } catch (readinessError) {
+      const detail = readinessError instanceof Error ? readinessError.message : String(readinessError);
+      setNotice(`Созвон не запущен: ИИ недоступен. ${detail}`);
+      void refreshLicense();
       return;
     }
     closeRecap();
@@ -1085,6 +1095,12 @@ export default function OverlayPage() {
           )}
         </button>
 
+        {license?.plan === 'trial' && (
+          <span className="px-1 text-[10px] font-semibold text-amber-200" title="Остаток токенов пробного тарифа">
+            {Math.max(0, license.tokens_left_month).toLocaleString('ru-RU')} ток.
+          </span>
+        )}
+
         <button
           type="button"
           className={`ovl-rec tip ${active ? 'ovl-rec--live' : ''}`}
@@ -1115,6 +1131,18 @@ export default function OverlayPage() {
             <span className="h-3 w-3 rounded-full bg-red-400" />
           )}
         </button>
+
+        {active && (
+          <button
+            type="button"
+            className="rounded-lg bg-red-500/20 px-2 py-1 text-[11px] font-semibold text-red-200 hover:bg-red-500/30"
+            onClick={stopSession}
+            aria-label="Завершить созвон и запись"
+            title="Полностью завершить запись и открыть итоги"
+          >
+            Завершить
+          </button>
+        )}
       </div>
 
       {showQuickGuide && !recap && (

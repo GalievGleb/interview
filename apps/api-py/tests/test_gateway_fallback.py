@@ -25,8 +25,10 @@ async def test_license_key_routes_via_gateway(monkeypatch):
     monkeypatch.setattr(provider_adapter.secrets, "get_secret", lambda name: "")
     settings = provider_adapter.get_settings()
     monkeypatch.setattr(settings, "skillcue_gateway_url", "https://gw.example/v1/")
+
     async def mock_gateway_license_key() -> str:
         return "SKILLCUE-abc.def"
+
     monkeypatch.setattr(provider_adapter, "_gateway_license_key", mock_gateway_license_key)
 
     provider, base_url, key = await provider_adapter._resolve("openrouter")
@@ -41,8 +43,10 @@ async def test_no_user_key_claims_limited_trial_key_via_gateway(monkeypatch):
     settings = provider_adapter.get_settings()
     monkeypatch.setattr(settings, "skillcue_gateway_url", "https://gw.example/v1")
     monkeypatch.setattr(provider_adapter, "_stored_gateway_license_key", lambda: "", raising=False)
+
     async def mock_claim_trial_key(gateway_url: str) -> str:
         return "SKILLCUE-trial.key"
+
     monkeypatch.setattr(
         provider_adapter,
         "_claim_gateway_trial_key",

@@ -26,12 +26,25 @@ import {
 } from './hhAssistantPolicy';
 import {
   canSendMore,
+  countTodaySent,
   decideNextAction,
+  effectiveDailyLimit,
   jitterMs,
-  nextAutoRunDelayMs,
+  nextDiscoveryRunDelayMs,
   type HhApplyContext,
   type HhApplySituation,
 } from './hhAutoApplyPolicy';
+import {
+  analyzeHhAutomationDiagnostics,
+  diagnosticTimezone,
+  localDiagnosticTime,
+  normalizeHhAutomationDiagnostics,
+  type HhAutomationDiagnosticEvent,
+  type HhAutomationDiagnosticKind,
+  type HhAutomationDiagnosticSnapshot,
+  type HhAutomationDiagnosticSource,
+  type HhAutomationQueueCounts,
+} from './hhAutomationDiagnostics';
 import {
   collectHhScreeningFields,
   fillHhScreeningFields,
@@ -203,6 +216,7 @@ export interface HhAssistantState {
   runHistory: HhAutomationRun[];
   lastScanSummary: HhScanSummary | null;
   nextRunAt: string | null;
+  nextQueueResumeAt: string | null;
   updatedAt: string;
 }
 
@@ -217,6 +231,7 @@ interface PersistedState {
   queue: unknown;
   screeningFacts?: unknown;
   runHistory?: unknown;
+  automationDiagnostics?: unknown;
   queuePaused?: unknown;
   resumeSelectionConfirmed?: unknown;
 }
@@ -1484,6 +1499,23 @@ export function normalizePersistedQueue(
       || item.autoRetryBlockedUntil === 'daily'
       ? item.autoRetryBlockedUntil
       : undefined;
+    // v8 originally forced every multi-resume user to open settings and
+    // confirm a resume once. That made an enabled auto-send queue stop on
+    // every restored vacancy even though the assistant refreshes the actual
+    // HH resume list, ranks it per vacancy and verifies the selected title in
+    // the response form. Release those historical gates back to automation.
+    const staleManualResumeGate = storedAutoRetryBlock === 'manual' && (
+      /после обновления нужно один раз явно выбрать резюме hh/i.test(reason ?? '')
+      || /выбранное резюме .+ больше не найдено в hh или не определяется однозначно/i.test(reason ?? '')
+      || /не удалось однозначно выбрать одно из резюме hh/i.test(reason ?? '')
+    );
+    // A grounded skill mismatch is terminal for this vacancy, not a request
+    // for the user to launch it manually. Older builds persisted the model's
+    // explanation as a manual cover-letter failure.
+    const staleManualSkillMismatch = rawStatus === 'opened'
+      && storedAutoRetryBlock === 'manual'
+      && /^отклик не начат:/iu.test(reason ?? '')
+      && /(?:does not provide direct experience|does not align closely enough|core requirements|skill mismatch|недостаточно подтвержд[её]нн)/i.test(reason ?? '');
     // Builds before persisted retry gates left cover-letter preparation
     // failures as plain `opened` items. Restoring those items used to arm the
     // 10-second queue timer and regenerate the same rejected letter forever.
@@ -1492,7 +1524,9 @@ export function normalizePersistedQueue(
       && !coverLetterPending
       && !storedAutoRetryBlock
       && /^Отклик не начат:/iu.test(reason ?? '');
-    const normalizedStatus: HhQueueStatus = needsScreeningInput
+    const normalizedStatus: HhQueueStatus = staleManualSkillMismatch
+      ? 'skipped'
+      : needsScreeningInput
       ? 'needs_input'
       : onlyLegacyTransientQuestions
         ? 'opened'
@@ -1513,7 +1547,7 @@ export function normalizePersistedQueue(
     const terminalStatus = normalizedStatus === 'sent'
       || normalizedStatus === 'already_applied'
       || normalizedStatus === 'skipped';
-    const autoRetryBlockedUntil = terminalStatus
+    const autoRetryBlockedUntil = terminalStatus || staleManualResumeGate
       ? undefined
       : onlyLegacyTransientQuestions
         ? 'daily' as const
@@ -1531,8 +1565,12 @@ export function normalizePersistedQueue(
       description: String(item.description ?? '').trim().slice(0, 12000),
       easyApply: Boolean(item.easyApply),
       status: normalizedStatus,
-      reason: stalePreSubmissionCoverLetterState
-        ? 'Предыдущая попытка не подтвердила отправку отклика. Вакансия возвращена в очередь для проверки на странице HH.'
+      reason: staleManualSkillMismatch
+        ? `Пропущено автоматически: ${String(reason ?? '').replace(/^Отклик не начат:\s*/iu, '')}`
+        : staleManualResumeGate
+          ? 'Повторно проверю актуальные резюме HH и автоматически выберу подходящее для вакансии.'
+          : stalePreSubmissionCoverLetterState
+            ? 'Предыдущая попытка не подтвердила отправку отклика. Вакансия возвращена в очередь для проверки на странице HH.'
         : staleUnconfirmedRemoteState
           ? 'Удалённый формат не был опровергнут. Вакансия возвращена в очередь и будет проверена по фактическим условиям на странице HH.'
         : recentUnconfirmedLetter
@@ -1555,7 +1593,7 @@ export function normalizePersistedQueue(
       selectedResumeVerified: item.selectedResumeVerified === true || undefined,
       autoRetryBlockedUntil,
     });
-    if (result.length >= 1_000) break;
+    if (result.length >= 5_000) break;
   }
   const deduplicated = result.map((item) => {
     if (
@@ -1667,24 +1705,29 @@ export class HhBrowserAssistant {
   private scheduleTimer: NodeJS.Timeout | null = null;
   private scheduleRunning = false;
   private queueResumeTimer: NodeJS.Timeout | null = null;
+  private queueResumeTimerReason = '';
   private queueResumeRunning = false;
   private lastScanFoundCount = 0;
   private applicantResumes: HhApplicantResume[] = [];
   private resumeSelectionConfirmed = false;
   private readonly resumeTextCache = new Map<string, { text: string; cachedAt: number }>();
   private readonly preparedCoverLetters = new Map<string, string>();
+  private automationDiagnostics: HhAutomationDiagnosticEvent[] = [];
+  private activeDailyLimit = 10;
 
   constructor(
     userDataDir: string,
     emitState: EmitState,
     private readonly generateScreeningAnswers?: GenerateHhScreeningAnswers,
     private readonly generateCoverLetter?: GenerateHhCoverLetter,
+    private readonly getLicensePlan?: () => Promise<string | null>,
   ) {
     this.profileDir = path.join(userDataDir, 'job-browser-profile-v2');
     this.statePath = path.join(userDataDir, 'hh-browser-assistant.json');
     this.emitState = emitState;
     const persisted = safeJsonRead<PersistedState>(this.statePath);
     const persistedVersion = persisted?.version ?? 0;
+    this.automationDiagnostics = normalizeHhAutomationDiagnostics(persisted?.automationDiagnostics);
     const persistedConfig = persisted?.config ?? DEFAULT_HH_ASSISTANT_CONFIG;
     const migratedConfig = persistedVersion >= 3
       ? persistedConfig
@@ -1693,7 +1736,7 @@ export class HhBrowserAssistant {
           area: persistedConfig.area === '113' ? '' : persistedConfig.area,
           employment: persistedConfig.employment === 'full' ? '' : persistedConfig.employment,
           schedule: persistedConfig.schedule || 'remote',
-          maxQueueSize: Math.max(500, persistedConfig.maxQueueSize || 0),
+          maxQueueSize: Math.max(5000, persistedConfig.maxQueueSize || 0),
           maxPages: Math.max(20, persistedConfig.maxPages || 0),
           dailyLimit: Math.min(20, persistedConfig.dailyLimit || 20),
           autoRunDaily: false,
@@ -1707,9 +1750,12 @@ export class HhBrowserAssistant {
     // v0.0.33 could silently replace a configured 220k résumé with a fuzzy
     // 240k card. Force one explicit account-résumé confirmation on upgrade;
     // inferred per-vacancy titles remain untrusted until HH visibly selects one.
+    const expandedDiscoveryConfig = v4Config.maxQueueSize <= 500
+      ? { ...v4Config, maxQueueSize: 5000 }
+      : v4Config;
     const config = persistedVersion >= 8
-      ? v4Config
-      : { ...v4Config, resumeTitles: [], resumeTitleContains: '' };
+      ? expandedDiscoveryConfig
+      : { ...expandedDiscoveryConfig, resumeTitles: [], resumeTitleContains: '' };
     this.resumeSelectionConfirmed = persistedVersion >= 8
       && persisted?.resumeSelectionConfirmed === true;
     const normalizedQueue = normalizePersistedQueue(persisted?.queue);
@@ -1742,6 +1788,7 @@ export class HhBrowserAssistant {
       runHistory: normalizeRunHistory(persisted?.runHistory),
       lastScanSummary: null,
       nextRunAt: null,
+      nextQueueResumeAt: null,
       updatedAt: nowIso(),
     };
     const reconciledQuestions = this.reconcileKnownPendingScreeningQuestions();
@@ -1974,6 +2021,7 @@ export class HhBrowserAssistant {
       ...this.state.config,
       ...configValue,
     });
+    this.recordAutomationDiagnostic('config_saved', 'configuration', 'settings_saved');
     this.reconcileKnownPendingScreeningQuestions();
     if (this.state.config.autoRunDaily) {
       this.startDailySchedule();
@@ -1991,10 +2039,11 @@ export class HhBrowserAssistant {
 
   /** Поднимает таймер ежедневного авто-прогона после старта приложения. */
   restoreSchedule(): void {
+    this.recordAutomationDiagnostic('app_restored', 'application', 'application_startup');
     if (this.state.config.autoRunDaily) {
       this.startDailySchedule();
     }
-    this.scheduleQueueResume(10_000);
+    this.scheduleQueueResume(10_000, 'startup_restore');
   }
 
   /** Переключает ежедневный авто-прогон из UI. */
@@ -2003,12 +2052,13 @@ export class HhBrowserAssistant {
       ...this.state.config,
       autoRunDaily: enabled,
     });
+    this.recordAutomationDiagnostic('config_saved', 'configuration', enabled ? 'daily_enabled' : 'daily_disabled');
     if (enabled) {
       this.startDailySchedule();
     } else {
       this.stopDailySchedule();
     }
-    this.scheduleQueueResume(2_000);
+    this.scheduleQueueResume(2_000, 'daily_setting_changed');
     this.update({
       message: enabled
         ? `Ежедневный авто-прогон включён, старт в ${this.state.config.autoRunHour}:00.`
@@ -2029,6 +2079,7 @@ export class HhBrowserAssistant {
             queue: this.state.queue,
             screeningFacts: this.state.screeningFacts,
             runHistory: this.state.runHistory,
+            automationDiagnostics: this.automationDiagnostics,
             queuePaused: this.state.queuePaused,
             resumeSelectionConfirmed: this.resumeSelectionConfirmed,
           } satisfies PersistedState,
@@ -2040,6 +2091,74 @@ export class HhBrowserAssistant {
     } catch (error) {
       console.warn('[hh-assistant] state persistence failed:', error);
     }
+  }
+
+  private diagnosticQueueCounts(): HhAutomationQueueCounts {
+    const hhQueue = this.state.queue.filter((item) => item.platform === 'hh');
+    return {
+      total: hhQueue.length,
+      actionable: hhQueue.filter(isActionableQueueItem).length,
+      eligible: hhQueue.filter((item) => isQueueItemEligibleForRun(item, 'queue')).length,
+      dailyBlocked: hhQueue.filter((item) => item.autoRetryBlockedUntil === 'daily').length,
+      manualBlocked: hhQueue.filter((item) => item.autoRetryBlockedUntil === 'manual').length,
+      sentToday: countTodaySent(hhQueue),
+    };
+  }
+
+  private recordAutomationDiagnostic(
+    kind: HhAutomationDiagnosticKind,
+    source: HhAutomationDiagnosticSource,
+    reason: string,
+    details: Partial<Pick<
+      HhAutomationDiagnosticEvent,
+      'scheduledFor' | 'delayMs' | 'runId' | 'result' | 'vacancy'
+    >> = {},
+  ): void {
+    const now = new Date();
+    const scheduled = details.scheduledFor ? new Date(details.scheduledFor) : null;
+    const event: HhAutomationDiagnosticEvent = {
+      id: `${now.getTime()}-${Math.random().toString(36).slice(2, 8)}`,
+      at: now.toISOString(),
+      localAt: localDiagnosticTime(now),
+      timezone: diagnosticTimezone(),
+      utcOffsetMinutes: -now.getTimezoneOffset(),
+      kind,
+      source,
+      reason: reason.slice(0, 240),
+      scheduledFor: details.scheduledFor,
+      localScheduledFor: scheduled && !Number.isNaN(scheduled.getTime())
+        ? localDiagnosticTime(scheduled)
+        : undefined,
+      delayMs: details.delayMs,
+      runId: details.runId,
+      autoRunDaily: this.state.config.autoRunDaily,
+      autoRunHour: this.state.config.autoRunHour,
+      autoSend: this.state.config.autoSend,
+      queuePaused: this.state.queuePaused,
+      queue: this.diagnosticQueueCounts(),
+      result: details.result,
+      vacancy: details.vacancy,
+    };
+    this.automationDiagnostics = [...this.automationDiagnostics, event].slice(-500);
+    this.persist();
+  }
+
+  getDiagnosticsSnapshot(): HhAutomationDiagnosticSnapshot {
+    return {
+      schemaVersion: 1,
+      exportedAt: nowIso(),
+      timezone: diagnosticTimezone(),
+      explanation: 'Ежедневный поиск и продолжение сохранённой очереди — независимые таймеры. autoRunHour управляет только ежедневным поиском.',
+      config: {
+        autoRunDaily: this.state.config.autoRunDaily,
+        autoRunHour: this.state.config.autoRunHour,
+        autoSend: this.state.config.autoSend,
+        dailyLimit: this.state.config.dailyLimit,
+      },
+      queue: this.diagnosticQueueCounts(),
+      findings: analyzeHhAutomationDiagnostics(this.automationDiagnostics),
+      events: [...this.automationDiagnostics],
+    };
   }
 
   private update(patch: Partial<HhAssistantState>): void {
@@ -2078,6 +2197,16 @@ export class HhBrowserAssistant {
       queuePaused: false,
       runHistory: [run, ...this.state.runHistory].slice(0, 20),
     });
+    this.recordAutomationDiagnostic(
+      'run_started',
+      trigger === 'schedule'
+        ? 'daily_search'
+        : trigger === 'resume'
+          ? 'queue_resume'
+          : trigger === 'direct_link' ? 'direct_link' : 'manual',
+      trigger,
+      { runId: run.id },
+    );
     return run;
   }
 
@@ -2090,6 +2219,27 @@ export class HhBrowserAssistant {
         ? { ...run, ...patch, finishedAt: nowIso() }
         : run),
     });
+    const run = this.state.runHistory.find((item) => item.id === runId);
+    if (run) {
+      this.recordAutomationDiagnostic(
+        'run_finished',
+        run.trigger === 'schedule'
+          ? 'daily_search'
+          : run.trigger === 'resume'
+            ? 'queue_resume'
+            : run.trigger === 'direct_link' ? 'direct_link' : 'manual',
+        run.message || run.status,
+        {
+          runId,
+          result: {
+            status: run.status,
+            attempted: run.attempted,
+            sent: run.sent,
+            needsAttention: run.needsAttention,
+          },
+        },
+      );
+    }
   }
 
   private progressRun(
@@ -3046,8 +3196,11 @@ export class HhBrowserAssistant {
       const excludedKeys = new Set<string>();
       const exhaustedQueries = new Set<string>();
       const nextPageByQuery = new Map(queries.map((query) => [query, 0]));
+      // Each synonym is an independent HH result set. A shared 100-page
+      // budget silently starved later queries and missed vacancies. Exhaust
+      // every query up to HH's configured per-query page limit.
       const pagesToScan = platform === 'hh'
-        ? Math.min(100, Math.max(this.state.config.maxPages, queries.length * 6))
+        ? queries.length * this.state.config.maxPages
         : this.state.config.maxPages;
       const queueLimit = this.state.config.maxQueueSize;
       let pagesScanned = 0;
@@ -3189,23 +3342,41 @@ export class HhBrowserAssistant {
             exhaustedQueries.add(searchQuery);
             continue;
           }
-          for (const vacancy of pageVacancies) {
+          for (const rawVacancy of pageVacancies) {
+            let vacancy = rawVacancy;
             const key = jobKey(platform, vacancy.id);
             if (shouldExcludeVacancy(vacancy, this.state.config)) {
               excludedKeys.add(key);
               continue;
             }
-            if (platform === 'hh' && (
-              !isVacancyRelevantToSearchQuery(vacancy, searchQuery)
-              || !isVacancyRelevantToSearchProfile(
-                vacancy,
-                this.state.config.query,
-                vacancy.description,
-                searchResumeContext,
-              )
-            )) {
-              excludedKeys.add(key);
-              continue;
+            if (platform === 'hh') {
+              if (!isVacancyRelevantToSearchQuery(vacancy, searchQuery)) {
+                excludedKeys.add(key);
+                continue;
+              }
+              if (!isVacancyRelevantToSearchProfile(
+                vacancy, this.state.config.query, vacancy.description, searchResumeContext,
+              )) {
+                // Search cards frequently have a generic "QA Engineer" title
+                // and omit the body where automation/Python is stated. Load it
+                // before rejecting, otherwise valid automation roles vanish.
+                const response = await this.context?.request.get(vacancy.url, {
+                  failOnStatusCode: false,
+                  timeout: 20_000,
+                  headers: { accept: 'text/html,application/xhtml+xml' },
+                }).catch(() => null);
+                if (response?.ok()) {
+                  try {
+                    vacancy = { ...vacancy, ...parseHhVacancyPage(vacancy.url, await response.text()) };
+                  } catch { /* keep the card and fail closed below */ }
+                }
+                if (!isVacancyRelevantToSearchProfile(
+                  vacancy, this.state.config.query, vacancy.description, searchResumeContext,
+                )) {
+                  excludedKeys.add(key);
+                  continue;
+                }
+              }
             }
             if (!collected.has(key)) collected.set(key, vacancy);
             if (collected.size >= queueLimit) break;
@@ -3296,7 +3467,7 @@ export class HhBrowserAssistant {
           );
           queuedIds.add(item.key);
         }
-        if (queue.length >= 1_000) break;
+        if (queue.length >= 5_000) break;
       }
       this.update({
         phase: 'ready',
@@ -3808,7 +3979,9 @@ export class HhBrowserAssistant {
     if (explicitlySelected) {
       const selected = findExplicitlySelectedHhResume(this.applicantResumes, explicitlySelected);
       if (selected) return selected;
-      return undefined;
+      // HH can reformat a card title or an older build can persist a stale
+      // inferred title. Re-rank the current account resumes below instead of
+      // turning the stale string into a permanent manual gate.
     }
     const rankedTitles = rankHhResumeTitlesForVacancy(
       vacancyTitle,
@@ -4322,12 +4495,13 @@ export class HhBrowserAssistant {
     coverLetterPending = false,
   ): HhApplyOutcome {
     const reason = `${prefix}${failure.reason}`;
-    const terminal = failure.retry === 'never';
-    const autoRetryBlockedUntil = failure.retry === 'manual'
-      ? 'manual' as const
-      : failure.retry === 'later'
-        ? 'daily' as const
-        : undefined;
+    // A cover-letter failure belongs to this vacancy, not to the whole run.
+    // Permanent/review-only failures are skipped automatically; transient
+    // provider failures wait for the next daily run while the queue continues.
+    const terminal = failure.retry === 'never' || failure.retry === 'manual';
+    const autoRetryBlockedUntil = failure.retry === 'later'
+      ? 'daily' as const
+      : undefined;
     vacancy.coverLetterPending = terminal ? false : coverLetterPending;
     vacancy.coverLetterAdded = false;
     this.patchQueue(vacancy.key, {
@@ -4337,15 +4511,7 @@ export class HhBrowserAssistant {
       coverLetterAdded: false,
       autoRetryBlockedUntil,
     });
-    if (!terminal) {
-      this.update({
-        phase: 'manual_required',
-        browserOpen: true,
-        currentVacancyId: vacancy.key,
-        message: reason,
-      });
-    }
-    return { sent: false, blocked: !terminal, reason, autoRetryBlockedUntil };
+    return { sent: false, blocked: false, reason, autoRetryBlockedUntil };
   }
 
   private async openVacancyChatFrame(
@@ -4680,38 +4846,21 @@ export class HhBrowserAssistant {
       vacancy.title,
       persistedResumeTitle,
     );
-    if (
-      this.applicantResumes.length > 1
-      && !this.resumeSelectionConfirmed
-      && vacancy.selectedResumeVerified !== true
-    ) {
-      const reason = 'После обновления нужно один раз явно выбрать резюме HH в настройках откликов. Старый выбор не используется, потому что прежняя версия могла перепутать похожие резюме.';
-      this.patchQueue(vacancy.id, {
-        status: 'opened',
-        reason,
-        autoRetryBlockedUntil: 'manual',
-      });
-      return {
-        sent: false,
-        blocked: true,
-        reason,
-        autoRetryBlockedUntil: 'manual',
-      };
-    }
     if (!preferredResume && (persistedResumeTitle || this.applicantResumes.length > 0)) {
-      const reason = persistedResumeTitle
-        ? `Выбранное резюме «${persistedResumeTitle}» больше не найдено в HH или не определяется однозначно. Отклик не отправлен — обновите список резюме.`
-        : 'Для вакансии не удалось однозначно выбрать одно из резюме HH. Отклик не отправлен — выберите точное резюме в настройках.';
+      const terminal = this.applicantResumes.length > 0;
+      const reason = terminal
+        ? 'Пропущено автоматически: среди актуальных резюме HH не удалось однозначно выбрать подходящее.'
+        : 'Не удалось загрузить актуальные резюме HH. Автоматически повторю позже.';
       this.patchQueue(vacancy.id, {
-        status: 'opened',
+        status: terminal ? 'skipped' : 'opened',
         reason,
-        autoRetryBlockedUntil: 'manual',
+        autoRetryBlockedUntil: terminal ? undefined : 'daily',
       });
       return {
         sent: false,
-        blocked: true,
+        blocked: false,
         reason,
-        autoRetryBlockedUntil: 'manual',
+        autoRetryBlockedUntil: terminal ? undefined : 'daily',
       };
     }
     if (preferredResume) {
@@ -5114,6 +5263,10 @@ export class HhBrowserAssistant {
     }
     this.applyInFlight = true;
     let sentNow = 0;
+    const licensePlan = await this.getLicensePlan?.().catch(() => 'trial') ?? 'trial';
+    const runDailyLimit = effectiveDailyLimit(this.state.config.dailyLimit, licensePlan);
+    this.activeDailyLimit = runDailyLimit;
+    const runLimitConfig = { dailyLimit: runDailyLimit };
     const runTrigger = runId
       ? this.state.runHistory.find((run) => run.id === runId)?.trigger
       : undefined;
@@ -5122,6 +5275,9 @@ export class HhBrowserAssistant {
       : runTrigger === 'schedule'
         ? 'daily'
         : 'manual';
+    const diagnosticSource: HhAutomationDiagnosticSource = runTrigger === 'resume'
+      ? 'queue_resume'
+      : runTrigger === 'schedule' ? 'daily_search' : 'manual';
     const initial = this.state.queue.filter(
       (item) => item.platform === 'hh'
         && isQueueItemEligibleForRun(item, runMode)
@@ -5166,7 +5322,7 @@ export class HhBrowserAssistant {
       const onlyFinishingAcceptedResponse = Boolean(
         item.coverLetterPending && !item.coverLetterAdded,
       );
-      if (!onlyFinishingAcceptedResponse && !canSendMore(this.state.config, this.state.queue)) {
+      if (!onlyFinishingAcceptedResponse && !canSendMore(runLimitConfig, this.state.queue)) {
         dailyLimitReached = true;
         break;
       }
@@ -5182,6 +5338,17 @@ export class HhBrowserAssistant {
         skipped: skippedNow,
         needsAttention,
         message: `Вакансия ${done + 1} из ${total}: ${item.title}`,
+      });
+      this.recordAutomationDiagnostic('vacancy_started', diagnosticSource, 'queue_item_started', {
+        runId,
+        vacancy: {
+          key: item.key,
+          title: item.title,
+          company: item.company,
+          status: item.status,
+          gate: item.autoRetryBlockedUntil,
+          blocked: false,
+        },
       });
       if (item.autoRetryBlockedUntil) {
         item.autoRetryBlockedUntil = undefined;
@@ -5221,6 +5388,17 @@ export class HhBrowserAssistant {
           autoRetryBlockedUntil: outcome.autoRetryBlockedUntil ?? 'manual',
         });
       }
+      this.recordAutomationDiagnostic('vacancy_finished', diagnosticSource, outcome.reason, {
+        runId,
+        vacancy: {
+          key: item.key,
+          title: item.title,
+          company: item.company,
+          status: updatedItem?.status ?? item.status,
+          gate: updatedItem?.autoRetryBlockedUntil ?? outcome.autoRetryBlockedUntil,
+          blocked: outcome.blocked,
+        },
+      });
       done += 1;
       this.update({ applyProgress: { done, total } });
       this.progressRun(runId, {
@@ -5258,7 +5436,7 @@ export class HhBrowserAssistant {
         : hardBlocked
         ? blockerReason
         : dailyLimitReached
-        ? `Дневной план выполнен: отправлено сегодня ${this.state.config.dailyLimit}. Осталось в очереди: ${remaining}. Продолжу автоматически в следующий запуск.`
+        ? `Дневной лимит выполнен: отправлено сегодня ${runDailyLimit}. Осталось в очереди: ${remaining}. Продолжу автоматически после сброса лимита.`
         : `Сессия завершена: ${
          sentNow > 0 ? `отправлено сейчас ${sentNow}` : 'новых отправок нет'
        } из ${done}. ${alreadyAppliedNow > 0 ? `Уже были отправлены: ${alreadyAppliedNow}. ` : ''}${needsAttention > 0 ? `Требуют внимания: ${needsAttention}. ` : ''}${remaining > 0 ? `Осталось в очереди: ${remaining}.` : 'Очередь пуста.'}`,
@@ -5917,6 +6095,7 @@ export class HhBrowserAssistant {
         ? 'Автоотклики остановлены вами. Текущая вакансия завершена, следующие не обрабатываются.'
         : outcome.reason,
     });
+    if (this.queueResumePendingCount() === 0) this.clearQueueResumeTimer();
     return this.getState();
   }
 
@@ -5955,39 +6134,67 @@ export class HhBrowserAssistant {
     if (!this.queueResumeTimer) return;
     clearTimeout(this.queueResumeTimer);
     this.queueResumeTimer = null;
+    this.queueResumeTimerReason = '';
+    this.state.nextQueueResumeAt = null;
   }
 
   private queueRetryDelayMs(): number {
-    if (canSendMore(this.state.config, this.state.queue)) return 30 * 60 * 1_000;
+    if (canSendMore({ dailyLimit: this.activeDailyLimit }, this.state.queue)) return 30 * 60 * 1_000;
     const nextDay = new Date();
     nextDay.setDate(nextDay.getDate() + 1);
     nextDay.setHours(0, 5, 0, 0);
     return Math.max(60_000, nextDay.getTime() - Date.now());
   }
 
-  private scheduleQueueResume(delayMs = 30 * 60 * 1_000): void {
+  private scheduleQueueResume(
+    delayMs = 30 * 60 * 1_000,
+    reason = 'pending_queue_retry',
+  ): void {
     this.clearQueueResumeTimer();
-    if (
-      !this.state.config.autoSend
-      || this.state.config.platform !== 'hh'
-      || this.queueResumePendingCount() === 0
-      || this.state.loginRequired
-      || this.state.queuePaused
-    ) return;
+    const skippedReason = !this.state.config.autoSend
+      ? 'auto_send_disabled'
+      : this.state.config.platform !== 'hh'
+        ? 'platform_not_hh'
+        : this.queueResumePendingCount() === 0
+          ? 'no_eligible_queue_items'
+          : this.state.loginRequired
+            ? 'hh_login_required'
+            : this.state.queuePaused ? 'queue_paused' : '';
+    if (skippedReason) {
+      this.recordAutomationDiagnostic('timer_skipped', 'queue_resume', `${reason}:${skippedReason}`);
+      return;
+    }
+    const boundedDelay = Math.max(1_000, delayMs);
+    const scheduledFor = new Date(Date.now() + boundedDelay).toISOString();
+    this.queueResumeTimerReason = reason;
+    this.state.nextQueueResumeAt = scheduledFor;
+    this.recordAutomationDiagnostic('timer_scheduled', 'queue_resume', reason, {
+      scheduledFor,
+      delayMs: boundedDelay,
+    });
     this.queueResumeTimer = setTimeout(() => {
       this.queueResumeTimer = null;
+      this.state.nextQueueResumeAt = null;
+      const firedReason = this.queueResumeTimerReason || reason;
+      this.queueResumeTimerReason = '';
+      this.recordAutomationDiagnostic('timer_fired', 'queue_resume', firedReason, {
+        scheduledFor,
+        delayMs: boundedDelay,
+      });
       void this.resumePendingQueue();
-    }, Math.max(1_000, delayMs));
+    }, boundedDelay);
     this.queueResumeTimer.unref?.();
+    this.emitState(this.getState());
   }
 
   private async resumePendingQueue(): Promise<void> {
     if (this.state.queuePaused) return;
     if (this.queueResumeRunning || this.applyInFlight || this.automationRunInFlight) {
-      this.scheduleQueueResume(30_000);
+      this.scheduleQueueResume(30_000, 'automation_busy_retry');
       return;
     }
     if (this.queueResumePendingCount() === 0) return;
+    this.clearQueueResumeTimer();
     this.queueResumeRunning = true;
     this.automationRunInFlight = true;
     const run = this.beginRun('resume');
@@ -6019,7 +6226,12 @@ export class HhBrowserAssistant {
         && !this.state.loginRequired
         && !this.state.queuePaused
       ) {
-        this.scheduleQueueResume(this.queueRetryDelayMs());
+        this.scheduleQueueResume(
+          this.queueRetryDelayMs(),
+          canSendMore({ dailyLimit: this.activeDailyLimit }, this.state.queue)
+            ? 'pending_queue_retry'
+            : 'daily_limit_reset',
+        );
       }
     }
   }
@@ -6036,15 +6248,25 @@ export class HhBrowserAssistant {
     this.clearScheduleTimer();
     const config = this.state.config;
     if (!config.autoRunDaily) return;
-    const delay = nextAutoRunDelayMs(config, new Date());
+    const lastScheduledRunAt = this.state.runHistory
+      .find((run) => run.trigger === 'schedule')?.startedAt;
+    const delay = nextDiscoveryRunDelayMs(config, lastScheduledRunAt, new Date());
     const nextRunAt = new Date(Date.now() + delay).toISOString();
+    this.recordAutomationDiagnostic('timer_scheduled', 'daily_search', 'configured_daily_hour', {
+      scheduledFor: nextRunAt,
+      delayMs: delay,
+    });
     this.scheduleTimer = setTimeout(() => {
+      this.recordAutomationDiagnostic('timer_fired', 'daily_search', 'configured_daily_hour', {
+        scheduledFor: nextRunAt,
+        delayMs: delay,
+      });
       void this.onScheduleTick();
     }, delay);
     this.update({
       nextRunAt,
       ...(announce
-        ? { message: `Следующий автоматический поиск: ${new Date(nextRunAt).toLocaleString('ru-RU')}.` }
+        ? { message: `Следующая автоматическая проверка новых вакансий: ${new Date(nextRunAt).toLocaleString('ru-RU')}.` }
         : {}),
     });
   }

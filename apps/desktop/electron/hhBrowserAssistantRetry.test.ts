@@ -54,8 +54,25 @@ type TestableAssistant = {
   restoreSchedule: () => void;
   saveConfig: (value: Partial<HhAssistantState['config']>) => HhAssistantState;
   setDailySchedule: (enabled: boolean) => HhAssistantState;
+  getDiagnosticsSnapshot: () => {
+    events: Array<{ kind: string; source: string; reason: string; scheduledFor?: string }>;
+  };
   beginRun: (trigger: 'schedule') => { id: string };
-  runQueue: (runId?: string) => Promise<{ attempted: number }>;
+  runQueue: (runId?: string) => Promise<{
+    attempted: number;
+    alreadyApplied: number;
+    needsAttention: number;
+  }>;
+  patchQueue: (key: string, patch: Partial<HhQueueItem>) => void;
+  recordCoverLetterFailure: (
+    item: HhQueueItem,
+    failure: { ok: false; reason: string; retry: 'later' | 'manual' | 'never' },
+  ) => {
+    sent: boolean;
+    alreadyApplied?: boolean;
+    blocked: boolean;
+    reason: string;
+  };
 };
 
 function createAssistant(
@@ -110,6 +127,36 @@ afterEach(() => {
 describe('HH cover-letter retry policy', () => {
   const legacyTimeoutReason =
     'Не удалось получить безопасный AI-ответ: Screening answer generation timed out';
+
+  it('records startup queue recovery separately from the configured daily hour', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-20T22:00:00.000Z'));
+    const assistant = createAssistant(async () => ({
+      coverLetter: '', matches: [], canAutoFill: false, failureKind: 'manual',
+    }));
+    assistant.state.config.autoRunDaily = true;
+    assistant.state.config.autoRunHour = 10;
+
+    assistant.restoreSchedule();
+
+    expect(assistant.getState().nextQueueResumeAt).toBe('2026-08-20T22:00:10.000Z');
+    expect(assistant.getDiagnosticsSnapshot().events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'timer_scheduled',
+        source: 'queue_resume',
+        reason: 'startup_restore',
+      }),
+      expect.objectContaining({
+        kind: 'timer_scheduled',
+        source: 'daily_search',
+        reason: 'configured_daily_hour',
+      }),
+    ]));
+    const persisted = JSON.parse(fs.readFileSync(assistant.statePath, 'utf8')) as {
+      automationDiagnostics?: unknown[];
+    };
+    expect(persisted.automationDiagnostics?.length).toBeGreaterThanOrEqual(3);
+  });
 
   it('marks a deterministic skill mismatch skipped and removes it from the actionable queue', async () => {
     const assistant = createAssistant(async () => ({
@@ -193,7 +240,7 @@ describe('HH cover-letter retry policy', () => {
     expect(assistant.queueResumeTimer).toBeNull();
   });
 
-  it('cancels an existing queue timer when a manual single apply is blocked', async () => {
+  it('keeps a transient single-vacancy cover-letter failure out of manual mode', async () => {
     vi.useFakeTimers();
     const generator = vi.fn(async (): Promise<HhCoverLetterResponse> => {
       throw new Error('fetch failed: ECONNRESET');
@@ -205,7 +252,7 @@ describe('HH cover-letter retry policy', () => {
     const state = await assistant.applyOne('hh:123456789', { explicitUserSelection: true });
 
     expect(generator).toHaveBeenCalledOnce();
-    expect(state.phase).toBe('manual_required');
+    expect(state.phase).toBe('ready');
     expect(state.queue[0]?.status).toBe('opened');
     expect(state.queue[0]?.autoRetryBlockedUntil).toBe('daily');
     expect(assistant.queueResumeTimer).toBeNull();
@@ -214,6 +261,41 @@ describe('HH cover-letter retry policy', () => {
 
     expect(generator).toHaveBeenCalledOnce();
     expect(assistant.queueResumeTimer).toBeNull();
+  });
+
+  it('continues the automatic queue after one vacancy has a transient cover-letter failure', async () => {
+    const generator = vi.fn(async (): Promise<HhCoverLetterResponse> => {
+      throw new Error('Cover-letter generation timed out');
+    });
+    const assistant = createAssistant(generator);
+    const second = vacancy();
+    second.key = 'hh:987654321';
+    second.externalId = '987654321';
+    second.url = 'https://hh.ru/vacancy/987654321';
+    assistant.state.queue.push(second);
+    const apply = vi.fn(async (item: HhQueueItem) => {
+      if (item.key === 'hh:123456789') {
+        return assistant.recordCoverLetterFailure(item, {
+          ok: false,
+          reason: 'Cover-letter generation timed out',
+          retry: 'later',
+        });
+      }
+      assistant.patchQueue(item.key, { status: 'already_applied' });
+      return { sent: false, alreadyApplied: true, blocked: false, reason: 'Отклик уже был отправлен.' };
+    });
+    assistant.applyToVacancy = apply;
+
+    const run = assistant.beginRun('schedule');
+    const stats = await assistant.runQueue(run.id);
+
+    expect(apply).toHaveBeenCalledTimes(2);
+    expect(stats).toMatchObject({ attempted: 2, alreadyApplied: 1, needsAttention: 1 });
+    expect(assistant.getState().queue[0]).toMatchObject({
+      status: 'opened',
+      autoRetryBlockedUntil: 'daily',
+    });
+    expect(assistant.getState().queue[1]?.status).toBe('already_applied');
   });
 
   it('persists a later-only gate across restart and ignores restore/config short retries', async () => {
@@ -390,5 +472,35 @@ describe('HH cover-letter retry policy', () => {
       autoRetryBlockedUntil: 'manual',
       reason: stored.reason,
     });
+  });
+
+  it('releases the old one-time resume confirmation gate to automatic processing', () => {
+    const stored = vacancy();
+    stored.status = 'opened';
+    stored.reason = 'После обновления нужно один раз явно выбрать резюме HH в настройках откликов. Старый выбор не используется, потому что прежняя версия могла перепутать похожие резюме.';
+    stored.autoRetryBlockedUntil = 'manual';
+
+    const [migrated] = normalizePersistedQueue([stored]);
+
+    expect(migrated).toMatchObject({
+      status: 'opened',
+      autoRetryBlockedUntil: undefined,
+    });
+    expect(migrated?.reason).toContain('автоматически выберу');
+  });
+
+  it('turns a grounded legacy skill mismatch into an automatic terminal skip', () => {
+    const stored = vacancy();
+    stored.status = 'opened';
+    stored.reason = "Отклик не начат: The candidate's resume does not provide direct experience with performance testing and does not align closely enough with the core requirements.";
+    stored.autoRetryBlockedUntil = 'manual';
+
+    const [migrated] = normalizePersistedQueue([stored]);
+
+    expect(migrated).toMatchObject({
+      status: 'skipped',
+      autoRetryBlockedUntil: undefined,
+    });
+    expect(migrated?.reason).toContain('Пропущено автоматически');
   });
 });

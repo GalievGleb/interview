@@ -11,6 +11,7 @@ interface YooKassaPaymentResponse {
 // Prices mirror yookassa.util.ts (the active billing module). The old billing
 // module is kept for Stripe compatibility; these values must stay in sync.
 const PLAN_PRICES_RUB: Record<Plan, number> = {
+  [Plan.BASIC]: 1490,
   [Plan.PRO]: 2990,
 };
 

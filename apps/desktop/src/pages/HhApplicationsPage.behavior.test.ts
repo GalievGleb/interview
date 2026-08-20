@@ -195,9 +195,16 @@ describe('HH applications redesign', () => {
     const runQueueSource = assistantSource.slice(runQueueAt, applyAllAt);
     expect(runQueueSource).toContain('canSendMore');
     expect(runQueueSource).toContain('dailyLimitReached');
-    expect(runQueueSource).toContain('Продолжу автоматически в следующий запуск');
+    expect(runQueueSource).toContain('Продолжу автоматически после сброса лимита');
     expect(runQueueSource).not.toContain('delayBetweenSec');
     expect(runQueueSource).not.toContain('setTimeout');
+  });
+
+  it('exhausts every HH synonym and hydrates generic cards before rejecting them', () => {
+    expect(assistantSource).toContain('queries.length * this.state.config.maxPages');
+    expect(assistantSource).toContain('parseHhVacancyPage(vacancy.url, await response.text())');
+    expect(assistantSource).toContain('if (queue.length >= 5_000) break;');
+    expect(pageSource).toContain('maxQueueSize: 5000');
   });
 
   it('keeps the redesigned compact search, schedule, and found-vacancies UI', () => {
@@ -590,6 +597,8 @@ describe('HH applications redesign', () => {
     expect(runNowAt).toBeGreaterThan(saveAt);
     expect(pageSource).toContain('Каждый день');
     expect(pageSource).toContain('Следующий:');
+    expect(pageSource).toContain('Это отдельный повтор очереди, он не зависит от времени ежедневного поиска.');
+    expect(pageSource).toContain('state?.nextQueueResumeAt');
     expect(pageSource).toContain('saveSettingsOnly');
     expect(pageSource).toContain('Сохранить настройки');
     expect(pageSource).toContain('state.config.autoRunDaily !== draft.autoRunDaily');
@@ -609,6 +618,7 @@ describe('HH applications redesign', () => {
     expect(preloadSource).toContain("ipcRenderer.invoke('hh-assistant:apply-vacancy-url', url)");
     expect(electronTypesSource).toContain('runHistory: HhAutomationRun[]');
     expect(mainSource).toContain("path.join(dir, 'hh-automation.json')");
+    expect(mainSource).toContain('schedulerDiagnostics: hhBrowserAssistant?.getDiagnosticsSnapshot()');
   });
 
   it('reads a search page as one snapshot and reports live progress', () => {

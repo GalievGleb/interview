@@ -21,7 +21,28 @@ describe('HH candidate screening knowledge', () => {
     expect(findResumeExperienceMonths(resume)).toBe(50);
     expect(answerExperienceThresholdFromResume('Ваш общий опыт работы более 1 года?', resume)).toBe('Да');
     expect(answerExperienceThresholdFromResume('Ваш общий опыт работы более 5 лет?', resume)).toBe('Нет');
-    expect(answerExperienceThresholdFromResume('Ваш опыт в автотестировании более 1 года?', resume)).toBeNull();
+    expect(answerExperienceThresholdFromResume(
+      'Ваш опыт в автотестировании от 1 года?',
+      `QA Automation Engineer Python\n${resume}\npytest, Playwright, автотесты`,
+    )).toBe('Да');
+    expect(answerExperienceThresholdFromResume(
+      'Ваш опыт в автотестировании более 3 лет?',
+      `QA Automation Engineer Python\n${resume}\npytest, Playwright, автотесты`,
+    )).toBeNull();
+  });
+
+  it('selects the grounded language option for a one-year automation threshold', () => {
+    expect(knownScreeningAnswer({
+      id: 'automation-year',
+      prompt: 'Есть ли у вас опыт в авто тестировании (от 1 года)?',
+      kind: 'single',
+      options: ['Да, на C#.', 'Да, на Java.', 'Да, на Python.', 'Нет.'],
+      required: false,
+    }, null, 'QA Fullstack Engineer Python · pytest · Playwright')).toMatchObject({
+      selectedOptions: ['Да, на Python.'],
+      canAutoFill: true,
+      sourceType: 'resume',
+    });
   });
 
   it('builds the same salary wording for a recruiter chat', () => {

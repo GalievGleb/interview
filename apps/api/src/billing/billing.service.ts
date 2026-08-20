@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { Plan, BillingProvider } from '@interview/shared';
 import { Plan as PrismaPlan, PaymentProvider } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -10,6 +10,8 @@ import Stripe from 'stripe';
 
 @Injectable()
 export class BillingService {
+  private readonly logger = new Logger(BillingService.name);
+
   constructor(
     private readonly stripeService: StripeService,
     private readonly yookassaService: YookassaService,

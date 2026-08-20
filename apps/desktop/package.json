@@ -1,6 +1,6 @@
 {
   "name": "@interview/desktop",
-  "version": "0.0.37-dev",
+  "version": "0.0.38",
   "private": true,
   "main": "dist-electron/main.js",
   "scripts": {
@@ -14,6 +14,8 @@
     "dist:dev:app": "pnpm build:dev && electron-builder --config electron-builder.dev.cjs --win nsis --publish never",
     "dist:dev": "pnpm build:backend && pnpm dist:dev:app",
     "build:backend": "cd ../api-py && .venv\\Scripts\\pyinstaller.exe -y skillcue-backend.spec",
+    "verify:dev:overlay": "python ../../tools/verify_dev_overlay.py",
+    "release:dev:verified": "powershell -NoProfile -ExecutionPolicy Bypass -File ../../tools/install_and_verify_dev.ps1",
     "dist:full": "pnpm build:backend && pnpm build && electron-builder",
     "preview": "vite preview",
     "test": "vitest run",

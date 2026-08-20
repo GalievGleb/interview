@@ -138,6 +138,12 @@ export function canSendMore(
   return countTodaySent(queue, now) < config.dailyLimit;
 }
 
+/** Trial users may configure a smaller limit, but can never exceed 10 actual sends/day. */
+export function effectiveDailyLimit(configured: number, plan: string | null | undefined): number {
+  const safeConfigured = Math.max(1, Math.trunc(configured || 1));
+  return plan === 'trial' ? Math.min(10, safeConfigured) : safeConfigured;
+}
+
 /** Сколько миллисекунд до ближайшего часа авто-прогона (сегодня или завтра). */
 export function nextAutoRunDelayMs(
   config: Pick<HhAssistantConfig, 'autoRunHour'>,
@@ -149,6 +155,23 @@ export function nextAutoRunDelayMs(
     next.setDate(next.getDate() + 1);
   }
   return next.getTime() - now.getTime();
+}
+
+/**
+ * The configured hour starts a discovery window, not a single fragile alarm.
+ * A missed start runs immediately; after a run we rescan every two hours until 22:00.
+ */
+export function nextDiscoveryRunDelayMs(
+  config: Pick<HhAssistantConfig, 'autoRunHour'>,
+  lastScheduledRunAt: string | undefined,
+  now: Date = new Date(),
+): number {
+  const last = lastScheduledRunAt ? new Date(lastScheduledRunAt) : null;
+  const ranToday = Boolean(last && !Number.isNaN(last.getTime()) && isSameLocalDay(last, now));
+  if (now.getHours() >= config.autoRunHour && now.getHours() < 22) {
+    return ranToday ? 2 * 60 * 60 * 1_000 : 5_000;
+  }
+  return nextAutoRunDelayMs(config, now);
 }
 
 /** Случайная пауза 0.6–1.4 от базовой, random инжектится ради тестов. */

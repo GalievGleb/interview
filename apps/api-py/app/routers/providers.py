@@ -1,3 +1,5 @@
+import time
+
 from fastapi import APIRouter
 from pydantic import BaseModel
 
@@ -14,6 +16,24 @@ class TestPayload(BaseModel):
 
 class OpenRouterTestPayload(BaseModel):
     model: str | None = None
+
+
+class ReadinessPayload(BaseModel):
+    model: str | None = None
+
+
+_READINESS_QUESTION = (
+    "Что такое техники тест-дизайна? Назови несколько примеров и кратко объясни их."
+)
+_READINESS_TERMS = (
+    "эквивалент",
+    "граничн",
+    "таблиц",
+    "попарн",
+    "состояни",
+    "сценар",
+    "use case",
+)
 
 
 @router.post("/test")
@@ -35,6 +55,46 @@ async def openrouter_test(payload: OpenRouterTestPayload) -> dict:
         available = {m.id for m in prefs.models_cache}
         model, _ = model_router.resolve_model("general", available=available)
     return await provider_adapter.test_provider("openrouter", model)
+
+
+@router.post("/readiness")
+async def readiness(payload: ReadinessPayload) -> dict:
+    """Real pre-call smoke through the same provider/model used by live hints.
+
+    A TCP/health check is insufficient: an upstream can be reachable while its
+    key has no credits. This endpoint deliberately performs a small completion
+    and rejects an empty or irrelevant response before an interview starts.
+    """
+    prefs = load_preferences()
+    available = {m.id for m in prefs.models_cache}
+    model = payload.model
+    if not model or model == "auto":
+        model, _ = model_router.resolve_model("fast", available=available)
+    started = time.perf_counter()
+    answer = await provider_adapter.complete(
+        [
+            {
+                "role": "system",
+                "content": "Ответь по-русски кратко и технически точно, как помощник на QA-собеседовании.",
+            },
+            {"role": "user", "content": _READINESS_QUESTION},
+        ],
+        "openrouter",
+        model,
+        max_tokens=220,
+        temperature=0.1,
+    )
+    normalized = answer.strip().lower()
+    matched = [term for term in _READINESS_TERMS if term in normalized]
+    ok = len(normalized) >= 80 and len(matched) >= 2
+    return {
+        "ok": ok,
+        "model": model,
+        "latency_ms": round((time.perf_counter() - started) * 1000),
+        "answer": answer.strip(),
+        "matched_concepts": matched,
+        "question": _READINESS_QUESTION,
+    }
 
 
 @router.get("/openrouter/models")

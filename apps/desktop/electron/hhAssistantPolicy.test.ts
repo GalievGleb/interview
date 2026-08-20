@@ -32,7 +32,7 @@ describe('HH browser assistant policy', () => {
     expect(config.query).toBe('QA Automation');
     expect(config.includeRelatedQueries).toBe(true);
     expect(config.additionalQueries).toEqual([]);
-    expect(config.maxQueueSize).toBe(500);
+    expect(config.maxQueueSize).toBe(999);
     expect(config.maxPages).toBe(1);
     expect(config.excludedKeywords).toEqual(['Java']);
     expect(config.excludedEmployers).toEqual(['Example']);
@@ -103,6 +103,14 @@ describe('HH browser assistant policy', () => {
       'автоматизация тестирования Python',
       'Python QA',
       'QA Engineer Python',
+    ]);
+  });
+
+  it('exhaustively expands a Python developer profile across common HH role names', () => {
+    const config = normalizeHhAssistantConfig({ query: 'Python разработчик', includeRelatedQueries: true });
+    expect(buildHhSearchQueries(config, 'Backend Python developer\nDjango, FastAPI')).toEqual([
+      'Python разработчик', 'Python Developer', 'Backend Python',
+      'Backend разработчик Python', 'Django Developer', 'FastAPI Developer',
     ]);
   });
 
@@ -387,7 +395,7 @@ describe('HH browser assistant policy', () => {
     expect(defaults.delayBetweenSec).toBe(20);
     expect(defaults.area).toBe('');
     expect(defaults.schedule).toBe('remote');
-    expect(defaults.maxQueueSize).toBe(500);
+    expect(defaults.maxQueueSize).toBe(5000);
     expect(defaults.maxPages).toBe(20);
     expect(defaults.dailyLimit).toBe(20);
     expect(defaults.autoRunDaily).toBe(false);

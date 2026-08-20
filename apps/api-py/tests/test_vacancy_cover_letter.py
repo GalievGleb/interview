@@ -91,7 +91,7 @@ def test_cover_letter_matches_vacancy_to_saved_resume(client, monkeypatch):
     assert "Clearway Integration" in captured["prompt"]
     assert "Python, Pytest, Playwright, HTTPX" in captured["prompt"]
     assert "Never invent or inflate metrics" in captured["prompt"]
-    assert "never write \"С уважением\"" in captured["prompt"]
+    assert 'never write "С уважением"' in captured["prompt"]
     assert captured["kwargs"]["response_format"] == {"type": "json_object"}
     assert captured["kwargs"]["max_tokens"] <= 1200
 
@@ -100,9 +100,9 @@ def test_cover_letter_blocks_generic_or_unsubstantiated_output(client, monkeypat
     monkeypatch.setattr(
         rag_service,
         "get_context_text",
-        lambda _db, kind: "QA Automation Engineer с опытом Python и Pytest." * 3
-        if kind == "resume"
-        else "",
+        lambda _db, kind: (
+            "QA Automation Engineer с опытом Python и Pytest." * 3 if kind == "resume" else ""
+        ),
     )
 
     async def fake_complete(*_args, **_kwargs):
@@ -143,15 +143,13 @@ def test_cover_letter_blocks_generic_or_unsubstantiated_output(client, monkeypat
     assert response.json()["failureKind"] == "skill_mismatch"
 
 
-def test_cover_letter_does_not_treat_malformed_model_output_as_skill_mismatch(
-    client, monkeypatch
-):
+def test_cover_letter_does_not_treat_malformed_model_output_as_skill_mismatch(client, monkeypatch):
     monkeypatch.setattr(
         rag_service,
         "get_context_text",
-        lambda _db, kind: "QA Automation Engineer с опытом Python и Pytest. " * 3
-        if kind == "resume"
-        else "",
+        lambda _db, kind: (
+            "QA Automation Engineer с опытом Python и Pytest. " * 3 if kind == "resume" else ""
+        ),
     )
     model_outputs = iter(
         [
@@ -177,9 +175,11 @@ def test_cover_letter_blocks_template_signature_and_name_placeholder(client, mon
     monkeypatch.setattr(
         rag_service,
         "get_context_text",
-        lambda _db, kind: "QA Automation Engineer с опытом Python, Pytest, API и CI/CD. " * 3
-        if kind == "resume"
-        else "",
+        lambda _db, kind: (
+            "QA Automation Engineer с опытом Python, Pytest, API и CI/CD. " * 3
+            if kind == "resume"
+            else ""
+        ),
     )
 
     async def fake_complete(*_args, **_kwargs):
@@ -203,7 +203,9 @@ def test_cover_letter_blocks_template_signature_and_name_placeholder(client, mon
     assert response.json()["coverLetter"] == ""
 
 
-def test_cover_letter_accepts_selected_hh_resume_when_local_documents_are_empty(client, monkeypatch):
+def test_cover_letter_accepts_selected_hh_resume_when_local_documents_are_empty(
+    client, monkeypatch
+):
     captured: dict = {}
     monkeypatch.setattr(rag_service, "get_context_text", lambda *_args: "")
 
@@ -257,9 +259,11 @@ def test_cover_letter_has_a_hard_deadline(client, monkeypatch):
     monkeypatch.setattr(
         rag_service,
         "get_context_text",
-        lambda _db, kind: "QA Automation Engineer Python Pytest Playwright CI/CD Allure. " * 3
-        if kind == "resume"
-        else "",
+        lambda _db, kind: (
+            "QA Automation Engineer Python Pytest Playwright CI/CD Allure. " * 3
+            if kind == "resume"
+            else ""
+        ),
     )
 
     async def slow_complete(*_args, **_kwargs):
@@ -280,9 +284,11 @@ def test_cover_letter_preserves_provider_quota_error(client, monkeypatch):
     monkeypatch.setattr(
         rag_service,
         "get_context_text",
-        lambda _db, kind: "QA Automation Engineer Python Pytest Playwright CI/CD Allure. " * 3
-        if kind == "resume"
-        else "",
+        lambda _db, kind: (
+            "QA Automation Engineer Python Pytest Playwright CI/CD Allure. " * 3
+            if kind == "resume"
+            else ""
+        ),
     )
     monkeypatch.setattr(
         vacancy_router,

@@ -70,8 +70,10 @@ async def test_managed_tts_uses_gateway_license_without_exposing_provider(monkey
         "get_settings",
         lambda: SimpleNamespace(skillcue_gateway_url="https://skill-cue.ru/v1"),
     )
+
     async def mock_gw_key():
         return "license-key"
+
     monkeypatch.setattr(tts, "_gateway_license_key", mock_gw_key)
     monkeypatch.setattr(tts.provider_adapter, "get_client", lambda: fake)
 
@@ -102,8 +104,10 @@ async def test_tts_maps_gateway_error_to_safe_app_error(monkeypatch):
         "get_settings",
         lambda: SimpleNamespace(skillcue_gateway_url="https://skill-cue.ru"),
     )
+
     async def mock_gw_key2():
         return "license-key"
+
     monkeypatch.setattr(tts, "_gateway_license_key", mock_gw_key2)
     monkeypatch.setattr(tts.provider_adapter, "get_client", lambda: fake)
 

@@ -2,6 +2,7 @@
 
 import json
 
+from app.core.errors import AppError
 from app.services import provider_adapter
 
 _PAYLOAD = {
@@ -74,6 +75,72 @@ def test_analyze_reserves_enough_output_for_complete_json(client, monkeypatch):
 
     assert response.status_code == 200, response.text
     assert captured["max_tokens"] >= 5000
+
+
+def test_analyze_retries_with_ai_fallback_when_primary_has_insufficient_credits(
+    client, monkeypatch
+):
+    attempted_models: list[str] = []
+
+    async def fake_complete(messages, provider=None, model=None, **kwargs):
+        attempted_models.append(model)
+        if len(attempted_models) == 1:
+            raise AppError(
+                "Недостаточно кредитов провайдера. Пополните баланс.",
+                402,
+                "insufficient_credits",
+            )
+        return json.dumps(
+            {
+                "targetRole": "QA Automation Engineer",
+                "seniorityLevel": "middle",
+                "extractedRequirements": ["Python"],
+                "optionalSkills": [],
+                "competencies": [],
+                "interviewTopics": [
+                    {
+                        "title": "Python",
+                        "category": "Automation",
+                        "importance": "high",
+                        "level": "middle",
+                        "expectedKnowledge": "Практика автоматизации",
+                        "sampleQuestions": ["Как применяли Python?"],
+                        "vacancyEvidence": "Python",
+                    }
+                ],
+                "projectQuestions": [],
+                "riskAreas": [],
+            },
+            ensure_ascii=False,
+        )
+
+    monkeypatch.setattr(provider_adapter, "complete", fake_complete)
+
+    response = client.post("/vacancy/analyze", json=_ANALYZE_PAYLOAD)
+
+    assert response.status_code == 200, response.text
+    assert attempted_models == ["openai/gpt-4o", "openai/gpt-4o-mini"]
+    assert response.json()["model"] == "openai/gpt-4o-mini"
+    assert response.json()["interviewTopics"]
+
+
+def test_analyze_does_not_retry_when_customer_token_quota_is_exhausted(client, monkeypatch):
+    attempted_models: list[str] = []
+
+    async def fake_complete(messages, provider=None, model=None, **kwargs):
+        attempted_models.append(model)
+        raise AppError(
+            "Месячный лимит токенов тарифа исчерпан.",
+            402,
+            "token_quota_exceeded",
+        )
+
+    monkeypatch.setattr(provider_adapter, "complete", fake_complete)
+
+    response = client.post("/vacancy/analyze", json=_ANALYZE_PAYLOAD)
+
+    assert response.status_code == 502
+    assert attempted_models == ["openai/gpt-4o"]
 
 
 def test_report_returns_narrative_and_wires_prompt(client, monkeypatch):

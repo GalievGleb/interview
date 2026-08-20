@@ -743,7 +743,9 @@ async def meeting_summary(payload: MeetingPayload, db: Session = Depends(get_db)
 
 
 @router.post("/chat/interview-outcome")
-async def interview_outcome(payload: InterviewOutcomePayload, db: Session = Depends(get_db)) -> dict:
+async def interview_outcome(
+    payload: InterviewOutcomePayload, db: Session = Depends(get_db)
+) -> dict:
     """Compact structured notes attached to a scheduled HR/technical calendar event."""
     _ensure_quota(db)
     provider, model, source = _resolve_chat(
@@ -923,7 +925,10 @@ async def screen_assist_stream(payload: ScreenAssistPayload, db: Session = Depen
         model_override=payload.model_override,
     )
 
-    user_text = payload.question.strip() or "Реши задачу на экране. Если это программирование, обязательно дай полный рабочий код."
+    user_text = (
+        payload.question.strip()
+        or "Реши задачу на экране. Если это программирование, обязательно дай полный рабочий код."
+    )
     if payload.context:
         user_text += f"\n\nТранскрипт разговора (для контекста):\n{_clip(payload.context, 2000)}"
     user_text += _answer_language_block(payload.answer_language)

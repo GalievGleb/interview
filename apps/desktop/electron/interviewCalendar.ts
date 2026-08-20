@@ -118,6 +118,20 @@ export function canLinkSessionToInterview(
     && nowAt >= startAt - INTERVIEW_SESSION_EARLY_WINDOW_MS;
 }
 
+export function findNearestCurrentInterview(
+  events: readonly InterviewCalendarEvent[],
+  now = new Date(),
+): InterviewCalendarEvent | null {
+  const nowAt = now.getTime();
+  return events
+    .filter((event) => event.status === 'confirmed' && !event.completedAt)
+    .map((event) => ({ event, start: Date.parse(event.startAt), end: Date.parse(event.endAt) }))
+    .filter(({ start, end }) => Number.isFinite(start) && Number.isFinite(end)
+      && nowAt >= start - INTERVIEW_SESSION_EARLY_WINDOW_MS
+      && nowAt <= end + 60 * 60 * 1000)
+    .sort((a, b) => Math.abs(a.start - nowAt) - Math.abs(b.start - nowAt))[0]?.event ?? null;
+}
+
 function repairPrematureInterviewOutcome(event: InterviewCalendarEvent): InterviewCalendarEvent {
   if (!event.completedAt) return event;
   const completedAt = Date.parse(event.completedAt);

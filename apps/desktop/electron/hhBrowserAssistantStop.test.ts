@@ -17,6 +17,37 @@ afterEach(() => {
 });
 
 describe('HH automation stop', () => {
+  it('does not send an eleventh application on the free trial even when configured higher', async () => {
+    const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skillcue-hh-trial-cap-'));
+    tempDirs.push(userDataDir);
+    const assistant = new HhBrowserAssistant(
+      userDataDir, () => undefined, undefined, undefined, async () => 'trial',
+    );
+    const now = new Date().toISOString();
+    const template: HhQueueItem = {
+      id: 'pending', key: 'hh:pending', platform: 'hh', title: 'QA', company: 'Acme',
+      salary: '', url: 'https://hh.ru/vacancy/pending', status: 'new', addedAt: now,
+    };
+    const internal = assistant as unknown as {
+      state: HhAssistantState;
+      applyToVacancy: (item: HhQueueItem) => Promise<never>;
+      runQueue: () => Promise<{ attempted: number }>;
+    };
+    internal.state.config.dailyLimit = 200;
+    internal.state.queue = [
+      ...Array.from({ length: 10 }, (_, index) => ({
+        ...template, id: `sent-${index}`, key: `hh:sent-${index}`,
+        status: 'sent' as const, sentAt: now,
+      })),
+      template,
+    ];
+    internal.applyToVacancy = vi.fn(async () => { throw new Error('must not send'); });
+
+    expect(await internal.runQueue()).toMatchObject({ attempted: 0 });
+    expect(internal.applyToVacancy).not.toHaveBeenCalled();
+    expect(assistant.getState().message).toContain('отправлено сегодня 10');
+  });
+
   it('persists a user pause and clears it only when a new run is explicitly started', async () => {
     const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skillcue-hh-stop-'));
     tempDirs.push(userDataDir);

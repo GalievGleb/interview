@@ -234,7 +234,6 @@ export class GatewayController {
     @Req() req: Request,
   ) {
     const license = this.gateway.authorize(auth);
-    await this.sttQuota.assertCanStart(license);
 
     const audio = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
     if (audio.length < 44) {
@@ -244,8 +243,18 @@ export class GatewayController {
       );
     }
 
+    // This endpoint receives every completed live utterance. The old
+    // `assertCanStart` call applied the "new WebSocket sessions" limiter to
+    // each phrase, so mic + system audio quickly hit 10 requests/minute and
+    // produced a wall of 429 errors. Reserve the actual audio duration
+    // atomically instead; that enforces the monthly plan without throttling a
+    // healthy live conversation.
+    const seconds = Math.max(1, Math.ceil(wavDurationSeconds(audio)));
+    await this.sttQuota.reserveUsage(license, seconds);
+
     const { apiKey, baseURL } = resolveManagedSttCredentials();
     if (!apiKey) {
+      await this.sttQuota.releaseUsage(license.id, seconds);
       throw new HttpException(
         {
           error: {
@@ -261,6 +270,7 @@ export class GatewayController {
     try {
       result = await this.stt.transcribe(apiKey, baseURL, audio, language || 'ru');
     } catch (error) {
+      await this.sttQuota.releaseUsage(license.id, seconds);
       const upstreamStatus = Number((error as { status?: unknown })?.status ?? 0);
       throw new HttpException(
         {
@@ -272,8 +282,6 @@ export class GatewayController {
         503,
       );
     }
-    const seconds = Math.max(1, Math.ceil(wavDurationSeconds(audio)));
-    await this.sttQuota.recordUsage(license.id, seconds);
     return result;
   }
 

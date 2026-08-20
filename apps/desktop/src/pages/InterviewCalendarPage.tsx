@@ -633,6 +633,24 @@ export default function InterviewCalendarPage() {
   };
 
   const startInterview = async (event: InterviewCalendarEvent) => {
+    setBusy(`preflight:${event.id}`);
+    setError('');
+    setMessage('Проверяю ИИ реальным вопросом перед созвоном…');
+    try {
+      const readiness = await api.providerReadiness();
+      if (!readiness.ok) {
+        setMessage('');
+        setError('ИИ ответил, но проверка качества не пройдена. Созвон не запущен — проверьте модель или ключ.');
+        return;
+      }
+      setMessage(`ИИ готов: ${readiness.model}, ответ за ${(readiness.latency_ms / 1000).toFixed(1)} с.`);
+    } catch (reason) {
+      setMessage('');
+      setError(`ИИ не готов к созвону: ${reason instanceof Error ? reason.message : String(reason)}`);
+      return;
+    } finally {
+      setBusy('');
+    }
     const launch = window.electronAPI?.overlay.showForInterviewEvent;
     if (!launch) {
       navigate('/overlay');

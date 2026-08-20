@@ -1255,7 +1255,10 @@ export function useLiveCopilot() {
             onRecoverableError: (msg) => {
               setReconnecting(null);
               speechActivityRef.current.finished(source);
-              setError(`${label}: ${msg}`);
+              // A single upstream STT hiccup is not a failed answer. Keep the
+              // stream alive and record it only in diagnostics; putting it in
+              // the global error state duplicated the same warning in both
+              // the answer card and the footer until the next successful turn.
               debugRef.current.event('error', { reason: msg, meta: { recoverable: true } });
             },
             onClose: () => {

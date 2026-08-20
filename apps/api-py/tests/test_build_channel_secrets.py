@@ -36,7 +36,9 @@ def test_stable_never_reads_dev_keyring(monkeypatch) -> None:
     monkeypatch.setattr(secrets, "SERVICE_NAME", "interview-copilot")
     monkeypatch.setattr(secrets, "_keyring_available", True)
     monkeypatch.setattr(secrets.keyring, "get_password", get_password)
-    monkeypatch.setattr(secrets, "get_settings", lambda: type("S", (), {"openrouter_api_key": ""})())
+    monkeypatch.setattr(
+        secrets, "get_settings", lambda: type("S", (), {"openrouter_api_key": ""})()
+    )
 
     assert secrets.get_secret("openrouter_api_key") == ""
     assert calls == [("interview-copilot", "openrouter_api_key")]

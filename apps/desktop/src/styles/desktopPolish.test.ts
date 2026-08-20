@@ -97,10 +97,10 @@ describe('desktop polish contracts', () => {
     expect(home).toContain('window.electronAPI?.hhChat');
     expect(home).toContain('window.electronAPI?.interviewCalendar');
     expect(home).toContain('С чего начать?');
-    expect(home).toContain('Добавить вакансию');
     expect(home).toContain('Добавить резюме');
-    expect(home).toContain('Начать практику');
-    expect(home).toContain('Без конкретной вакансии');
+    expect(home).toContain('Подключить HH');
+    expect(home).toContain('Запустить оверлей');
+    expect(home).not.toContain('Проверить оверлей');
     expect(home).toContain('candidateJourney.action.label');
     expect(home).toContain('<CandidateJourneyStrip');
     expect(home).toContain('отправлено сегодня');

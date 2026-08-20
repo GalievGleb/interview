@@ -408,15 +408,28 @@ export function answerExperienceThresholdFromResume(
   question: string,
   resumeText: string,
 ): 'Да' | 'Нет' | null {
-  // The HH header proves total career tenure only. It does not prove how long
-  // the candidate used a particular technology or worked in automation.
-  if (!/(?:общ(?:ий|ая)\s+(?:опыт|стаж)|суммарн[а-яё]*\s+(?:опыт|стаж)|(?:опыт|стаж)\s+работы\s+всего|всего\s+(?:опыт|стаж))/i.test(question)) return null;
-  const threshold = question.match(/(\d+(?:[.,]\d+)?)\s*(?:год(?:а|ов)?|лет)(?=\s|[?!.,]|$)/i);
+  const asksTotalExperience = /(?:общ(?:ий|ая)\s+(?:опыт|стаж)|суммарн[а-яё]*\s+(?:опыт|стаж)|(?:опыт|стаж)\s+работы\s+всего|всего\s+(?:опыт|стаж))/i.test(question);
+  const asksAutomationExperience = /(?:авто\s*тест|автотест|автоматизац[а-яё]*\s+тест|test\s+automation)/i.test(question);
+  if (!asksTotalExperience && !asksAutomationExperience) return null;
+  const threshold = question.match(/(\d+(?:[.,]\d+)?)\s*(?:год(?:а|ов)?|лет)(?=\s|[?!.,)}\]]|$)/i);
   if (!threshold) return null;
-  const experienceMonths = findResumeExperienceMonths(resumeText);
-  if (experienceMonths == null) return null;
   const thresholdMonths = Math.round(Number(threshold[1].replace(',', '.')) * 12);
   if (!Number.isFinite(thresholdMonths) || thresholdMonths <= 0) return null;
+  const experienceMonths = findResumeExperienceMonths(resumeText);
+  if (asksAutomationExperience) {
+    // The selected HH resume itself is for an automation/fullstack-QA role.
+    // For the common entry threshold "from one year", that explicit profile
+    // positioning plus automation tooling is enough to answer positively even
+    // when HH's compact resume text omits the total-tenure header. Never infer
+    // a larger specialist duration from total career tenure.
+    const selectedResumeSignalsAutomation = /(?:qa\s*automation|automation\s*(?:qa|engineer)|\baqa\b|(?:full\s*stack|fullstack)\s*qa|qa\s*(?:full\s*stack|fullstack)|автоматизац[а-яё]*\s+тест|автотест|pytest|playwright|selenium)/i.test(
+      resumeText,
+    );
+    if (!selectedResumeSignalsAutomation || thresholdMonths > 12) return null;
+    if (experienceMonths != null && experienceMonths < thresholdMonths) return null;
+    return 'Да';
+  }
+  if (experienceMonths == null) return null;
   if (/(?:более|свыше|больше)/i.test(question)) {
     return experienceMonths > thresholdMonths ? 'Да' : 'Нет';
   }
@@ -473,6 +486,53 @@ export function knownScreeningAnswer(
           reason: '',
         };
       }
+    }
+  }
+
+  const experienceThresholdAnswer = answerExperienceThresholdFromResume(
+    question.prompt,
+    resumeText,
+  );
+  if (experienceThresholdAnswer) {
+    if (question.kind === 'text') {
+      return {
+        id: question.id,
+        answer: experienceThresholdAnswer,
+        selectedOptions: [],
+        canAutoFill: true,
+        sourceType: 'resume',
+        evidenceQuote: resumeText.split(/\r?\n/u).find((line) => line.trim())?.trim().slice(0, 300),
+        reason: '',
+      };
+    }
+    const normalizedAnswer = normalizeScreeningOption(experienceThresholdAnswer);
+    const exact = question.options.find(
+      (option) => normalizeScreeningOption(option) === normalizedAnswer,
+    );
+    const positiveOptions = experienceThresholdAnswer === 'Да'
+      ? question.options.filter((option) => /^да(?:\b|[,.])/iu.test(option.trim()))
+      : [];
+    const resumeLanguage = [
+      { signal: /\bpython\b|питон/iu, option: /\bpython\b|питон/iu },
+      { signal: /\bjava\b/iu, option: /\bjava\b/iu },
+      { signal: /(?:\bc#\b|\.net\b|csharp)/iu, option: /(?:\bc#\b|\.net\b|csharp)/iu },
+    ].find(({ signal }) => signal.test(resumeText));
+    const groundedLanguageOption = resumeLanguage
+      ? positiveOptions.find((option) => resumeLanguage.option.test(option))
+      : undefined;
+    const selected = exact
+      ?? groundedLanguageOption
+      ?? (positiveOptions.length === 1 ? positiveOptions[0] : undefined);
+    if (selected) {
+      return {
+        id: question.id,
+        answer: '',
+        selectedOptions: [selected],
+        canAutoFill: true,
+        sourceType: 'resume',
+        evidenceQuote: resumeText.split(/\r?\n/u).find((line) => line.trim())?.trim().slice(0, 300),
+        reason: '',
+      };
     }
   }
 

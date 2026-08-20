@@ -8,6 +8,7 @@ import {
   canLinkSessionToInterview,
   chooseThreadSlot,
   findNextInterviewSlots,
+  findNearestCurrentInterview,
   findRecruiterInterviewSlots,
   formatRecruiterInterviewSlotRu,
   isInterviewSlotAvailable,
@@ -17,6 +18,23 @@ import {
   type InterviewCalendarSettings,
   type InterviewCalendarState,
 } from './interviewCalendar';
+
+describe('overlay interview association', () => {
+  it('selects the nearest confirmed call inside the live window', () => {
+    const now = new Date('2026-08-20T16:00:00+07:00');
+    const base = {
+      vacancyTitle: 'QA', companyName: 'Acme', type: 'hr' as const,
+      status: 'confirmed' as const, source: 'manual' as const,
+      createdAt: now.toISOString(), updatedAt: now.toISOString(),
+    };
+    const events: InterviewCalendarEvent[] = [
+      { ...base, id: 'later', startAt: '2026-08-20T16:40:00+07:00', endAt: '2026-08-20T17:10:00+07:00' },
+      { ...base, id: 'now', startAt: '2026-08-20T16:00:00+07:00', endAt: '2026-08-20T16:30:00+07:00' },
+      { ...base, id: 'cancelled', status: 'cancelled', startAt: '2026-08-20T16:00:00+07:00', endAt: '2026-08-20T16:30:00+07:00' },
+    ];
+    expect(findNearestCurrentInterview(events, now)?.id).toBe('now');
+  });
+});
 
 const tempRoots: string[] = [];
 

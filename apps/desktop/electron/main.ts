@@ -31,7 +31,7 @@ import {
   resolveHhRecruiterProfileSelection,
   type HhChatCandidateProfile,
 } from './hhChatBrowser';
-import { InterviewCalendarStore } from './interviewCalendar';
+import { findNearestCurrentInterview, InterviewCalendarStore } from './interviewCalendar';
 import { isReservedOverlayShortcut } from './shortcutPolicy';
 import { createAutoUpdateCoordinator } from './autoUpdateCoordinator';
 import { createUpdaterStatusStore } from './updaterStatusStore';
@@ -52,6 +52,8 @@ import { getTitleBarOverlayTheme } from './titleBarTheme';
 import { preparePersistentBackendData, sqliteDatabaseUrl } from './backendData';
 import { getAppIdentity, resolveBuildChannel } from './buildChannel';
 import { screenCaptureDataUrl, SCREEN_CAPTURE_THUMBNAIL_SIZE } from './screenCapture';
+import { readinessFailureCopy } from './liveReadinessNotification';
+import { OperationalTelemetryStore } from './operationalTelemetry';
 import {
   enforceOverlayWindowPrivacy,
   showOverlayWindowPrivately,
@@ -135,6 +137,7 @@ let hhBrowserAssistant: HhBrowserAssistant | null = null;
 let hhOAuthService: HhOAuthService | null = null;
 let hhChatBrowser: HhChatBrowser | null = null;
 let interviewCalendar: InterviewCalendarStore | null = null;
+let operationalTelemetry: OperationalTelemetryStore | null = null;
 let activeInterviewEventId: string | null = null;
 let closingHhBrowserForQuit = false;
 let quitting = false;
@@ -183,7 +186,10 @@ function logBackend(line: string): void {
   } catch {
     /* лог — best-effort, не роняем приложение */
   }
-  console.log('[backend]', trimmed);
+  // A packaged Windows GUI can inherit a short-lived installer/launcher pipe.
+  // Writing to console after that pipe closes throws EPIPE synchronously and
+  // used to crash Electron before the overlay could be created. The file log
+  // above is the durable diagnostics source, so do not mirror it to stdout.
 }
 
 /** Resolve `${API_URL}/health` → true if the backend is already reachable. */
@@ -525,6 +531,12 @@ function activeInterviewEvent() {
     : null;
 }
 
+function attachNearestInterviewContext(): void {
+  if (activeInterviewEvent()) return;
+  const nearest = findNearestCurrentInterview(interviewCalendar?.getState().events ?? []);
+  if (nearest) setActiveInterviewEvent(nearest.id);
+}
+
 function publishInterviewContext(): void {
   if (!isLiveWindow(overlayWindow)) return;
   overlayWindow.webContents.send('overlay:interview-context', activeInterviewEvent());
@@ -552,6 +564,22 @@ function registerIpc(): void {
   ipcMain.handle('app:getBuildChannel', () => BUILD_CHANNEL);
   ipcMain.handle('app:openExternal', (_e, url: string) => safeOpenExternal(url));
   ipcMain.handle('app:quit', () => app.quit());
+  ipcMain.handle('app:operationalTelemetry:getState', () => operationalTelemetry?.snapshot() ?? { enabled: false, events: [] });
+  ipcMain.handle('app:operationalTelemetry:setEnabled', (_event, enabled: unknown) =>
+    operationalTelemetry?.setEnabled(enabled === true) ?? { enabled: false, events: [] });
+  ipcMain.handle('app:notifyReadinessFailure', (_event, code: unknown) => {
+    const copy = readinessFailureCopy(code);
+    if (!copy || !Notification.isSupported()) return false;
+    const notification = new Notification(copy);
+    operationalTelemetry?.record({ category: 'overlay', code: 'provider_unavailable', count: 1 });
+    notification.on('click', () => {
+      mainWindow?.show();
+      mainWindow?.focus();
+      mainWindow?.webContents.send('app:navigate', '/settings?tab=billing');
+    });
+    notification.show();
+    return true;
+  });
 
   ipcMain.handle('hh-assistant:get-state', () => hhBrowserAssistant?.getState());
   ipcMain.handle(
@@ -797,6 +825,7 @@ function registerIpc(): void {
               message: automation.message,
               updatedAt: automation.updatedAt,
               nextRunAt: automation.nextRunAt,
+              nextQueueResumeAt: automation.nextQueueResumeAt,
               config: {
                 platform: automation.config.platform,
                 query: automation.config.query,
@@ -809,6 +838,7 @@ function registerIpc(): void {
                 autoRunHour: automation.config.autoRunHour,
               },
               runHistory: automation.runHistory,
+              schedulerDiagnostics: hhBrowserAssistant?.getDiagnosticsSnapshot(),
               queue: automation.queue.map((item) => ({
                 key: item.key,
                 title: item.title,
@@ -825,6 +855,19 @@ function registerIpc(): void {
         }
       } catch {
         /* журнал HH не должен ломать сбор остальных диагностик */
+      }
+
+      try {
+        const telemetry = operationalTelemetry?.snapshot();
+        if (telemetry?.enabled) {
+          fs.writeFileSync(
+            path.join(dir, 'operational-events.json'),
+            JSON.stringify(telemetry.events, null, 2),
+            'utf8',
+          );
+        }
+      } catch {
+        /* локальная агрегированная хронология необязательна */
       }
 
       for (const file of extra.slice(0, 10)) {
@@ -867,7 +910,7 @@ function registerIpc(): void {
   });
 
   ipcMain.handle('overlay:show', () => {
-    setActiveInterviewEvent(null);
+    attachNearestInterviewContext();
     const win = getOrCreateOverlayWindow();
     prepareOverlayForOpen(win);
     showOverlayWindow(win);
@@ -1051,7 +1094,11 @@ function toggleOverlay(): void {
   // A keyboard hide/show is a visibility toggle, not a new session. Do not
   // send overlay:open-requested here: the renderer must keep the current
   // answer, transcript, scroll position and input exactly as the user left it.
-  else showOverlayWindow(win);
+  else {
+    attachNearestInterviewContext();
+    showOverlayWindow(win);
+    publishInterviewContext();
+  }
 }
 
 function scheduleToggleOverlayShortcutRetry(): void {
@@ -1269,6 +1316,7 @@ if (!hasSingleInstanceLock) {
 
   app.whenReady().then(() => {
     Menu.setApplicationMenu(null);
+    operationalTelemetry = new OperationalTelemetryStore(app.getPath('userData'), app.getVersion());
     void ensureBackend();
     setupContentSecurityPolicy();
     setupDisplayMedia();
@@ -1337,6 +1385,17 @@ if (!hasSingleInstanceLock) {
         if (local.canAutoFill) return local;
         backendError.message = `${backendError.message}. ${local.reason ?? ''}`.trim();
         throw backendError;
+      },
+      async () => {
+        const headers: Record<string, string> = {};
+        if (API_TOKEN) headers['X-SkillCue-Token'] = API_TOKEN;
+        const response = await fetch(`${API_URL}/license/status`, {
+          headers,
+          signal: AbortSignal.timeout(5_000),
+        });
+        if (!response.ok) return 'trial';
+        const payload = await response.json() as { plan?: string };
+        return payload.plan ?? 'trial';
       },
     );
     hhBrowserAssistant.restoreSchedule();

@@ -138,6 +138,7 @@ function GeneralSection() {
   const [hideWidget, setHideWidget] = useState(() => localStorage.getItem(HIDE_WIDGET_KEY) !== '0');
   const [autoLaunch, setAutoLaunch] = useState(false);
   const [autoLaunchAvailable, setAutoLaunchAvailable] = useState(false);
+  const [operationalTelemetryEnabled, setOperationalTelemetryEnabled] = useState(false);
   // Язык распознавания живёт в prefs Live-экрана — здесь просто вторая ручка.
   const [sttLanguage, setSttLanguage] = useState(() => loadLiveCopilotPrefs().language);
   const [answerLang, setAnswerLang] = useState<AnswerLanguagePref>(loadAnswerLanguage);
@@ -149,6 +150,9 @@ function GeneralSection() {
       setAutoLaunchAvailable(true);
       void get().then(setAutoLaunch);
     }
+    void window.electronAPI?.operationalTelemetry?.getState().then((state) => {
+      setOperationalTelemetryEnabled(state.enabled);
+    });
     const updater = window.electronAPI?.updater;
     if (!updater) return;
     let receivedLiveStatus = false;
@@ -305,6 +309,19 @@ function GeneralSection() {
             />
           </SettingRow>
         )}
+        <SettingRow
+          title="Обезличенная диагностика"
+          desc="Хранит локально только категории сбоев и счётчики. Не отправляет резюме, ответы, записи, экран, cookies или ключи. Попадает в архив только когда вы сами нажимаете «Сообщить о проблеме»."
+        >
+          <Toggle
+            on={operationalTelemetryEnabled}
+            label="Разрешить обезличенную диагностику"
+            onChange={(enabled) => {
+              setOperationalTelemetryEnabled(enabled);
+              void window.electronAPI?.operationalTelemetry?.setEnabled(enabled);
+            }}
+          />
+        </SettingRow>
       </div>
 
       <div className="sc-card mb-5 px-5 py-1.5">

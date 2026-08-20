@@ -220,14 +220,56 @@ _SCREENING_AFFIRMATIVE_EXPERIENCE_RE = re.compile(
     re.IGNORECASE,
 )
 _SCREENING_EVIDENCE_STOP_WORDS = {
-    "ваш", "ваша", "ваши", "вас", "есть", "был", "была", "были", "ли", "опыт",
-    "опишите", "какой", "какие", "работали", "работал", "использовали", "использовал",
-    "with", "your", "have", "what", "which", "work", "worked", "experience", "describe",
+    "ваш",
+    "ваша",
+    "ваши",
+    "вас",
+    "есть",
+    "был",
+    "была",
+    "были",
+    "ли",
+    "опыт",
+    "опишите",
+    "какой",
+    "какие",
+    "работали",
+    "работал",
+    "использовали",
+    "использовал",
+    "with",
+    "your",
+    "have",
+    "what",
+    "which",
+    "work",
+    "worked",
+    "experience",
+    "describe",
 }
 _SCREENING_PERSONAL_SUPPORT_STOP_WORDS = _SCREENING_EVIDENCE_STOP_WORDS | {
-    "также", "который", "которая", "которые", "этого", "этой", "своей",
-    "своего", "через", "после", "перед", "about", "also", "that", "this",
-    "then", "with", "from", "into", "using", "worked", "experience",
+    "также",
+    "который",
+    "которая",
+    "которые",
+    "этого",
+    "этой",
+    "своей",
+    "своего",
+    "через",
+    "после",
+    "перед",
+    "about",
+    "also",
+    "that",
+    "this",
+    "then",
+    "with",
+    "from",
+    "into",
+    "using",
+    "worked",
+    "experience",
 }
 _SCREENING_TECH_EVIDENCE_PATTERNS: dict[str, re.Pattern[str]] = {
     "1c": re.compile(r"(?:^|\W)(?:1c|1с|1c|1с)(?:\W|$)", re.IGNORECASE),
@@ -285,13 +327,26 @@ _SCREENING_DURATION_RE = re.compile(
 
 def _screening_durations(value: str) -> set[tuple[str, str]]:
     categories = {
-        "лет": "year", "год": "year", "года": "year",
-        "year": "year", "years": "year",
-        "месяц": "month", "месяца": "month", "месяцев": "month",
-        "month": "month", "months": "month",
-        "неделя": "week", "недели": "week", "недель": "week", "неделю": "week",
-        "week": "week", "weeks": "week",
-        "дня": "day", "дней": "day", "day": "day", "days": "day",
+        "лет": "year",
+        "год": "year",
+        "года": "year",
+        "year": "year",
+        "years": "year",
+        "месяц": "month",
+        "месяца": "month",
+        "месяцев": "month",
+        "month": "month",
+        "months": "month",
+        "неделя": "week",
+        "недели": "week",
+        "недель": "week",
+        "неделю": "week",
+        "week": "week",
+        "weeks": "week",
+        "дня": "day",
+        "дней": "day",
+        "day": "day",
+        "days": "day",
     }
     return {
         (number.replace(",", "."), categories[unit.casefold()])
@@ -325,12 +380,18 @@ def _screening_exact_confirmed_value(
         if _normalize_screening_text(str(fact.get("question", ""))) != prompt_key:
             continue
         confirmed_text = str(fact.get("answer", "")).strip()
-        confirmed_options = [str(value).strip() for value in fact.get("selectedOptions", []) if str(value).strip()]
+        confirmed_options = [
+            str(value).strip() for value in fact.get("selectedOptions", []) if str(value).strip()
+        ]
         if question.get("kind") == "text":
             actual = _normalize_screening_text(answer_text)
             candidates = [confirmed_text, *confirmed_options]
             match = next(
-                (value for value in candidates if _normalize_screening_text(value) == actual and actual),
+                (
+                    value
+                    for value in candidates
+                    if _normalize_screening_text(value) == actual and actual
+                ),
                 None,
             )
             if match:
@@ -339,9 +400,7 @@ def _screening_exact_confirmed_value(
         actual_options = {_normalize_screening_text(value) for value in selected if value.strip()}
         expected_values = confirmed_options or ([confirmed_text] if confirmed_text else [])
         expected_options = {
-            _normalize_screening_text(value)
-            for value in expected_values
-            if value.strip()
+            _normalize_screening_text(value) for value in expected_values if value.strip()
         }
         if actual_options and actual_options == expected_options:
             return ", ".join(selected)
@@ -360,22 +419,20 @@ def _screening_evidence_is_verifiable(
     if len(quote) < 8 or quote not in source:
         return False
     question_tokens = {
-        token for token in _normalize_screening_text(str(question.get("prompt", ""))).split()
+        token
+        for token in _normalize_screening_text(str(question.get("prompt", ""))).split()
         if len(token) >= 4 and token not in _SCREENING_EVIDENCE_STOP_WORDS
     }
     quote_tokens = {token for token in quote.split() if len(token) >= 4}
     shares_subject = any(
-        left == right or left[:5] == right[:5]
-        for left in question_tokens
-        for right in quote_tokens
+        left == right or left[:5] == right[:5] for left in question_tokens for right in quote_tokens
     )
     if question_tokens and not shares_subject:
         return False
     prompt = str(question.get("prompt", ""))
     claim_text = " ".join([answer_text, *selected]).strip()
     selected_negative = any(
-        re.match(r"^(?:нет|no)(?:\s|$)", _normalize_screening_text(value))
-        for value in selected
+        re.match(r"^(?:нет|no)(?:\s|$)", _normalize_screening_text(value)) for value in selected
     )
     experience_claim = bool(
         _SCREENING_EXPERIENCE_RE.search(prompt)
@@ -396,10 +453,9 @@ def _screening_evidence_is_verifiable(
             return False
         if _SCREENING_PROSPECTIVE_EXPERIENCE_RE.search(evidence_quote):
             return False
-        if (
-            _SCREENING_DIRECT_EXPERIENCE_PROMPT_RE.search(prompt)
-            and not _SCREENING_AFFIRMATIVE_EXPERIENCE_RE.search(evidence_quote)
-        ):
+        if _SCREENING_DIRECT_EXPERIENCE_PROMPT_RE.search(
+            prompt
+        ) and not _SCREENING_AFFIRMATIVE_EXPERIENCE_RE.search(evidence_quote):
             return False
     if experience_claim and negative_claim and not negative_evidence:
         return False
@@ -448,7 +504,9 @@ def _screening_evidence_is_verifiable(
     if any(name not in normalized_evidence.split() for name in named_latin_claims):
         return False
     if re.search(r"коммерческ|commercial|production|продакш", prompt, re.IGNORECASE):
-        if re.search(r"учебн|личн\w*\s+проект|pet[- ]?project|курсов|training", evidence_quote, re.IGNORECASE):
+        if re.search(
+            r"учебн|личн\w*\s+проект|pet[- ]?project|курсов|training", evidence_quote, re.IGNORECASE
+        ):
             return False
         if not re.search(
             r"коммерческ|commercial|production|продакш|опыт\s+работ|работал\w*\s+(?:в|на)|"
@@ -478,14 +536,14 @@ def _screening_server_autofill(
     draft_mode: bool,
 ) -> tuple[bool, str, str]:
     """Validate model provenance before allowing an answer to leave review mode."""
-    provenance = str(
-        answer_item.get("sourceType", answer_item.get("provenance", "none"))
-    ).strip().casefold()
+    provenance = (
+        str(answer_item.get("sourceType", answer_item.get("provenance", "none"))).strip().casefold()
+    )
     if provenance not in {"resume", "legend", "confirmed", "knowledge", "none"}:
         provenance = "none"
-    evidence_quote = str(
-        answer_item.get("evidenceQuote", answer_item.get("evidence", ""))
-    ).strip()[:500]
+    evidence_quote = str(answer_item.get("evidenceQuote", answer_item.get("evidence", ""))).strip()[
+        :500
+    ]
     if draft_mode or answer_item.get("canAutoFill") is not True:
         return False, provenance, evidence_quote
 
@@ -536,9 +594,7 @@ def _screening_answers_runtime_budget(model: str) -> tuple[float, int, float]:
         request_timeout,
         max_attempts,
     )
-    derived_deadline = (
-        provider_budget * model_passes + SCREENING_ANSWERS_DEADLINE_MARGIN_SECONDS
-    )
+    derived_deadline = provider_budget * model_passes + SCREENING_ANSWERS_DEADLINE_MARGIN_SECONDS
     configured_deadline = settings.screening_answers_deadline_seconds
     deadline = min(
         SCREENING_ANSWERS_MAX_DEADLINE_SECONDS,
@@ -723,16 +779,29 @@ async def _complete_or_fallback(
         # Subscription/quota/auth/input failures are definitive. Retrying them
         # on another model only wastes time and, more importantly, used to hide
         # their structured HTTP status/code behind a generic 502.
-        if isinstance(exc, AppError) and exc.status_code not in {
-            403,
-            404,
-            429,
-            500,
-            502,
-            503,
-            504,
-        }:
-            raise
+        if isinstance(exc, AppError):
+            # A 402 from our gateway can mean two very different things:
+            #
+            # * token_quota_exceeded — the customer's monthly allowance is
+            #   exhausted, so another model cannot help;
+            # * insufficient_credits — the primary upstream/model cannot
+            #   currently fund this request.  A cheaper fallback model may
+            #   still be available (and does so on the production gateway).
+            #
+            # The old status-only check treated both as definitive.  As a
+            # result gpt-4o returning 402 skipped the already configured
+            # gpt-4o-mini retry and the desktop silently showed a heuristic
+            # analysis even though the fallback model was healthy.
+            retryable_codes = {
+                "insufficient_credits",
+                "model_unavailable",
+                "rate_limited",
+                "provider_timeout",
+                "provider_error",
+            }
+            retryable_statuses = {403, 404, 429, 500, 502, 503, 504}
+            if exc.code not in retryable_codes and exc.status_code not in retryable_statuses:
+                raise
         if model == fallback_model:
             raise
         logger.warning(
@@ -1080,8 +1149,7 @@ async def screening_answers(payload: ScreeningAnswersPayload, db=Depends(get_db)
 - Return a finished first-person answer, normally 1-3 concise sentences, with canAutoFill=false because the user reviews it in the editor.
 - If the draft is already good, make only minimal edits. Do not replace it with a generic template or unrelated hypothesis."""
         if existing_draft
-        else
-        """INTERACTIVE DRAFT MODE — the result is shown in an editor and is never submitted without explicit user confirmation.
+        else """INTERACTIVE DRAFT MODE — the result is shown in an editor and is never submitted without explicit user confirmation.
 - Prefer supported résumé facts. Never invent a plausible personal preference, history, game, tool, employer, status, or commitment merely to make a draft sound complete.
 - When a personal fact is unknown, return honest review guidance with canAutoFill=false and reason saying exactly what the user needs to verify.
 - Do not invent employers, commercial projects, dates, duration, metrics, credentials, legal status, location, salary, work authorization, or contractual commitments.
@@ -1196,9 +1264,7 @@ async def screening_answers(payload: ScreeningAnswersPayload, db=Depends(get_db)
             vacancy_company=payload.vacancyCompany,
             reason="Онлайн-модель не вернула пригодный ответ.",
         )
-        valid_options = {
-            option.casefold(): option for option in normalized_question["options"]
-        }
+        valid_options = {option.casefold(): option for option in normalized_question["options"]}
         selected: list[str] = []
         for option in _as_list(answer_item.get("selectedOptions"), 30):
             canonical = valid_options.get(option.casefold())
@@ -1479,7 +1545,9 @@ async def evaluate(payload: EvaluatePayload, db=Depends(get_db)) -> dict:
             timeout=VACANCY_EVALUATE_DEADLINE_SECONDS,
         )
     except TimeoutError as exc:
-        logger.warning("Vacancy evaluate exceeded %.1fs deadline", VACANCY_EVALUATE_DEADLINE_SECONDS)
+        logger.warning(
+            "Vacancy evaluate exceeded %.1fs deadline", VACANCY_EVALUATE_DEADLINE_SECONDS
+        )
         raise HTTPException(status_code=504, detail="Vacancy evaluation timed out") from exc
     except Exception as exc:  # noqa: BLE001
         logger.warning("Vacancy evaluate failed: %s", exc)

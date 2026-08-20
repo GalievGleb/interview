@@ -8,6 +8,12 @@ const api = {
   getAutoLaunch: () => ipcRenderer.invoke('app:getAutoLaunch'),
   setAutoLaunch: (enable: boolean) => ipcRenderer.invoke('app:setAutoLaunch', enable),
   openExternal: (url: string) => ipcRenderer.invoke('app:openExternal', url),
+  notifyReadinessFailure: (code: 'provider_unavailable') =>
+    ipcRenderer.invoke('app:notifyReadinessFailure', code),
+  operationalTelemetry: {
+    getState: () => ipcRenderer.invoke('app:operationalTelemetry:getState'),
+    setEnabled: (enabled: boolean) => ipcRenderer.invoke('app:operationalTelemetry:setEnabled', enabled),
+  },
   quit: () => ipcRenderer.invoke('app:quit'),
   collectDiagnostics: (extra: Array<{ name: string; content: string }>) =>
     ipcRenderer.invoke('app:collectDiagnostics', extra),

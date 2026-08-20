@@ -3,8 +3,10 @@ import {
   canSendMore,
   countTodaySent,
   decideNextAction,
+  effectiveDailyLimit,
   jitterMs,
   nextAutoRunDelayMs,
+  nextDiscoveryRunDelayMs,
 } from './hhAutoApplyPolicy';
 
 describe('hhAutoApplyPolicy', () => {
@@ -145,6 +147,15 @@ describe('hhAutoApplyPolicy', () => {
     });
   });
 
+  describe('effectiveDailyLimit', () => {
+    it('hard-caps the free trial at 10 while retaining lower user limits', () => {
+      expect(effectiveDailyLimit(200, 'trial')).toBe(10);
+      expect(effectiveDailyLimit(7, 'trial')).toBe(7);
+      expect(effectiveDailyLimit(200, 'basic')).toBe(200);
+      expect(effectiveDailyLimit(200, 'max')).toBe(200);
+    });
+  });
+
   describe('nextAutoRunDelayMs', () => {
     it('fires later today when the hour is ahead', () => {
       const now = new Date(2026, 6, 1, 9, 0, 0);
@@ -160,6 +171,16 @@ describe('hhAutoApplyPolicy', () => {
     it('rolls to tomorrow at the exact hour boundary', () => {
       const now = new Date(2026, 6, 1, 10, 0, 0);
       expect(nextAutoRunDelayMs({ autoRunHour: 10 }, now)).toBe(24 * 3_600_000);
+    });
+  });
+
+  describe('nextDiscoveryRunDelayMs', () => {
+    it('runs a missed daily start immediately and then rescans every two hours', () => {
+      const now = new Date(2026, 7, 20, 10, 5);
+      expect(nextDiscoveryRunDelayMs({ autoRunHour: 10 }, undefined, now)).toBe(5_000);
+      expect(nextDiscoveryRunDelayMs(
+        { autoRunHour: 10 }, new Date(2026, 7, 20, 10, 0).toISOString(), now,
+      )).toBe(2 * 60 * 60 * 1_000);
     });
   });
 

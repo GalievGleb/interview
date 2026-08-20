@@ -17,11 +17,13 @@ const vacancySetup = fs.readFileSync(
 );
 
 describe('candidate flow across every primary tab', () => {
-  it('lets a new user start with a vacancy, resume, or practice', () => {
-    expect(home).toContain('Добавить вакансию');
+  it('gives a new customer one compact resume, HH, live path without a separate onboarding route', () => {
     expect(home).toContain('Добавить резюме');
-    expect(home).toContain('Начать практику');
-    expect(home).toContain("chooseCandidatePath('profile', '/practice')");
+    expect(home).toContain('Подключить HH');
+    expect(home).toContain('Запустить оверлей');
+    expect(home).toContain("launchLive(() => navigate('/overlay'))");
+    expect(home).not.toContain('Проверить оверлей');
+    expect(home).not.toContain("navigate('/onboarding')");
   });
 
   it('keeps vacancy analysis focused and carries the saved goal into a new review', () => {

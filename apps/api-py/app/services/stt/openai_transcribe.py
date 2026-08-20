@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from collections.abc import Awaitable, Callable
 from typing import TypedDict
 
@@ -21,6 +22,15 @@ ANSWER_MODEL = "gpt-transcribe"
 STT_RETRY_DELAYS_S = (0.2, 0.6)
 STT_RETRY_STATUS_CODES = {429, 500, 502, 503, 504}
 STT_TEMPORARY_ERROR = "Сервис распознавания временно недоступен. Повторите фразу."
+GATEWAY_MIN_REQUEST_INTERVAL_S = 6.2
+
+# Mic and system audio use separate WebSockets/providers, while the managed
+# gateway receives ordinary HTTP uploads and currently protects a licence at
+# ten starts per minute. Pace only the managed path across the whole backend so
+# two live sources cannot burst into 429s. Direct user OpenAI keys stay
+# unaffected.
+_gateway_request_lock = asyncio.Lock()
+_gateway_next_request_at = 0.0
 
 
 async def _post_stt_with_retry(
@@ -34,13 +44,25 @@ async def _post_stt_with_retry(
             if attempt >= len(STT_RETRY_DELAYS_S):
                 raise RuntimeError(STT_TEMPORARY_ERROR) from exc
         else:
-            if (
-                response.status_code not in STT_RETRY_STATUS_CODES
-                or attempt >= len(STT_RETRY_DELAYS_S)
+            if response.status_code not in STT_RETRY_STATUS_CODES or attempt >= len(
+                STT_RETRY_DELAYS_S
             ):
                 return response
         await asyncio.sleep(STT_RETRY_DELAYS_S[attempt])
     raise RuntimeError(STT_TEMPORARY_ERROR)
+
+
+async def _post_gateway_stt(
+    request: Callable[[], Awaitable[httpx.Response]],
+) -> httpx.Response:
+    global _gateway_next_request_at
+    async with _gateway_request_lock:
+        delay = _gateway_next_request_at - time.monotonic()
+        if delay > 0:
+            await asyncio.sleep(delay)
+        response = await _post_stt_with_retry(request)
+        _gateway_next_request_at = time.monotonic() + GATEWAY_MIN_REQUEST_INTERVAL_S
+        return response
 
 
 class AnswerRequestData(TypedDict):
@@ -202,7 +224,7 @@ class OpenAiMiniTranscribeProvider(BaseTranscriptionProvider):
         params = {}
         if language:
             params["language"] = language
-        response = await _post_stt_with_retry(
+        response = await _post_gateway_stt(
             lambda: self._http_client().post(
                 f"{root}/gateway/stt/transcribe",
                 headers={

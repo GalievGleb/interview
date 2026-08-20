@@ -28,7 +28,7 @@ describe('packaged product surface', () => {
     expect(packageJson.scripts['build:backend']).toContain(
       '.venv\\Scripts\\pyinstaller.exe -y',
     );
-    expect(packageJson).toMatchObject({ version: expect.stringMatching(/^\d+\.\d+\.\d+$/) });
+    expect(packageJson).toMatchObject({ version: expect.stringMatching(/^\d+\.\d+\.\d+(?:-dev)?$/) });
   });
 
   it('keeps the private developer installer separate from the public product', () => {
@@ -124,17 +124,17 @@ describe('packaged product surface', () => {
     expect(mainSource).toContain("ipcMain.handle('overlay:get-window-state'");
   });
 
-  it('fails closed for developer routes and commands in the stable product', () => {
+  it('tree-shakes developer routes out of the stable product', () => {
     const appSource = fs.readFileSync(path.join(desktopRoot, 'src', 'App.tsx'), 'utf8');
     const paletteSource = fs.readFileSync(
       path.join(desktopRoot, 'src', 'components', 'CommandPalette.tsx'),
       'utf8',
     );
 
-    expect(appSource).toContain('function DeveloperGate');
-    expect(appSource).toContain("if (channel !== 'dev') return <Navigate to=\"/home\" replace />");
-    expect(appSource).toContain('<DeveloperGate><DiagnosticsPage /></DeveloperGate>');
-    expect(appSource).toContain("if (buildChannel === 'dev')");
+    expect(appSource).toContain("const DEV_SURFACE = import.meta.env.MODE === 'devbuild';");
+    expect(appSource).toContain("DEV_SURFACE ? lazy(() => import('./pages/DiagnosticsPage')) : null");
+    expect(appSource).toContain('DEV_SURFACE && DiagnosticsPage');
+    expect(appSource).not.toContain('function DeveloperGate');
     expect(paletteSource).toContain("buildChannel === 'dev'");
     expect(paletteSource).not.toContain("startsWith('dev')");
   });

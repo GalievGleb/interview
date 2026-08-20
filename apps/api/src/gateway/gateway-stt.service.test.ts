@@ -11,6 +11,7 @@ import {
   resolveManagedSttCredentials,
 } from './gateway-stt.service';
 import { GatewaySttUploadGuard } from './gateway-stt-upload.guard';
+import { GatewayController } from './gateway.controller';
 
 function pcm16Wav(options: {
   sampleRate?: number;
@@ -162,4 +163,53 @@ test('answer upload guard authorizes and checks quota before multipart parsing',
   assert.equal(allowed, true);
   assert.deepEqual(events, ['authorize:Bearer signed-license', 'quota:true']);
   assert.equal(request.skillcueSttLicense, license);
+});
+
+test('live utterances reserve audio quota without applying the new-session rate limit', async () => {
+  const previousKey = process.env.OPENROUTER_API_KEY;
+  const previousBase = process.env.GATEWAY_UPSTREAM_BASE;
+  process.env.OPENROUTER_API_KEY = 'test-stt-key';
+  process.env.GATEWAY_UPSTREAM_BASE = 'https://api.proxyapi.ru/openai/v1';
+  const events: string[] = [];
+  const license = { id: 'license-live', payload: { plan: 'max' } };
+  const controller = new GatewayController(
+    { authorize: () => license } as never,
+    {} as never,
+    {
+      async transcribe() {
+        events.push('transcribe');
+        return { text: 'Проверяем живой вопрос', model: STT_MODEL };
+      },
+    } as never,
+    {
+      async assertCanStart() {
+        events.push('rate-limit');
+      },
+      async reserveUsage(_license: unknown, seconds: number) {
+        events.push(`reserve:${seconds}`);
+      },
+      async releaseUsage() {
+        events.push('release');
+      },
+      async recordUsage() {
+        events.push('record');
+      },
+    } as never,
+    {} as never,
+  );
+
+  try {
+    const result = await controller.transcribe(
+      'Bearer signed-license',
+      'ru',
+      { body: pcm16Wav({ seconds: 1.2 }) } as never,
+    );
+    assert.equal(result.text, 'Проверяем живой вопрос');
+    assert.deepEqual(events, ['reserve:2', 'transcribe']);
+  } finally {
+    if (previousKey == null) delete process.env.OPENROUTER_API_KEY;
+    else process.env.OPENROUTER_API_KEY = previousKey;
+    if (previousBase == null) delete process.env.GATEWAY_UPSTREAM_BASE;
+    else process.env.GATEWAY_UPSTREAM_BASE = previousBase;
+  }
 });
