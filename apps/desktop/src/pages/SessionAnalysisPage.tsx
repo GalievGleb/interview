@@ -6,6 +6,7 @@ import {
   Lightbulb,
   MessageSquareText,
   RefreshCw,
+  Send,
   Sparkles,
   TriangleAlert,
   XCircle,
@@ -15,6 +16,7 @@ import { api, type SessionAssessment, type SessionDetail } from '../lib/api';
 import { useI18n } from '../lib/i18n';
 import { refreshSessionKnowledge } from '../lib/sessionKnowledge';
 import { resolveSessionEvidenceLayout } from '../lib/sessionAnalysisPresentation';
+import SessionReportModal from '../components/interview/SessionReportModal';
 
 function scoreColor(score: number): string {
   if (score >= 75) return 'var(--prep-green)';
@@ -90,6 +92,7 @@ export default function SessionAnalysisPage() {
   const [loading, setLoading] = useState(true);
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState('');
+  const [reportOpen, setReportOpen] = useState(false);
 
   const generate = useCallback(
     async (force: boolean) => {
@@ -194,15 +197,26 @@ export default function SessionAnalysisPage() {
               </p>
             )}
           </div>
-          <button
-            type="button"
-            className="prep-btn prep-btn-secondary prep-btn-sm"
-            onClick={() => void generate(true)}
-            disabled={analyzing || !session}
-          >
-            <RefreshCw size={14} className={analyzing ? 'motion-safe:animate-spin' : ''} aria-hidden="true" />
-            {analyzing ? (ru ? 'Обновляю…' : 'Updating…') : ru ? 'Обновить разбор' : 'Update review'}
-          </button>
+          <div className="session-review__header-actions">
+            <button
+              type="button"
+              className="prep-btn prep-btn-ghost prep-btn-sm"
+              onClick={() => setReportOpen(true)}
+              disabled={!session}
+            >
+              <Send size={14} aria-hidden="true" />
+              {ru ? 'Отправить отчёт' : 'Send report'}
+            </button>
+            <button
+              type="button"
+              className="prep-btn prep-btn-secondary prep-btn-sm"
+              onClick={() => void generate(true)}
+              disabled={analyzing || !session}
+            >
+              <RefreshCw size={14} className={analyzing ? 'motion-safe:animate-spin' : ''} aria-hidden="true" />
+              {analyzing ? (ru ? 'Обновляю…' : 'Updating…') : ru ? 'Обновить разбор' : 'Update review'}
+            </button>
+          </div>
         </header>
 
         {loading && (
@@ -403,6 +417,7 @@ export default function SessionAnalysisPage() {
           </section>
         )}
       </main>
+      <SessionReportModal session={reportOpen ? session : null} onClose={() => setReportOpen(false)} />
     </div>
   );
 }

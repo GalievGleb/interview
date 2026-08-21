@@ -81,6 +81,9 @@ class InterviewSession(Base):
     assessment: Mapped["SessionAssessment | None"] = relationship(
         back_populates="session", cascade="all, delete-orphan", uselist=False
     )
+    diagnostic: Mapped["SessionDiagnostic | None"] = relationship(
+        back_populates="session", cascade="all, delete-orphan", uselist=False
+    )
 
 
 class Transcript(Base):
@@ -110,6 +113,22 @@ class SessionAssessment(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
 
     session: Mapped[InterviewSession] = relationship(back_populates="assessment")
+
+
+class SessionDiagnostic(Base):
+    """Bounded live STT/LLM timeline persisted for one interview session."""
+
+    __tablename__ = "session_diagnostics"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    session_id: Mapped[str] = mapped_column(
+        ForeignKey("sessions.id", ondelete="CASCADE"), unique=True, index=True
+    )
+    payload_json: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
+
+    session: Mapped[InterviewSession] = relationship(back_populates="diagnostic")
 
 
 class Answer(Base):

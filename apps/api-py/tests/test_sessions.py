@@ -80,3 +80,76 @@ def test_session_stats_empty_db(client):
     assert data["interview_sessions"] == 0
     assert data["total_answers"] == 0
     assert data["top_topics"] == []
+
+
+def test_session_diagnostics_are_stored_replaced_and_returned_with_answer_model(client, db_session):
+    sid = _create_session_with_transcript(client, text="Что такое техники тест-дизайна?")
+    db_session.add(
+        models.Answer(
+            session_id=sid,
+            question="Что такое техники тест-дизайна?",
+            answer_spoken="Это способы системно выбирать проверки.",
+            model="openai/gpt-4.1-mini",
+        )
+    )
+    db_session.commit()
+
+    first = {
+        "schemaVersion": 1,
+        "generatedAt": "2026-08-21T10:00:00.000Z",
+        "sampleRate": 16000,
+        "durationMs": 6100,
+        "audioFile": None,
+        "events": [
+            {"tMs": 0, "type": "session_start"},
+            {
+                "tMs": 900,
+                "type": "ready",
+                "meta": {"engine": "openai-mini", "model": "gpt-4o-mini-transcribe"},
+            },
+        ],
+        "extra": {"sources": {"mic": True, "system": True}},
+    }
+    saved = client.put(f"/sessions/{sid}/diagnostics", json=first)
+    assert saved.status_code == 200, saved.text
+    assert saved.json() == {"saved": sid, "event_count": 2}
+
+    second = {
+        **first,
+        "durationMs": 9900,
+        "events": [*first["events"], {"tMs": 9500, "type": "answer_done"}],
+    }
+    replaced = client.put(f"/sessions/{sid}/diagnostics", json=second)
+    assert replaced.status_code == 200, replaced.text
+
+    detail = client.get(f"/sessions/{sid}")
+    assert detail.status_code == 200, detail.text
+    body = detail.json()
+    assert body["diagnostics"]["durationMs"] == 9900
+    assert [event["type"] for event in body["diagnostics"]["events"]] == [
+        "session_start",
+        "ready",
+        "answer_done",
+    ]
+    assert body["answers"][0]["model"] == "openai/gpt-4.1-mini"
+    assert body["answers"][0]["ts"]
+    assert db_session.query(models.SessionDiagnostic).count() == 1
+
+
+def test_session_diagnostics_reject_unknown_session_and_oversized_snapshot(client):
+    missing = client.put(
+        "/sessions/missing/diagnostics",
+        json={"schemaVersion": 1, "events": []},
+    )
+    assert missing.status_code == 404
+
+    sid = _create_session_with_transcript(client)
+    oversized = client.put(
+        f"/sessions/{sid}/diagnostics",
+        json={
+            "schemaVersion": 1,
+            "events": [{"tMs": 1, "type": "error", "reason": "x" * 1_100_000}],
+        },
+    )
+    assert oversized.status_code == 413
+    assert oversized.json()["error"]["code"] == "diagnostics_too_large"

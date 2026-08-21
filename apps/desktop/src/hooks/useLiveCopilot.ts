@@ -136,6 +136,7 @@ export function useLiveCopilot() {
   const [active, setActive] = useState(false);
   const [lines, setLines] = useState<TranscriptLine[]>([]);
   const [answerHistory, setAnswerHistory] = useState<CopilotAnswerEntry[]>([]);
+  const answerHistoryRef = useRef<CopilotAnswerEntry[]>([]);
   const [currentQuestion, setCurrentQuestion] = useState('');
   const [streamText, setStreamText] = useState('');
   const [streaming, setStreaming] = useState(false);
@@ -323,6 +324,12 @@ export function useLiveCopilot() {
     try {
       await transcriptWriteQueueRef.current.drain(sid);
       if (sessionHasContent) {
+        const diagnostics = debugRef.current.buildJson(null, {
+          stt: sttMetaRef.current,
+          sources: liveSourcesRef.current,
+          exchanges: answerHistoryRef.current,
+        });
+        await api.saveSessionDiagnostics(sid, diagnostics).catch(() => undefined);
         await api.endSession(sid);
       } else if (!reusedSession) {
         await api.deleteSession(sid);
@@ -462,18 +469,25 @@ export function useLiveCopilot() {
       latency?: ExchangeLatency,
     ) => {
       hasSessionContentRef.current = true;
-      setAnswerHistory((prev) => [
-        ...prev,
-        {
-          id: answerId || crypto.randomUUID(),
-          question: q,
-          spoken: text,
-          ts: Date.now(),
-          source: 'live',
-          pipeline,
-          latency,
-        },
-      ]);
+      const entry: CopilotAnswerEntry = {
+        id: answerId || crypto.randomUUID(),
+        question: q,
+        spoken: text,
+        ts: Date.now(),
+        source: 'live',
+        pipeline,
+        latency,
+      };
+      answerHistoryRef.current = [...answerHistoryRef.current, entry];
+      setAnswerHistory(answerHistoryRef.current);
+      const sid = sessionRef.current;
+      if (sid) {
+        void api.saveSessionDiagnostics(sid, debugRef.current.buildJson(null, {
+          stt: sttMetaRef.current,
+          sources: liveSourcesRef.current,
+          exchanges: answerHistoryRef.current,
+        })).catch(() => undefined);
+      }
       setStreamText('');
       setCurrentQuestion('');
     };
@@ -514,7 +528,7 @@ export function useLiveCopilot() {
           setStreamText(sanitizeLiveAnswer(accumulated));
           setSuggestLoading(false);
         },
-        onDone: (spoken: string, answerId?: string) => {
+        onDone: (spoken: string, answerId?: string, responseMeta?: { model?: string; modelSource?: string }) => {
           if (gen !== streamGenRef.current) return;
           streamLockRef.current = false;
           setStreaming(false);
@@ -535,6 +549,8 @@ export function useLiveCopilot() {
             previousTopic: sessionContextRef.current.lastCanonicalTopic,
             timeToAnswerMs: debugSnapshot?.timeToAnswerMs,
             timeToFinalMs: exchangeSttLatencyMs,
+            model: responseMeta?.model,
+            modelSource: responseMeta?.modelSource,
           });
           if (knowledgeMetaRef.current) pipeline.knowledge = knowledgeMetaRef.current;
           const latency = buildExchangeLatency(
@@ -1026,6 +1042,7 @@ export function useLiveCopilot() {
       setReconnecting(null);
       setLines([]);
       setAnswerHistory([]);
+      answerHistoryRef.current = [];
       setCurrentQuestion('');
       setStreamText('');
       setSttDebug(null);

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { buildCopilotSessionExport, buildExchangeLatency, formatInterviewSessionTxt } from '../lib/interviewSessionExport';
+import { buildCopilotSessionExport, buildExchangeLatency, buildStoredSessionExport, formatInterviewSessionTxt } from '../lib/interviewSessionExport';
 import type { CopilotAnswerEntry } from '../lib/interviewSessionExport';
+import type { SessionDetail } from '../lib/api';
 
 const sampleEntry: CopilotAnswerEntry = {
   id: '1',
@@ -39,5 +40,42 @@ describe('interviewSessionExport', () => {
     expect(txt).toContain('STT: 4917 ms');
     expect(txt).toContain('Total: 9329 ms');
     expect(txt).not.toContain('Glossary');
+  });
+
+  it('keeps stored answer model, timestamp, and durable diagnostics for old history pages', () => {
+    const stored: SessionDetail = {
+      id: 'stored-1',
+      mode: 'interview',
+      title: 'QA Automation',
+      started_at: '2026-08-21T10:00:00Z',
+      ended_at: '2026-08-21T10:30:00Z',
+      summary: null,
+      transcripts: [],
+      answers: [{
+        id: 'answer-1',
+        question: 'Что такое API?',
+        short: '',
+        spoken: 'API — интерфейс взаимодействия программ.',
+        detailed: '',
+        english: '',
+        risk: '',
+        model: 'openai/gpt-4.1-mini',
+        ts: '2026-08-21T10:05:00Z',
+      }],
+      diagnostics: {
+        schemaVersion: 1,
+        generatedAt: '2026-08-21T10:30:00Z',
+        sampleRate: 16000,
+        durationMs: 1_800_000,
+        audioFile: null,
+        events: [{ tMs: 2500, type: 'answer_first_token' }],
+      },
+    };
+
+    const result = buildStoredSessionExport(stored);
+
+    expect(result.exchanges[0]?.ts).toBe('2026-08-21T10:05:00.000Z');
+    expect(result.exchanges[0]?.pipeline?.model).toBe('openai/gpt-4.1-mini');
+    expect(result.diagnostics?.events[0]?.type).toBe('answer_first_token');
   });
 });

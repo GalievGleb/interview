@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarDays, ChevronRight, Mic2, Trash2 } from 'lucide-react';
+import { CalendarDays, ChevronRight, Mic2, Send, Trash2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { api, type SessionItem } from '../lib/api';
 import { launchLive } from '../lib/launchLive';
 import { clearSessionKnowledge, refreshSessionKnowledge } from '../lib/sessionKnowledge';
 import Modal from '../components/Modal';
 import { useApp } from '../context/AppContext';
+import SessionReportModal from '../components/interview/SessionReportModal';
 
 type SourceFilter = 'all' | 'interview' | 'meeting';
 
@@ -31,6 +32,7 @@ export default function HistoryPage() {
   const [deletingId, setDeletingId] = useState('');
   const [clearing, setClearing] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<SessionItem | 'all' | null>(null);
+  const [reportTarget, setReportTarget] = useState<SessionItem | null>(null);
   const initialLoadStartedRef = useRef(false);
 
   const load = useCallback(async () => {
@@ -186,6 +188,15 @@ export default function HistoryPage() {
                   </button>
                   <button
                     type="button"
+                    className="prep-btn prep-btn-ghost prep-btn-sm interview-session-row__report"
+                    aria-label={`Отправить отчёт по интервью «${sessionLabel(session)}»`}
+                    title="Отправить отчёт"
+                    onClick={() => setReportTarget(session)}
+                  >
+                    <Send size={14} aria-hidden="true" /> <span>Отправить отчёт</span>
+                  </button>
+                  <button
+                    type="button"
                     className="prep-icon-button"
                     disabled={deletingId === session.id}
                     aria-label={`Удалить интервью «${sessionLabel(session)}»`}
@@ -221,6 +232,7 @@ export default function HistoryPage() {
       >
         <p className="text-sm text-ink-muted">{deleteTarget === 'all' ? `Будут удалены все интервью (${sessions.length}).` : 'Запись и разбор восстановить не получится.'}</p>
       </Modal>
+      <SessionReportModal session={reportTarget} onClose={() => setReportTarget(null)} />
     </div>
   );
 }

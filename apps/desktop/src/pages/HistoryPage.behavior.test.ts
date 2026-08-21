@@ -5,6 +5,10 @@ import { describe, expect, it } from 'vitest';
 const source = fs.readFileSync(path.resolve(__dirname, 'HistoryPage.tsx'), 'utf8');
 const analysisSource = fs.readFileSync(path.resolve(__dirname, 'SessionAnalysisPage.tsx'), 'utf8');
 const appSource = fs.readFileSync(path.resolve(__dirname, '../App.tsx'), 'utf8');
+const reportModalSource = fs.readFileSync(
+  path.resolve(__dirname, '../components/interview/SessionReportModal.tsx'),
+  'utf8',
+);
 
 describe('history analysis and privacy behavior', () => {
   it('opens backend sessions on a dedicated review route', () => {
@@ -61,5 +65,27 @@ describe('history analysis and privacy behavior', () => {
     expect(source).toContain('const { backendOnline } = useApp()');
     expect(source).toContain('initialLoadStartedRef');
     expect(source).toContain('if (!initialLoadStartedRef.current || backendOnline)');
+  });
+
+  it('offers a session-specific Telegram report from history and review', () => {
+    expect(source).toContain('Отправить отчёт');
+    expect(source).toContain('<SessionReportModal');
+    expect(analysisSource).toContain('Отправить отчёт');
+    expect(analysisSource).toContain('<SessionReportModal');
+  });
+
+  it('requires an issue description and explicit transcript consent before sharing', () => {
+    expect(reportModalSource).toContain('Что именно сломалось?');
+    expect(reportModalSource).toContain('Я согласен отправить транскрипт');
+    expect(reportModalSource).toContain('disabled={busy || !issue.trim() || !consent}');
+    expect(reportModalSource).toContain('buildSessionDebugReport');
+    expect(reportModalSource).toContain('shareSessionReport');
+  });
+
+  it('explains both the attached Telegram flow and the saved-file fallback', () => {
+    expect(reportModalSource).toContain('Telegram открыл выбор чата');
+    expect(reportModalSource).toContain('Отчёт сохранён, но Telegram Desktop не найден');
+    expect(reportModalSource).toContain('Аудиозапись не отправляется');
+    expect(reportModalSource).toContain('Старые сессии тоже поддерживаются');
   });
 });

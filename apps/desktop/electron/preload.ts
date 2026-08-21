@@ -17,6 +17,8 @@ const api = {
   quit: () => ipcRenderer.invoke('app:quit'),
   collectDiagnostics: (extra: Array<{ name: string; content: string }>) =>
     ipcRenderer.invoke('app:collectDiagnostics', extra),
+  shareSessionReport: (input: { filename: string; content: string }) =>
+    ipcRenderer.invoke('app:shareSessionReport', input),
   keybinds: {
     get: () => ipcRenderer.invoke('keybinds:get'),
     setToggleOverlay: (accelerator: string) =>

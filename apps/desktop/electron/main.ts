@@ -54,6 +54,7 @@ import { getAppIdentity, resolveBuildChannel } from './buildChannel';
 import { screenCaptureDataUrl, SCREEN_CAPTURE_THUMBNAIL_SIZE } from './screenCapture';
 import { readinessFailureCopy } from './liveReadinessNotification';
 import { OperationalTelemetryStore } from './operationalTelemetry';
+import { shareSessionReport } from './sessionReportShare';
 import {
   enforceOverlayWindowPrivacy,
   showOverlayWindowPrivately,
@@ -897,6 +898,38 @@ function registerIpc(): void {
       }
       shell.showItemInFolder(target);
       return target;
+    },
+  );
+
+  ipcMain.handle(
+    'app:shareSessionReport',
+    async (_event, input: { filename?: unknown; content?: unknown }) => {
+      if (typeof input?.filename !== 'string' || typeof input?.content !== 'string') {
+        throw new Error('Некорректный отчёт сессии');
+      }
+      return shareSessionReport(
+        { filename: input.filename, content: input.content },
+        {
+          platform: process.platform,
+          reportsDir: path.join(app.getPath('documents'), 'SkillCue Reports'),
+          env: process.env,
+          exists: (candidate) => fs.existsSync(candidate),
+          mkdir: (directory) => {
+            fs.mkdirSync(directory, { recursive: true });
+          },
+          writeFile: (target, content) => fs.writeFileSync(target, content, 'utf8'),
+          launch: (executable, args) => {
+            const child = spawn(executable, args, {
+              detached: true,
+              stdio: 'ignore',
+              windowsHide: true,
+            });
+            child.unref();
+          },
+          reveal: (target) => shell.showItemInFolder(target),
+          openExternal: (url) => shell.openExternal(url),
+        },
+      );
     },
   );
 

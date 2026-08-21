@@ -358,6 +358,11 @@ export interface ElectronAPI {
   quit?: () => Promise<void>;
   /** Собирает zip с логами и системной информацией, показывает его в проводнике. */
   collectDiagnostics?: (extra: Array<{ name: string; content: string }>) => Promise<string>;
+  shareSessionReport?: (input: { filename: string; content: string }) => Promise<{
+    path: string;
+    telegramOpened: boolean;
+    fallback: boolean;
+  }>;
   keybinds?: {
     get: () => Promise<KeybindsInfo>;
     setToggleOverlay: (accelerator: string) => Promise<KeybindSetResult>;

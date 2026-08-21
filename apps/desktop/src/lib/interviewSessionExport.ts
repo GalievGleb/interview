@@ -29,6 +29,8 @@ export interface ExchangeLatency {
 }
 
 export interface CopilotAnswerPipeline {
+  model?: string;
+  modelSource?: string;
   rawTranscript: string;
   normalizedTranscript: string;
   resolvedQuestion: string;
@@ -81,6 +83,7 @@ export interface InterviewSessionExport {
   endedAt: string | null;
   active: boolean;
   summary?: string | null;
+  diagnostics?: SessionDetail['diagnostics'];
   transcript: Array<{
     speaker: string;
     text: string;
@@ -222,6 +225,7 @@ export function buildStoredSessionExport(session: SessionDetail): InterviewSessi
     endedAt: session.ended_at,
     active: false,
     summary: session.summary,
+    diagnostics: session.diagnostics,
     transcript: session.transcripts.map((t) => ({
       speaker: t.speaker,
       text: t.text,
@@ -230,7 +234,7 @@ export function buildStoredSessionExport(session: SessionDetail): InterviewSessi
     })),
     exchanges: session.answers.map((a) => ({
       id: a.id,
-      ts: session.started_at,
+      ts: new Date(a.ts ?? session.started_at).toISOString(),
       source: 'stored',
       question: { resolved: a.question },
       answer: {
@@ -240,6 +244,12 @@ export function buildStoredSessionExport(session: SessionDetail): InterviewSessi
         english: a.english,
         risk: a.risk,
       },
+      pipeline: a.model ? {
+        model: a.model,
+        rawTranscript: a.question,
+        normalizedTranscript: a.question,
+        resolvedQuestion: a.question,
+      } : undefined,
     })),
   };
 }

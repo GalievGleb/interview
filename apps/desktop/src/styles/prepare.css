@@ -3531,6 +3531,13 @@ button.prep-priority-row:hover {
   text-wrap: balance;
 }
 
+.session-review__header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .session-review__meta {
   display: flex;
   flex-wrap: wrap;
@@ -3915,6 +3922,11 @@ button.prep-priority-row:hover {
   }
 
   .session-review__header .prep-btn {
+    width: 100%;
+  }
+
+  .session-review__header-actions {
+    display: grid;
     width: 100%;
   }
 
@@ -6213,9 +6225,20 @@ button.prep-priority-row:hover {
 
 .interview-session-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
   border-bottom: 1px solid var(--prep-border);
+}
+
+.interview-session-row__report {
+  margin-inline: 4px;
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .interview-session-row__report span {
+    display: none;
+  }
 }
 
 .interview-session-row:last-child {

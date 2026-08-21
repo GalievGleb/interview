@@ -1,12 +1,13 @@
 import json
 from datetime import UTC, datetime
+from typing import Any
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.errors import AppError
-from app.db.models import InterviewSession, SessionAssessment, Transcript
+from app.db.models import InterviewSession, SessionAssessment, SessionDiagnostic, Transcript
 from app.db.session import get_db
 from app.services import quota
 from app.services.session_analysis import analyze_session, session_analysis_source_fingerprint
@@ -17,6 +18,8 @@ from app.services.session_mutation_lock import (
 )
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
+
+MAX_SESSION_DIAGNOSTICS_BYTES = 1_000_000
 
 
 def _naive_utc_now() -> datetime:
@@ -429,6 +432,7 @@ def get_session(session_id: str, db: Session = Depends(get_db)) -> dict:
         "started_at": s.started_at.isoformat(),
         "ended_at": s.ended_at.isoformat() if s.ended_at else None,
         "summary": s.summary,
+        "diagnostics": json.loads(s.diagnostic.payload_json) if s.diagnostic else None,
         "transcripts": [
             {"speaker": t.speaker, "text": t.text, "ts": t.ts.isoformat()}
             for t in sorted(s.transcripts, key=lambda x: x.ts)
@@ -442,10 +446,46 @@ def get_session(session_id: str, db: Session = Depends(get_db)) -> dict:
                 "detailed": a.answer_detailed,
                 "english": a.answer_en,
                 "risk": a.risk_note,
+                "model": a.model,
+                "ts": a.ts.isoformat(),
             }
             for a in sorted(s.answers, key=lambda x: x.ts)
         ],
     }
+
+
+class SessionDiagnosticsPayload(BaseModel):
+    model_config = {"extra": "allow"}
+
+    schemaVersion: int = 1
+    events: list[dict[str, Any]] = Field(default_factory=list)
+
+
+@router.put("/{session_id}/diagnostics")
+def save_session_diagnostics(
+    session_id: str,
+    payload: SessionDiagnosticsPayload,
+    db: Session = Depends(get_db),
+) -> dict:
+    session = db.get(InterviewSession, session_id)
+    if not session:
+        raise AppError("Session not found", 404, "not_found")
+    serialized = json.dumps(payload.model_dump(), ensure_ascii=False, separators=(",", ":"))
+    if len(serialized.encode("utf-8")) > MAX_SESSION_DIAGNOSTICS_BYTES:
+        raise AppError(
+            "Session diagnostics are too large",
+            413,
+            "diagnostics_too_large",
+        )
+    row = session.diagnostic
+    if row is None:
+        row = SessionDiagnostic(session_id=session_id, payload_json=serialized)
+        db.add(row)
+    else:
+        row.payload_json = serialized
+        row.updated_at = _naive_utc_now()
+    db.commit()
+    return {"saved": session_id, "event_count": len(payload.events)}
 
 
 @router.delete("")

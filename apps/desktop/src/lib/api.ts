@@ -5,6 +5,8 @@ import {
   NormalizedModel,
 } from './aiModels';
 import { answerLanguageParam } from './answerLanguage';
+import type { DebugBundle } from './liveDebugRecorder';
+import { parseInterviewStreamEvent } from './streamInterviewEvent';
 
 export interface SttSettingsDto {
   engine: 'openai-mini';
@@ -387,7 +389,10 @@ export interface SessionDetail extends SessionItem {
     detailed: string;
     english: string;
     risk: string;
+    model?: string | null;
+    ts?: string;
   }[];
+  diagnostics?: DebugBundle | null;
 }
 
 export interface SessionKnowledgeTopicDto {
@@ -668,6 +673,15 @@ export const api = {
       body: JSON.stringify({ speaker, text, is_final: true }),
     }),
 
+  saveSessionDiagnostics: (sessionId: string, diagnostics: DebugBundle) =>
+    request<{ saved: string; event_count: number }>(
+      `/sessions/${encodeURIComponent(sessionId)}/diagnostics`,
+      {
+        method: 'PUT',
+        body: JSON.stringify(diagnostics),
+      },
+    ),
+
   /** Ленивая генерация варианта ответа для табов «Кратко/Подробно/Английский/Риски».
    *  С answerId вариант кэшируется в БД — при повторном заходе LLM не вызывается. */
   answerVariant: (question: string, answer: string, variant: AnswerVariantKind, answerId?: string) =>
@@ -830,7 +844,11 @@ export const api = {
     question: string,
     handlers: {
       onChunk: (text: string) => void;
-      onDone: (spoken: string, answerId?: string) => void;
+      onDone: (
+        spoken: string,
+        answerId?: string,
+        meta?: { model?: string; modelSource?: string },
+      ) => void;
       onError: (msg: string) => void;
     },
     opts: StreamInterviewOpts = {},
@@ -844,11 +862,15 @@ export const api = {
     const watchdog = createIdleWatchdog(controller);
     const { arm: armIdle, disarm: disarmIdle } = watchdog;
 
-    const finish = (text: string, answerId?: string) => {
+    const finish = (
+      text: string,
+      answerId?: string,
+      meta?: { model?: string; modelSource?: string },
+    ) => {
       if (finished) return;
       finished = true;
       disarmIdle();
-      handlers.onDone(text, answerId);
+      handlers.onDone(text, answerId, meta);
     };
 
     void (async () => {
@@ -901,21 +923,18 @@ export const api = {
         const processLine = (line: string): boolean => {
           if (!line.startsWith('data: ')) return false;
           try {
-            const evt = JSON.parse(line.slice(6)) as {
-              type: string;
-              id?: string;
-              text?: string;
-              spoken?: string;
-              message?: string;
-              correction?: StreamInterviewCorrectionMeta;
-            };
+            const evt = parseInterviewStreamEvent(line.slice(6));
+            if (!evt) return false;
             if (evt.type === 'chunk' && evt.text) {
               spoken += evt.text;
               opts.onFirstChunk?.();
               handlers.onChunk(evt.text);
             } else if (evt.type === 'done') {
               if (evt.correction) opts.onMeta?.(evt.correction);
-              finish(evt.spoken ?? spoken, evt.id);
+              finish(evt.spoken ?? spoken, evt.id, {
+                model: evt.model,
+                modelSource: evt.modelSource,
+              });
               return true;
             } else if (evt.type === 'error') {
               if (spoken) finish(spoken);

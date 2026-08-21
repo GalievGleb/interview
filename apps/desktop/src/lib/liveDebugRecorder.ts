@@ -32,6 +32,7 @@ export interface DebugEvent {
 }
 
 export interface DebugBundle {
+  schemaVersion: 1;
   generatedAt: string;
   sampleRate: number;
   durationMs: number;
@@ -88,6 +89,7 @@ export class LiveDebugRecorder {
 
   buildJson(audioFile: string | null, extra?: Record<string, unknown>): DebugBundle {
     return {
+      schemaVersion: 1,
       generatedAt: new Date().toISOString(),
       sampleRate: this.sampleRate,
       durationMs: this.durationMs(),

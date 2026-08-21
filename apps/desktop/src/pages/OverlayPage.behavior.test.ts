@@ -187,6 +187,13 @@ describe('overlay request behavior', () => {
     expect(hookSource.slice(drainAt, drainAt + 240)).toContain('if (sessionHasContent)');
   });
 
+  it('persists the selected session diagnostic timeline before ending it', () => {
+    const saveAt = hookSource.indexOf('api.saveSessionDiagnostics(sid');
+    const endAt = hookSource.indexOf('api.endSession(sid)', saveAt);
+    expect(saveAt).toBeGreaterThan(-1);
+    expect(endAt).toBeGreaterThan(saveAt);
+  });
+
   it('ignores metadata from a superseded stream generation', () => {
     const metaAt = hookSource.indexOf('onMeta: (correctionMeta) => {');
     expect(metaAt).toBeGreaterThan(-1);
