@@ -88,6 +88,7 @@ STRICT GROUNDING RULES:
 - For sourceType="resume" or "legend", evidenceQuote must be one short, verbatim quote copied from that source which directly supports the answer. Do not paraphrase the evidence quote.
 - Use sourceType="confirmed" only when the new question has the same scope as a USER-CONFIRMED ANSWER and the returned value is exactly that confirmed value. Put that exact value in evidenceQuote.
 - Use sourceType="knowledge" only for a general professional, scenario, test-design, or coding question whose answer does not claim anything about this candidate's history, identity, preference, availability, or status. Otherwise use "none".
+- In AUTOMATIC MODE, mark an objective technical-knowledge answer canAutoFill=true, including exact closed options such as Да/Нет, when it is impersonal and needs no candidate-specific fact. Do not choose a neutral "Свой вариант" when one of the exact options is technically correct.
 - USER-CONFIRMED ANSWERS are authoritative candidate facts and preferences, but ONLY within the exact scope stated by their original question and answer.
 - Never generalize a confirmed answer to a broader decision. Consent to relocate to one named country, for one duration, or under stated conditions does not imply consent to another country, duration, or conditions. A salary, work format, start date, citizenship, language level, or travel preference is reusable only when the new question asks the same thing.
 - Never invent project counts, team size, dates, metrics, budgets, people management, tools, responsibilities, or outcomes.

@@ -123,6 +123,17 @@ _SCREENING_KNOWLEDGE_RE = re.compile(
     r"implement\s+(?:a\s+)?(?:function|test|solution)|write\s+(?:code|a\s+function|tests?))",
     re.IGNORECASE,
 )
+_SCREENING_OBJECTIVE_TECHNICAL_SUBJECT_RE = re.compile(
+    r"(?:"
+    r"\b(?:sql|nosql|kafka|playwright|selenium|rest|api|http|https|tcp|udp|oauth|jwt|"
+    r"docker|kubernetes|linux|git|java|python|javascript|typescript|redis|postgres|mysql|"
+    r"grpc|graphql|ci\s*/\s*cd|frontend|backend|бэкенд|фронтенд|dom|network)\b|"
+    r"тестир|провер|автотест|smoke|регресс|тест[- ]?дизайн|баг|дефект|ошиб|консол|браузер|"
+    r"кнопк|веб[- ]?приложен|сайт|сервер|клиент|запрос|код|алгоритм|архитектур|"
+    r"модул|микросервис|протокол|транзакц|индекс|кеш|кэш|очеред|контейнер|сеть"
+    r")",
+    re.IGNORECASE,
+)
 _SCREENING_BEHAVIORAL_HISTORY_RE = re.compile(
     r"(?:"
     r"(?:как|что)\s+(?:именно\s+)?(?:вы\s+)?(?:решил[иа]|решали|поступил[иа]|поступали|"
@@ -552,6 +563,23 @@ def _screening_server_autofill(
     )
     if confirmed_value:
         return True, "confirmed", confirmed_value[:500]
+
+    prompt = str(question.get("prompt", ""))
+    claim_text = " ".join([answer_text, *selected]).strip()
+    objective_technical_knowledge = bool(
+        provenance == "knowledge"
+        and _SCREENING_OBJECTIVE_TECHNICAL_SUBJECT_RE.search(prompt)
+        and not _SCREENING_RESTRICTED_FACT_RE.search(prompt)
+        and not _SCREENING_EXPERIENCE_RE.search(prompt)
+        and not _SCREENING_BEHAVIORAL_HISTORY_RE.search(prompt)
+        and not _SCREENING_PROMPT_INJECTION_RE.search(prompt)
+        and not _SCREENING_RESTRICTED_FACT_RE.search(claim_text)
+        and not _SCREENING_PERSONAL_HISTORY_ANSWER_RE.search(claim_text)
+        and not _SCREENING_PERSONAL_FACT_ANSWER_RE.search(claim_text)
+        and not _SCREENING_KNOWLEDGE_PERSONAL_MARKER_RE.search(claim_text)
+    )
+    if objective_technical_knowledge:
+        return True, "knowledge", ""
 
     # A free-form quote cannot safely bind a model-generated Да/Нет (or one
     # selected option) to every subject in a compound employer question. Exact

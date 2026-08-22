@@ -395,6 +395,21 @@ describe('HH candidate screening knowledge', () => {
     expect(result?.canAutoFill).toBe(true);
   });
 
+  it('rejects the backend-only conclusion when a browser button has no console errors', () => {
+    const result = knownScreeningAnswer({
+      id: 'frontend-or-backend',
+      prompt: 'На сайте не нажимается кнопка. В консоли браузера ошибок нет. Значит проблема на бэкенде, завожу баг на разработчиков? Ответьте ДА или НЕТ и поясните в 1–2 предложениях.',
+      kind: 'single',
+      options: ['Да', 'Нет', 'Свой вариант'],
+      required: true,
+    }, null);
+
+    expect(result).toMatchObject({
+      selectedOptions: ['Нет'],
+      canAutoFill: true,
+    });
+  });
+
   it('writes the requested Python function and tests locally', () => {
     const result = knownScreeningAnswer({
       id: 'code',

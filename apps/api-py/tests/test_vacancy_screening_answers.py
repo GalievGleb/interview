@@ -260,7 +260,7 @@ def test_screening_answers_allows_only_exact_confirmed_restricted_value(client, 
     assert answer["evidenceQuote"] == "Красноярск"
 
 
-def test_screening_answers_keeps_general_knowledge_in_review_mode(client, monkeypatch):
+def test_screening_answers_auto_fills_objective_technical_knowledge(client, monkeypatch):
     monkeypatch.setattr(rag_service, "get_context_text", lambda *_args: "")
 
     async def fake_complete(*_args, **_kwargs):
@@ -298,8 +298,56 @@ def test_screening_answers_keeps_general_knowledge_in_review_mode(client, monkey
     )
 
     assert response.status_code == 200, response.text
-    assert response.json()["answers"][0]["canAutoFill"] is False
+    assert response.json()["answers"][0]["canAutoFill"] is True
     assert response.json()["answers"][0]["sourceType"] == "knowledge"
+
+
+def test_screening_answers_auto_selects_technical_yes_no_instead_of_custom_option(
+    client, monkeypatch
+):
+    monkeypatch.setattr(rag_service, "get_context_text", lambda *_args: "")
+
+    async def fake_complete(*_args, **_kwargs):
+        return json.dumps(
+            {
+                "answers": [
+                    {
+                        "id": "frontend-or-backend",
+                        "answer": "Отсутствие ошибок в консоли не доказывает проблему на бэкенде: сначала нужно проверить обработчик, DOM, Network и воспроизведение.",
+                        "selectedOptions": ["Нет"],
+                        "canAutoFill": True,
+                        "sourceType": "knowledge",
+                        "evidenceQuote": "",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        )
+
+    monkeypatch.setattr(provider_adapter, "complete", fake_complete)
+    response = client.post(
+        "/vacancy/screening-answers",
+        json={
+            "vacancyTitle": "Middle QA-инженер",
+            "vacancyCompany": "Джемтех",
+            "questions": [
+                {
+                    "id": "frontend-or-backend",
+                    "prompt": "На сайте не нажимается кнопка. В консоли браузера ошибок нет. Значит проблема на бэкенде, завожу баг на разработчиков? Ответьте ДА или НЕТ и поясните в 1–2 предложениях.",
+                    "kind": "single",
+                    "options": ["Да", "Нет", "Свой вариант"],
+                    "required": True,
+                }
+            ],
+            "language": "ru",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    answer = response.json()["answers"][0]
+    assert answer["selectedOptions"] == ["Нет"]
+    assert answer["canAutoFill"] is True
+    assert answer["sourceType"] == "knowledge"
 
 
 @pytest.mark.parametrize("raw_flag", ["false", "true", 1, 0, None, [], {}])
