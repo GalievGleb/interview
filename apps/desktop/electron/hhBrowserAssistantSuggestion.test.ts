@@ -161,6 +161,28 @@ describe('HH interactive screening-answer suggestions', () => {
     expect(generator).not.toHaveBeenCalled();
   });
 
+  it('uses the selected resume amount for an explicit net salary question', async () => {
+    const generator = vi.fn(async () => ({ answers: [] }));
+    const vacancy: HhQueueItem = {
+      ...pendingRtsVacancy(),
+      selectedResumeTitle: 'Постоянная работа, подработка Qa Fullstack engineer python 240 000 ₽ · Удалённо',
+      pendingQuestions: [{
+        id: 'salary-net',
+        prompt: 'Какая сумма на руки будет для вас комфортна?',
+        kind: 'text',
+        options: [],
+        required: true,
+      }],
+    };
+    const assistant = createAssistant(generator, vacancy);
+
+    const result = await assistant.suggestScreeningAnswer(vacancy.key, 'salary-net');
+
+    expect(result).toMatchObject({ source: 'profile' });
+    expect(result.answer).toContain('240\u00a0000 ₽ на руки');
+    expect(generator).not.toHaveBeenCalled();
+  });
+
   it('does not borrow a salary from another resume when the selected resume has none', async () => {
     const generator = vi.fn(async () => ({ answers: [] }));
     const vacancy: HhQueueItem = {

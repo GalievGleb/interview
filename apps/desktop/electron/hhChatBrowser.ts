@@ -91,6 +91,7 @@ export interface HhChatConversation {
   lastMessageMine: boolean;
   lastRecruiterMessage?: string;
   needsUserInput: boolean;
+  awaitingRecruiter?: boolean;
 }
 
 export interface HhChatPendingDecision {
@@ -280,6 +281,21 @@ export function isHhPlatformAssistantMessage(value: string): boolean {
     /бот[-\s\u2011]?помощник\s+х[эе]дди/i.test(text) ||
     /ответьте\s+на\s+приглашение[^.]{0,180}рекомендовать\s+вам\s+более\s+подходящие\s+вакансии/i.test(text)
   );
+}
+
+/** A receipt/status notice says the application is queued for review and asks nothing of the applicant. */
+export function isPassiveApplicationReceipt(value: string): boolean {
+  const text = compactText(value);
+  if (!text || /\?/u.test(text)) return false;
+  if (
+    /(?:ответьте|напишите|уточните|пришлите|заполните|подтвердите|свяжитесь|перейдите|выберите|укажите)/i.test(text)
+  ) return false;
+  const reviewAcknowledged = (
+    /рассмотрим[^.!?]{0,100}(?:ваш[ео]?\s+)?резюме/i.test(text)
+    || /отклик[^.!?]{0,120}(?:успешно\s+)?(?:зарегистрирован|направлен|получен)/i.test(text)
+  );
+  const employerWillContact = /(?:если|в\s+случае)[^.!?]{0,180}(?:подойд|заинтерес|соответств)[^.!?]{0,180}(?:свяж|приглас|сообщ)/i.test(text);
+  return reviewAcknowledged && employerWillContact;
 }
 
 /** A batch of recruiter questions must be answered as one questionnaire, not as one detected fact. */
@@ -1004,6 +1020,7 @@ export class HhChatBrowser {
         lastMessageMine: false,
         lastRecruiterMessage: '',
         needsUserInput: this.pendingDecisions.some((pending) => pending.negotiationKey === item.key),
+        awaitingRecruiter: false,
       }]));
       let shouldPersist = negotiations.length > 0 ||
         this.pendingDecisions.length !== pendingCountBeforeRejectCleanup ||
@@ -1071,6 +1088,22 @@ export class HhChatBrowser {
           );
           this.interviewCalendar?.cancelNegotiation(negotiation.key);
           this.seenMessageIds.add(messageId);
+          shouldPersist = true;
+          continue;
+        }
+        if (isPassiveApplicationReceipt(lastMessage.text)) {
+          this.pendingDecisions = this.pendingDecisions.filter(
+            (pending) => pending.messageId !== messageId,
+          );
+          this.seenMessageIds.add(messageId);
+          conversations.set(negotiation.key, {
+            ...conversations.get(negotiation.key)!,
+            hasUnread: false,
+            needsUserInput: this.pendingDecisions.some(
+              (pending) => pending.negotiationKey === negotiation.key,
+            ),
+            awaitingRecruiter: true,
+          });
           shouldPersist = true;
           continue;
         }

@@ -68,6 +68,10 @@ export class OperationalTelemetryStore {
     this.save();
   }
 
+  dispose(): void {
+    // Persistence is synchronous; retained for uniform shutdown ordering.
+  }
+
   snapshot(): PersistedTelemetry {
     return { enabled: this.state.enabled, events: this.state.events.map((event) => ({ ...event })) };
   }

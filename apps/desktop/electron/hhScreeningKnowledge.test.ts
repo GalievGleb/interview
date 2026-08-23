@@ -63,7 +63,7 @@ describe('HH candidate screening knowledge', () => {
     )).toContain('240 000 ₽ в месяц');
   });
 
-  it('requires an explicit tax basis in the question to match the exact salary source', () => {
+  it('uses the requested tax basis for an unqualified HH salary and rejects an explicit mismatch', () => {
     expect(buildSalaryExpectationAnswer(
       240_000,
       'Какую зарплату на руки вы ожидаете?',
@@ -83,7 +83,7 @@ describe('HH candidate screening knowledge', () => {
       240_000,
       'Какую зарплату на руки вы ожидаете?',
       'QA Automation Engineer · 240 000 ₽ · удалённо',
-    )).toBe('');
+    )).toContain('240\u00a0000 ₽ на руки');
     expect(knownScreeningAnswer({
       id: 'salary-tax-basis',
       prompt: 'Какую зарплату до налогов вы ожидаете?',
@@ -97,7 +97,7 @@ describe('HH candidate screening knowledge', () => {
       kind: 'text',
       options: [],
       required: true,
-    }, 240_000)).toBeNull();
+    }, 240_000)?.answer).toContain('240\u00a0000 ₽ на руки');
     expect(buildSalaryExpectationAnswer(
       240_000,
       'Какую зарплату gross вы ожидаете?',
@@ -794,5 +794,170 @@ AQA-Engineer Python. API автотесты Requests + Pytest.
       id: 'matrix', prompt: 'Работали ли вы с Matrix?', kind: 'text', options: [], required: true,
     }], 30);
     expect(selected).toEqual([]);
+  });
+
+  it.each([
+    {
+      prompt: 'Я тестирую web приложение. Я вижу код, но не вижу базу данных. Это Black Box тестирование? Ответьте ДА или НЕТ и поясните в 1–2 предложениях.',
+      expectedOption: 'Нет',
+      answerIncludes: 'исходному коду',
+    },
+    {
+      prompt: 'В Postman отправил POST-запрос, получил 200 OK. Значит данные точно сохранились в базе? Ответьте ДА или НЕТ и поясните в 1–2 предложениях.',
+      expectedOption: 'Нет',
+      answerIncludes: 'не гарантирует',
+    },
+    {
+      prompt: 'Я всегда делаю git push сразу после завершения работы, не проверяя, обновлялся ли удалённый репозиторий? Ответьте ДА или НЕТ и поясните в 1–2 предложениях.',
+      expectedOption: 'Нет',
+      answerIncludes: 'fetch',
+    },
+    {
+      prompt: 'В GitLab CI/CD упал smoke-тест. Я перезапущу пайплайн (Re-run), потому что тест мог упасть из-за временной проблемы? Ответьте ДА или НЕТ и поясните в 1–2 предложениях.',
+      expectedOption: 'Да',
+      answerIncludes: 'логи',
+    },
+    {
+      prompt: 'LEFT JOIN и RIGHT JOIN всегда дают разный результат, если просто поменять таблицы местами? Ответьте ДА или НЕТ и поясните в 1–2 предложениях.',
+      expectedOption: 'Нет',
+      answerIncludes: 'эквивалент',
+    },
+    {
+      prompt: 'В TestIt (или TestRail) написан тест-кейс: "Проверить, что регистрация работает и содержит 5-8 пунктов обязательных проверок". Это хороший тест-кейс? Ответьте ДА или НЕТ и поясните в 1–2 предложениях.',
+      expectedOption: 'Нет',
+      answerIncludes: 'шаг',
+    },
+    {
+      prompt: 'Код 500 Internal Server Error всегда говорит о проблеме в коде сервера, и клиент не должен повторять запрос? Ответьте ДА или НЕТ и поясните в 1–2 предложениях.',
+      expectedOption: 'Нет',
+      answerIncludes: 'повтор',
+    },
+  ])('answers an objective QA quiz locally: $prompt', ({ prompt, expectedOption, answerIncludes }) => {
+    const answer = knownScreeningAnswer({
+      id: 'technical-quiz',
+      prompt,
+      kind: 'single',
+      options: ['Да', 'Нет', 'Свой вариант'],
+      required: true,
+    }, null, '');
+
+    expect(answer).toMatchObject({
+      selectedOptions: [expectedOption],
+      canAutoFill: true,
+      sourceType: 'knowledge',
+    });
+    expect(answer?.answer.toLocaleLowerCase('ru')).toContain(answerIncludes.toLocaleLowerCase('ru'));
+  });
+
+  it('answers the objective test-plan question locally without model tokens', () => {
+    const answer = knownScreeningAnswer({
+      id: 'test-plan',
+      prompt: 'Какие компоненты включает в себя хороший тест план?',
+      kind: 'text',
+      options: [],
+      required: true,
+    }, null, '');
+
+    expect(answer).toMatchObject({
+      canAutoFill: true,
+      sourceType: 'knowledge',
+    });
+    expect(answer?.answer).toContain('критерии входа и выхода');
+  });
+
+  it.each([
+    {
+      prompt: 'У вас уверенное владение Postman?',
+      resume: 'Работаю со стеком: Python, REST API, Postman, Swagger/OpenAPI.',
+    },
+    {
+      prompt: 'Вы тестировали Rest API?',
+      resume: 'Разрабатываю API автотесты. Работаю со стеком: REST API, HTTPX, Requests.',
+    },
+    {
+      prompt: 'У вас есть уверенное владение SQL?',
+      resume: 'Продвинутый уровень: SQL. Работаю с PostgreSQL и пишу JOIN-запросы.',
+    },
+    {
+      prompt: 'У вас есть опыт написания тест-кейсов для дальнейшего покрытия командой автоматизаторов?',
+      resume: 'Создаю тестовую документацию: тест-кейсы и чек-листы для последующей автоматизации.',
+    },
+  ])('selects yes only when the selected resume explicitly proves the skill: $prompt', ({ prompt, resume }) => {
+    const answer = knownScreeningAnswer({
+      id: 'resume-skill',
+      prompt,
+      kind: 'single',
+      options: ['да', 'нет'],
+      required: true,
+    }, null, resume);
+
+    expect(answer).toMatchObject({
+      selectedOptions: ['да'],
+      canAutoFill: true,
+      sourceType: 'resume',
+    });
+    expect(answer?.evidenceQuote).toBeTruthy();
+  });
+
+  it.each([
+    'У вас уверенное владение Postman?',
+    'Вы тестировали Rest API?',
+    'У вас есть уверенное владение SQL?',
+    'У вас есть опыт написания тест-кейсов для дальнейшего покрытия командой автоматизаторов?',
+  ])('does not guess a resume skill when the selected resume has no evidence: %s', (prompt) => {
+    expect(knownScreeningAnswer({
+      id: 'missing-skill',
+      prompt,
+      kind: 'single',
+      options: ['да', 'нет'],
+      required: true,
+    }, null, 'QA Engineer. Python и ручное тестирование.')).toBeNull();
+  });
+
+  it('reuses an explicitly confirmed age across equivalent employer wording', () => {
+    const fact = {
+      question: 'Сколько вам лет?',
+      answer: '24',
+      selectedOptions: [] as string[],
+    };
+    const question = {
+      id: 'age-reworded',
+      prompt: 'Укажите ваш возраст полных лет',
+      kind: 'text' as const,
+      options: [],
+      required: true,
+    };
+
+    expect(screeningQuestionSemanticKey(fact.question)).toBe('profile:age');
+    expect(screeningQuestionSemanticKey(question.prompt)).toBe('profile:age');
+    expect(reusableScreeningAnswer(question, fact)).toMatchObject({
+      answer: '24',
+      canAutoFill: true,
+    });
+    expect(screeningQuestionSemanticKey('Укажите дату рождения')).not.toBe('profile:age');
+  });
+
+  it('reuses a confirmed backend/frontend testing ratio across equivalent wording', () => {
+    const fact = {
+      question: 'Сколько в процентах вы тестировали бэкэнд к фронту?',
+      answer: '50% бэкэнд / 50% фронтенд',
+      selectedOptions: [] as string[],
+    };
+    const question = {
+      id: 'ratio-reworded',
+      prompt: 'Какое у вас было соотношение тестирования backend и frontend?',
+      kind: 'text' as const,
+      options: [],
+      required: true,
+    };
+
+    expect(screeningQuestionSemanticKey(fact.question)).toBe('profile:test-scope-ratio');
+    expect(screeningQuestionSemanticKey(question.prompt)).toBe('profile:test-scope-ratio');
+    expect(reusableScreeningAnswer(question, fact)).toMatchObject({
+      answer: '50% бэкэнд / 50% фронтенд',
+      canAutoFill: true,
+    });
+    expect(screeningQuestionSemanticKey('Сколько лет опыта автотестов Backend и Frontend?'))
+      .not.toBe('profile:test-scope-ratio');
   });
 });

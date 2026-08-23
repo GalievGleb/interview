@@ -718,6 +718,108 @@ describe('HhChatBrowser current HH contract', () => {
     expect(source).toContain('if (!lastMessage || (!unansweredQuestionnaire && lastMessage.isMine)) continue');
   });
 
+  it('consumes application receipt notices without asking the applicant to reply', async () => {
+    const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skillcue-hh-chat-receipts-'));
+    const receipts = [
+      {
+        key: 'Ведущий инженер по тестированию\u0000Правительство Москвы',
+        vacancyTitle: 'Ведущий инженер по тестированию',
+        companyName: 'Правительство Москвы',
+        inboundId: 'chatik-chat-message-government-receipt',
+        text: 'Екатерина Галиев Русланович, здравствуйте! Благодарим Вас за отклик на вакансию "Ведущий инженер по тестированию"! Он успешно зарегистрирован и направлен в Центр подбора персонала Правительства Москвы. Мы рассмотрим Ваше резюме в ближайшее время. Если оно заинтересует нас, мы обязательно свяжемся с Вами для обсуждения деталей. Спасибо за Ваше желание построить свою карьеру в нашей команде!',
+      },
+      {
+        key: 'Middle QA Engineer / Тестировщик\u0000Займиго МКК',
+        vacancyTitle: 'Middle QA Engineer / Тестировщик',
+        companyName: 'Займиго МКК',
+        inboundId: 'chatik-chat-message-zaymigo-receipt',
+        text: 'Дарья Галиев Русланович, здравствуйте! Рассмотрим ваше резюме. Если навыки и опыт подойдут для позиции, мы свяжемся с вами. Жунина Дарья',
+      },
+    ];
+    try {
+      fs.writeFileSync(path.join(userDataDir, 'hh-chat-browser.json'), JSON.stringify({
+        config: { ...DEFAULT_CHAT_CONFIG, replyDelaySec: 0 },
+        seenMessageIds: [],
+        repliesToday: 0,
+        replyDate: '2000-01-01',
+        pendingDecisions: receipts.map((receipt, index) => ({
+          id: `stale-receipt-decision-${index}`,
+          negotiationKey: receipt.key,
+          messageId: `${receipt.key}:${receipt.inboundId}`,
+          vacancyTitle: receipt.vacancyTitle,
+          companyName: receipt.companyName,
+          recruiterMessage: receipt.text,
+          question: `Подтвердите личный факт для ответа работодателю: «${receipt.text}»`,
+          kind: 'candidate_fact',
+          createdAt: new Date().toISOString(),
+        })),
+      }), 'utf8');
+      const page = {
+        isClosed: () => false,
+        url: () => HH_NEGOTIATIONS_URL,
+        locator: () => ({ first: () => ({ waitFor: () => Promise.resolve() }) }),
+      };
+      const frame = {
+        url: () => 'https://chatik.hh.ru/chat/application-receipt',
+        locator: (selector: string) => selector === 'body'
+          ? { innerText: () => Promise.resolve('Обычный активный чат') }
+          : { first: () => ({ isVisible: () => Promise.resolve(true) }) },
+      };
+      let activeReceipt = receipts[0];
+      const llmCall = vi.fn(async () => 'Спасибо за информацию.');
+      const chat = new HhChatBrowser(userDataDir, async () => page as never, llmCall);
+      const internals = chat as unknown as {
+        scrapeNegotiations: () => Promise<Array<{
+          index: number;
+          key: string;
+          vacancyTitle: string;
+          companyName: string;
+          isDiscussion: boolean;
+          hasUnread: boolean;
+          isRejected: boolean;
+        }>>;
+        openNegotiation: (_page: typeof page, negotiation: { key: string }) => Promise<typeof frame>;
+        scrapeMessages: () => Promise<Array<{ id: string; text: string; isMine: boolean }>>;
+        sendChatMessage: () => Promise<void>;
+        pollOnce: () => Promise<void>;
+      };
+      vi.spyOn(internals, 'scrapeNegotiations').mockResolvedValue(receipts.map((receipt, index) => ({
+        index,
+        key: receipt.key,
+        vacancyTitle: receipt.vacancyTitle,
+        companyName: receipt.companyName,
+        isDiscussion: true,
+        hasUnread: true,
+        isRejected: false,
+      })));
+      vi.spyOn(internals, 'openNegotiation').mockImplementation(async (_page, negotiation) => {
+        activeReceipt = receipts.find((receipt) => receipt.key === negotiation.key) ?? receipts[0];
+        return frame;
+      });
+      vi.spyOn(internals, 'scrapeMessages').mockImplementation(async () => [{
+        id: activeReceipt.inboundId,
+        text: activeReceipt.text,
+        isMine: false,
+      }]);
+      const sendChatMessage = vi.spyOn(internals, 'sendChatMessage').mockResolvedValue();
+
+      await internals.pollOnce();
+
+      expect(llmCall).not.toHaveBeenCalled();
+      expect(sendChatMessage).not.toHaveBeenCalled();
+      expect(chat.getState().pendingDecisions).toEqual([]);
+      expect(chat.getState().conversations).toEqual(expect.arrayContaining(receipts.map((receipt) => (
+        expect.objectContaining({
+          key: receipt.key,
+          needsUserInput: false,
+          awaitingRecruiter: true,
+        })
+      ))));
+    } finally {
+      fs.rmSync(userDataDir, { recursive: true, force: true });
+    }
+  });
+
   it('repairs a persisted v1 scheduling reply and routes a sensitive questionnaire to confirmation', async () => {
     const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skillcue-hh-chat-questionnaire-'));
     const negotiationKey = 'Старший инженер-тестировщик\u0000Правительство Москвы';

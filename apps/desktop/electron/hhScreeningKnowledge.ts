@@ -27,7 +27,7 @@ const NON_MONTHLY_SALARY_CADENCE_RE = /(?:(?:в|за|на)\s+(?:час|день|
 const NON_RUBLE_SALARY_CURRENCY_RE = /(?:\b(?:usd|eur|kzt|aed|gbp|cny|byn|gel|amd|uzs|try|inr|cad|chf|jpy|krw|brl|zar|sek|nok|dkk|pln|czk|huf|ron|bgn|rsd|thb|vnd|idr|mxn|ars|clp|aud|nzd|sgd|hkd|twd|myr|php|uah|ils|sar|qar|kwd|bhd|omr|egp|mad|ngn|kes|ghs|etb|usdt|usdc)\b|[$€₸₾֏¥₴]|доллар|евро|тенге|дирхам|фунт[а-яё]*|иен[а-яё]*|йен[а-яё]*|юан|гривн|белорусск[а-яё]*\s+рубл|лари|драм|(?:сом|сум)(?:ы|ов|ах)?(?![а-яё]))/i;
 const EXPECTED_SALARY_QUESTION_RE = /(?:ожидан|ожида|желаем|миним|комфорт|вилк|рассчитыва|ориентир|рассматрива|хот(?:ите|ел(?:и|а)?|им|елось)|интересу(?:ет|ют)|устроит|expected|desired|expectations?)/i;
 const BARE_EXPECTED_PAY_QUESTION_RE = /(?:(?:сколько|какую\s+сумм\w*)[^?\n]{0,45}(?:хот(?:ите|ели|им)|ожида(?:ете|ем|ю))[^?\n]{0,30}(?:получать|зарабатывать)|желаем[а-яё]*\s+сумм[а-яё]*[^?\n]{0,25}(?:на\s+руки|в\s+месяц))/i;
-const EXPECTED_SUM_SALARY_QUESTION_RE = /(?:сумм[а-яё]*[^?\n]{0,45}(?:рассчитыва|ориентир|рассматрива|устроит)|(?:рассчитыва|ориентир|рассматрива|устроит)[^?\n]{0,45}сумм[а-яё]*)/i;
+const EXPECTED_SUM_SALARY_QUESTION_RE = /(?:сумм[а-яё]*[^?\n]{0,45}(?:рассчитыва|ориентир|рассматрива|устроит|комфорт)|(?:рассчитыва|ориентир|рассматрива|устроит|комфорт)[^?\n]{0,45}сумм[а-яё]*)/i;
 const EXPLICIT_SALARY_EXPECTATION_LINE_RE = /(?:финансов[а-яё]*\s+ожидан|зарплатн[а-яё]*\s+ожидан|(?:желаем|ожидаем|expected|desired).{0,40}(?:зарплат|доход|компенсац|оплат|salary|income|compensation)|(?:зарплат|доход|компенсац|оплат|salary|income|compensation).{0,40}(?:желаем|ожидаем|expected|desired))/i;
 const NON_EXPECTATION_MONEY_LINE_RE = /(?:бюджет|оборот|выручк|расход|получал|получаю|получает|текущ(?:ая|ий|ее)\s+(?:зарплат|доход|оклад)|предыдущ(?:ая|ий|ее)|прошл(?:ая|ый|ое)\s+(?:зарплат|доход|оклад))/i;
 const SALARY_NET_BASIS_RE = /(?:на\s+руки|после\s+(?:(?:вычета|уплаты)\s+)?(?:налог|ндфл)|чист(?:ыми|ая|ый)(?![а-яё])|\bnet\b)/i;
@@ -66,6 +66,19 @@ const RUSSIAN_RELOCATION_RE = /(?:^|[^а-яё])(?:росси|рф(?=$|[^а-яё]
 export type ScreeningRelocationScope = 'russia' | 'abroad' | 'unspecified';
 
 const CURRENT_LOCATION_SEMANTIC_KEY = 'profile:current-location';
+const AGE_SEMANTIC_KEY = 'profile:age';
+const TEST_SCOPE_RATIO_SEMANTIC_KEY = 'profile:test-scope-ratio';
+
+function isAgeQuestion(value: string): boolean {
+  return !/(?:дата|день|месяц|год)\s+рождени/iu.test(value)
+    && /(?:сколько\s+(?:вам|тебе)\s+лет|(?:ваш|укажите|полных)\w*[^?\n]{0,25}возраст|возраст[^?\n]{0,25}(?:полных\s+лет|кандидат))/iu.test(value);
+}
+
+function isBackendFrontendTestingRatioQuestion(value: string): boolean {
+  return /(?:б[эе]к(?:энд|енд)|backend)/iu.test(value)
+    && /(?:фронт(?:енд|энд)?|frontend)/iu.test(value)
+    && /(?:процент|соотношени|дол[яи]|\d{1,3}\s*%)/iu.test(value);
+}
 
 /** True only for a request for the candidate's present home location. */
 export function isCurrentLocationQuestion(value: string): boolean {
@@ -90,6 +103,8 @@ export function screeningRelocationScope(value: string): ScreeningRelocationScop
  */
 export function screeningQuestionSemanticKey(value: string): string {
   if (isCurrentLocationQuestion(value)) return CURRENT_LOCATION_SEMANTIC_KEY;
+  if (isAgeQuestion(value)) return AGE_SEMANTIC_KEY;
+  if (isBackendFrontendTestingRatioQuestion(value)) return TEST_SCOPE_RATIO_SEMANTIC_KEY;
   // Destination-specific relocation questions must remain separate in
   // storage and in the UI. A confirmed global refusal can still be reused by
   // reusableScreeningAnswer, but “Рязань” and “Йошкар-Ола” must never collapse
@@ -178,6 +193,7 @@ export function reusableScreeningAnswer(
     !exact
     && sameMeaning
     && !sameCurrentLocation
+    && questionRelocationScope
     && (intent !== 'decline' || !isGlobalRelocationDecline(fact))
   ) return null;
   if (question.kind === 'text') {
@@ -230,6 +246,127 @@ const PROFESSIONAL_OPTION_RULES: Array<{
     preparationNote: 'Отсутствие ошибок в консоли не локализует дефект: нужно проверить обработчик события, DOM, Network и воспроизводимость.',
   },
 ];
+
+const OBJECTIVE_QA_QUIZ_RULES: Array<{
+  question: RegExp;
+  option: 'Да' | 'Нет';
+  answer: string;
+}> = [
+  {
+    question: /вижу\s+код.{0,80}не\s+вижу\s+баз[а-яё]*\s+данн.{0,80}black\s+box/iu,
+    option: 'Нет',
+    answer: 'Нет. При доступе к исходному коду это уже не чистый Black Box: тестировщик использует знание внутреннего устройства, поэтому подход ближе к White Box или Grey Box.',
+  },
+  {
+    question: /postman.{0,80}post[- ]?запрос.{0,80}200\s*ok.{0,100}(?:сохранил|сохран[её]н|баз[а-яё]*\s+данн)/iu,
+    option: 'Нет',
+    answer: 'Нет. HTTP 200 подтверждает успешную обработку запроса, но не гарантирует сохранение данных в базе; это проверяют отдельным GET-запросом, чтением БД или другим наблюдаемым результатом.',
+  },
+  {
+    question: /git\s+push.{0,100}не\s+провер.{0,80}(?:удал[её]нн|remote|репозитор)/iu,
+    option: 'Нет',
+    answer: 'Нет. Перед push нужно выполнить fetch и проверить изменения удалённой ветки, а при необходимости корректно интегрировать их через pull/rebase, чтобы избежать конфликта или отклонённой отправки.',
+  },
+  {
+    question: /(?:gitlab|ci\s*\/\s*cd).{0,80}(?:smoke|смоук).{0,80}(?:re-?run|перезапуст|повторн)/iu,
+    option: 'Да',
+    answer: 'Да, один контролируемый повтор допустим при возможном нестабильном окружении, но сначала нужно сохранить и проверить логи и артефакты. Повторное падение требует разбора причины, а не бесконечных перезапусков.',
+  },
+  {
+    question: /left\s+join.{0,40}right\s+join.{0,100}(?:поменя|таблиц).{0,50}мест/iu,
+    option: 'Нет',
+    answer: 'Нет. LEFT JOIN A с B эквивалентен RIGHT JOIN B с A при одинаковых условиях соединения; результат зависит от сохраняемой стороны и условия JOIN, а не только от названия операции.',
+  },
+  {
+    question: /(?:testit|testrail).{0,120}тест[- ]?кейс.{0,160}(?:регистрац|обязательн[а-яё]*\s+проверк)/iu,
+    option: 'Нет',
+    answer: 'Нет. Формулировка слишком общая: хороший тест-кейс содержит конкретные предусловия, шаги, данные и ожидаемый результат, а обязательные проверки лучше оформить явно.',
+  },
+  {
+    question: /500\s+internal\s+server\s+error.{0,160}(?:клиент|повтор|retry)/iu,
+    option: 'Нет',
+    answer: 'Нет. Код 500 означает серверную ошибку обработки, но не всегда дефект именно кода; повтор запроса может быть допустим для временного сбоя, если операция идемпотентна или защищена от дублей.',
+  },
+];
+
+function objectiveQaKnowledgeAnswer(question: HhScreeningQuestion): HhScreeningAnswer | null {
+  if (question.kind === 'text' && /(?:хорош|полноценн)[а-яё]*\s+тест[- ]?план|тест[- ]?план.{0,60}(?:компонент|включ)/iu.test(question.prompt)) {
+    return {
+      id: question.id,
+      answer: 'Хороший тест-план включает цели и область тестирования, исключения, подход и виды тестов, окружение и данные, роли и ресурсы, сроки, критерии входа и выхода, риски и меры снижения, а также отчётность и метрики.',
+      selectedOptions: [],
+      canAutoFill: true,
+      sourceType: 'knowledge',
+      reason: '',
+    };
+  }
+  if (question.kind === 'text') return null;
+  const rule = OBJECTIVE_QA_QUIZ_RULES.find((candidate) => candidate.question.test(question.prompt));
+  if (!rule) return null;
+  const selected = question.options.find(
+    (option) => normalizeScreeningOption(option) === normalizeScreeningOption(rule.option),
+  );
+  if (!selected) return null;
+  return {
+    id: question.id,
+    answer: rule.answer,
+    selectedOptions: [selected],
+    canAutoFill: true,
+    sourceType: 'knowledge',
+    reason: '',
+  };
+}
+
+const GROUNDED_RESUME_SKILL_RULES: Array<{
+  question: RegExp;
+  evidence: RegExp;
+}> = [
+  { question: /(?:владен|опыт|работал|пользовал|знаком).{0,60}\bpostman\b|\bpostman\b.{0,60}(?:владен|опыт|работал|пользовал|знаком)/iu, evidence: /\bpostman\b/iu },
+  { question: /(?:тестир|опыт|работал).{0,60}\brest\s*api\b|\brest\s*api\b.{0,60}(?:тестир|опыт|работал)/iu, evidence: /\brest\s*api\b/iu },
+  { question: /(?:владен|опыт|работал|знан).{0,60}\bsql\b|\bsql\b.{0,60}(?:владен|опыт|работал|знан)/iu, evidence: /\bsql\b/iu },
+  { question: /опыт.{0,80}(?:написан|составлен|создан).{0,50}тест[- ]?кейс|тест[- ]?кейс.{0,80}(?:автоматиз|команд)/iu, evidence: /(?:созда|составля|разрабатыва|пиш)[а-яё]*.{0,50}тест[- ]?кейс|тестов[а-яё]*\s+документац[^.\n]{0,80}тест[- ]?кейс/iu },
+];
+
+export function isGroundedResumeSkillQuestion(question: HhScreeningQuestion): boolean {
+  return question.kind !== 'text'
+    && GROUNDED_RESUME_SKILL_RULES.some((candidate) => candidate.question.test(question.prompt));
+}
+
+function groundedResumeSkillAnswer(
+  question: HhScreeningQuestion,
+  resumeText: string,
+): HhScreeningAnswer | null {
+  if (question.kind === 'text' || !resumeText.trim()) return null;
+  const rule = GROUNDED_RESUME_SKILL_RULES.find((candidate) => candidate.question.test(question.prompt));
+  if (!rule) return null;
+  const evidence = resumeText
+    .split(/\r?\n|(?<=[.!?])\s+/u)
+    .map((segment) => segment.trim())
+    .find((segment) => (
+      rule.evidence.test(segment)
+      && !/(?:не\s+(?:работал|использовал|пользовал|знаю|владею|писал|составлял)|нет\s+опыта|только\s+(?:учебн|личн|pet)|изучаю|планирую)/iu.test(segment)
+    ));
+  if (!evidence) return null;
+  const selected = question.options.find(
+    (option) => {
+      const normalized = normalizeScreeningOption(option);
+      return normalized === 'да'
+        || normalized === 'yes'
+        || normalized.startsWith('да ')
+        || normalized.startsWith('yes ');
+    },
+  );
+  if (!selected) return null;
+  return {
+    id: question.id,
+    answer: '',
+    selectedOptions: [selected],
+    canAutoFill: true,
+    sourceType: 'resume',
+    evidenceQuote: evidence.slice(0, 300),
+    reason: '',
+  };
+}
 
 function tokens(value: string): Set<string> {
   return new Set(
@@ -384,13 +521,21 @@ export function buildSalaryExpectationAnswer(
   const sourceBasis = salaryTaxBasisForAmount(salaryExpectation, sourceText);
   if (requestedBasis === 'ambiguous' || sourceBasis === 'ambiguous') return '';
   if (SALARY_TAX_MENTION_RE.test(question) && !requestedBasis) return '';
-  if (requestedBasis && sourceBasis !== requestedBasis) return '';
-  const qualifier = sourceBasis === 'net'
+  // HH's desired-salary field does not encode gross/net. When the employer
+  // explicitly asks for one basis, keep the exact selected-résumé amount and
+  // answer in that requested basis. An explicit opposite basis in the résumé
+  // still fails closed because converting it would require guessing taxes.
+  if (requestedBasis && sourceBasis && sourceBasis !== requestedBasis) return '';
+  const effectiveBasis = sourceBasis ?? requestedBasis;
+  const qualifier = effectiveBasis === 'net'
     ? 'на руки'
-    : sourceBasis === 'gross' ? 'до вычета налогов' : 'в месяц';
-  const asksForRange = /(?:миним|комфорт|вилк|от\s+и\s+до)/i.test(question);
+    : effectiveBasis === 'gross' ? 'до вычета налогов' : 'в месяц';
+  const asksForRange = /(?:миним|вилк|от\s+и\s+до)/i.test(question);
+  const asksForComfort = /комфорт/i.test(question);
   return asksForRange
     ? `Минимум — ${salary} ${qualifier}; комфортный уровень готов обсудить с учётом задач и общего компенсационного пакета.`
+    : asksForComfort
+      ? `Комфортный уровень — ${salary} ${qualifier}; итоговую сумму готов обсудить с учётом задач и общего компенсационного пакета.`
     : `Рассматриваю предложения от ${salary} ${qualifier}, итоговый уровень готов обсудить с учётом задач и общего компенсационного пакета.`;
 }
 
@@ -453,6 +598,9 @@ export function knownScreeningAnswer(
   salaryExpectation: number | null,
   resumeText = '',
 ): HhScreeningAnswer | null {
+  const objectiveKnowledge = objectiveQaKnowledgeAnswer(question);
+  if (objectiveKnowledge) return objectiveKnowledge;
+
   if (question.kind === 'text' && salaryExpectation && isSalaryExpectationQuestion(question.prompt)) {
     const answer = buildSalaryExpectationAnswer(salaryExpectation, question.prompt, resumeText);
     if (!answer) return null;
@@ -540,6 +688,9 @@ export function knownScreeningAnswer(
       };
     }
   }
+
+  const groundedSkill = groundedResumeSkillAnswer(question, resumeText);
+  if (groundedSkill) return groundedSkill;
 
   if (question.kind !== 'text') {
     const rule = PROFESSIONAL_OPTION_RULES.find((candidate) => candidate.question.test(question.prompt));

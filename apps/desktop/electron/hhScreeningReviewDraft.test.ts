@@ -11,15 +11,27 @@ function question(
 }
 
 describe('last-resort HH screening review drafts', () => {
-  it('always returns a non-empty honest text draft for an unknown sensitive fact', () => {
+  it('leaves an unknown personal fact empty instead of presenting a generic filler as an answer', () => {
     const item = question('text', 'В каком городе вы сейчас живёте?');
     const draft = buildHhScreeningReviewDraft(item);
 
-    expect(draft.answer).toContain('город проживания');
-    expect(draft.answer).not.toMatch(/Москв|Красноярск|Санкт-Петербург/);
+    expect(draft.answer).toBe('');
     expect(draft.canAutoFill).toBe(false);
-    expect(draft.reason).toContain('неподтверждённый');
-    expect(isUsableHhScreeningDraft(item, draft)).toBe(true);
+    expect(isUsableHhScreeningDraft(item, draft)).toBe(false);
+  });
+
+  it('uses concrete matching resume evidence instead of referring the employer back to the resume', () => {
+    const item = question(
+      'text',
+      'Имеется ли у вас опыт администрирования Windows или Linux? Опишите, чем занимались.',
+    );
+    const draft = buildHhScreeningReviewDraft(item, {
+      resumeText: 'Администрировал Linux-серверы: управлял пользователями, правами доступа, systemd-сервисами и анализировал журналы.',
+    });
+
+    expect(draft.answer).toContain('управлял пользователями');
+    expect(draft.answer).toContain('systemd');
+    expect(draft.answer).not.toMatch(/в резюме|готов.*обсуд/i);
   });
 
   it.each(['single', 'select'] as const)('does not guess an unsupported %s option', (kind) => {

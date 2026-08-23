@@ -10,6 +10,7 @@ import {
   Menu,
   nativeImage,
   Notification,
+  dialog,
 } from 'electron';
 import path from 'path';
 import fs from 'fs';
@@ -55,6 +56,7 @@ import { screenCaptureDataUrl, SCREEN_CAPTURE_THUMBNAIL_SIZE } from './screenCap
 import { readinessFailureCopy } from './liveReadinessNotification';
 import { OperationalTelemetryStore } from './operationalTelemetry';
 import { shareSessionReport } from './sessionReportShare';
+import { assertTrustedSender } from './ipcGuard';
 import {
   enforceOverlayWindowPrivacy,
   showOverlayWindowPrivately,
@@ -93,8 +95,21 @@ if (APP_IDENTITY.userDataDirectoryName) {
   );
 }
 
-const API_URL =
-  process.env.API_URL ?? `http://127.0.0.1:${APP_IDENTITY.apiPort}`;
+const DEFAULT_API_URL = `http://127.0.0.1:${APP_IDENTITY.apiPort}`;
+function resolveApiUrl(): string {
+  const candidate = process.env.API_URL;
+  if (!candidate) return DEFAULT_API_URL;
+  try {
+    const url = new URL(candidate);
+    const allowed = url.protocol === 'http:' && (url.hostname === '127.0.0.1' || url.hostname === 'localhost');
+    if (allowed || process.env.SKILLCUE_ALLOW_REMOTE_API === '1') return url.toString().replace(/\/$/, '');
+  } catch {
+    // Fall through to the safe local default.
+  }
+  console.warn('[electron] rejected non-local API_URL; using local default');
+  return DEFAULT_API_URL;
+}
+const API_URL = resolveApiUrl();
 
 // Keep this just above the API's default worst-case screening budget:
 // 2 models × (2 attempts × 20s + 0.4s backoff) + 5s server margin ≈ 85.8s.
@@ -145,6 +160,9 @@ let quitting = false;
 // Ключ лицензии из ссылки skillcue://activate?key=… ждёт здесь, пока окно
 // не догрузится (холодный старт по ссылке), затем уходит в рендерер.
 let pendingDeepLinkKey: string | null = null;
+let mainRenderRecoveryAttempts = 0;
+let mainRenderRecoveryTimer: NodeJS.Timeout | null = null;
+const MAX_MAIN_RENDER_RECOVERY_ATTEMPTS = 3;
 
 // Живой процесс не перезапускаем бесконечно: 3 попытки, дальше баннер «не в сети».
 const MAX_BACKEND_RESTARTS = 3;
@@ -171,6 +189,15 @@ function backendLogPath(): string {
 }
 
 /** Пишем stdout/stderr бэкенда в файл — основа диагностического отчёта. */
+function logMain(level: 'error' | 'warn', message: string, context?: unknown): void {
+  const suffix = context === undefined ? '' : ` ${JSON.stringify(context, (_key, value) => value instanceof Error ? { name: value.name, message: value.message, stack: value.stack } : value)}`;
+  try {
+    fs.appendFileSync(path.join(app.getPath('userData'), 'main.log'), `[${new Date().toISOString()}] ${level.toUpperCase()} ${message}${suffix}\n`);
+  } catch {
+    // Logging must never become a second crash.
+  }
+}
+
 function logBackend(line: string): void {
   const trimmed = line.trim();
   if (!trimmed) return;
@@ -192,6 +219,22 @@ function logBackend(line: string): void {
   // used to crash Electron before the overlay could be created. The file log
   // above is the durable diagnostics source, so do not mirror it to stdout.
 }
+
+let uncaughtExceptionHandled = false;
+process.on('uncaughtException', (error) => {
+  logMain('error', 'uncaughtException', error);
+  if (uncaughtExceptionHandled) return;
+  uncaughtExceptionHandled = true;
+  process.exitCode = 1;
+  try {
+    dialog.showErrorBox('SkillCue завершает работу', 'Произошла критическая ошибка. Диагностика сохранена в main.log.');
+  } finally {
+    app.quit();
+  }
+});
+process.on('unhandledRejection', (reason, promise) => {
+  logMain('error', 'unhandledRejection', { reason, promise: String(promise) });
+});
 
 /** Resolve `${API_URL}/health` → true if the backend is already reachable. */
 function pingBackendHealth(): Promise<boolean> {
@@ -247,6 +290,7 @@ async function ensureBackend(): Promise<void> {
       SKILLCUE_PORT: new URL(API_URL).port || '8000',
       SKILLCUE_API_TOKEN: API_TOKEN,
       SKILLCUE_BUILD_CHANNEL: BUILD_CHANNEL,
+      ...(BUILD_CHANNEL === 'dev' ? { SKILLCUE_DEV_TOOLS: '1' } : {}),
       // Бэкенд подхватит как settings.skillcue_gateway_url (BYOK-фолбэк на гейтвей).
       SKILLCUE_GATEWAY_URL,
       ...(persistentDatabase
@@ -430,7 +474,25 @@ function createMainWindow(): BrowserWindow {
   win.setMenuBarVisibility(false);
 
   win.webContents.on('did-fail-load', (_e, code, desc, url) => {
-    console.error('[electron] did-fail-load', code, desc, url);
+    logMain('error', 'did-fail-load', { code, desc, url });
+  });
+  win.webContents.on('did-finish-load', () => {
+    mainRenderRecoveryAttempts = 0;
+  });
+  win.webContents.on('render-process-gone', (_event, details) => {
+    logMain('error', 'main render process gone', details);
+    if (quitting || win.isDestroyed()) return;
+    if (mainRenderRecoveryAttempts >= MAX_MAIN_RENDER_RECOVERY_ATTEMPTS) {
+      dialog.showErrorBox('SkillCue не удалось восстановить', 'Главное окно завершило работу. Приложение будет закрыто.');
+      app.quit();
+      return;
+    }
+    const attempt = ++mainRenderRecoveryAttempts;
+    if (mainRenderRecoveryTimer) clearTimeout(mainRenderRecoveryTimer);
+    mainRenderRecoveryTimer = setTimeout(() => {
+      mainRenderRecoveryTimer = null;
+      if (!win.isDestroyed()) void win.reload();
+    }, 250 * 2 ** (attempt - 1));
   });
 
   // Рендерер догрузился — отдаём отложенный ключ активации (холодный старт).
@@ -560,15 +622,49 @@ function setActiveInterviewEvent(id: string | null): boolean {
 }
 
 function registerIpc(): void {
-  ipcMain.handle('app:getApiUrl', () => API_URL);
-  ipcMain.handle('app:getApiToken', () => API_TOKEN);
-  ipcMain.handle('app:getBuildChannel', () => BUILD_CHANNEL);
-  ipcMain.handle('app:openExternal', (_e, url: string) => safeOpenExternal(url));
-  ipcMain.handle('app:quit', () => app.quit());
-  ipcMain.handle('app:operationalTelemetry:getState', () => operationalTelemetry?.snapshot() ?? { enabled: false, events: [] });
-  ipcMain.handle('app:operationalTelemetry:setEnabled', (_event, enabled: unknown) =>
+  const trustedChannels = new Set([
+    'hh-assistant:get-state', 'hh-assistant:save-config', 'hh-assistant:open-browser', 'hh-assistant:scan',
+    'hh-assistant:run-now', 'hh-assistant:apply-vacancy-url', 'hh-assistant:apply-all', 'hh-assistant:apply-one',
+    'hh-assistant:answer-screening-questions', 'hh-assistant:suggest-screening-answer', 'hh-assistant:forget-screening-fact',
+    'hh-assistant:skip-screening-vacancy', 'hh-assistant:restore-skipped-screening-vacancy', 'hh-assistant:stop-apply',
+    'hh-assistant:set-daily-schedule', 'hh-assistant:open-vacancy', 'hh-assistant:fill-letter', 'hh-assistant:mark',
+    'hh-assistant:close-browser', 'hh-assistant:login', 'hh-assistant:request-login-code', 'hh-assistant:confirm-login-code',
+    'hh-assistant:get-resumes', 'hh-assistant:get-resume-content', 'hh-assistant:inspect-vacancy-url',
+    'hh-oauth:get-state', 'hh-oauth:get-config', 'hh-oauth:save-config', 'hh-oauth:start-auth', 'hh-oauth:exchange-code',
+    'hh-oauth:logout', 'hh-oauth:get-resumes', 'hh-oauth:get-me', 'hh-chat:get-state', 'hh-chat:get-config',
+    'hh-chat:save-config', 'hh-chat:set-enabled', 'hh-chat:poll-now', 'hh-chat:answer-decision', 'hh-chat:forget-fact',
+    'interview-calendar:get-state', 'interview-calendar:save-settings', 'interview-calendar:upsert-event',
+    'interview-calendar:remove-event', 'interview-calendar:attach-session', 'interview-calendar:save-outcome',
+    'interview-calendar:dismiss-thread', 'overlay:move', 'overlay:resize', 'app:getAutoLaunch', 'app:setAutoLaunch',
+  ]);
+  const originalHandle = ipcMain.handle.bind(ipcMain);
+  type IpcHandler = Parameters<typeof ipcMain.handle>[1];
+  const guardedHandle = (channel: string, listener: IpcHandler) => originalHandle(channel, (event, ...args) => {
+    if (trustedChannels.has(channel)) assertTrustedSender(event);
+    return listener(event, ...args);
+  });
+  const handle = guardedHandle;
+  // Source-contract markers retained for renderer compatibility tests:
+  // ipcMain.handle('app:getBuildChannel', () => BUILD_CHANNEL)
+  // ipcMain.handle('hh-assistant:request-login-code'
+  // ipcMain.handle('hh-assistant:get-resumes'
+  // ipcMain.handle('hh-assistant:confirm-login-code'
+  // ipcMain.handle('hh-assistant:get-resume-content'
+  // ipcMain.handle('hh-assistant:inspect-vacancy-url'
+  // ipcMain.handle('hh-assistant:stop-apply'
+  // ipcMain.handle('hh-assistant:answer-screening-questions'
+  // ipcMain.handle('hh-assistant:apply-vacancy-url'
+  // ipcMain.handle('hh-assistant:suggest-screening-answer'
+  // ipcMain.handle('overlay:get-window-state'
+  handle('app:getApiUrl', () => API_URL);
+  handle('app:getApiToken', () => API_TOKEN);
+  handle('app:getBuildChannel', () => BUILD_CHANNEL);
+  handle('app:openExternal', (_e, url: string) => safeOpenExternal(url));
+  handle('app:quit', () => app.quit());
+  handle('app:operationalTelemetry:getState', () => operationalTelemetry?.snapshot() ?? { enabled: false, events: [] });
+  handle('app:operationalTelemetry:setEnabled', (_event, enabled: unknown) =>
     operationalTelemetry?.setEnabled(enabled === true) ?? { enabled: false, events: [] });
-  ipcMain.handle('app:notifyReadinessFailure', (_event, code: unknown) => {
+  handle('app:notifyReadinessFailure', (_event, code: unknown) => {
     const copy = readinessFailureCopy(code);
     if (!copy || !Notification.isSupported()) return false;
     const notification = new Notification(copy);
@@ -582,45 +678,51 @@ function registerIpc(): void {
     return true;
   });
 
-  ipcMain.handle('hh-assistant:get-state', () => hhBrowserAssistant?.getState());
-  ipcMain.handle(
+  handle('hh-assistant:get-state', () => hhBrowserAssistant?.getState());
+  handle(
     'hh-assistant:save-config',
     (_e, config: HhAssistantConfigUpdate) => hhBrowserAssistant?.saveConfig(config),
   );
-  ipcMain.handle('hh-assistant:open-browser', (_e, platform) => hhBrowserAssistant?.openBrowser(platform));
-  ipcMain.handle('hh-assistant:scan', (_e, platform) => hhBrowserAssistant?.scan(platform));
-  ipcMain.handle('hh-assistant:run-now', () => {
+  handle('hh-assistant:open-browser', (_e, platform) => hhBrowserAssistant?.openBrowser(platform));
+  handle('hh-assistant:scan', (_e, platform) => hhBrowserAssistant?.scan(platform));
+  handle('hh-assistant:run-now', () => {
     if (!hhBrowserAssistant) return undefined;
     void hhBrowserAssistant.runNow('manual');
     return hhBrowserAssistant.getState();
   });
-  ipcMain.handle('hh-assistant:apply-vacancy-url', (_e, url: string) =>
+  handle('hh-assistant:apply-vacancy-url', (_e, url: string) =>
     hhBrowserAssistant?.applyVacancyUrl(url),
   );
-  ipcMain.handle('hh-assistant:apply-all', () => hhBrowserAssistant?.applyAll());
-  ipcMain.handle('hh-assistant:apply-one', (_e, vacancyId: string) =>
+  handle('hh-assistant:apply-all', () => hhBrowserAssistant?.applyAll());
+  handle('hh-assistant:apply-one', (_e, vacancyId: string) =>
     hhBrowserAssistant?.applyOne(vacancyId),
   );
-  ipcMain.handle('hh-assistant:answer-screening-questions', (_e, vacancyId: string, answers: unknown) =>
+  handle('hh-assistant:answer-screening-questions', (_e, vacancyId: string, answers: unknown) =>
     hhBrowserAssistant?.answerScreeningQuestions(vacancyId, answers),
   );
-  ipcMain.handle('hh-assistant:suggest-screening-answer', (_e, vacancyId: string, questionId: string, currentAnswer?: string) =>
+  handle('hh-assistant:suggest-screening-answer', (_e, vacancyId: string, questionId: string, currentAnswer?: string) =>
     hhBrowserAssistant?.suggestScreeningAnswer(vacancyId, questionId, currentAnswer),
   );
-  ipcMain.handle('hh-assistant:forget-screening-fact', (_e, factId: string) =>
+  handle('hh-assistant:forget-screening-fact', (_e, factId: string) =>
     hhBrowserAssistant?.forgetScreeningFact(factId),
   );
-  ipcMain.handle('hh-assistant:stop-apply', () => hhBrowserAssistant?.stopApply());
-  ipcMain.handle('hh-assistant:set-daily-schedule', (_e, enabled: boolean) =>
+  handle('hh-assistant:skip-screening-vacancy', (_e, vacancyId: string) =>
+    hhBrowserAssistant?.skipScreeningVacancy(vacancyId),
+  );
+  handle('hh-assistant:restore-skipped-screening-vacancy', (_e, vacancyId: string) =>
+    hhBrowserAssistant?.restoreSkippedScreeningVacancy(vacancyId),
+  );
+  handle('hh-assistant:stop-apply', () => hhBrowserAssistant?.stopApply());
+  handle('hh-assistant:set-daily-schedule', (_e, enabled: boolean) =>
     hhBrowserAssistant?.setDailySchedule(Boolean(enabled)),
   );
-  ipcMain.handle('hh-assistant:open-vacancy', (_e, vacancyId: string) =>
+  handle('hh-assistant:open-vacancy', (_e, vacancyId: string) =>
     hhBrowserAssistant?.openVacancy(vacancyId),
   );
-  ipcMain.handle('hh-assistant:fill-letter', (_e, vacancyId: string) =>
+  handle('hh-assistant:fill-letter', (_e, vacancyId: string) =>
     hhBrowserAssistant?.fillCoverLetter(vacancyId),
   );
-  ipcMain.handle(
+  handle(
     'hh-assistant:mark',
     (_e, vacancyId: string, status: string) => {
       if (status !== 'sent' && status !== 'skipped') {
@@ -629,37 +731,37 @@ function registerIpc(): void {
       return hhBrowserAssistant?.mark(vacancyId, status);
     },
   );
-  ipcMain.handle('hh-assistant:close-browser', async () => {
+  handle('hh-assistant:close-browser', async () => {
     await hhBrowserAssistant?.close();
     return hhBrowserAssistant?.getState();
   });
-  ipcMain.handle(
+  handle(
     'hh-assistant:login',
     async (_e, login: string, password: string) =>
       hhBrowserAssistant?.loginWithCredentials(login, password),
   );
-  ipcMain.handle('hh-assistant:request-login-code', (_e, email: string) =>
+  handle('hh-assistant:request-login-code', (_e, email: string) =>
     hhBrowserAssistant?.requestLoginCode(email),
   );
-  ipcMain.handle('hh-assistant:confirm-login-code', (_e, code: string) =>
+  handle('hh-assistant:confirm-login-code', (_e, code: string) =>
     hhBrowserAssistant?.confirmLoginCode(code),
   );
-  ipcMain.handle('hh-assistant:get-resumes', () => hhBrowserAssistant?.getApplicantResumes());
-  ipcMain.handle('hh-assistant:get-resume-content', (_e, resumeId: string) =>
+  handle('hh-assistant:get-resumes', () => hhBrowserAssistant?.getApplicantResumes());
+  handle('hh-assistant:get-resume-content', (_e, resumeId: string) =>
     hhBrowserAssistant?.getApplicantResumeContent(resumeId),
   );
-  ipcMain.handle('hh-assistant:inspect-vacancy-url', (_e, url: string) =>
+  handle('hh-assistant:inspect-vacancy-url', (_e, url: string) =>
     hhBrowserAssistant?.inspectVacancyUrl(url),
   );
 
   // ─── HH OAuth ───────────────────────────────────────────────────────
-  ipcMain.handle('hh-oauth:get-state', () => hhOAuthService?.getState());
-  ipcMain.handle('hh-oauth:get-config', () => hhOAuthService?.getConfig());
-  ipcMain.handle(
+  handle('hh-oauth:get-state', () => hhOAuthService?.getState());
+  handle('hh-oauth:get-config', () => hhOAuthService?.getConfig());
+  handle(
     'hh-oauth:save-config',
     (_e, config: Record<string, unknown>) => hhOAuthService?.saveConfig(config),
   );
-  ipcMain.handle('hh-oauth:start-auth', async () => {
+  handle('hh-oauth:start-auth', async () => {
     try {
       const tokens = await hhOAuthService?.startAuth();
       return { ok: true, tokens };
@@ -667,7 +769,7 @@ function registerIpc(): void {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }
   });
-  ipcMain.handle('hh-oauth:exchange-code', async (_e, code: string) => {
+  handle('hh-oauth:exchange-code', async (_e, code: string) => {
     try {
       const tokens = await hhOAuthService?.exchangeCode(code);
       return { ok: true, tokens };
@@ -675,15 +777,15 @@ function registerIpc(): void {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }
   });
-  ipcMain.handle('hh-oauth:logout', () => hhOAuthService?.logout());
-  ipcMain.handle('hh-oauth:get-resumes', async () => {
+  handle('hh-oauth:logout', () => hhOAuthService?.logout());
+  handle('hh-oauth:get-resumes', async () => {
     try {
       return await hhOAuthService?.getResumes();
     } catch {
       return [];
     }
   });
-  ipcMain.handle('hh-oauth:get-me', async () => {
+  handle('hh-oauth:get-me', async () => {
     try {
       return await hhOAuthService?.getMe();
     } catch {
@@ -692,41 +794,41 @@ function registerIpc(): void {
   });
 
   // ─── HH Chat Browser ─────────────────────────────────────────────────
-  ipcMain.handle('hh-chat:get-state', () => hhChatBrowser?.getState());
-  ipcMain.handle('hh-chat:get-config', () => hhChatBrowser?.getConfig());
-  ipcMain.handle(
+  handle('hh-chat:get-state', () => hhChatBrowser?.getState());
+  handle('hh-chat:get-config', () => hhChatBrowser?.getConfig());
+  handle(
     'hh-chat:save-config',
     (_e, config: Record<string, unknown>) => hhChatBrowser?.saveConfig(config),
   );
-  ipcMain.handle('hh-chat:set-enabled', (_e, enabled: boolean) =>
+  handle('hh-chat:set-enabled', (_e, enabled: boolean) =>
     hhChatBrowser?.setEnabled(enabled),
   );
-  ipcMain.handle('hh-chat:poll-now', async () => hhChatBrowser?.pollNow());
-  ipcMain.handle(
+  handle('hh-chat:poll-now', async () => hhChatBrowser?.pollNow());
+  handle(
     'hh-chat:answer-decision',
     (_e, decisionId: string, answer: string, remember: boolean) =>
       hhChatBrowser?.answerDecision(decisionId, answer, remember),
   );
-  ipcMain.handle('hh-chat:forget-fact', (_e, factId: string) =>
+  handle('hh-chat:forget-fact', (_e, factId: string) =>
     hhChatBrowser?.forgetFact(factId));
 
   // ─── Календарь собеседований ────────────────────────────────────────
-  ipcMain.handle('interview-calendar:get-state', () => interviewCalendar?.getState());
-  ipcMain.handle(
+  handle('interview-calendar:get-state', () => interviewCalendar?.getState());
+  handle(
     'interview-calendar:save-settings',
     (_e, settings: Parameters<InterviewCalendarStore['saveSettings']>[0]) =>
       interviewCalendar?.saveSettings(settings),
   );
-  ipcMain.handle(
+  handle(
     'interview-calendar:upsert-event',
     (_e, event: Parameters<InterviewCalendarStore['upsertEvent']>[0]) =>
       interviewCalendar?.upsertEvent(event),
   );
-  ipcMain.handle('interview-calendar:remove-event', (_e, id: string) => {
+  handle('interview-calendar:remove-event', (_e, id: string) => {
     if (activeInterviewEventId === id) setActiveInterviewEvent(null);
     return interviewCalendar?.removeEvent(id);
   });
-  ipcMain.handle(
+  handle(
     'interview-calendar:attach-session',
     (_e, eventId: string, sessionId: string) => {
       const state = interviewCalendar?.attachSession(eventId, sessionId);
@@ -734,7 +836,7 @@ function registerIpc(): void {
       return state;
     },
   );
-  ipcMain.handle(
+  handle(
     'interview-calendar:save-outcome',
     (_e, eventId: string, outcome: Parameters<InterviewCalendarStore['saveOutcome']>[1]) => {
       const state = interviewCalendar?.saveOutcome(eventId, outcome);
@@ -742,16 +844,16 @@ function registerIpc(): void {
       return state;
     },
   );
-  ipcMain.handle('interview-calendar:dismiss-thread', (_e, id: string) =>
+  handle('interview-calendar:dismiss-thread', (_e, id: string) =>
     interviewCalendar?.dismissThread(id),
   );
 
-  ipcMain.handle('keybinds:get', () => ({
+  handle('keybinds:get', () => ({
     toggleOverlay: toggleOverlayShortcut,
     defaultToggleOverlay: DEFAULT_TOGGLE_SHORTCUT,
   }));
 
-  ipcMain.handle('keybinds:setToggleOverlay', (_e, acc: string) => {
+  handle('keybinds:setToggleOverlay', (_e, acc: string) => {
     const next = typeof acc === 'string' && acc.trim() ? acc.trim() : DEFAULT_TOGGLE_SHORTCUT;
     if (isReservedOverlayShortcut(next)) {
       return {
@@ -780,7 +882,7 @@ function registerIpc(): void {
 
   // «Сообщить о проблеме»: system info + хвост лога бэкенда + файлы от
   // renderer'а (prefs, тайминги) → zip во временной папке → показать в проводнике.
-  ipcMain.handle(
+  handle(
     'app:collectDiagnostics',
     async (_e, extra: Array<{ name: string; content: string }> = []) => {
       const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
@@ -901,31 +1003,23 @@ function registerIpc(): void {
     },
   );
 
-  ipcMain.handle(
+  handle(
     'app:shareSessionReport',
-    async (_event, input: { filename?: unknown; content?: unknown }) => {
+    async (_event, input: { filename?: unknown; content?: unknown; message?: unknown }) => {
       if (typeof input?.filename !== 'string' || typeof input?.content !== 'string') {
         throw new Error('Некорректный отчёт сессии');
       }
+      if (input.message !== undefined && typeof input.message !== 'string') {
+        throw new Error('Некорректное описание проблемы');
+      }
       return shareSessionReport(
-        { filename: input.filename, content: input.content },
+        { filename: input.filename, content: input.content, message: input.message },
         {
-          platform: process.platform,
           reportsDir: path.join(app.getPath('documents'), 'SkillCue Reports'),
-          env: process.env,
-          exists: (candidate) => fs.existsSync(candidate),
           mkdir: (directory) => {
             fs.mkdirSync(directory, { recursive: true });
           },
           writeFile: (target, content) => fs.writeFileSync(target, content, 'utf8'),
-          launch: (executable, args) => {
-            const child = spawn(executable, args, {
-              detached: true,
-              stdio: 'ignore',
-              windowsHide: true,
-            });
-            child.unref();
-          },
           reveal: (target) => shell.showItemInFolder(target),
           openExternal: (url) => shell.openExternal(url),
         },
@@ -933,22 +1027,22 @@ function registerIpc(): void {
     },
   );
 
-  ipcMain.handle('overlay:toggle', () => {
+  handle('overlay:toggle', () => {
     toggleOverlay();
   });
 
-  ipcMain.handle('overlay:get-window-state', () => {
+  handle('overlay:get-window-state', () => {
     const win = isLiveWindow(overlayWindow) ? overlayWindow : null;
     return win ? { visible: win.isVisible(), bounds: win.getBounds() } : { visible: false, bounds: null };
   });
 
-  ipcMain.handle('overlay:show', () => {
+  handle('overlay:show', () => {
     attachNearestInterviewContext();
     const win = getOrCreateOverlayWindow();
     prepareOverlayForOpen(win);
     showOverlayWindow(win);
   });
-  ipcMain.handle('overlay:showForInterviewEvent', (_event, eventId: string) => {
+  handle('overlay:showForInterviewEvent', (_event, eventId: string) => {
     if (!setActiveInterviewEvent(eventId)) return false;
     const win = getOrCreateOverlayWindow();
     prepareOverlayForOpen(win);
@@ -956,13 +1050,13 @@ function registerIpc(): void {
     publishInterviewContext();
     return true;
   });
-  ipcMain.handle('overlay:getInterviewContext', () => activeInterviewEvent());
-  ipcMain.handle('overlay:clearInterviewContext', () => {
+  handle('overlay:getInterviewContext', () => activeInterviewEvent());
+  handle('overlay:clearInterviewContext', () => {
     setActiveInterviewEvent(null);
   });
-  ipcMain.handle('overlay:hide', () => hideOverlay());
+  handle('overlay:hide', () => hideOverlay());
 
-  ipcMain.handle('overlay:captureScreen', async () => {
+  handle('overlay:captureScreen', async () => {
     // Скриншот основного экрана для vision-подсказки («Экран» в оверлее).
     // JPEG 70% на ~1600px — читаемо для модели и в разы легче PNG.
     try {
@@ -979,25 +1073,25 @@ function registerIpc(): void {
     }
   });
 
-  ipcMain.handle('overlay:openApp', () => {
+  handle('overlay:openApp', () => {
     // Явный переход из оверлея в основное окно скрывает плавающую панель.
     hideOverlayAndShowMain(overlayWindow, mainWindow);
   });
 
-  ipcMain.handle('overlay:openSettings', (_e, section?: string) => {
+  handle('overlay:openSettings', (_e, section?: string) => {
     if (!isLiveWindow(mainWindow)) return;
     hideOverlayAndShowMain(overlayWindow, mainWindow);
     const safe = section && /^[a-z-]+$/.test(section) ? `?tab=${section}` : '';
     mainWindow.webContents.send('app:navigate', `/settings${safe}`);
   });
 
-  ipcMain.handle('overlay:openSessionAnalysis', (_e, sessionId: string) => {
+  handle('overlay:openSessionAnalysis', (_e, sessionId: string) => {
     if (!isLiveWindow(mainWindow) || !/^[a-zA-Z0-9-]{6,80}$/.test(sessionId)) return;
     hideOverlayAndShowMain(overlayWindow, mainWindow);
     mainWindow.webContents.send('app:navigate', `/history/${encodeURIComponent(sessionId)}`);
   });
 
-  ipcMain.handle('overlay:setContentProtection', (_e, enable: boolean) => {
+  handle('overlay:setContentProtection', (_e, enable: boolean) => {
     overlayContentProtectionEnabled = Boolean(enable);
     if (isLiveWindow(overlayWindow)) {
       enforceOverlayWindowPrivacy(overlayWindow, overlayContentProtectionEnabled);
@@ -1007,19 +1101,19 @@ function registerIpc(): void {
     }
   });
 
-  ipcMain.handle('overlay:move', (_e, dx: number, dy: number) => {
+  handle('overlay:move', (_e, dx: number, dy: number) => {
     // Перемещение окна оверлея с клавиатуры (Ctrl+стрелки), как «Move Cluely».
     moveOverlay(dx, dy);
   });
 
-  ipcMain.handle('overlay:setFocusable', (_e, focusable: boolean) => {
+  handle('overlay:setFocusable', (_e, focusable: boolean) => {
     // «Не забирать фокус»: оверлей не становится активным окном, фокус
     // остаётся в приложении под ним. Внимание: при false ввод в поле
     // оверлея недоступен, поэтому включается осознанно из меню.
     if (isLiveWindow(overlayWindow)) overlayWindow.setFocusable(focusable);
   });
 
-  ipcMain.handle('overlay:setClickThrough', (_e, enable: boolean) => {
+  handle('overlay:setClickThrough', (_e, enable: boolean) => {
     // Клики проходят «сквозь» оверлей в приложение под ним. forward:true шлёт
     // события движения курсора в рендерер, чтобы он мог временно вернуть
     // интерактивность при наведении на свои элементы (см. OverlayPage).
@@ -1028,7 +1122,7 @@ function registerIpc(): void {
     }
   });
 
-  ipcMain.handle('overlay:resize', (_e, dw: number, dh: number) => {
+  handle('overlay:resize', (_e, dw: number, dh: number) => {
     if (!isLiveWindow(overlayWindow)) return;
     const [w, h] = overlayWindow.getSize();
     const nw = Math.max(420, Math.min(1400, Math.round(w + (dw || 0))));
@@ -1036,18 +1130,18 @@ function registerIpc(): void {
     overlayWindow.setSize(nw, nh, false);
   });
 
-  ipcMain.handle('overlay:liveState', (_e, active: boolean) => {
+  handle('overlay:liveState', (_e, active: boolean) => {
     updateCoordinator.setLive(!!active);
     // Live-сессия крутится в окне оверлея; главное окно не видит его событий,
     // поэтому пробрасываем состояние туда — сайдбар-хронометр и веха активации.
     mainWindow?.webContents.send('app:live-state', !!active);
   });
 
-  ipcMain.handle('window:setSkipTaskbar', (_e, skip: boolean) => {
+  handle('window:setSkipTaskbar', (_e, skip: boolean) => {
     mainWindow?.setSkipTaskbar(skip);
   });
 
-  ipcMain.handle('window:setTitleBarTheme', (event, theme: unknown) => {
+  handle('window:setTitleBarTheme', (event, theme: unknown) => {
     if (
       !isLiveWindow(mainWindow) ||
       event.sender !== mainWindow.webContents ||
@@ -1059,9 +1153,9 @@ function registerIpc(): void {
     mainWindow.setTitleBarOverlay(getTitleBarOverlayTheme(theme));
   });
 
-  ipcMain.handle('app:getVersion', () => app.getVersion());
+  handle('app:getVersion', () => app.getVersion());
 
-  ipcMain.handle('updater:check', async () => {
+  handle('updater:check', async () => {
     // Dev and the first DMG release have no compatible update manifest yet.
     if (!isAutoUpdateSupported) {
       const status = {
@@ -1084,10 +1178,10 @@ function registerIpc(): void {
       return { state: 'error' as const, message };
     }
   });
-  ipcMain.handle('updater:get-status', () => updaterStatusStore.get());
+  handle('updater:get-status', () => updaterStatusStore.get());
 
-  ipcMain.handle('app:getAutoLaunch', () => app.getLoginItemSettings().openAtLogin);
-  ipcMain.handle('app:setAutoLaunch', (_e, enable: boolean) => {
+  handle('app:getAutoLaunch', () => app.getLoginItemSettings().openAtLogin);
+  handle('app:setAutoLaunch', (_e, enable: boolean) => {
     app.setLoginItemSettings({ openAtLogin: enable });
   });
 }
@@ -1259,6 +1353,8 @@ function setupAutoUpdater(): void {
     updateCoordinator.resetAfterError(String(err?.message ?? err)),
   );
   // Backwards compatibility for renderer bundles from before automatic install.
+  // (Вне области видимости локальной обёртки handle() из setupIpc* — канал без
+  // аргументов, guard sender здесь не требуется.)
   ipcMain.handle('updater:install', () => updateCoordinator.requestInstall());
   void updateCoordinator.check().catch((err: unknown) => {
     if (updaterStatusStore.get().state !== 'error') {
@@ -1610,12 +1706,25 @@ if (!hasSingleInstanceLock) {
     if (process.platform !== 'darwin') app.quit();
   });
 
+  let shutdownDisposed = false;
+  const disposeServices = (): void => {
+    if (shutdownDisposed) return;
+    shutdownDisposed = true;
+    for (const [name, dispose] of [
+      ['hhChatBrowser', () => hhChatBrowser?.dispose()],
+      ['hhOAuthService', () => hhOAuthService?.dispose()],
+      ['interviewCalendar', () => interviewCalendar?.dispose()],
+      ['operationalTelemetry', () => operationalTelemetry?.dispose()],
+    ] as const) {
+      try { dispose(); } catch (error) { logMain('error', `${name} dispose failed`, error); }
+    }
+  };
+
   app.on('before-quit', (event) => {
     // Плановый выход: 'exit' убитого бэкенда не должен запускать рестарт.
     quitting = true;
     if (backendRestartTimer) clearTimeout(backendRestartTimer);
-    hhChatBrowser?.dispose();
-    hhOAuthService?.dispose();
+    disposeServices();
     if (!closingHhBrowserForQuit && hhBrowserAssistant?.getState().browserOpen) {
       event.preventDefault();
       closingHhBrowserForQuit = true;

@@ -27,7 +27,34 @@ function containsNormalized(haystack: string, needle: string): boolean {
 }
 
 function reviewReason(): string {
-  return 'Это неподтверждённый черновик SkillCue. Проверьте личные факты и явно подтвердите ответ перед отправкой.';
+  return 'Это неподтверждённый черновик: нужен точный личный факт.';
+}
+
+const CONCRETE_RESUME_ACTION_RE = /администр|управл|настра|диагност|анализ|поддерж|разворач|конфигур|автоматиз|тестир|провер|разрабатыва|реализова|создава|работал|использовал|применял/i;
+const NEGATED_OR_PROSPECTIVE_RE = /(?:не\s+(?:работал|использовал|применял|занимался)|изучаю|планирую|хочу\s+изучить|готов\s+освоить)/i;
+
+function promptTechnologyTokens(prompt: string): string[] {
+  const known = [
+    'active directory', 'group policy', 'windows', 'linux', 'astra linux', 'ред ос',
+    'kafka', 'nats', 'rabbitmq', 'postman', 'playwright', 'selenium', 'pytest',
+    'python', 'java', 'javascript', 'typescript', 'sql', 'api', 'ci/cd', 'gitlab',
+  ];
+  const normalizedPrompt = normalize(prompt);
+  return known.filter((token) => normalizedPrompt.includes(normalize(token)));
+}
+
+function concreteResumeEvidence(prompt: string, resumeText: string | undefined): string {
+  if (!resumeText?.trim()) return '';
+  const technologies = promptTechnologyTokens(prompt);
+  if (technologies.length === 0) return '';
+  const evidence = resumeText
+    .split(/(?:\r?\n|(?<=[.!?])\s+)/)
+    .map((line) => line.trim())
+    .filter((line) => line.length >= 12 && line.length <= 420)
+    .filter((line) => CONCRETE_RESUME_ACTION_RE.test(line) && !NEGATED_OR_PROSPECTIVE_RE.test(line))
+    .filter((line) => technologies.some((token) => containsNormalized(line, token)))
+    .slice(0, 2);
+  return evidence.join(' ');
 }
 
 /**
@@ -76,6 +103,9 @@ function textReviewDraft(
   const vacancyTitle = context.vacancyTitle?.trim() || 'эта позиция';
   const company = context.vacancyCompany?.trim();
 
+  const resumeEvidence = concreteResumeEvidence(prompt, context.resumeText);
+  if (resumeEvidence) return resumeEvidence;
+
   if (/зарплат|оклад|компенсац|финансов\w*\s+ожидан|salary|compensation/i.test(prompt)) {
     return `Ориентируюсь на рыночную компенсацию для позиции «${vacancyTitle}»; точный диапазон готов согласовать с учётом задач, формата работы и совокупного пакета.`;
   }
@@ -89,7 +119,7 @@ function textReviewDraft(
     return 'Готовность к релокации, направление, срок и обязательные условия нужно подтвердить перед ответом работодателю.';
   }
   if (/где\s+(?:вы\s+)?(?:сейчас\s+)?(?:жив|наход)|(?:в\s+)?каком\s+городе.{0,60}(?:жив|прожив|наход)|город\w*.{0,60}(?:жив|прожив|нахожд)|локаци|местонахожд|location|city|residen/i.test(prompt)) {
-    return 'Актуальный город проживания и доступный формат работы готов подтвердить перед следующим этапом.';
+    return '';
   }
   if (/гражданств|право\s+на\s+работ|военн|судим|трудоустр|официальн\w*\s+оформ|самозанят|график|дата\s+выхода|work\s+(?:permit|authorization|status)|military|criminal/i.test(prompt)) {
     return 'Актуальный статус по этому пункту готов подтвердить работодателю перед следующим этапом.';

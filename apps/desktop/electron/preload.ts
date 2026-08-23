@@ -40,6 +40,10 @@ const api = {
       ipcRenderer.invoke('hh-assistant:suggest-screening-answer', vacancyId, questionId, currentAnswer),
     forgetScreeningFact: (factId: string) =>
       ipcRenderer.invoke('hh-assistant:forget-screening-fact', factId),
+    skipScreeningVacancy: (vacancyId: string) =>
+      ipcRenderer.invoke('hh-assistant:skip-screening-vacancy', vacancyId),
+    restoreSkippedScreeningVacancy: (vacancyId: string) =>
+      ipcRenderer.invoke('hh-assistant:restore-skipped-screening-vacancy', vacancyId),
     stopApply: () => ipcRenderer.invoke('hh-assistant:stop-apply'),
     setDailySchedule: (enabled: boolean) =>
       ipcRenderer.invoke('hh-assistant:set-daily-schedule', enabled),

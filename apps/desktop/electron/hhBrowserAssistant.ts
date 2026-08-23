@@ -63,6 +63,7 @@ import {
 } from './hhScreeningReviewDraft';
 import {
   findSalaryExpectation,
+  isGroundedResumeSkillQuestion,
   isCurrentLocationQuestion,
   isSalaryRelatedQuestion,
   knownScreeningAnswer,
@@ -463,11 +464,36 @@ function pendingEmployerQuestionsReason(count: number): string {
   )}. Остальные вакансии продолжат обрабатываться.`;
 }
 
+const OBJECTIVE_SCREENING_QUIZ_RE = /ответьте[^?\n]{0,80}(?:да|yes)[^?\n]{0,40}(?:нет|no)[^?\n]{0,80}(?:поясн|объясн)/iu;
+const OBJECTIVE_SCREENING_STEM_RE = /(?:что\s+такое|чем\s+отлича|в\s+ч[её]м\s+(?:разниц|отлич)|как\s+(?:бы\s+вы\s+)?(?:протестир|провер|диагностир|реш|реализ)|какие?[^?\n]{0,80}(?:компонент|элемент|шаг|метод|техник)[^?\n]{0,40}(?:включ|нуж|использ)|верно\s+ли)/iu;
+const OBJECTIVE_SCREENING_SUBJECT_RE = /(?:\b(?:sql|postman|git|gitlab|ci\s*\/\s*cd|api|http|rest|join|testit|testrail|frontend|backend|web)\b|тестир|тест[- ]?план|тест[- ]?кейс|smoke|код\s+\d{3}|сервер|клиент|баз[а-яё]*\s+данн|приложен|пайплайн)/iu;
+
+/** Cheap prefilter only; the backend provenance gate remains the authority. */
+function mayBeObjectiveTechnicalScreeningQuestion(question: HhScreeningQuestion): boolean {
+  const prompt = question.prompt.replace(/\s+/g, ' ').trim();
+  return OBJECTIVE_SCREENING_SUBJECT_RE.test(prompt)
+    && (OBJECTIVE_SCREENING_QUIZ_RE.test(prompt) || OBJECTIVE_SCREENING_STEM_RE.test(prompt));
+}
+
 /** Only session-wide failures are allowed to stop the whole HH queue. */
 export function isFatalHhQueueError(error: unknown, loginRequired = false): boolean {
   if (loginRequired) return true;
   const message = error instanceof Error ? error.message : String(error ?? '');
-  return /(?:captcha|капч|авторизац|требуется\s+вход|войдите\s+в\s+(?:аккаунт|hh)|login\s+required|session\s+(?:expired|closed)|сесси[яи].{0,40}(?:истек|закрыт|заверш)|target\s+(?:page,?\s*)?(?:context|browser).{0,60}(?:closed|crashed)|browser.{0,40}(?:closed|disconnected)|context.{0,40}(?:closed|destroyed)|не удалось подключиться к (?:фоновой )?сессии hh|окно браузера.{0,30}закрыт)/iu.test(message);
+  return /(?:авторизац|требуется\s+вход|войдите\s+в\s+(?:аккаунт|hh)|login\s+required|session\s+(?:expired|closed)|сесси[яи].{0,40}(?:истек|закрыт|заверш)|target\s+(?:page,?\s*)?(?:context|browser).{0,60}(?:closed|crashed)|browser.{0,40}(?:closed|disconnected)|context.{0,40}(?:closed|destroyed)|не удалось подключиться к (?:фоновой )?сессии hh|окно браузера.{0,30}закрыт)/iu.test(message);
+}
+
+/** HH occasionally flashes a verification page that disappears on refresh. */
+export async function retryTransientHhVerification(
+  isBlocked: () => Promise<boolean>,
+  refresh: () => Promise<void>,
+  attempts = 3,
+): Promise<boolean> {
+  const total = Math.max(1, attempts);
+  for (let attempt = 0; attempt < total; attempt += 1) {
+    if (!(await isBlocked())) return false;
+    if (attempt < total - 1) await refresh();
+  }
+  return true;
 }
 
 async function allSettledWithConcurrency<T, TResult>(
@@ -1712,8 +1738,10 @@ export class HhBrowserAssistant {
   private resumeSelectionConfirmed = false;
   private readonly resumeTextCache = new Map<string, { text: string; cachedAt: number }>();
   private readonly preparedCoverLetters = new Map<string, string>();
+  private readonly skippedScreeningUndo = new Map<string, HhQueueItem>();
   private automationDiagnostics: HhAutomationDiagnosticEvent[] = [];
   private activeDailyLimit = 10;
+  private safeScreeningReprocessPromise: Promise<void> | null = null;
 
   constructor(
     userDataDir: string,
@@ -1849,7 +1877,11 @@ export class HhBrowserAssistant {
         // `salaryFrom` is a search floor, not a confirmed questionnaire answer.
         // Before a live form has visibly confirmed the exact résumé, keep the
         // salary pending instead of trusting a legacy/inferred title.
-        if (isSalaryRelatedQuestion(question.prompt) && item.selectedResumeVerified !== true) return true;
+        if (
+          isSalaryRelatedQuestion(question.prompt)
+          && item.selectedResumeVerified !== true
+          && findSalaryExpectation(null, item.selectedResumeTitle ? [item.selectedResumeTitle] : []) == null
+        ) return true;
         const known = knownScreeningAnswer(question, salaryExpectation, resumeTitleContext);
         const salaryQuestion = isSalaryRelatedQuestion(question.prompt);
         const answer = salaryQuestion
@@ -2040,10 +2072,154 @@ export class HhBrowserAssistant {
   /** Поднимает таймер ежедневного авто-прогона после старта приложения. */
   restoreSchedule(): void {
     this.recordAutomationDiagnostic('app_restored', 'application', 'application_startup');
+    void this.reprocessPersistedObjectiveTechnicalQuestions();
     if (this.state.config.autoRunDaily) {
       this.startDailySchedule();
     }
     this.scheduleQueueResume(10_000, 'startup_restore');
+  }
+
+  /**
+   * Older builds left even impersonal technical quizzes in needs_input. Re-run
+   * only obvious technical candidates and accept only backend-approved
+   * knowledge provenance; personal/history answers remain untouched.
+   */
+  private async reprocessPersistedObjectiveTechnicalQuestions(): Promise<void> {
+    if (this.safeScreeningReprocessPromise) return this.safeScreeningReprocessPromise;
+    this.safeScreeningReprocessPromise = (async () => {
+      const candidates = this.generateScreeningAnswers ? this.state.queue.flatMap((vacancy) => {
+        if (vacancy.platform !== 'hh' || vacancy.status !== 'needs_input') return [];
+        const questions = (vacancy.pendingQuestions ?? []).filter(
+          mayBeObjectiveTechnicalScreeningQuestion,
+        );
+        return questions.length > 0 ? [{ vacancy, questions }] : [];
+      }) : [];
+      const resumeCandidates = this.state.queue.flatMap((vacancy) => {
+        if (
+          vacancy.platform !== 'hh'
+          || vacancy.status !== 'needs_input'
+          || !vacancy.selectedResumeTitle?.trim()
+        ) return [];
+        const questions = (vacancy.pendingQuestions ?? []).filter(isGroundedResumeSkillQuestion);
+        return questions.length > 0 ? [{ vacancy, questions }] : [];
+      });
+      if (candidates.length === 0 && resumeCandidates.length === 0) return;
+
+      const resolvedByVacancy = new Map<string, HhScreeningAnswer[]>();
+      const resumeResults = await allSettledWithConcurrency(
+        resumeCandidates,
+        2,
+        async ({ vacancy, questions }) => {
+          const resumeText = await this.getSelectedResumeText(vacancy.title, {
+            throwOnFailure: true,
+            selectedResumeTitle: vacancy.selectedResumeTitle,
+          });
+          return questions.flatMap((question) => {
+            const answer = knownScreeningAnswer(question, null, resumeText);
+            return answer?.canAutoFill && answer.sourceType === 'resume' ? [answer] : [];
+          });
+        },
+      );
+      resumeResults.forEach((result, index) => {
+        if (result.status !== 'fulfilled' || result.value.length === 0) return;
+        const request = resumeCandidates[index];
+        if (!request) return;
+        resolvedByVacancy.set(request.vacancy.key, result.value);
+      });
+      const requests = candidates.flatMap(({ vacancy, questions }) => (
+        Array.from({ length: Math.ceil(questions.length / 8) }, (_, index) => ({
+          vacancy,
+          questions: questions.slice(index * 8, index * 8 + 8),
+        }))
+      ));
+      const results = await allSettledWithConcurrency(requests, 2, ({ vacancy, questions }) => (
+        this.generateScreeningAnswers!({
+          vacancyTitle: vacancy.title,
+          vacancyCompany: vacancy.company,
+          vacancyDescription: vacancy.description ?? '',
+          resumeText: '',
+          questions,
+          confirmedAnswers: [],
+          language: 'ru',
+        })
+      ));
+      results.forEach((result, index) => {
+        if (result.status !== 'fulfilled') return;
+        const request = requests[index];
+        if (!request) return;
+        const questionIds = new Set(request.questions.map((question) => question.id));
+        const safe = result.value.answers.filter((answer) => (
+          questionIds.has(answer.id)
+          && answer.canAutoFill
+          && answer.sourceType === 'knowledge'
+        ));
+        if (safe.length === 0) return;
+        resolvedByVacancy.set(request.vacancy.key, [
+          ...(resolvedByVacancy.get(request.vacancy.key) ?? []),
+          ...safe,
+        ]);
+      });
+      if (resolvedByVacancy.size === 0) return;
+
+      let changed = 0;
+      this.state.queue = this.state.queue.map((vacancy) => {
+        const resolved = resolvedByVacancy.get(vacancy.key);
+        if (!resolved?.length || !vacancy.pendingQuestions?.length) return vacancy;
+        const questionsById = new Map(vacancy.pendingQuestions.map((question) => [question.id, question]));
+        const stored = resolved.flatMap((answer): HhStoredScreeningAnswer[] => {
+          const question = questionsById.get(answer.id);
+          if (!question) return [];
+          const selectedOptions = matchScreeningOptionLabels(
+            answer,
+            question.options,
+            question.kind === 'multiple',
+          );
+          const valid = question.kind === 'text'
+            ? Boolean(answer.answer.trim())
+            : selectedOptions.length > 0;
+          if (!valid) return [];
+          return [{
+            questionId: question.id,
+            question: question.prompt,
+            answer: answer.answer.trim().slice(0, 2_000),
+            selectedOptions,
+          }];
+        });
+        if (stored.length === 0) return vacancy;
+        const resolvedIds = new Set(stored.map((answer) => answer.questionId));
+        const pendingQuestions = vacancy.pendingQuestions.filter(
+          (question) => !resolvedIds.has(question.id),
+        );
+        const answers = new Map(
+          (vacancy.screeningAnswers ?? []).map((answer) => [screeningQuestionSemanticKey(answer.question), answer]),
+        );
+        for (const answer of stored) answers.set(screeningQuestionSemanticKey(answer.question), answer);
+        changed += stored.length;
+        return {
+          ...vacancy,
+          status: pendingQuestions.length === 0 ? 'prepared' as const : 'needs_input' as const,
+          reason: pendingQuestions.length === 0
+            ? 'Технические вопросы разобраны автоматически. Вакансия возвращена в очередь.'
+            : `Технические вопросы разобраны автоматически. Осталось уточнить: ${pendingQuestions.length}.`,
+          pendingQuestions: pendingQuestions.length > 0 ? pendingQuestions : undefined,
+          screeningAnswers: [...answers.values()].slice(-60),
+          autoRetryBlockedUntil: pendingQuestions.length === 0
+            ? undefined
+            : vacancy.autoRetryBlockedUntil,
+        };
+      });
+      if (changed === 0) return;
+      this.persist();
+      this.update({
+        message: `Автоматически разобрано ${changed} ${pluralRuCount(changed, 'технический вопрос', 'технических вопроса', 'технических вопросов')}.`,
+      });
+      if (this.state.config.autoSend) {
+        this.scheduleQueueResume(2_000, 'technical_screening_reprocessed');
+      }
+    })().finally(() => {
+      this.safeScreeningReprocessPromise = null;
+    });
+    return this.safeScreeningReprocessPromise;
   }
 
   /** Переключает ежедневный авто-прогон из UI. */
@@ -3128,14 +3304,27 @@ export class HhBrowserAssistant {
     return (await applicantMenu.count()) === 0 && (await loginLink.count()) > 0;
   }
 
-  private async detectManualBlocker(page: Page): Promise<string | null> {
+  private async hasHhVerification(page: Page): Promise<boolean> {
     const body = (await page.locator('body').innerText().catch(() => '')).toLocaleLowerCase('ru');
-    if (
-      body.includes('подтвердите, что вы не робот') ||
-      body.includes('введите код с картинки') ||
-      (await hasVisible(page, CAPTCHA_SELECTOR))
-    ) {
-      return 'HH запросил проверку. Завершите её вручную в браузере.';
+    return body.includes('подтвердите, что вы не робот')
+      || body.includes('введите код с картинки')
+      || await hasVisible(page, CAPTCHA_SELECTOR);
+  }
+
+  private async hasPersistentHhVerification(page: Page): Promise<boolean> {
+    return retryTransientHhVerification(
+      () => this.hasHhVerification(page),
+      async () => {
+        await page.reload({ waitUntil: 'domcontentloaded', timeout: 30_000 }).catch(() => undefined);
+        await page.waitForTimeout(350).catch(() => undefined);
+      },
+      3,
+    );
+  }
+
+  private async detectManualBlocker(page: Page): Promise<string | null> {
+    if (await this.hasPersistentHhVerification(page)) {
+      return 'HH трижды показал проверку для этой вакансии. Она отложена; остальные вакансии продолжаю обрабатывать.';
     }
     if (await hasVisibleResponseFlowBlocker(page)) {
       return 'Для этой вакансии нужны дополнительные ответы или тест.';
@@ -3741,14 +3930,11 @@ export class HhBrowserAssistant {
       return 'login';
     }
 
-    const text = await body();
-    if (
-      text.includes('подтвердите, что вы не робот') ||
-      text.includes('введите код с картинки') ||
-      (await hasVisible(page, CAPTCHA_SELECTOR))
-    ) {
+    if (await this.hasHhVerification(page) && await this.hasPersistentHhVerification(page)) {
       return 'captcha';
     }
+    // A transient challenge reloads the document, so re-read the live page.
+    const text = await body();
     const alreadyAppliedVisible =
       isAlreadyAppliedHhText(text) ||
       (await hasVisible(page, ALREADY_APPLIED_SELECTOR));
@@ -5046,23 +5232,32 @@ export class HhBrowserAssistant {
           });
           return { sent: false, blocked: false, reason: decided.reason };
         case 'wait_user':
+          {
+          const verification = situation === 'captcha';
           this.patchQueue(vacancy.id, {
             status: 'opened',
-            reason: decided.reason,
+            reason: verification
+              ? 'HH трижды показал проверку для этой вакансии. Она отложена; остальные вакансии продолжаю обрабатывать.'
+              : decided.reason,
             autoRetryBlockedUntil: 'manual',
           });
           this.update({
             phase: 'manual_required',
-            browserOpen: true,
+            browserOpen: !verification,
             currentVacancyId: vacancy.id,
-            message: decided.reason,
+            message: verification
+              ? 'Одна вакансия отложена после повторной проверки HH. Остальная очередь продолжает работу.'
+              : decided.reason,
           });
           return {
             sent: false,
-            blocked: true,
-            reason: decided.reason,
+            blocked: !verification,
+            reason: verification
+              ? 'Проверка HH сохранилась после трёх попыток; отложил только эту вакансию.'
+              : decided.reason,
             autoRetryBlockedUntil: 'manual',
           };
+          }
         case 'click_response': {
           if (baseCtx.hasCoverLetter) {
             const generated = await this.prepareCoverLetter(page, vacancy);
@@ -5361,17 +5556,18 @@ export class HhBrowserAssistant {
         const detail = error instanceof Error ? error.message : String(error);
         const reason = `Неожиданная ошибка при обработке вакансии: ${detail}`;
         const fatal = isFatalHhQueueError(error, this.state.loginRequired);
+        const verification = /captcha|капч|не\s+робот|код\s+с\s+картинк/i.test(detail);
         this.patchQueue(item.key, {
           status: 'opened',
           reason,
-          autoRetryBlockedUntil: fatal ? 'manual' : 'daily',
+          autoRetryBlockedUntil: fatal || verification ? 'manual' : 'daily',
         });
         outcome = {
           sent: false,
           alreadyApplied: false,
           blocked: fatal,
           reason,
-          autoRetryBlockedUntil: fatal ? 'manual' : 'daily',
+          autoRetryBlockedUntil: fatal || verification ? 'manual' : 'daily',
         };
       }
       if (outcome.sent) sentNow += 1;
@@ -5732,13 +5928,20 @@ export class HhBrowserAssistant {
         vacancyCompany: vacancy.company,
         resumeText,
       });
+    const fallbackNote = generationError
+      ? 'Онлайн-генератор сейчас недоступен. Проверьте и заполните точный личный факт.'
+      : 'Проверьте и заполните точный личный факт.';
     return normalizeSuggestion(
       fallback,
       'local',
-      generationError
-        ? 'Онлайн-генератор сейчас недоступен. SkillCue подготовил локальный черновик; неподтверждённые личные сведения нужно проверить.'
-        : 'SkillCue подготовил локальный черновик. Проверьте личные сведения перед сохранением.',
-    )!;
+      fallbackNote,
+    ) ?? {
+      questionId: question.id,
+      answer: '',
+      selectedOptions: [],
+      source: 'local',
+      note: fallbackNote,
+    };
   }
 
   async answerScreeningQuestions(
@@ -6300,6 +6503,24 @@ export class HhBrowserAssistant {
     this.update({
       message: status === 'sent' ? 'Отклик отмечен как отправленный.' : 'Вакансия пропущена.',
     });
+    return this.getState();
+  }
+
+  skipScreeningVacancy(vacancyId: string): HhAssistantState {
+    const vacancy = this.state.queue.find((item) => item.key === vacancyId || item.id === vacancyId);
+    if (!vacancy || vacancy.status !== 'needs_input') return this.getState();
+    this.skippedScreeningUndo.set(vacancy.key, structuredClone(vacancy));
+    return this.mark(vacancy.key, 'skipped');
+  }
+
+  restoreSkippedScreeningVacancy(vacancyId: string): HhAssistantState {
+    const current = this.state.queue.find((item) => item.key === vacancyId || item.id === vacancyId);
+    const key = current?.key ?? vacancyId;
+    const snapshot = this.skippedScreeningUndo.get(key);
+    if (!snapshot) return this.getState();
+    this.skippedScreeningUndo.delete(key);
+    this.state.queue = this.state.queue.map((item) => item.key === key ? structuredClone(snapshot) : item);
+    this.update({ message: `Вакансия «${snapshot.title}» возвращена к вопросам.` });
     return this.getState();
   }
 

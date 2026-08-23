@@ -482,6 +482,106 @@ describe('HH rejected screening batches', () => {
     expect(generator).not.toHaveBeenCalled();
   });
 
+  it('reprocesses persisted objective technical questions after an upgrade', async () => {
+    const technicalPrompt = 'Я тестирую web приложение. Я вижу код, но не вижу базу данных. Это Black Box тестирование? Ответьте ДА или НЕТ и поясните в 1–2 предложениях.';
+    const personalPrompt = 'Сколько вам лет?';
+    const generator = vi.fn(async (request: HhScreeningAnswersRequest) => ({
+      answers: request.questions.map((question) => ({
+        id: question.id,
+        answer: 'Нет. Доступ к исходному коду означает, что это не чистое тестирование чёрного ящика.',
+        selectedOptions: ['Нет'],
+        canAutoFill: true,
+        sourceType: 'knowledge' as const,
+        reason: '',
+      })),
+    }));
+    const assistant = createAssistant(generator);
+    const item = vacancy();
+    assistant.state.queue = [{
+      ...item,
+      status: 'needs_input',
+      pendingQuestions: [
+        {
+          id: 'black-box',
+          prompt: technicalPrompt,
+          kind: 'single',
+          options: ['Да', 'Нет', 'Свой вариант'],
+          required: true,
+        },
+        {
+          id: 'age',
+          prompt: personalPrompt,
+          kind: 'text',
+          options: [],
+          required: true,
+        },
+      ],
+    }];
+    assistant.state.config = {
+      ...assistant.state.config,
+      autoSend: false,
+      autoRunDaily: false,
+    };
+
+    assistant.restoreSchedule();
+
+    await vi.waitFor(() => {
+      expect(assistant.getState().queue[0]?.pendingQuestions?.map((question) => question.id))
+        .toEqual(['age']);
+    });
+    expect(generator).toHaveBeenCalledOnce();
+    expect(generator.mock.calls[0]?.[0].questions.map((question) => question.id))
+      .toEqual(['black-box']);
+    expect(assistant.getState().queue[0]?.screeningAnswers).toContainEqual({
+      questionId: 'black-box',
+      question: technicalPrompt,
+      answer: 'Нет. Доступ к исходному коду означает, что это не чистое тестирование чёрного ящика.',
+      selectedOptions: ['Нет'],
+    });
+  });
+
+  it('reprocesses persisted yes/no skills from the exact selected resume', async () => {
+    const generator = vi.fn(async () => ({ answers: [] }));
+    const assistant = createAssistant(generator);
+    const item = vacancy();
+    assistant.state.queue = [{
+      ...item,
+      status: 'needs_input',
+      selectedResumeTitle: 'Qa Fullstack engineer python 240 000 ₽ · Удалённо',
+      pendingQuestions: [{
+        id: 'postman',
+        prompt: 'У вас уверенное владение Postman?',
+        kind: 'single',
+        options: ['да', 'нет'],
+        required: true,
+      }, {
+        id: 'age',
+        prompt: 'Сколько вам лет?',
+        kind: 'text',
+        options: [],
+        required: true,
+      }],
+    }];
+    assistant.state.config = { ...assistant.state.config, autoSend: false, autoRunDaily: false };
+    assistant.getSelectedResumeText = vi.fn(async () => (
+      'Qa Fullstack engineer python 240 000 ₽ · Удалённо\nРаботаю со стеком: REST API, Postman, SQL.'
+    ));
+
+    assistant.restoreSchedule();
+
+    await vi.waitFor(() => {
+      expect(assistant.getState().queue[0]?.pendingQuestions?.map((question) => question.id))
+        .toEqual(['age']);
+    });
+    expect(assistant.getState().queue[0]?.screeningAnswers).toContainEqual({
+      questionId: 'postman',
+      question: 'У вас уверенное владение Postman?',
+      answer: '',
+      selectedOptions: ['да'],
+    });
+    expect(generator).not.toHaveBeenCalled();
+  });
+
   it('keeps review drafts and continues with the second vacancy after a provider failure', async () => {
     vi.useFakeTimers();
     screeningMocks.collect.mockResolvedValue([field('provider-question')]);

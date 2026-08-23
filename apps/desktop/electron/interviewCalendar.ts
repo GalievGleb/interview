@@ -616,6 +616,10 @@ export class InterviewCalendarStore {
     }
   }
 
+  dispose(): void {
+    // The store has no open handles; this idempotent hook closes its lifecycle.
+  }
+
   getState(): InterviewCalendarState {
     return cloneState(this.state);
   }

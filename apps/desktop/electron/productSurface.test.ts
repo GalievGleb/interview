@@ -5,26 +5,31 @@ import { describe, expect, it } from 'vitest';
 const desktopRoot = path.resolve(__dirname, '..');
 
 describe('packaged product surface', () => {
-  it('ships the STT benchmark cases and source audio', () => {
+  it('never ships developer verification assets in the stable product', () => {
     const packageJson = JSON.parse(
       fs.readFileSync(path.join(desktopRoot, 'package.json'), 'utf8'),
     ) as {
-      build: { extraResources: Array<{ from: string; to: string }> };
+      build: { extraResources: Array<{ from?: string; to?: string }> };
       scripts: Record<string, string>;
     };
-
-    expect(packageJson.build.extraResources).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          from: '../../tests/stt-benchmark/cases.json',
-          to: 'tests/stt-benchmark/cases.json',
-        }),
-        expect.objectContaining({
-          from: '../../tests/voice/audio',
-          to: 'tests/voice/audio',
-        }),
-      ]),
+    const devConfigSource = fs.readFileSync(
+      path.join(desktopRoot, 'electron-builder.dev.cjs'),
+      'utf8',
     );
+
+    // Stable installers must not contain dev/test fixtures (CLAUDE.md rule).
+    const stableResourceTargets = packageJson.build.extraResources.map((r) => r.to ?? '');
+    expect(stableResourceTargets).not.toContain('tests/stt-benchmark/cases.json');
+    expect(stableResourceTargets).not.toContain('tests/voice/audio');
+    for (const resource of packageJson.build.extraResources) {
+      expect(resource.from ?? '').not.toContain('tests/');
+    }
+
+    // The private Dev installer keeps them so the Test Lab / benchmark and the
+    // installed-overlay verification keep working against Dev builds.
+    expect(devConfigSource).toContain('../../tests/stt-benchmark/cases.json');
+    expect(devConfigSource).toContain('../../tests/voice/audio');
+
     expect(packageJson.scripts['build:backend']).toContain(
       '.venv\\Scripts\\pyinstaller.exe -y',
     );

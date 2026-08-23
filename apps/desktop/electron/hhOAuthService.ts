@@ -87,6 +87,8 @@ export class HhOAuthService {
   private authPromise: Promise<HhTokens> | null = null;
   private authResolve: ((tokens: HhTokens) => void) | null = null;
   private authReject: ((err: Error) => void) | null = null;
+  private persistenceError: string | null = null;
+  private loadedLegacyPlaintext = false;
 
   constructor(userDataDir: string) {
     this.userDataDir = userDataDir;
@@ -97,6 +99,7 @@ export class HhOAuthService {
       redirectPort: DEFAULT_REDIRECT_PORT,
     };
     this.tokens = persisted?.tokens ?? null;
+    if (this.loadedLegacyPlaintext && safeStorage.isEncryptionAvailable()) this.persist();
   }
 
   // ─── Публичные методы ──────────────────────────────────────────────────
@@ -108,7 +111,7 @@ export class HhOAuthService {
       name: null,
       employerId: null,
       expiresAt: this.tokens?.expiresAt ?? null,
-      error: null,
+      error: this.persistenceError,
     };
   }
 
@@ -153,7 +156,7 @@ export class HhOAuthService {
   async exchangeCode(code: string): Promise<HhTokens> {
     const tokens = await this.requestTokens({ code });
     this.tokens = tokens;
-    this.persist();
+    if (!this.persist()) throw new Error(this.persistenceError ?? 'Не удалось безопасно сохранить OAuth-токены.');
     return tokens;
   }
 
@@ -328,27 +331,31 @@ export class HhOAuthService {
       if ('__encrypted' in parsed && typeof parsed.__encrypted === 'string') {
         return JSON.parse(safeStorage.decryptString(Buffer.from(parsed.__encrypted, 'base64'))) as PersistedHhAuth;
       }
+      this.loadedLegacyPlaintext = true;
       return parsed as PersistedHhAuth;
     } catch {
       return null;
     }
   }
 
-  private persist(): void {
+  private persist(): boolean {
+    if (!safeStorage.isEncryptionAvailable()) {
+      this.persistenceError = 'Безопасное хранилище ОС недоступно: токены оставлены только в памяти и будут потеряны после выхода.';
+      console.warn('[hh-oauth] safeStorage unavailable — tokens kept in memory');
+      return false;
+    }
     try {
       fs.mkdirSync(path.dirname(oauthStatePath(this.userDataDir)), { recursive: true });
       const value: PersistedHhAuth = { config: this.config, tokens: this.tokens };
-      if (safeStorage.isEncryptionAvailable()) {
-        const encrypted = safeStorage.encryptString(JSON.stringify(value)).toString('base64');
-        fs.writeFileSync(oauthStatePath(this.userDataDir), JSON.stringify({ __encrypted: encrypted }), 'utf8');
-      } else {
-        // No OS keystore (e.g. CI/headless). Fall back to plaintext and log it —
-        // the alternative is losing OAuth state entirely on every restart.
-        console.warn('[hh-oauth] safeStorage unavailable — tokens stored unencrypted');
-        fs.writeFileSync(oauthStatePath(this.userDataDir), JSON.stringify(value, null, 2), 'utf8');
-      }
+      const encrypted = safeStorage.encryptString(JSON.stringify(value)).toString('base64');
+      fs.writeFileSync(oauthStatePath(this.userDataDir), JSON.stringify({ __encrypted: encrypted }), 'utf8');
+      this.persistenceError = null;
+      this.loadedLegacyPlaintext = false;
+      return true;
     } catch (error) {
+      this.persistenceError = 'Не удалось сохранить OAuth-токены в безопасном хранилище.';
       console.warn('[hh-oauth] persist failed:', error);
+      return false;
     }
   }
 
@@ -437,7 +444,7 @@ export class HhOAuthService {
           this.requestTokens({ code })
             .then((tokens) => {
               this.tokens = tokens;
-              this.persist();
+              if (!this.persist()) throw new Error(this.persistenceError ?? 'Не удалось безопасно сохранить OAuth-токены.');
               this.resolve(tokens);
             })
             .catch((err) => {

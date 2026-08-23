@@ -7,6 +7,7 @@ import {
   HhBrowserAssistant,
   isFatalHhQueueError,
   normalizePersistedQueue,
+  retryTransientHhVerification,
   type HhQueueItem,
 } from './hhBrowserAssistant';
 
@@ -52,7 +53,7 @@ describe('HH persisted queue recovery', () => {
     );
   });
 
-  it('backfills legacy pending text questions with a non-empty review draft', () => {
+  it('leaves an unknown legacy personal fact blank instead of backfilling filler text', () => {
     const [item] = normalizePersistedQueue([pending('1', {
       pendingQuestions: [{
         id: 'legacy-city',
@@ -63,7 +64,7 @@ describe('HH persisted queue recovery', () => {
       }],
     })]);
 
-    expect(item?.pendingQuestions?.[0]?.suggestedAnswer).toContain('город проживания');
+    expect(item?.pendingQuestions?.[0]?.suggestedAnswer).toBeUndefined();
     expect(item?.pendingQuestions?.[0]?.assistantReason).toContain('неподтверждённый');
   });
 
@@ -80,7 +81,7 @@ describe('HH persisted queue recovery', () => {
     })]);
 
     expect(item?.pendingQuestions?.[0]?.suggestedAnswer).not.toBe('Москва');
-    expect(item?.pendingQuestions?.[0]?.suggestedAnswer).toContain('город проживания');
+    expect(item?.pendingQuestions?.[0]?.suggestedAnswer).toBeUndefined();
   });
 
   it('scrubs an unproven legacy legal-status option instead of restoring the guessed answer', () => {
@@ -226,10 +227,24 @@ describe('HH persisted queue recovery', () => {
     expect(state.queue[0]?.autoRetryBlockedUntil).toBeUndefined();
   });
 
-  it('stops only for authentication, captcha, or browser-context failures', () => {
+  it('lets the user skip a screening vacancy and immediately undo without losing its questions', () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'skillcue-hh-skip-undo-'));
+    directories.push(directory);
+    const assistant = new HhBrowserAssistant(directory, () => undefined);
+    const mutable = assistant as unknown as { state: { queue: HhQueueItem[] } };
+    mutable.state.queue = [pending('1')];
+
+    expect(assistant.skipScreeningVacancy('hh:1').queue[0]).toMatchObject({ status: 'skipped' });
+    const restored = assistant.restoreSkippedScreeningVacancy('hh:1').queue[0];
+
+    expect(restored).toMatchObject({ status: 'needs_input' });
+    expect(restored?.pendingQuestions).toHaveLength(2);
+  });
+
+  it('stops only for authentication or browser-context failures', () => {
     expect(isFatalHhQueueError(new Error('HTTP 503 from answer provider'))).toBe(false);
     expect(isFatalHhQueueError(new Error('Playwright page closed'))).toBe(false);
-    expect(isFatalHhQueueError(new Error('HH показал captcha'))).toBe(true);
+    expect(isFatalHhQueueError(new Error('HH показал captcha'))).toBe(false);
     expect(isFatalHhQueueError(new Error('Target page, context or browser has been closed'))).toBe(true);
     expect(isFatalHhQueueError(new Error('anything'), true)).toBe(true);
   });
@@ -262,7 +277,7 @@ describe('HH persisted queue recovery', () => {
     });
   });
 
-  it('stops the queue after a captcha exception', async () => {
+  it('isolates a captcha exception to one vacancy and continues the queue', async () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'skillcue-hh-fatal-queue-'));
     directories.push(directory);
     const assistant = new HhBrowserAssistant(directory, () => undefined);
@@ -273,19 +288,34 @@ describe('HH persisted queue recovery', () => {
     };
     mutable.state.queue = [pending('1', { status: 'new', pendingQuestions: undefined }), pending('2', { status: 'new', pendingQuestions: undefined })];
     mutable.state.config = { ...mutable.state.config, dailyLimit: 200 };
-    const apply = vi.fn(async () => {
-      throw new Error('HH показал captcha');
+    const apply = vi.fn(async (item: HhQueueItem) => {
+      if (item.id === '1') throw new Error('HH показал captcha');
+      assistant.mark(item.key, 'skipped');
+      return { sent: false, blocked: false, reason: 'Пропущено в тесте.' };
     });
     mutable.applyToVacancy = apply;
 
     const stats = await mutable.runQueue();
 
-    expect(apply).toHaveBeenCalledOnce();
-    expect(stats).toMatchObject({ attempted: 1, blocked: true });
+    expect(apply).toHaveBeenCalledTimes(2);
+    expect(stats).toMatchObject({ attempted: 2, blocked: false });
     expect(assistant.getState().queue[0]).toMatchObject({
       status: 'opened',
       autoRetryBlockedUntil: 'manual',
     });
+  });
+
+  it('silently retries a transient HH verification before treating it as persistent', async () => {
+    const blocked = [true, false];
+    const refresh = vi.fn(async () => undefined);
+
+    const persistent = await retryTransientHhVerification(
+      async () => blocked.shift() ?? false,
+      refresh,
+    );
+
+    expect(persistent).toBe(false);
+    expect(refresh).toHaveBeenCalledOnce();
   });
 
   it('persists a wait-user decision on the vacancy itself', async () => {
@@ -309,11 +339,11 @@ describe('HH persisted queue recovery', () => {
 
     const state = await assistant.applyOne(item.key, { explicitUserSelection: true });
 
-    expect(state.phase).toBe('manual_required');
+    expect(state.phase).toBe('ready');
     expect(state.queue[0]).toMatchObject({
       status: 'opened',
       autoRetryBlockedUntil: 'manual',
-      reason: 'HH запросил проверку. Завершите её в открытом браузере и продолжите.',
+      reason: 'HH трижды показал проверку для этой вакансии. Она отложена; остальные вакансии продолжаю обрабатывать.',
     });
   });
 

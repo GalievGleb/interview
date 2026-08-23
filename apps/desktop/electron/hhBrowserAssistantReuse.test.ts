@@ -254,6 +254,41 @@ describe('HH remembered screening answers', () => {
     expect(item?.screeningAnswers?.[0]?.answer).toMatch(/220[\s\u00a0]000 ₽/u);
   });
 
+  it('replaces a generic legacy draft with the exact selected-resume net amount', () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'skillcue-salary-net-draft-'));
+    directories.push(directory);
+    const defaults = new HhBrowserAssistant(directory, () => undefined).getState().config;
+    fs.writeFileSync(path.join(directory, 'hh-browser-assistant.json'), JSON.stringify({
+      version: 8,
+      resumeSelectionConfirmed: false,
+      config: { ...defaults, salaryFrom: null, resumeTitles: [], autoRunDaily: false, autoSend: false },
+      queue: [{
+        ...pending('135838878'),
+        title: 'Middle QA Engineer',
+        company: 'Employcity',
+        selectedResumeTitle: 'Постоянная работа, подработка Qa Fullstack engineer python 240 000 ₽ · Удалённо',
+        selectedResumeVerified: undefined,
+        pendingQuestions: [{
+          id: 'salary-net',
+          prompt: 'Какая сумма на руки будет для вас комфортна?',
+          kind: 'text',
+          options: [],
+          required: true,
+          suggestedAnswer: 'Готов дать предметный ответ с учётом контекста вакансии.',
+        }],
+      }],
+      screeningFacts: [],
+      runHistory: [],
+    }, null, 2), 'utf8');
+
+    const restored = new HhBrowserAssistant(directory, () => undefined).getState();
+    const item = restored.queue[0];
+
+    expect(item?.status).toBe('prepared');
+    expect(item?.pendingQuestions).toBeUndefined();
+    expect(item?.screeningAnswers?.[0]?.answer).toContain('240\u00a0000 ₽ на руки');
+  });
+
   it('migrates v7 inferred resume and salary answers back to explicit review', () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'skillcue-v7-resume-provenance-'));
     directories.push(directory);
