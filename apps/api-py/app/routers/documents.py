@@ -1,5 +1,5 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.errors import AppError
@@ -13,6 +13,7 @@ _VALID_KINDS = {"resume", "legend", "vacancy", "company", "notes", "qa"}
 
 # Kinds that feed the candidate profile pack (see services/candidate_profile).
 _PROFILE_KINDS = {"resume", "legend", "vacancy"}
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 
 
 class DocumentOut(BaseModel):
@@ -33,7 +34,9 @@ async def upload(
     if kind not in _VALID_KINDS:
         raise AppError(f"Invalid kind. Use one of {_VALID_KINDS}", 400, "invalid_kind")
 
-    content = await file.read()
+    content = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise AppError("Uploaded file is too large", 413, "document_too_large")
     try:
         text = rag_service.parse_file(file.filename or "file.txt", content)
     except ValueError as exc:
@@ -55,8 +58,8 @@ async def upload(
 
 class TextPayload(BaseModel):
     kind: str
-    title: str
-    text: str
+    title: str = Field(max_length=500)
+    text: str = Field(max_length=200_000)
 
 
 @router.post("/text", response_model=DocumentOut)

@@ -12,9 +12,13 @@ logger = logging.getLogger("rag")
 
 CHUNK_SIZE = 800
 CHUNK_OVERLAP = 120
+MAX_PARSE_BYTES = 10 * 1024 * 1024
+EMBED_BATCH_SIZE = 64
 
 
 def parse_file(filename: str, content: bytes) -> str:
+    if len(content) > MAX_PARSE_BYTES:
+        raise ValueError("File is too large to parse")
     name = filename.lower()
     if name.endswith(".pdf"):
         return _parse_pdf(content)
@@ -61,7 +65,11 @@ async def index_document(db: Session, document: Document) -> int:
 
     embeddings: list[list[float] | None]
     try:
-        embeddings = await provider_adapter.embed(chunks)  # type: ignore[assignment]
+        embeddings = []
+        for start in range(0, len(chunks), EMBED_BATCH_SIZE):
+            batch = chunks[start : start + EMBED_BATCH_SIZE]
+            batch_embeddings = await provider_adapter.embed(batch)
+            embeddings.extend(batch_embeddings)
     except Exception as exc:
         logger.warning("Embedding failed, storing chunks without vectors: %s", exc)
         embeddings = [None] * len(chunks)

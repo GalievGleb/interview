@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -20,6 +21,12 @@ VOICE_TESTS_DIR = REPO_ROOT / "tests" / "voice"
 CASES_PATH = VOICE_TESTS_DIR / "cases.json"
 AUDIO_DIR = VOICE_TESTS_DIR / "audio"
 RESULTS_DIR = VOICE_TESTS_DIR / "results"
+MAX_VOICE_AUDIO_BYTES = 5 * 1024 * 1024
+
+
+def _require_dev_tools() -> None:
+    if os.getenv("SKILLCUE_DEV_TOOLS") != "1":
+        raise HTTPException(status_code=404, detail="Not found")
 
 
 def _resolve_audio_path(audio_file: str) -> Path:
@@ -49,6 +56,7 @@ class VoiceTestReportPayload(BaseModel):
 
 @router.get("/cases")
 def list_cases() -> dict:
+    _require_dev_tools()
     if not CASES_PATH.exists():
         raise HTTPException(
             status_code=404,
@@ -65,6 +73,7 @@ def list_cases() -> dict:
 
 @router.get("/cases/{case_id}/audio-exists")
 def audio_exists(case_id: str) -> dict:
+    _require_dev_tools()
     cases = _load_cases()
     case = next((c for c in cases if c.get("id") == case_id), None)
     if not case:
@@ -78,6 +87,7 @@ def audio_exists(case_id: str) -> dict:
 
 @router.post("/transcribe/{case_id}")
 async def transcribe_case(case_id: str) -> dict:
+    _require_dev_tools()
     cases = _load_cases()
     case = next((c for c in cases if c.get("id") == case_id), None)
     if not case:
@@ -93,6 +103,8 @@ async def transcribe_case(case_id: str) -> dict:
             detail=f"Audio file not found: {audio_path}",
         )
 
+    if audio_path.stat().st_size > MAX_VOICE_AUDIO_BYTES:
+        raise HTTPException(status_code=413, detail="Audio file is too large")
     audio_bytes = audio_path.read_bytes()
     provider = resolve_default_provider()
     if not provider.is_available():
@@ -122,11 +134,13 @@ async def transcribe_case(case_id: str) -> dict:
 
 @router.post("/reports")
 def save_report(payload: VoiceTestReportPayload) -> dict:
+    _require_dev_tools()
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     ts = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     filename = payload.filename or f"voice-regression-{ts}.json"
     if not filename.endswith(".json"):
         filename += ".json"
+    filename = _safe_report_filename(filename)
     out_path = RESULTS_DIR / filename
     with out_path.open("w", encoding="utf-8") as f:
         json.dump(payload.report, f, ensure_ascii=False, indent=2)
@@ -143,6 +157,7 @@ def _safe_report_filename(filename: str) -> str:
 
 @router.get("/reports")
 def list_reports() -> dict:
+    _require_dev_tools()
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     files = sorted(
         RESULTS_DIR.glob("voice-regression-*.json"),
@@ -166,6 +181,7 @@ def list_reports() -> dict:
 
 @router.get("/reports/{filename}")
 def get_report(filename: str) -> dict:
+    _require_dev_tools()
     safe_name = _safe_report_filename(filename)
     path = RESULTS_DIR / safe_name
     if not path.is_file():

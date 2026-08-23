@@ -5,13 +5,14 @@ import logging
 import os
 import uuid
 from collections.abc import AsyncGenerator
+from urllib.parse import urlparse
 
 import httpx
 
 from app.config import get_settings
 from app.core.errors import AppError
 from app.services import secrets
-from app.services.preferences import DEFAULT_BASE_URL, load_preferences
+from app.services.preferences import DEFAULT_BASE_URL, load_preferences, validate_base_url
 
 logger = logging.getLogger("provider")
 
@@ -63,9 +64,17 @@ PROVIDER_CONFIG: dict[str, dict] = {
 def _base_url(provider: str) -> str:
     if provider == "openrouter":
         prefs = load_preferences()
-        return prefs.base_url or PROVIDER_CONFIG["openrouter"]["base_url"]
+        try:
+            return validate_base_url(prefs.base_url or PROVIDER_CONFIG["openrouter"]["base_url"])
+        except ValueError as exc:
+            raise AppError(str(exc), 400, "invalid_base_url") from exc
     if provider == "ollama":
-        return os.environ.get("OLLAMA_BASE_URL") or PROVIDER_CONFIG["ollama"]["base_url"]
+        try:
+            return validate_base_url(
+                os.environ.get("OLLAMA_BASE_URL") or PROVIDER_CONFIG["ollama"]["base_url"]
+            )
+        except ValueError as exc:
+            raise AppError(str(exc), 400, "invalid_base_url") from exc
     return PROVIDER_CONFIG[provider]["base_url"]
 
 
@@ -243,8 +252,14 @@ async def _resolve(provider: str | None) -> tuple[str, str, str]:
     if provider not in PROVIDER_CONFIG:
         raise AppError(f"Unknown provider: {provider}", 400, "unknown_provider")
     cfg = PROVIDER_CONFIG[provider]
+    base_url = _base_url(provider)
     if cfg.get("keyless"):
-        return provider, _base_url(provider), ""
+        return provider, base_url, ""
+    # A localhost endpoint is treated as keyless even if configured under a
+    # compatible provider name; never send a user's BYOK to local software.
+    parsed_base = urlparse(base_url)
+    if parsed_base.scheme == "http" and parsed_base.hostname in {"127.0.0.1", "localhost"}:
+        return provider, base_url, ""
     key = secrets.get_secret(cfg["key_name"])
     if not key and provider == "openrouter" and settings.skillcue_gateway_url:
         # Покупательский путь: свой OpenRouter-ключ не нужен — валидная лицензия
@@ -459,7 +474,13 @@ def _apply_completion_limit(payload: dict, *, provider: str, model: str) -> None
         payload["max_completion_tokens"] = payload.pop("max_tokens")
 
 
-async def test_provider(provider: str | None, model: str | None) -> dict:
+async def test_provider(
+    provider: str | None,
+    model: str | None,
+    *,
+    request_timeout_seconds: float = 15.0,
+    max_attempts: int = 1,
+) -> dict:
     provider, base_url, key = await _resolve(provider)
     settings = get_settings()
     model = model or settings.default_model
@@ -470,11 +491,13 @@ async def test_provider(provider: str | None, model: str | None) -> dict:
         "max_tokens": 5,
     }
     _apply_completion_limit(payload, provider=provider, model=model)
-    resp = await get_client().post(
-        f"{base_url}/chat/completions",
-        headers=_headers(provider, key),
-        json=payload,
-        timeout=30,
+    resp = await _post_with_retry(
+        base_url,
+        provider,
+        key,
+        payload,
+        request_timeout_seconds=request_timeout_seconds,
+        max_attempts=max_attempts,
     )
     if resp.status_code >= 400:
         raise parse_provider_error(resp.status_code, resp.text, provider)

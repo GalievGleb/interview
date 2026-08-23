@@ -184,13 +184,21 @@ def resolve_model(
     prefs: AiPreferencesModel | None = None,
     available: set[str] | None = None,
 ) -> tuple[str, str]:
-    """
-    Возвращает (model_id, source). Сохранённые настройки и model_override
-    намеренно игнорируются: выбор облачных моделей задаётся продуктовым планом.
-    Аргумент override пока сохранён только ради совместимости старых клиентов.
-    """
+    """Возвращает выбранную пользователем модель или безопасный Auto-подбор."""
     prefs = prefs or load_preferences()
     available = available if available is not None else {m.id for m in prefs.models_cache}
     mode = mode if mode in MODE_SETTING else "general"
+
+    # The UI exposes model selection, so an explicit request must not silently
+    # turn into another model. This is also needed for preview models such as
+    # stealth/ox-alpha that may not be present in an old local catalog cache.
+    explicit = (model_override or "").strip()
+    if explicit and explicit != AUTO:
+        return explicit, "manual"
+
+    setting_name = MODE_SETTING[mode]
+    configured = (getattr(prefs, setting_name, AUTO) or AUTO).strip()
+    if configured != AUTO and configured:
+        return configured, "manual"
 
     return pick_auto_model(mode, available), "auto"

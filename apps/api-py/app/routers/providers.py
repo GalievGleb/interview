@@ -83,6 +83,8 @@ async def readiness(payload: ReadinessPayload) -> dict:
         model,
         max_tokens=220,
         temperature=0.1,
+        request_timeout_seconds=20,
+        max_attempts=1,
     )
     normalized = answer.strip().lower()
     matched = [term for term in _READINESS_TERMS if term in normalized]

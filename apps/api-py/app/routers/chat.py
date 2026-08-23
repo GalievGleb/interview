@@ -397,8 +397,10 @@ async def _interview_event_stream(
         # Live answers are Say-aloud: sanitize, then enforce the spoken word cap.
         final_spoken = trim_spoken_answer(sanitize_live_answer(parsed.get("spoken") or spoken))
 
-    if err_msg and not final_spoken:
-        yield f"data: {json.dumps({'type': 'error', 'message': err_msg}, ensure_ascii=False)}\n\n"
+    if err_msg:
+        # Never persist or publish a partial answer as successful. Keep provider
+        # details server-side and expose only a stable client-facing reason.
+        yield f"data: {json.dumps({'type': 'stream_failed', 'reason': 'provider_error'}, ensure_ascii=False)}\n\n"
     else:
         answer_id = None
         if db and final_spoken:
@@ -583,7 +585,13 @@ async def interview(payload: InterviewPayload, db: Session = Depends(get_db)) ->
         {"role": "user", "content": prompt},
     ]
     raw = await provider_adapter.complete(
-        messages, provider, model, max_tokens=max_tokens, temperature=temperature
+        messages,
+        provider,
+        model,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        request_timeout_seconds=75,
+        max_attempts=2,
     )
     parsed = _parse_fast_response(raw) if is_fast else _safe_json(raw)
 
@@ -659,7 +667,13 @@ async def answer_variant(payload: AnswerVariantPayload, db: Session = Depends(ge
         {"role": "user", "content": prompt},
     ]
     text = await provider_adapter.complete(
-        messages, provider, model, max_tokens=600, temperature=0.3
+        messages,
+        provider,
+        model,
+        max_tokens=600,
+        temperature=0.3,
+        request_timeout_seconds=60,
+        max_attempts=2,
     )
     result = text.strip()
     if answer_row is not None and result:
@@ -673,9 +687,16 @@ async def answer_variant(payload: AnswerVariantPayload, db: Session = Depends(ge
 async def interview_stream(payload: InterviewPayload, db: Session = Depends(get_db)):
     _ensure_quota(db)
     """SSE-стрим live-подсказки — первые токены сразу."""
+    provider, model, source = _resolve_chat(
+        "fast",
+        provider=payload.provider,
+        model=payload.model,
+        model_override=payload.model_override,
+    )
+
     # We use a separate session for the streaming event to keep the Depends()
-    # session free for the caller. Close it in a finally block so the connection
-    # pool does not leak on exceptions between try and event_stream.
+    # session free for the caller. Resolve the provider before opening it so
+    # failures cannot leak a session before StreamingResponse is created.
     stream_db = SessionLocal()
     try:
         resume = _clip(rag_service.get_context_text(stream_db, "resume"), RESUME_CONTEXT_LIMIT)
@@ -685,13 +706,6 @@ async def interview_stream(payload: InterviewPayload, db: Session = Depends(get_
     except Exception:
         stream_db.close()
         raise
-
-    provider, model, source = _resolve_chat(
-        "fast",
-        provider=payload.provider,
-        model=payload.model,
-        model_override=payload.model_override,
-    )
 
     async def event_stream():
         try:
@@ -736,7 +750,14 @@ async def meeting_summary(payload: MeetingPayload, db: Session = Depends(get_db)
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": prompt},
     ]
-    summary = await provider_adapter.complete(messages, provider, model, max_tokens=900)
+    summary = await provider_adapter.complete(
+        messages,
+        provider,
+        model,
+        max_tokens=900,
+        request_timeout_seconds=75,
+        max_attempts=2,
+    )
     db.add(_chat_usage(provider, prompt, summary))
     db.commit()
     return {"summary": summary, "model": model, "model_source": source}
@@ -772,6 +793,8 @@ async def interview_outcome(
         max_tokens=650,
         temperature=0.15,
         response_format={"type": "json_object"},
+        request_timeout_seconds=60,
+        max_attempts=2,
     )
     outcome = _normalize_interview_outcome(raw)
     db.add(_chat_usage(provider, prompt, raw))
@@ -795,7 +818,14 @@ async def interview_review(payload: MeetingPayload, db: Session = Depends(get_db
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": prompt},
     ]
-    review = await provider_adapter.complete(messages, provider, model, max_tokens=1400)
+    review = await provider_adapter.complete(
+        messages,
+        provider,
+        model,
+        max_tokens=1400,
+        request_timeout_seconds=75,
+        max_attempts=2,
+    )
     db.add(_chat_usage(provider, prompt, review))
     db.commit()
     return {"review": review, "model": model, "model_source": source}

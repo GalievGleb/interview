@@ -1,8 +1,8 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from app.config import get_settings
-from app.services import secrets
+from app.services import preferences, secrets
 from app.services.preferences import (
     AiPreferencesModel,
     load_preferences,
@@ -83,7 +83,12 @@ def save_ai_settings(payload: AiSettingsPayload) -> AiSettingsResponse:
         value = getattr(payload, field)
         if value is not None:
             data[field] = value
-    save_preferences(AiPreferencesModel.model_validate(data))
+    try:
+        data["base_url"] = preferences.validate_base_url(data["base_url"])
+        validated = AiPreferencesModel.model_validate(data)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    save_preferences(validated)
     return _ai_response()
 
 

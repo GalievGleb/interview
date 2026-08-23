@@ -84,7 +84,14 @@ def test_prompt_builders_detect_transcript_language_when_not_explicit():
 def test_interview_review_returns_review_and_wires_prompt(client, monkeypatch):
     captured: dict = {}
 
-    async def fake_complete(messages, provider=None, model=None, max_tokens=800, temperature=0.4):
+    async def fake_complete(
+        messages,
+        provider=None,
+        model=None,
+        max_tokens=800,
+        temperature=0.4,
+        **kwargs,
+    ):
         captured["messages"] = messages
         captured["max_tokens"] = max_tokens
         return "РАЗБОР: кандидат путает unit и integration тесты."
@@ -320,6 +327,43 @@ def test_interview_stream_injects_answer_language_block(client, monkeypatch):
     user_msg = captured["messages"][-1]["content"]
     assert "OUTPUT LANGUAGE" in user_msg
     assert "English" in user_msg
+
+
+def test_interview_stream_failure_after_partial_tokens_is_not_success(client, monkeypatch):
+    async def failing_stream(messages, provider=None, model=None, **kwargs):
+        yield "partial"
+        raise RuntimeError("secret upstream details")
+
+    monkeypatch.setattr(provider_adapter, "stream_chat", failing_stream)
+    from conftest import TestingSessionLocal
+
+    from app.routers import chat as chat_router
+
+    monkeypatch.setattr(chat_router, "SessionLocal", TestingSessionLocal)
+    res = client.post("/chat/interview/stream", json={"question": "Что такое REST?"})
+    assert res.status_code == 200, res.text
+    assert '"type": "stream_failed"' in res.text
+    assert '"reason": "provider_error"' in res.text
+    assert '"type": "done"' not in res.text
+    assert "secret upstream details" not in res.text
+
+
+def test_interview_stream_failure_before_tokens_is_generic(client, monkeypatch):
+    async def failing_stream(messages, provider=None, model=None, **kwargs):
+        raise RuntimeError("secret upstream details")
+        yield "unreachable"
+
+    monkeypatch.setattr(provider_adapter, "stream_chat", failing_stream)
+    from conftest import TestingSessionLocal
+
+    from app.routers import chat as chat_router
+
+    monkeypatch.setattr(chat_router, "SessionLocal", TestingSessionLocal)
+    res = client.post("/chat/interview/stream", json={"question": "Что такое REST?"})
+    assert res.status_code == 200, res.text
+    assert '"type": "stream_failed"' in res.text
+    assert '"type": "done"' not in res.text
+    assert "secret upstream details" not in res.text
 
 
 def test_screen_assist_injects_answer_language_block(client, monkeypatch):

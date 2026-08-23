@@ -141,7 +141,14 @@ def test_quota_allows_when_budget_remains(client, db_session, keypair, monkeypat
 
     from app.services import provider_adapter
 
-    async def fake_complete(messages, provider=None, model=None, max_tokens=800, temperature=0.4):
+    async def fake_complete(
+        messages,
+        provider=None,
+        model=None,
+        max_tokens=800,
+        temperature=0.4,
+        **kwargs,
+    ):
         return "summary text"
 
     monkeypatch.setattr(provider_adapter, "complete", fake_complete)

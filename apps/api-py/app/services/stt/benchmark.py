@@ -176,6 +176,9 @@ def score_case(case: dict, raw_transcript: str, latency_ms: int) -> dict:
 
 
 # --- running (needs a provider) ------------------------------------------
+MAX_AUDIO_BYTES = 5 * 1024 * 1024
+
+
 async def run_case(case: dict, provider: BaseTranscriptionProvider) -> dict:
     audio_path = resolve_audio_path(case["audioFile"])
     if not audio_path.is_file():
@@ -184,6 +187,12 @@ async def run_case(case: dict, provider: BaseTranscriptionProvider) -> dict:
             "title": case.get("title"),
             "errorType": "audio_missing",
             "error": f"Audio not found: {audio_path}",
+        }
+    if audio_path.stat().st_size > MAX_AUDIO_BYTES:
+        return {
+            "caseId": case.get("id"),
+            "title": case.get("title"),
+            "errorType": "audio_too_large",
         }
     audio = audio_path.read_bytes()
     try:

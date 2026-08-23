@@ -4,16 +4,40 @@ Electron генерирует случайный токен на каждый з
 через env SKILLCUE_API_TOKEN; renderer шлёт его в заголовке X-SkillCue-Token
 (для WebSocket — query-параметр `token`). Без совпадения — 401.
 
-Когда env не задан (бэкенд запущен вручную в dev-терминале) — проверка
-выключена, чтобы не ломать разработку и curl-отладку.
+Если env не задан (бэкенд запущен вручную в dev-терминале), токен
+генерируется заново для каждого запуска и сохраняется в data/local_api_token.json.
 """
 
 from __future__ import annotations
 
 import hmac
+import json
+import logging
 import os
+import secrets
 
-API_TOKEN = os.environ.get("SKILLCUE_API_TOKEN", "")
+from app.config import DATA_DIR
+
+logger = logging.getLogger("local_auth")
+TOKEN_PATH = DATA_DIR / "local_api_token.json"
+
+
+def _load_or_generate_token() -> str:
+    configured = os.environ.get("SKILLCUE_API_TOKEN", "").strip()
+    if configured:
+        return configured
+    token = secrets.token_urlsafe(32)
+    TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
+    TOKEN_PATH.write_text(json.dumps({"token": token}) + "\n", encoding="utf-8")
+    try:
+        os.chmod(TOKEN_PATH, 0o600)
+    except OSError:
+        logger.warning("Could not restrict permissions on %s", TOKEN_PATH)
+    logger.info("Generated local API token at %s (prefix=%s)", TOKEN_PATH, token[:4])
+    return token
+
+
+API_TOKEN = _load_or_generate_token()
 
 HEADER_NAME = "x-skillcue-token"
 WS_QUERY_PARAM = "token"
@@ -23,10 +47,8 @@ PUBLIC_PATHS = {"/health"}
 
 
 def enabled() -> bool:
-    return bool(API_TOKEN)
+    return True
 
 
 def token_ok(presented: str | None) -> bool:
-    if not API_TOKEN:
-        return True
     return hmac.compare_digest(API_TOKEN, presented or "")

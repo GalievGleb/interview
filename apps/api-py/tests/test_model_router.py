@@ -69,10 +69,10 @@ def test_resolve_vacancy_ignores_dedicated_setting_when_explicit():
         available={"openai/gpt-5.4", "anthropic/claude-sonnet-4"},
     )
     assert model == "anthropic/claude-sonnet-4"
-    assert source == "auto"
+    assert source == "manual"
 
 
-def test_resolve_vacancy_ignores_stale_manual_setting():
+def test_resolve_vacancy_uses_manual_setting():
     prefs = AiPreferencesModel(
         vacancy_review_model="openai/gpt-5.5",
         models_cache=[],
@@ -84,8 +84,8 @@ def test_resolve_vacancy_ignores_stale_manual_setting():
         available={"openai/gpt-4o", "openai/gpt-5.5"},
     )
 
-    assert model == "openai/gpt-4o"
-    assert source == "auto"
+    assert model == "openai/gpt-5.5"
+    assert source == "manual"
 
 
 def test_resolve_vacancy_ignores_deep_setting_when_vacancy_setting_is_auto():
@@ -113,7 +113,7 @@ def test_resolve_auto():
     assert source == "auto"
 
 
-def test_resolve_client_override_is_ignored():
+def test_resolve_client_override_is_used():
     prefs = AiPreferencesModel(default_copilot_model="auto")
     model, source = resolve_model(
         "general",
@@ -121,16 +121,16 @@ def test_resolve_client_override_is_ignored():
         prefs=prefs,
         available={"openai/gpt-4o-mini", "anthropic/claude-3.5-sonnet"},
     )
-    assert model == "openai/gpt-4o-mini"
-    assert source == "auto"
+    assert model == "anthropic/claude-3.5-sonnet"
+    assert source == "manual"
 
 
-def test_resolve_unavailable_fallback():
+def test_resolve_manual_setting_is_used_even_when_catalog_is_stale():
     prefs = AiPreferencesModel(default_copilot_model="missing/model")
     model, source = resolve_model(
         "general",
         prefs=prefs,
         available={"openai/gpt-4o-mini"},
     )
-    assert model == "openai/gpt-4o-mini"
-    assert source == "auto"
+    assert model == "missing/model"
+    assert source == "manual"

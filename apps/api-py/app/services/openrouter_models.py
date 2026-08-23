@@ -31,7 +31,24 @@ PROVIDER_LABELS: dict[str, str] = {
     "qwen": "Qwen",
     "cohere": "Cohere",
     "perplexity": "Perplexity",
+    "stealth": "Stealth",
 }
+
+# OpenRouter can expose preview/stealth models inconsistently through a managed
+# gateway or a stale cached /models response. Keep this known public model
+# selectable while still using its canonical OpenRouter id for requests.
+KNOWN_MODELS: tuple[NormalizedModelModel, ...] = (
+    NormalizedModelModel(
+        id="stealth/ox-alpha",
+        name="Ox Alpha",
+        provider="Stealth",
+        description="Reasoning model for coding and sustained agentic work.",
+        context_length=1_048_576,
+        pricing=ModelPricingModel(prompt="0", completion="0"),
+        capabilities=ModelCapabilitiesModel(vision=True, tools=True, reasoning=True),
+        tags=["free", "coding", "reasoning", "vision"],
+    ),
+)
 
 
 def _provider_label(model_id: str) -> str:
@@ -194,7 +211,9 @@ async def fetch_openrouter_models(*, use_cache: bool = False) -> list[Normalized
     if use_cache:
         cached = load_preferences().models_cache
         if cached:
-            return cached
+            known_ids = {m.id for m in cached}
+            merged = [*cached, *(m for m in KNOWN_MODELS if m.id not in known_ids)]
+            return sort_models(merged)
 
     key = secrets.get_secret("openrouter_api_key")
     prefs = load_preferences()
@@ -244,6 +263,12 @@ async def fetch_openrouter_models(*, use_cache: bool = False) -> list[Normalized
             502,
             "no_models",
         )
+
+    # Merge known preview models into a stale/managed catalog. The actual chat
+    # request still goes to OpenRouter and will return a clear provider error if
+    # the account or upstream does not permit the model.
+    known_by_id = {m.id: m for m in normalized}
+    normalized.extend(m for m in KNOWN_MODELS if m.id not in known_by_id)
 
     sorted_models = sort_models(normalized)
     set_models_cache(sorted_models)

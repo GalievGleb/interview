@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field
 
@@ -12,6 +13,22 @@ from app.config import DATA_DIR
 
 PREFS_PATH = DATA_DIR / "ai_preferences.json"
 DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
+_ALLOWED_HTTPS_HOSTS = {"api.openai.com", "openrouter.ai"}
+_LOCAL_HOSTS = {"127.0.0.1", "localhost"}
+
+
+def validate_base_url(base_url: str) -> str:
+    value = base_url.strip().rstrip("/")
+    parsed = urlparse(value)
+    host = (parsed.hostname or "").lower()
+    if parsed.scheme == "https" and host in _ALLOWED_HTTPS_HOSTS:
+        return value
+    if parsed.scheme == "http" and host in _LOCAL_HOSTS:
+        return value
+    raise ValueError(
+        "base_url must use HTTPS with api.openai.com/openrouter.ai, "
+        "or HTTP with localhost/127.0.0.1"
+    )
 
 
 class ModelPricingModel(BaseModel):

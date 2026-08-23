@@ -97,6 +97,37 @@ async def test_direct_answer_request_sends_official_context_fields_as_multipart(
     assert b'name="file"; filename="answer.wav"' in body
 
 
+async def test_managed_gateway_answer_stt_awaits_license_key(monkeypatch):
+    captured = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured["authorization"] = request.headers.get("authorization")
+        return httpx.Response(200, json={"text": "gateway transcript"})
+
+    import app.services.stt.openai_transcribe as transcribe_module
+
+    class Settings:
+        skillcue_gateway_url = "https://gateway.example/api"
+
+    async def license_key():
+        return "managed-license"
+
+    monkeypatch.setattr(transcribe_module, "get_settings", lambda: Settings())
+    monkeypatch.setattr(transcribe_module.secrets, "get_secret", lambda name: None)
+    monkeypatch.setattr(transcribe_module, "_gateway_license_key", license_key)
+    transcriber = OpenAiAnswerTranscriber()
+    transcriber._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    try:
+        text = await transcriber.transcribe(
+            _wav(), question="Что такое REST?", hints=[], language="ru"
+        )
+    finally:
+        await transcriber.aclose()
+
+    assert text == "gateway transcript"
+    assert captured["authorization"] == "Bearer managed-license"
+
+
 def test_mock_answer_endpoint_forwards_one_complete_native_wav(client, monkeypatch):
     captured = {}
 
