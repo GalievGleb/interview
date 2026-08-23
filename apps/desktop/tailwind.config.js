@@ -42,8 +42,10 @@ export default {
         mono: ['JetBrains Mono', 'ui-monospace', 'SF Mono', 'Menlo', 'monospace'],
       },
       borderRadius: {
+        xs: '6px',
         xl: '12px',
         '2xl': '16px',
+        '3xl': '20px',
         card: '16px',
       },
       boxShadow: {
