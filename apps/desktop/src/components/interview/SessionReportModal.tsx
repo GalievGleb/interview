@@ -55,7 +55,7 @@ export default function SessionReportModal({
         app: { version, channel, platform: navigator.userAgent },
       });
       if (window.electronAPI?.shareSessionReport) {
-        const shared = await window.electronAPI.shareSessionReport(report);
+        const shared = await window.electronAPI.shareSessionReport({ ...report, message: issue.trim() });
         setResult({ path: shared.path, telegramOpened: shared.telegramOpened });
       } else {
         downloadFallback(report.filename, report.content);
@@ -116,11 +116,11 @@ export default function SessionReportModal({
         {error && <p className="prep-inline-error" role="alert">{error}</p>}
         {result && (
           <div className="rounded-xl border border-emerald-400/30 bg-emerald-400/10 p-3 text-sm text-ink" role="status">
-            <strong>{result.telegramOpened ? 'Telegram открыл выбор чата с прикреплённым отчётом.' : 'Отчёт сохранён, но Telegram Desktop не найден.'}</strong>
+            <strong>{result.telegramOpened ? 'Открыт чат поддержки SkillCue с готовым сообщением.' : 'Отчёт сохранён, но Telegram не открылся.'}</strong>
             <p className="mt-1 text-ink-muted">
               {result.telegramOpened
-                ? 'Выберите чат поддержки SkillCue и нажмите «Отправить». Описание проблемы уже находится внутри файла.'
-                : 'Файл показан в Проводнике, а чат поддержки открыт отдельно — перетащите отчёт в Telegram.'}
+                ? 'Перетащите показанный файл отчёта в открытый чат @SkillCue и нажмите «Отправить».'
+                : 'Файл показан в Проводнике — откройте @SkillCue в Telegram и перетащите отчёт в чат.'}
             </p>
             {result.path && <code className="mt-2 block break-all text-xs text-ink-faint">{result.path}</code>}
           </div>

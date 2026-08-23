@@ -1,0 +1,13 @@
+import skillCueAppIcon from '../../assets/branding/skillcue-app-icon-512.png';
+
+export default function OverlayAppIcon() {
+  return (
+    <img
+      src={skillCueAppIcon}
+      alt=""
+      aria-hidden="true"
+      draggable={false}
+      className="h-[26px] w-[26px] rounded-[8px] object-cover"
+    />
+  );
+}

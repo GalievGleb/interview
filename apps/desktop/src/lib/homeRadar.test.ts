@@ -4,6 +4,8 @@ import {
   formatHomeInterviewBadge,
   formatHomeInterviewStart,
   getHomeApplicationFlow,
+  getHomeHhCommand,
+  isInterviewStartingSoon,
   isSameLocalDay,
 } from './homeRadar';
 
@@ -30,6 +32,27 @@ describe('home radar date labels', () => {
 });
 
 describe('home application flow visual', () => {
+  it('makes employer questions the single primary action before another HH run', () => {
+    expect(getHomeHhCommand({
+      running: false,
+      queued: 7,
+      pendingQuestions: 2,
+      loginRequired: false,
+      persistentVerification: false,
+    })).toEqual({
+      eyebrow: 'ТРЕБУЕТСЯ ОТВЕТ',
+      title: 'Ответьте на 2 вопроса работодателей',
+      action: 'screening',
+      actionLabel: 'Открыть вопросы',
+    });
+  });
+
+  it('promotes an interview only during the two-hour readiness window', () => {
+    const now = new Date('2026-08-23T10:00:00+07:00');
+    expect(isInterviewStartingSoon('2026-08-23T11:59:00+07:00', now)).toBe(true);
+    expect(isInterviewStartingSoon('2026-08-23T12:01:00+07:00', now)).toBe(false);
+  });
+
   it('keeps the route dormant before search starts', () => {
     expect(getHomeApplicationFlow({ queued: 0, sentToday: 0, activeDialogs: 0, running: false }))
       .toEqual({ progress: 0, reached: [false, false, false] });

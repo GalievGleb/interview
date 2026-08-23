@@ -1,4 +1,4 @@
-import { type CSSProperties, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowRight,
@@ -14,7 +14,6 @@ import {
   Sparkles,
 } from 'lucide-react';
 import Modal from '../components/Modal';
-import CandidateJourneyStrip from '../components/candidate/CandidateJourneyStrip';
 import { useApp } from '../context/AppContext';
 import { api, type DevelopmentProfile, type DocumentItem } from '../lib/api';
 import {
@@ -28,7 +27,8 @@ import {
   formatHomeDate,
   formatHomeInterviewBadge,
   formatHomeInterviewStart,
-  getHomeApplicationFlow,
+  getHomeHhCommand,
+  isInterviewStartingSoon,
   isSameLocalDay,
 } from '../lib/homeRadar';
 import { countUnansweredHhScreeningQuestions, readHhScreeningDrafts, summarizePendingHhScreening } from '../lib/hhScreening';
@@ -118,6 +118,7 @@ export default function HomePage() {
   const [calendarState, setCalendarState] = useState<InterviewCalendarState | null>(null);
   const [microphoneReady, setMicrophoneReady] = useState<boolean | null>(null);
   const [readinessOpen, setReadinessOpen] = useState(false);
+  const [homeActionBusy, setHomeActionBusy] = useState(false);
   const [stealthReady, setStealthReady] = useState(() => localStorage.getItem(STEALTH_KEY) === '1');
   const { inProgress, completed, sessions } = store;
 
@@ -228,7 +229,6 @@ export default function HomePage() {
     [calendarState?.events],
   );
   const activeRun = assistantState?.runHistory.find((item) => item.status === 'running') ?? null;
-  const latestRun = activeRun ?? assistantState?.runHistory[0] ?? null;
   const screeningSummary = useMemo(
     () => summarizePendingHhScreening(assistantState?.queue ?? []),
     [assistantState?.queue],
@@ -243,6 +243,13 @@ export default function HomePage() {
   const activeHrDialogs = chatState?.activeNegotiations ?? 0;
   const queueGates = summarizeHomeHhQueue(assistantState?.queue ?? []);
   const queuedApplications = queueGates.eligible;
+  const manualGateItems = (assistantState?.queue ?? []).filter((item) =>
+    item.platform === 'hh'
+    && item.autoRetryBlockedUntil === 'manual'
+    && (item.status === 'new' || item.status === 'opened' || item.status === 'prepared'));
+  const persistentVerificationCount = manualGateItems.filter((item) =>
+    /проверк|captcha|капч|не\s+робот|код\s+с\s+картинк/i.test(item.reason ?? '')).length;
+  const unknownManualCount = Math.max(0, manualGateItems.length - persistentVerificationCount);
   const serviceReady = backendOnline && hasAnyKey && hasStt;
   const nearestQueueItem = nearestInterview
     ? findMatchingQueueItem(nearestInterview, assistantState?.queue ?? [])
@@ -308,10 +315,6 @@ export default function HomePage() {
     activeVacancyUrl: activePreparation?.vacancyAnalysis.vacancyUrl,
     activeResumeTitle: activePreparation?.vacancyAnalysis.resumeSource?.title,
   });
-  const candidateContextExists = hasVacancy
-    || hasResume
-    || Boolean(growthProfile.role)
-    || hasEvidence;
   const pathChooserVisible = showPathChooser || candidateJourney.path === null;
   const resumeReady = candidateSources.documents.length > 0 || candidateSources.hhResumeCount > 0;
   const hhReady = candidateSources.hhResumeCount > 0;
@@ -324,48 +327,40 @@ export default function HomePage() {
   };
 
   const technicalReadinessPercent = Math.round((preflightReadyCount / preflightChecks.length) * 100);
-  const primaryTitle = nearestInterview
-    ? `${nearestInterview.companyName} · ${nearestInterview.vacancyTitle}`
-    : candidateJourney.headline;
-  const primaryBody = nearestInterview
-    ? ''
-    : candidateJourney.body;
-  const primaryAction = nearestInterview
-    ? {
-        label: vacancyContextReady ? 'Подготовиться' : 'Дополнить вакансию',
-        onClick: () => navigate(vacancyContextReady
-          ? `/calendar?brief=${encodeURIComponent(nearestInterview.id)}`
-          : '/calendar'),
-      }
-    : { label: candidateJourney.action.label, onClick: () => navigate(candidateJourney.action.to) };
-  const queueStatusTitle = activeRun
-    ? 'Поиск работает'
-    : assistantState?.queuePaused && (queuedApplications + queueGates.daily + queueGates.manual > 0)
-      ? 'Очередь приостановлена'
-    : queuedApplications > 0 && assistantState?.config.autoSend && !assistantState.loginRequired
-      ? 'Очередь продолжится автоматически'
-      : queuedApplications > 0
-        ? `${queuedApplications} ${pluralRu(queuedApplications, 'отклик готов', 'отклика готовы', 'откликов готовы')} к ручному запуску`
-      : queueGates.daily > 0 && assistantState?.config.autoRunDaily
-        ? `${queueGates.daily} ${pluralRu(queueGates.daily, 'отклик повторится', 'отклика повторятся', 'откликов повторятся')} в ежедневном запуске`
-        : queueGates.daily > 0
-          ? `${queueGates.daily} ${pluralRu(queueGates.daily, 'отклик ждёт', 'отклика ждут', 'откликов ждут')} повторного запуска`
-          : queueGates.manual > 0
-            ? `${queueGates.manual} ${pluralRu(queueGates.manual, 'отклик требует', 'отклика требуют', 'откликов требуют')} ручной проверки`
-      : latestRun?.status === 'failed'
-        ? 'Последний поиск требует проверки'
-        : 'Поиск сейчас не запущен';
-  const applicationFlow = getHomeApplicationFlow({
-    queued: queuedApplications,
-    sentToday: sentTodayCount,
-    activeDialogs: activeHrDialogs,
+  const hhCommand = getHomeHhCommand({
     running: Boolean(activeRun),
+    queued: queuedApplications,
+    pendingQuestions: pendingScreeningQuestions,
+    loginRequired: Boolean(assistantState?.loginRequired),
+    persistentVerification: persistentVerificationCount > 0,
   });
-  const applicationFlowSteps = [
-    { key: 'queue', value: queuedApplications, label: 'в очереди' },
-    { key: 'sent', value: sentTodayCount, label: 'отправлено сегодня' },
-    { key: 'dialogs', value: activeHrDialogs, label: 'диалогов с HR' },
-  ];
+  const interviewStartingSoon = isInterviewStartingSoon(nearestInterview?.startAt, now);
+  const runHomeHhCommand = async () => {
+    const assistant = window.electronAPI?.hhAssistant;
+    if (hhCommand.action === 'screening') {
+      navigate('/applications/hr-profile');
+      return;
+    }
+    if (hhCommand.action === 'queue' && activeRun) {
+      navigate('/applications');
+      return;
+    }
+    if (!assistant) {
+      navigate('/applications');
+      return;
+    }
+    setHomeActionBusy(true);
+    try {
+      const next = hhCommand.action === 'open-hh'
+        ? await assistant.openBrowser('hh')
+        : hhCommand.action === 'queue'
+          ? await assistant.applyAll()
+          : await assistant.runNow();
+      setAssistantState(next);
+    } finally {
+      setHomeActionBusy(false);
+    }
+  };
 
   const attentionItems: Array<{
     key: string;
@@ -397,9 +392,13 @@ export default function HomePage() {
     const waiting = queueGates.manual + (assistantState?.config.autoRunDaily ? 0 : queueGates.daily);
     attentionItems.push({
       key: 'queue-gates',
-      title: `${waiting} ${pluralRu(waiting, 'отклик ждёт', 'отклика ждут', 'откликов ждут')} проверки`,
-      detail: queueGates.manual > 0
-        ? 'Автопродолжение отключено для этих вакансий после ошибки или незнакомого шага'
+      title: persistentVerificationCount > 0
+        ? `${persistentVerificationCount} ${pluralRu(persistentVerificationCount, 'вакансия отложена', 'вакансии отложены', 'вакансий отложены')} после проверки HH`
+        : `${waiting} ${pluralRu(waiting, 'отклик повторится', 'отклика повторятся', 'откликов повторятся')}`,
+      detail: persistentVerificationCount > 0
+        ? 'SkillCue уже обновил страницу три раза; остальные вакансии продолжают обрабатываться'
+        : unknownManualCount > 0
+          ? 'Незнакомый шаг сохранён отдельно и не останавливает остальную очередь'
         : 'Запустите повтор вручную или включите ежедневный поиск',
       onClick: () => navigate('/applications?view=active'),
     });
@@ -422,13 +421,6 @@ export default function HomePage() {
     });
   }
   const visibleAttentionItems = attentionItems.slice(0, 3);
-  const showOperationalColumn = candidateContextExists
-    || Boolean(latestRun)
-    || queuedApplications > 0
-    || sentTodayCount > 0
-    || activeHrDialogs > 0
-    || visibleAttentionItems.length > 0;
-
   const closeReadinessAndNavigate = (path: string) => {
     setReadinessOpen(false);
     navigate(path);
@@ -522,7 +514,10 @@ export default function HomePage() {
               <p className="prep-eyebrow">ОТПРАВНАЯ ТОЧКА</p>
               <h2 id="candidate-path-title">С чего начать?</h2>
             </div>
-            <div className="candidate-path-options">
+            <div
+              className={`candidate-path-options ${candidateSources.loading ? 'animate-pulse opacity-60 pointer-events-none' : ''}`}
+              aria-hidden={candidateSources.loading || undefined}
+            >
               <button type="button" className={`candidate-path-choice ${!resumeReady ? 'is-primary' : ''}`} onClick={() => chooseCandidatePath('profile')}>
                 <span><strong>{resumeReady ? 'Резюме добавлено' : 'Добавить резюме'}</strong><small>Основа персональных ответов и подготовки</small></span>
                 {resumeReady ? <CheckCircle2 size={17} aria-hidden="true" /> : <ArrowRight size={17} aria-hidden="true" />}
@@ -539,121 +534,86 @@ export default function HomePage() {
           </section>
         ) : (
         <section
-          className={`home-radar-grid ${showOperationalColumn && visibleAttentionItems.length === 0 ? 'has-no-attention' : ''}`}
-          aria-label="Ваш путь и текущие задачи"
+          className={`home-command-center ${interviewStartingSoon ? 'has-urgent-interview' : ''}`}
+          aria-label="Автоотклики и ближайшее собеседование"
         >
-          <article className={`home-radar-primary ${nearestInterview ? 'has-interview' : 'is-priority'} ${showOperationalColumn ? '' : 'is-journey-only'}`}>
-            <div className="home-radar-primary__copy">
-              <div className="candidate-journey-heading">
-                <span>Шаг {candidateJourney.currentStep + 1}</span>
-                <button type="button" onClick={() => setShowPathChooser(true)}>Другой сценарий</button>
-              </div>
-              {nearestInterview ? (
-                <span className="home-radar-event-badge">
-                  <CalendarClock size={15} aria-hidden="true" />
-                  Ближайшее собеседование · {formatHomeInterviewBadge(nearestInterview.startAt, now)}
-                </span>
-              ) : (
-                <span className="home-radar-interview-status">
-                  <CalendarClock size={16} aria-hidden="true" />
-                  Ближайших собеседований нет
-                </span>
-              )}
-              <h2>{primaryTitle}</h2>
-              {nearestInterview && (
-                <p className="home-radar-primary__type">{interviewTypeLabel(nearestInterview.type)}</p>
-              )}
-              {primaryBody && <p className="home-radar-primary__body">{primaryBody}</p>}
-              <div className="candidate-journey-actions">
-                <button type="button" className="prep-btn" onClick={primaryAction.onClick}>
-                  {primaryAction.label}
-                  <ArrowRight size={16} aria-hidden="true" />
-                </button>
-                {!nearestInterview && candidateJourney.secondaryAction && (
-                  <button
-                    type="button"
-                    className="prep-btn prep-btn-ghost"
-                    onClick={() => navigate(candidateJourney.secondaryAction!.to)}
-                  >
-                    {candidateJourney.secondaryAction.label}
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {nearestInterview && (
-              <div
-                className="home-radar-score"
-                style={{ '--home-radar-score': `${technicalReadinessPercent}%` } as CSSProperties}
-                aria-label={`Техническая готовность SkillCue: ${technicalReadinessPercent}%`}
-              >
-                <div>
-                  <strong>{technicalReadinessPercent}%</strong>
-                  <span>настройка SkillCue</span>
-                  <small>{preflightReadyCount} из {preflightChecks.length}</small>
-                </div>
-              </div>
-            )}
-            <CandidateJourneyStrip
-              steps={candidateJourney.steps}
-              ariaLabel={`Путь: ${candidateJourney.pathLabel}`}
-            />
-          </article>
-
-          {showOperationalColumn && (
-          <>
-          <article className="home-radar-panel home-radar-applications">
-            <div className="home-radar-panel__heading">
-              <span><Send size={16} aria-hidden="true" />Отклики</span>
-              <button type="button" onClick={() => navigate('/applications')}>
-                Открыть<ArrowUpRight size={14} aria-hidden="true" />
+          <article className="home-command-hero">
+            <div className="home-command-hero__top">
+              <span className="home-command-kicker"><Send size={15} aria-hidden="true" />АВТООТКЛИКИ HH</span>
+              <button type="button" className="home-command-link" onClick={() => navigate('/applications')}>
+                Все отклики<ArrowUpRight size={14} aria-hidden="true" />
               </button>
             </div>
-            <div
-              className={`home-radar-flow ${activeRun ? 'is-running' : ''}`}
-              aria-label={`Путь откликов: ${queuedApplications} в очереди, ${sentTodayCount} отправлено сегодня, ${activeHrDialogs} диалогов с HR`}
-            >
-              {applicationFlowSteps.map((step, index) => (
-                <div
-                  className={`home-radar-flow__step ${applicationFlow.reached[index] ? 'is-reached' : ''}`}
-                  key={step.key}
-                >
-                  <span className="home-radar-flow__node"><strong>{step.value}</strong></span>
-                  <small>{step.label}</small>
-                </div>
-              ))}
+            <div className="home-command-hero__copy">
+              <p className="home-command-eyebrow">{hhCommand.eyebrow}</p>
+              <h2>{hhCommand.title}</h2>
+              <p>
+                {pendingScreeningQuestions > 0
+                  ? 'SkillCue уже подготовил подходящие ответы. Нужны только неизвестные личные факты.'
+                  : activeRun
+                    ? 'Новые вакансии проверяются по выбранному резюме; очередь продолжает работу в фоне.'
+                    : 'Поиск, отправка откликов и ответы работодателям собраны в одном месте.'}
+              </p>
             </div>
-            <button type="button" className="home-radar-run-state" onClick={() => navigate('/applications')}>
-              <span className={activeRun ? 'is-running' : ''} aria-hidden="true" />
-              <strong>{queueStatusTitle}</strong>
-              <ChevronRight size={15} aria-hidden="true" />
-            </button>
-            {visibleAttentionItems.length === 0 && (
-              <div className="home-radar-automatic-status" role="status">
-                <CheckCircle2 size={16} aria-hidden="true" />
-                <span>Срочных действий нет</span>
+            <div className="home-command-stats" aria-label="Состояние откликов">
+              <div><strong>{queuedApplications}</strong><span>в очереди</span></div>
+              <div><strong>{sentTodayCount}</strong><span>отправлено сегодня</span></div>
+              <div><strong>{activeHrDialogs}</strong><span>диалогов с HR</span></div>
+            </div>
+            {(queueGates.daily > 0 || persistentVerificationCount > 0 || unknownManualCount > 0) && (
+              <div className="home-command-barriers">
+                {queueGates.daily > 0 && <span>{queueGates.daily} повторятся автоматически</span>}
+                {persistentVerificationCount > 0 && <span>{persistentVerificationCount} отложены после трёх проверок HH</span>}
+                {unknownManualCount > 0 && <span>{unknownManualCount} остановлены на незнакомом шаге</span>}
               </div>
             )}
+            <div className="home-command-actions">
+              <button type="button" className="home-command-cta" disabled={homeActionBusy} onClick={() => void runHomeHhCommand()}>
+                {homeActionBusy ? 'Запускаю…' : hhCommand.actionLabel}<ArrowRight size={16} aria-hidden="true" />
+              </button>
+              <button type="button" className="home-command-secondary" onClick={() => setShowPathChooser(true)}>Изменить сценарий</button>
+            </div>
           </article>
 
-          {visibleAttentionItems.length > 0 && (
-          <article className="home-radar-panel home-radar-attention">
-            <div className="home-radar-panel__heading">
-              <span><ListChecks size={16} aria-hidden="true" />Нужно от вас</span>
-              <span className="home-radar-count">{attentionItems.length}</span>
-            </div>
-            <div className="home-radar-actions">
-              {visibleAttentionItems.map((item) => (
-                <button type="button" key={item.key} onClick={item.onClick}>
-                  <span><strong>{item.title}</strong><small>{item.detail}</small></span>
-                  <ChevronRight size={15} aria-hidden="true" />
-                </button>
-              ))}
-            </div>
-          </article>
-          )}
-          </>
-          )}
+          <aside className="home-command-side">
+            <article className={`home-command-interview ${interviewStartingSoon ? 'is-urgent' : ''}`}>
+              <div className="home-command-card__heading">
+                <span><CalendarClock size={16} aria-hidden="true" />Собеседование</span>
+                {nearestInterview && <b>{formatHomeInterviewBadge(nearestInterview.startAt, now)}</b>}
+              </div>
+              {nearestInterview ? (
+                <>
+                  <h3>{nearestInterview.companyName} · {nearestInterview.vacancyTitle}</h3>
+                  <p>{interviewTypeLabel(nearestInterview.type)} · готовность SkillCue {technicalReadinessPercent}%</p>
+                  <button type="button" onClick={() => navigate(vacancyContextReady ? `/calendar?brief=${encodeURIComponent(nearestInterview.id)}` : `/calendar?edit=${encodeURIComponent(nearestInterview.id)}`)}>
+                    {vacancyContextReady ? 'Подготовиться' : 'Добавить данные'}<ArrowRight size={15} />
+                  </button>
+                </>
+              ) : (
+                <>
+                  <h3>Ближайших собеседований нет</h3>
+                  <p>Когда появится встреча, она станет главной за два часа до начала.</p>
+                  <button type="button" onClick={() => navigate('/calendar')}>Открыть календарь<ArrowRight size={15} /></button>
+                </>
+              )}
+            </article>
+
+            {visibleAttentionItems.length > 0 ? (
+              <article className="home-command-attention">
+                <div className="home-command-card__heading"><span><ListChecks size={16} />Нужно от вас</span><b>{attentionItems.length}</b></div>
+                <div className="home-command-attention__list">
+                  {visibleAttentionItems.map((item) => (
+                    <button type="button" key={item.key} onClick={item.onClick}>
+                      <span><strong>{item.title}</strong><small>{item.detail}</small></span>
+                      <ChevronRight size={15} />
+                    </button>
+                  ))}
+                </div>
+              </article>
+            ) : (
+              <div className="home-command-clear" role="status"><CheckCircle2 size={16} /><span>Срочных действий нет</span></div>
+            )}
+          </aside>
         </section>
         )}
         </div>

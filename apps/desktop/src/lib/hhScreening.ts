@@ -46,7 +46,7 @@ export function reconcileHhScreeningLocalDraft(
       && (!sensitiveClosed || isNeutralHhScreeningOption(option)),
   );
   const fallbackAnswer = question.kind === 'text'
-    ? 'Готов дать предметный ответ; перед отправкой уточню личные факты и оставлю только то, что точно соответствует моему опыту.'
+    ? ''
     : sensitiveClosed
       ? 'Выберите точный вариант после проверки личного статуса или опыта: SkillCue не будет угадывать ответ «Да» или «Нет».'
       : 'Выберите подходящий вариант вручную: SkillCue не будет угадывать неподтверждённый ответ.';
@@ -106,6 +106,9 @@ export function hhScreeningPromptKey(value: string): string {
 }
 
 const RELOCATION_RE = /релокац|переезд|переехать|перебраться|сменить\s+(?:город|место\s+жительства)/i;
+const AGE_QUESTION_RE = /(?:сколько\s+(?:вам|тебе)\s+лет|(?:ваш[а-яё]*\s+)?возраст(?:\s+полных\s+лет)?)/i;
+const DATE_OF_BIRTH_RE = /(?:дата|день|год)\s+рождени/i;
+const BACKEND_FRONTEND_RATIO_RE = /(?=.*(?:б[эе]к(?:энд|енд)|backend))(?=.*(?:фронт(?:енд|энд)?|frontend))(?=.*(?:процент|соотношени|дол[яи]|\d{1,3}\s*%))/iu;
 const REGIONAL_LOCATION_QUESTION_RE = /(?:регион|област|субъект(?:а)?\s*(?:рф|российск[а-яё]*\s+федерац)?|край|республик)/i;
 const CURRENT_LOCATION_QUESTION_RE = /(?:где\s+(?:сейчас\s+)?(?:жив(?:е|ё)(?:те|шь)|прожива(?:е|ё)(?:те|шь)|находитесь)(?![а-яё])|в\s+как(?:ом|ой)\s+(?:городе|регионе|насел[её]нн[а-яё]*\s+пункте|локации)[^?\n]{0,35}(?:(?:вы|кандидат)[^?\n]{0,12})?(?:жив|прожив|находитесь|находится\s+кандидат)|где[^?\n]{0,35}(?:(?:вы|кандидат)[^?\n]{0,12})(?:жив|прожив|наход)|(?:укаж|назов|напиш)[^?\n]{0,25}(?:город|локац|насел[её]нн[а-яё]*\s+пункт)[^?\n]{0,30}(?:проживания|жительства|местонахождения)[\s?.:]*$|(?:укаж|назов|напиш)[а-яё]*[\s,:-]*(?:пожалуйста[\s,:-]*)?(?:(?:ваш[а-яё]*\s+)?(?:текущ[а-яё]*\s+)?(?:город|локац|насел[её]нн[а-яё]*\s+пункт)|место\s+(?:жительства|проживания)|местонахожд)[\s?.:]*$|(?:город|регион|насел[её]нн[а-яё]*\s+пункт)\s+(?:вашего\s+)?(?:фактическ[а-яё]*\s+)?(?:проживания|местонахождения)|(?:(?:ваш[а-яё]*\s+)?(?:текущ[а-яё]*|фактическ[а-яё]*)|ваш[а-яё]*)\s+(?:город|локац|место\s+(?:жительства|проживания)|местонахожд))/i;
 const NON_CURRENT_LOCATION_QUESTION_RE = /(?:город|место|локац|насел[её]нн[а-яё]*\s+пункт).{0,50}(?:рождени|родн[а-яё]*|регистрац|пропис|офис|работодател|ваканси|компан|проект|команд|образован|обучен|работ|желаем|желательн|предпочитаем)|(?:рождени|родн[а-яё]*|регистрац|пропис|офис|работодател|ваканси|компан|проект|команд|образован|обучен|работ|желаем|желательн|предпочитаем).{0,50}(?:город|место|локац|насел[её]нн[а-яё]*\s+пункт)/i;
@@ -122,6 +125,12 @@ export function hhScreeningRelocationScope(value: string): HhScreeningRelocation
 }
 
 export function hhScreeningSemanticKey(value: string): string {
+  if (AGE_QUESTION_RE.test(value) && !DATE_OF_BIRTH_RE.test(value)) {
+    return 'profile:age';
+  }
+  if (BACKEND_FRONTEND_RATIO_RE.test(value)) {
+    return 'profile:test-scope-ratio';
+  }
   if (
     !RELOCATION_RE.test(value)
     && !REGIONAL_LOCATION_QUESTION_RE.test(value)
@@ -159,6 +168,21 @@ export function isHhScreeningAnswerComplete(
   confirmedByUser = false,
 ): boolean {
   if (!confirmedByUser) return false;
+  return question.kind === 'text'
+    ? Boolean(answer?.trim())
+    : Boolean(selectedOptions?.length);
+}
+
+/**
+ * A visible answer is ready when the user explicitly presses the final Send
+ * action. That click is the confirmation; generated drafts must not require a
+ * second, hidden "accept draft" step first.
+ */
+export function isHhScreeningDraftReady(
+  question: Pick<HhScreeningQuestion, 'kind'>,
+  answer: string | undefined,
+  selectedOptions: string[] | undefined,
+): boolean {
   return question.kind === 'text'
     ? Boolean(answer?.trim())
     : Boolean(selectedOptions?.length);

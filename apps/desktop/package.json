@@ -26,12 +26,12 @@
   "dependencies": {
     "@interview/shared": "workspace:*",
     "cheerio": "1.0.0",
-    "electron-updater": "^6.3.9",
+    "electron-updater": "^6.8.9",
     "lucide-react": "^0.468.0",
     "playwright-core": "1.62.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "react-router-dom": "^7.1.1"
+    "react-router-dom": "^7.18.2"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -51,7 +51,7 @@
     "typescript-eslint": "^8.62.1",
     "vite": "^6.0.7",
     "vite-plugin-electron": "^0.28.8",
-    "vitest": "^2.1.8",
+    "vitest": "^3.2.7",
     "wait-on": "^8.0.1"
   },
   "build": {
@@ -74,17 +74,6 @@
         "filter": [
           "**/*"
         ]
-      },
-      {
-        "from": "../../tests/stt-benchmark/cases.json",
-        "to": "tests/stt-benchmark/cases.json"
-      },
-      {
-        "from": "../../tests/voice/audio",
-        "to": "tests/voice/audio",
-        "filter": [
-          "*.wav"
-        ]
       }
     ],
     "win": {
@@ -101,7 +90,7 @@
       "category": "public.app-category.productivity",
       "artifactName": "SkillCue-macOS-${arch}.${ext}",
       "minimumSystemVersion": "12.0",
-      "hardenedRuntime": false,
+      "hardenedRuntime": true,
       "extendInfo": {
         "NSMicrophoneUsageDescription": "SkillCue uses the microphone only when you start voice practice or a live interview session."
       }
@@ -144,7 +133,7 @@
       {
         "name": "SkillCue",
         "schemes": [
-          "interview"
+          "skillcue"
         ]
       }
     ]

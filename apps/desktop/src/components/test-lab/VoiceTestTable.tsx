@@ -51,10 +51,17 @@ export default function VoiceTestTable({
             return (
               <tr
                 key={row.caseId}
-                className={`cursor-pointer border-b border-surface-border/70 transition-colors hover:bg-surface ${
+                className={`cursor-pointer border-b border-surface-border/70 transition-colors hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent ${
                   active ? 'bg-accent/5' : ''
                 }`}
                 onClick={() => onSelectRow(row.caseId)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    onSelectRow(row.caseId);
+                  }
+                }}
+                tabIndex={0}
               >
                 <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
                   <input

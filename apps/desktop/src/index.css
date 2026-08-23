@@ -399,8 +399,8 @@
   .btn-primary:hover:not(:disabled) {
     background-image: linear-gradient(180deg, #54e397 0%, #29c972 100%);
     box-shadow:
-      0 0 0 1px rgba(52, 199, 123, 0.42),
-      0 12px 32px -12px rgba(52, 199, 123, 0.62);
+      0 0 0 1px rgb(var(--twc-accent) / 0.42),
+      0 12px 32px -12px rgb(var(--twc-accent) / 0.62);
   }
   .btn-secondary {
     @apply btn border border-surface-border bg-surface-elevated text-ink
@@ -506,8 +506,8 @@
 
   .field:focus-visible,
   .select-compact:focus-visible {
-    border-color: rgba(99, 102, 241, 0.62);
-    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.14);
+    border-color: var(--accent-border);
+    box-shadow: 0 0 0 3px var(--sc-brand-ring);
   }
 
   /* Answer area */
@@ -595,7 +595,7 @@
     /* Плоский #0c1726 = ровно цвет нативных кнопок окна (titleBarOverlay.color),
        иначе верхний-правый угол под кнопками отличался фоном и «терял» линию.
        Зелёное свечение — слева, вдали от кнопок, поэтому шва не создаёт. */
-    background: #0b1421;
+    background: rgb(var(--twc-surface-panel));
   }
   /* Интерактивные элементы тайтлбара должны кликаться, а не таскать окно. */
   .skillcue-titlebar button,
@@ -609,13 +609,13 @@
      перевёрнутым тёмным текстом навигации. */
   :root[data-theme='light'] .skillcue-titlebar {
     background:
-      radial-gradient(circle at 12% 0%, rgba(52, 199, 123, 0.08), transparent 28rem),
-      linear-gradient(180deg, #f7fafd 0%, #eef3f9 100%);
+      radial-gradient(circle at 12% 0%, rgb(var(--twc-accent) / 0.08), transparent 28rem),
+      linear-gradient(180deg, rgb(var(--twc-surface-panel)) 0%, rgb(var(--twc-surface)) 100%);
   }
 
   .skillcue-sidebar {
     @apply relative flex w-[224px] shrink-0 flex-col border-r border-surface-border;
-    background: #09121f;
+    background: rgb(var(--twc-surface));
     transition: width 190ms cubic-bezier(0.2, 0.8, 0.2, 1);
   }
 
@@ -637,7 +637,7 @@
 
   .skillcue-sidebar__collapse {
     @apply absolute right-[-13px] top-[17px] z-30 inline-flex h-[27px] w-[27px] items-center justify-center rounded-full border border-surface-border-strong text-ink-faint shadow-soft;
-    background: #101c2b;
+    background: rgb(var(--twc-surface-elevated));
     opacity: 0.72;
     transition:
       color 140ms ease,
@@ -739,11 +739,11 @@
   }
 
   :root[data-theme='light'] .skillcue-sidebar {
-    background: #edf3f8;
+    background: rgb(var(--twc-surface));
   }
 
   :root[data-theme='light'] .skillcue-sidebar__collapse {
-    background: #f7fafd;
+    background: rgb(var(--twc-surface-panel));
   }
 
   .skillcue-logo {
@@ -757,7 +757,7 @@
   .skillcue-main {
     /* База — токен темы, а не хекс: в светлой теме тёмная подложка ломала контраст. */
     background:
-      radial-gradient(circle at 18% 0%, rgba(52, 199, 123, 0.08), transparent 32rem),
+      radial-gradient(circle at 18% 0%, rgb(var(--twc-accent) / 0.08), transparent 32rem),
       radial-gradient(circle at 88% 8%, rgba(143, 182, 216, 0.1), transparent 34rem),
       rgb(var(--twc-surface));
   }

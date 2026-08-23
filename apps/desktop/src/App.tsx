@@ -130,9 +130,7 @@ function NavigationBridge() {
     if (isOverlayWindow) return;
     const storageKey = 'skillcue.liveReadiness.lastFailure';
     let active = true;
-    let startupTimer: number | undefined;
     let interviewTimer: number | undefined;
-    let unsubscribe: (() => void) | undefined;
 
     const check = async () => {
       try {
@@ -155,10 +153,10 @@ function NavigationBridge() {
       interviewTimer = window.setTimeout(() => void check(), Math.min(delay, 2_147_000_000));
     };
 
-    startupTimer = window.setTimeout(() => void check(), 5_000);
+    const startupTimer = window.setTimeout(() => void check(), 5_000);
     const calendar = window.electronAPI?.interviewCalendar;
     void calendar?.getState().then((state) => { if (active) scheduleForEvents(state.events); }).catch(() => {});
-    unsubscribe = calendar?.onState((state) => scheduleForEvents(state.events));
+    const unsubscribe = calendar?.onState((state) => scheduleForEvents(state.events));
     return () => {
       active = false;
       if (startupTimer != null) window.clearTimeout(startupTimer);

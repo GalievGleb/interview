@@ -38,6 +38,11 @@ describe('captureIsStale', () => {
     const myWs = openWs();
     expect(captureIsStale(false, null, myWs)).toBe(true);
   });
+
+  it('устарел: пользователь поставил live-захват на паузу', () => {
+    const ws = openWs();
+    expect(captureIsStale(false, ws, ws, true)).toBe(true);
+  });
 });
 
 describe('recoverable STT errors', () => {

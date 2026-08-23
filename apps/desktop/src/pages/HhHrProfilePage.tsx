@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   ArrowRight,
+  Ban,
   BrainCircuit,
   Check,
   ChevronLeft,
@@ -13,6 +14,7 @@ import {
   ShieldCheck,
   Sparkles,
   Trash2,
+  Undo2,
 } from 'lucide-react';
 import {
   countUnansweredHhScreeningQuestions,
@@ -20,8 +22,7 @@ import {
   hhScreeningPromptKey,
   hhScreeningSemanticKey,
   HH_SCREENING_DRAFTS_STORAGE_KEY,
-  isHhAiQuotaMessage,
-  isHhScreeningAnswerComplete,
+  isHhScreeningDraftReady,
   readHhScreeningDrafts,
   reconcileHhScreeningLocalDraft,
   summarizePendingHhScreening,
@@ -31,7 +32,6 @@ import { pluralRu } from '../lib/pluralRu';
 import type {
   HhAssistantState,
   HhQueueItem,
-  HhScreeningDraftSuggestion,
   HhScreeningQuestion,
 } from '../types/electron';
 
@@ -46,26 +46,13 @@ function draftKey(vacancyKey: string, questionId: string): string {
   return `${vacancyKey}::${questionId}`;
 }
 
-function isComplete(question: HhScreeningQuestion, value: ScreeningDraft | undefined): boolean {
+function isReady(question: HhScreeningQuestion, value: ScreeningDraft | undefined): boolean {
   if (value?.promptKey !== hhScreeningPromptKey(question.prompt)) return false;
-  return isHhScreeningAnswerComplete(
+  return isHhScreeningDraftReady(
     question,
     value?.answer,
     value?.selectedOptions,
-    value?.confirmedByUser,
   );
-}
-
-function questionExplanation(question: HhScreeningQuestion): string {
-  const reason = question.assistantReason?.trim() ?? '';
-  if (isHhAiQuotaMessage(reason)) {
-    return 'Онлайн-ИИ достиг месячного лимита. SkillCue всё равно использует резюме, сохранённые факты и локальные безопасные шаблоны; личные сведения не выдумывает.';
-  }
-  if (/не удалось получить|timed out|timeout|http\s*5\d\d/i.test(reason)) {
-    return 'Временный сбой онлайн-подсказки. Повторите подготовку позже или ответьте сейчас; это не означает, что в профиле не хватает личного факта.';
-  }
-  if (reason) return reason;
-  return 'Этого факта нет в резюме и подтверждённых ответах. SkillCue не будет придумывать его за вас.';
 }
 
 export function isHhScreeningSubmissionAccepted(
@@ -115,9 +102,9 @@ export default function HhHrProfilePage() {
   const [forgettingFactId, setForgettingFactId] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [undoSkippedVacancyKey, setUndoSkippedVacancyKey] = useState('');
   const [loading, setLoading] = useState(true);
   const [reloadKey, setReloadKey] = useState(0);
-  const [generatedSuggestions, setGeneratedSuggestions] = useState<Record<string, HhScreeningDraftSuggestion>>({});
   const suggestionRequestId = useRef(0);
   const automaticallyPreparedDrafts = useRef(new Set<string>());
 
@@ -164,13 +151,6 @@ export default function HhHrProfilePage() {
     : '';
   const currentDraft = currentDraftKey ? drafts[currentDraftKey] : undefined;
   const hasWrittenAnswer = currentQuestion?.kind === 'text' && Boolean(currentDraft?.answer.trim());
-  const currentDraftHasValue = currentQuestion?.kind === 'text'
-    ? Boolean(currentDraft?.answer.trim())
-    : Boolean(currentDraft?.selectedOptions.length);
-  const currentDraftConfirmed = currentDraft?.confirmedByUser === true;
-  const answeredInVacancy = activeVacancy
-    ? questions.filter((question) => isComplete(question, drafts[draftKey(activeVacancy.key, question.id)])).length
-    : 0;
   const activeVacancySubmitting = activeVacancy
     ? submittingVacancyKeys.includes(activeVacancy.key)
     : false;
@@ -247,7 +227,6 @@ export default function HhHrProfilePage() {
                 },
               };
             });
-            setGeneratedSuggestions((current) => ({ ...current, [key]: suggestion }));
           })
           .catch(() => {
             // The seeded local draft remains usable. A visible manual retry is
@@ -266,7 +245,7 @@ export default function HhHrProfilePage() {
     setSuggestingDraftKey('');
     setActiveVacancyKey(vacancy.key);
     const firstMissing = uniqueHhScreeningQuestions(vacancy.pendingQuestions ?? []).findIndex(
-      (question) => !isComplete(question, drafts[draftKey(vacancy.key, question.id)]),
+      (question) => !isReady(question, drafts[draftKey(vacancy.key, question.id)]),
     );
     setQuestionIndex(firstMissing >= 0 ? firstMissing : 0);
     setError('');
@@ -289,12 +268,6 @@ export default function HhHrProfilePage() {
         promptKey: hhScreeningPromptKey(currentQuestion.prompt),
       },
     }));
-    setGeneratedSuggestions((current) => {
-      if (!current[key]) return current;
-      const next = { ...current };
-      delete next[key];
-      return next;
-    });
     setError('');
   };
 
@@ -330,8 +303,8 @@ export default function HhHrProfilePage() {
 
   const moveQuestion = (direction: -1 | 1) => {
     if (!currentQuestion || !activeVacancy) return;
-    if (direction > 0 && !isComplete(currentQuestion, drafts[draftKey(activeVacancy.key, currentQuestion.id)])) {
-      setError('Ответьте на вопрос или явно нажмите «Использовать этот вариант» для подготовленного черновика.');
+    if (direction > 0 && !isReady(currentQuestion, drafts[draftKey(activeVacancy.key, currentQuestion.id)])) {
+      setError('Выберите вариант или напишите ответ.');
       return;
     }
     suggestionRequestId.current += 1;
@@ -339,7 +312,7 @@ export default function HhHrProfilePage() {
     setQuestionIndex((current) => {
       if (direction < 0) return Math.max(0, current - 1);
       const nextMissing = questions.findIndex((question, index) =>
-        index > current && !isComplete(question, drafts[draftKey(activeVacancy.key, question.id)]));
+        index > current && !isReady(question, drafts[draftKey(activeVacancy.key, question.id)]));
       return nextMissing >= 0 ? nextMissing : Math.min(questions.length - 1, current + 1);
     });
     setError('');
@@ -368,7 +341,6 @@ export default function HhHrProfilePage() {
           promptKey: hhScreeningPromptKey(currentQuestion.prompt),
         },
       }));
-      setGeneratedSuggestions((current) => ({ ...current, [key]: suggestion }));
     } catch (suggestionError) {
       if (suggestionRequestId.current === requestId) {
         setError(suggestionErrorMessage(suggestionError));
@@ -380,27 +352,10 @@ export default function HhHrProfilePage() {
     }
   };
 
-  const confirmCurrentDraft = () => {
-    if (!currentDraftKey) return;
-    setDrafts((current) => {
-      const value = current[currentDraftKey];
-      if (!value) return current;
-      return {
-        ...current,
-        [currentDraftKey]: {
-          ...value,
-          confirmedByUser: true,
-          promptKey: currentQuestion ? hhScreeningPromptKey(currentQuestion.prompt) : value.promptKey,
-        },
-      };
-    });
-    setError('');
-  };
-
   const submitVacancy = async () => {
     if (!assistant || !activeVacancy || questions.length === 0) return;
     const firstMissing = questions.findIndex(
-      (question) => !isComplete(question, drafts[draftKey(activeVacancy.key, question.id)]),
+      (question) => !isReady(question, drafts[draftKey(activeVacancy.key, question.id)]),
     );
     if (firstMissing >= 0) {
       setQuestionIndex(firstMissing);
@@ -454,6 +409,41 @@ export default function HhHrProfilePage() {
       setError(submitError instanceof Error ? submitError.message : 'Не удалось сохранить ответы и продолжить отклик.');
     } finally {
       setSubmittingVacancyKeys((current) => current.filter((key) => key !== vacancyKey));
+    }
+  };
+
+  const skipCurrentVacancy = async () => {
+    if (!assistant || !activeVacancy) return;
+    const skippedKey = activeVacancy.key;
+    setError('');
+    setSubmittingVacancyKeys((current) => current.includes(skippedKey) ? current : [...current, skippedKey]);
+    try {
+      const next = await assistant.skipScreeningVacancy(skippedKey);
+      const nextVacancy = summarizePendingHhScreening(next.queue).vacancies[0] ?? null;
+      setState(next);
+      setActiveVacancyKey(nextVacancy?.key ?? '');
+      setQuestionIndex(0);
+      setUndoSkippedVacancyKey(skippedKey);
+      setNotice(`Вакансия «${activeVacancy.title}» пропущена.`);
+    } catch (skipError) {
+      setError(cleanRemoteError(skipError, 'Не удалось пропустить вакансию.'));
+    } finally {
+      setSubmittingVacancyKeys((current) => current.filter((key) => key !== skippedKey));
+    }
+  };
+
+  const undoSkippedVacancy = async () => {
+    if (!assistant || !undoSkippedVacancyKey) return;
+    try {
+      const restoredKey = undoSkippedVacancyKey;
+      const next = await assistant.restoreSkippedScreeningVacancy(restoredKey);
+      setState(next);
+      setActiveVacancyKey(restoredKey);
+      setQuestionIndex(0);
+      setUndoSkippedVacancyKey('');
+      setNotice('Вакансия возвращена.');
+    } catch (restoreError) {
+      setError(cleanRemoteError(restoreError, 'Не удалось вернуть вакансию.'));
     }
   };
 
@@ -525,7 +515,7 @@ export default function HhHrProfilePage() {
       </header>
 
       {error && <div className="flex items-start gap-2 rounded-xl border border-red-500/25 bg-red-500/[0.05] px-4 py-3 text-sm text-red-300" role="alert"><AlertTriangle className="mt-0.5 shrink-0" size={16} /><span>{error}</span></div>}
-      {notice && <div className="flex items-start gap-2 rounded-xl border border-emerald-500/25 bg-emerald-500/[0.05] px-4 py-3 text-sm text-emerald-200" role="status"><Check className="mt-0.5 shrink-0" size={16} /><span>{notice}</span></div>}
+      {notice && <div className="flex items-center gap-2 rounded-xl border border-sky-500/20 bg-sky-500/[0.045] px-4 py-3 text-sm text-sky-100" role="status"><Check className="shrink-0" size={16} /><span>{notice}</span>{undoSkippedVacancyKey && <button type="button" className="ml-auto inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-semibold text-sky-100 hover:bg-sky-400/10" onClick={() => void undoSkippedVacancy()}><Undo2 size={13} />Вернуть</button>}</div>}
 
       {pendingVacancies.length === 0 ? (
         <section className="panel-card p-8 text-center">
@@ -558,7 +548,7 @@ export default function HhHrProfilePage() {
                 {pendingVacancies.map((vacancy) => {
                   const vacancyQuestions = uniqueHhScreeningQuestions(vacancy.pendingQuestions ?? []);
                   const completed = vacancyQuestions.filter(
-                    (question) => isComplete(question, drafts[draftKey(vacancy.key, question.id)]),
+                    (question) => isReady(question, drafts[draftKey(vacancy.key, question.id)]),
                   ).length;
                   return (
                     <option key={vacancy.key} value={vacancy.key}>
@@ -576,7 +566,7 @@ export default function HhHrProfilePage() {
               {pendingVacancies.map((vacancy) => {
                 const vacancyQuestions = uniqueHhScreeningQuestions(vacancy.pendingQuestions ?? []);
                 const completed = vacancyQuestions.filter(
-                  (question) => isComplete(question, drafts[draftKey(vacancy.key, question.id)]),
+                  (question) => isReady(question, drafts[draftKey(vacancy.key, question.id)]),
                 ).length;
                 const selected = vacancy.key === activeVacancy?.key;
                 return (
@@ -628,18 +618,9 @@ export default function HhHrProfilePage() {
                     <span><b>{hhScreeningRelocationScope(currentQuestion.prompt) === 'russia' ? 'Общее условие о переезде по России.' : 'Похожий вопрос уже сгруппирован.'}</b> Этот ответ будет применён ещё к {similarQuestionCount} {pluralRu(similarQuestionCount, 'похожему вопросу', 'похожим вопросам', 'похожим вопросам')} — повторно отвечать не придётся.</span>
                   </div>
                 )}
-                <div className="mt-3 flex max-w-4xl items-start gap-2 rounded-xl border border-violet-400/15 bg-violet-400/[0.035] px-3.5 py-3 text-xs leading-relaxed text-ink-muted">
-                  <Sparkles className="mt-0.5 shrink-0 text-violet-300" size={15} />
-                  <span><b className="text-ink">Почему нужен ответ:</b> {questionExplanation(currentQuestion)}</span>
-                </div>
-
                 <div className="mt-5 max-w-4xl">
                   <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-xs text-ink-faint">
-                      {hasWrittenAnswer
-                        ? 'SkillCue сохранит ваши факты и смысл, но сделает ответ яснее и профессиональнее.'
-                        : 'Напишите сами или возьмите подходящий черновик за основу.'}
-                    </p>
+                    <p className="text-xs text-ink-faint">Проверьте ответ и при необходимости отредактируйте.</p>
                     <button
                       type="button"
                       className="btn-secondary btn-sm border-violet-400/25 text-violet-100 hover:border-violet-400/45"
@@ -653,7 +634,7 @@ export default function HhHrProfilePage() {
                         ? hasWrittenAnswer ? 'Улучшаю ваш ответ…' : 'Готовлю черновик…'
                         : hasWrittenAnswer
                           ? 'Улучшить мой ответ'
-                          : 'Предложить безопасный черновик'}
+                          : 'Подобрать подходящий ответ'}
                     </button>
                   </div>
                   {currentQuestion.kind === 'text' ? (
@@ -663,7 +644,7 @@ export default function HhHrProfilePage() {
                       maxLength={2000}
                       value={drafts[draftKey(activeVacancy.key, currentQuestion.id)]?.answer ?? ''}
                       onChange={(event) => updateText(event.target.value)}
-                      placeholder="Ответьте своими словами. SkillCue сохранит смысл и использует его в следующих анкетах."
+                      placeholder="Введите точный ответ"
                     />
                   ) : (
                     <>
@@ -671,13 +652,13 @@ export default function HhHrProfilePage() {
                         {currentQuestion.options.map((option) => {
                           const selected = drafts[draftKey(activeVacancy.key, currentQuestion.id)]?.selectedOptions.includes(option) ?? false;
                           return (
-                            <label key={option} className={`flex cursor-pointer items-start gap-2.5 rounded-xl border p-3.5 text-sm transition-[color,background-color,border-color] ${selected ? 'border-emerald-400/40 bg-emerald-400/[0.07] text-ink' : 'border-surface-border bg-surface-light text-ink-muted hover:bg-surface-hover'}`}>
+                            <label key={option} className={`flex cursor-pointer items-start gap-2.5 rounded-xl border p-3.5 text-sm transition-[color,background-color,border-color] ${selected ? 'border-sky-400/45 bg-sky-400/[0.07] text-ink' : 'border-surface-border bg-surface-light text-ink-muted hover:bg-surface-hover'}`}>
                               <input
                                 type={currentQuestion.kind === 'multiple' ? 'checkbox' : 'radio'}
                                 name={`${activeVacancy.key}-${currentQuestion.id}`}
                                 checked={selected}
                                 onChange={() => updateOption(option)}
-                                className="mt-0.5 h-4 w-4 accent-emerald-500"
+                                className="mt-0.5 h-4 w-4 accent-blue-600"
                               />
                               <span>{option}</span>
                             </label>
@@ -692,54 +673,27 @@ export default function HhHrProfilePage() {
                       )}
                     </>
                   )}
-                  {currentQuestion.kind === 'text' && hasWrittenAnswer && currentDraftConfirmed && (
-                    <p className="mt-2 flex items-center gap-1.5 text-[11px] text-emerald-200">
-                      <Check size={12} />Ответ принят. Короткие ответы «Да» и «Нет» тоже можно сохранять.
-                    </p>
-                  )}
-                  {generatedSuggestions[draftKey(activeVacancy.key, currentQuestion.id)] ? (
-                    <div className="mt-2.5 flex items-start gap-2 rounded-lg border border-amber-300/15 bg-amber-300/[0.035] px-3 py-2.5 text-[11px] leading-relaxed text-amber-100">
-                      <Sparkles className="mt-0.5 shrink-0" size={13} />
-                      <span>
-                        <b>{generatedSuggestions[draftKey(activeVacancy.key, currentQuestion.id)].source === 'ai' ? 'ИИ-черновик: ' : 'Черновик SkillCue: '}</b>
-                        {generatedSuggestions[draftKey(activeVacancy.key, currentQuestion.id)].note}
-                      </span>
-                    </div>
-                  ) : currentQuestion.suggestedAnswer && (
-                    <p className="mt-2 flex items-center gap-1.5 text-[11px] text-violet-200">
-                      <Sparkles size={12} />SkillCue подготовил черновик — проверьте его перед сохранением.
-                    </p>
-                  )}
-                  {currentDraftHasValue && !currentDraftConfirmed && (
-                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-300/25 bg-amber-300/[0.045] px-3.5 py-3 text-xs text-amber-100">
-                      <span>Это пока черновик. Проверьте ответ перед отправкой работодателю.</span>
-                      <button
-                        type="button"
-                        className="btn-secondary btn-sm border-amber-300/30 text-amber-50"
-                        onClick={confirmCurrentDraft}
-                      >
-                        <Check size={14} />Использовать этот вариант
-                      </button>
-                    </div>
-                  )}
                 </div>
 
-                <div className="mt-6 flex flex-wrap items-center gap-2 border-t border-surface-border pt-5">
+                <div className="hr-profile-question__footer mt-6 flex flex-wrap items-center gap-2 border-t border-surface-border pt-5">
                   <button type="button" className="btn-ghost" disabled={questionIndex === 0 || activeVacancySubmitting} onClick={() => moveQuestion(-1)}>
                     <ChevronLeft size={15} />Назад
                   </button>
                   {questionIndex < questions.length - 1 ? (
                     <button type="button" className="btn-primary" disabled={activeVacancySubmitting} onClick={() => moveQuestion(1)}>
-                      Сохранить ответ и перейти к вопросу {questionIndex + 2}<ArrowRight size={15} />
+                      Сохранить и дальше<ArrowRight size={15} />
                     </button>
                   ) : (
                     <button type="button" className="btn-primary" disabled={activeVacancySubmitting} onClick={() => void submitVacancy()}>
                       {activeVacancySubmitting ? <Loader2 className="animate-spin" size={15} /> : <Send size={15} />}
-                      Отправить {answeredInVacancy} из {questions.length} ответов и продолжить отклик
+                      Отправить ответы<ArrowRight size={15} />
                     </button>
                   )}
+                  <button type="button" className="btn-ghost text-red-300 hover:bg-red-400/[0.06]" disabled={activeVacancySubmitting} onClick={() => void skipCurrentVacancy()}>
+                    <Ban size={15} />Не откликаться
+                  </button>
                   <label className="ml-auto flex cursor-pointer items-center gap-2 text-xs text-ink-muted">
-                    <input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} className="h-4 w-4 accent-emerald-500" />
+                    <input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} className="h-4 w-4 accent-blue-600" />
                     Запомнить в профиле
                   </label>
                 </div>

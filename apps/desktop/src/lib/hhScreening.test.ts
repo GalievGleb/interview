@@ -3,6 +3,7 @@ import {
   countUnansweredHhScreeningQuestions,
   isHhAiQuotaMessage,
   isHhScreeningAnswerComplete,
+  isHhScreeningDraftReady,
   hhScreeningPromptKey,
   hhScreeningSemanticKey,
   readHhScreeningDrafts,
@@ -27,6 +28,16 @@ function vacancy(id: string, prompt: string, assistantReason?: string): HhQueueI
 }
 
 describe('HH pending screening summary', () => {
+  it('treats a visible answer as ready for the explicit Send action without a second confirmation click', () => {
+    expect(isHhScreeningDraftReady(
+      { kind: 'text' },
+      'Да, работал с Kafka и RabbitMQ.',
+      [],
+    )).toBe(true);
+    expect(isHhScreeningDraftReady({ kind: 'single' }, '', ['Да'])).toBe(true);
+    expect(isHhScreeningDraftReady({ kind: 'text' }, '   ', [])).toBe(false);
+  });
+
   it('subtracts locally answered drafts from the visible remaining count', () => {
     const summary = summarizePendingHhScreening([
       vacancy('one', 'Готовы работать удалённо?'),
@@ -128,7 +139,7 @@ describe('HH pending screening summary', () => {
     });
 
     expect(result.answer).not.toMatch(/StarCraft|Age of Empires/);
-    expect(result.answer).toContain('уточню личные факты');
+    expect(result.answer).toBe('');
     expect(result.confirmedByUser).toBe(false);
   });
 
@@ -234,6 +245,21 @@ describe('HH pending screening summary', () => {
     expect(hhScreeningSemanticKey('Где живёте?')).toBe('profile:current-location');
     expect(hhScreeningSemanticKey('Где живешь?')).toBe('profile:current-location');
     expect(hhScreeningSemanticKey('Укажите населённый пункт')).toBe('profile:current-location');
+  });
+
+  it('groups differently worded age questions without mixing in date of birth', () => {
+    expect(hhScreeningSemanticKey('Сколько вам лет?')).toBe('profile:age');
+    expect(hhScreeningSemanticKey('Укажите ваш возраст полных лет')).toBe('profile:age');
+    expect(hhScreeningSemanticKey('Укажите дату рождения')).not.toBe('profile:age');
+  });
+
+  it('groups backend/frontend testing ratio wording without mixing in experience duration', () => {
+    expect(hhScreeningSemanticKey('Сколько в процентах вы тестировали бэкэнд к фронту?'))
+      .toBe('profile:test-scope-ratio');
+    expect(hhScreeningSemanticKey('Какое соотношение тестирования backend и frontend?'))
+      .toBe('profile:test-scope-ratio');
+    expect(hhScreeningSemanticKey('Сколько лет опыта автотестов Backend и Frontend?'))
+      .not.toBe('profile:test-scope-ratio');
   });
 
   it('keeps project geography restrictions separate from the current city', () => {

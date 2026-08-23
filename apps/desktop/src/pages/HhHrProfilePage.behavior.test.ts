@@ -36,8 +36,8 @@ describe('HR profile question flow', () => {
     expect(profileSource).toContain('HH_SCREENING_DRAFTS_STORAGE_KEY');
     expect(profileSource).toContain('localStorage.setItem(HH_SCREENING_DRAFTS_STORAGE_KEY');
     expect(profileSource).toContain('countUnansweredHhScreeningQuestions(screeningSummary, drafts)');
-    expect(profileSource).toContain('Сохранить ответ и перейти к вопросу');
-    expect(profileSource).toContain('ответов и продолжить отклик');
+    expect(profileSource).toContain('Сохранить и дальше');
+    expect(profileSource).toContain('Отправить ответы');
     expect(profileSource).not.toContain('autoFocus');
     expect(profileSource).toContain('uniqueHhScreeningQuestions(rawQuestions)');
     expect(profileSource).toContain('Общее условие о переезде по России.');
@@ -48,7 +48,7 @@ describe('HR profile question flow', () => {
     expect(profileSource).toContain('submittingVacancyKeys.includes(activeVacancy.key)');
     expect(profileSource).toContain('disabled={activeVacancySubmitting}');
     expect(profileSource).not.toContain("const [busy, setBusy] = useState('')");
-    expect(profileSource).toContain('Короткие ответы «Да» и «Нет» тоже можно сохранять.');
+    expect(profileSource).toContain('isHhScreeningDraftReady(');
     expect(profileSource).toContain('const nextVacancies = summarizePendingHhScreening(next.queue).vacancies');
     expect(profileSource).toContain('Ответы отправлены. Открыта следующая вакансия:');
   });
@@ -83,7 +83,7 @@ describe('HR profile question flow', () => {
   });
 
   it('generates a safe draft for an empty field and refines text already written by the user', () => {
-    expect(profileSource).toContain('Предложить безопасный черновик');
+    expect(profileSource).toContain('Подобрать подходящий ответ');
     expect(profileSource).toContain('Улучшить мой ответ');
     expect(profileSource).toContain("drafts[key]?.answer ?? ''");
     expect(profileSource).toContain('assistant.suggestScreeningAnswer(');
@@ -102,11 +102,13 @@ describe('HR profile question flow', () => {
     expect(assistantSource).toContain('buildHhScreeningReviewDraft(question');
   });
 
-  it('requires explicit acceptance before a generated suggestion is complete', () => {
+  it('uses the visible send action as confirmation instead of hiding a second acceptance step', () => {
     expect(profileSource).toContain('confirmedByUser: false');
     expect(profileSource).toContain('confirmedByUser: true');
-    expect(profileSource).toContain('Использовать этот вариант');
-    expect(profileSource).toContain('onClick={confirmCurrentDraft}');
+    expect(profileSource).not.toContain('Использовать этот вариант');
+    expect(profileSource).not.toContain('confirmCurrentDraft');
+    expect(profileSource).not.toContain('Почему нужен ответ:');
+    expect(profileSource).not.toContain('SkillCue подготовил черновик');
     expect(profileSource).toContain('reconcileHhScreeningLocalDraft(question, next[key])');
     expect(profileSource).not.toContain('if (next[key]) continue');
   });

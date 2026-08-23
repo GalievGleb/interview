@@ -124,8 +124,8 @@
 .skillcue-answer-card--active {
   @apply border-accent/35 bg-accent/[0.055] shadow-panel-focus;
   box-shadow:
-    0 0 0 1px rgba(52, 199, 123, 0.13),
-    0 20px 60px -28px rgba(52, 199, 123, 0.55),
+    0 0 0 1px rgb(var(--twc-accent) / 0.13),
+    0 20px 60px -28px rgb(var(--twc-accent) / 0.55),
     inset 0 1px 0 rgba(255, 255, 255, 0.035);
 }
 
@@ -175,8 +175,8 @@
 .cockpit-bento-main {
   @apply border-accent/25 bg-accent/[0.05];
   box-shadow:
-    0 0 0 1px rgba(52, 199, 123, 0.12),
-    0 12px 34px -18px rgba(52, 199, 123, 0.38);
+    0 0 0 1px rgb(var(--twc-accent) / 0.12),
+    0 12px 34px -18px rgb(var(--twc-accent) / 0.38);
 }
 
 .cockpit-alert {
@@ -209,8 +209,8 @@
 }
 
 .cockpit-command:focus-within {
-  border-color: rgba(99, 102, 241, 0.62);
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.14);
+  border-color: var(--accent-border);
+  box-shadow: 0 0 0 3px var(--accent-ring);
 }
 
 .cockpit-command-input {

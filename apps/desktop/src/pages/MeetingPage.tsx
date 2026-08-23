@@ -112,7 +112,7 @@ export default function MeetingPage() {
             type="checkbox"
             checked={localLlm}
             onChange={(e) => setLocalLlm(e.target.checked)}
-            className="h-4 w-4 accent-[#34c77b]"
+            className="h-4 w-4 accent-accent"
           />
           {t('meeting.local')}
         </label>

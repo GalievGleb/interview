@@ -720,6 +720,12 @@ export default function HhApplicationsPage() {
   const activeVacancyCount = activeQueue.filter((item) =>
     item.status === 'new' || item.status === 'opened' || item.status === 'prepared' || item.status === 'needs_input').length;
   const queueGates = summarizeHhQueueGates(activeQueue);
+  const manualQueueItems = activeQueue.filter((item) =>
+    item.autoRetryBlockedUntil === 'manual'
+    && (item.status === 'new' || item.status === 'opened' || item.status === 'prepared'));
+  const verificationQueueCount = manualQueueItems.filter((item) =>
+    /проверк|captcha|капч|не\s+робот|код\s+с\s+картинк/i.test(item.reason ?? '')).length;
+  const unknownManualQueueCount = Math.max(0, manualQueueItems.length - verificationQueueCount);
   const queueGateLabel = [
     queueGates.eligible > 0 ? `${queueGates.eligible} готовы сейчас` : '',
     queueGates.daily > 0
@@ -727,7 +733,8 @@ export default function HhApplicationsPage() {
         ? `${queueGates.daily} до следующего ежедневного запуска`
         : `${queueGates.daily} требуют повторного запуска`
       : '',
-    queueGates.manual > 0 ? `${queueGates.manual} требуют ручного запуска` : '',
+    verificationQueueCount > 0 ? `${verificationQueueCount} отложены после трёх проверок HH` : '',
+    unknownManualQueueCount > 0 ? `${unknownManualQueueCount} остановлены на незнакомом шаге` : '',
   ].filter(Boolean).join(' · ');
   const sentVacancyCount = activeQueue.filter((item) =>
     item.status === 'sent' || item.status === 'already_applied').length;
@@ -1364,7 +1371,7 @@ export default function HhApplicationsPage() {
                   {conversation.vacancyUrl ? <a className="block w-fit text-xs text-ink-faint underline-offset-4 hover:text-ink hover:underline" href={conversation.vacancyUrl} target="_blank" rel="noreferrer" onClick={openConversationVacancy}>{conversation.companyName}</a> : <span className="block text-xs text-ink-faint">{conversation.companyName}</span>}
                   {recruiterMessage && <span className="mt-1 block truncate text-xs text-ink-muted">Работодатель: {recruiterMessage}</span>}
                 </span>
-                {conversation.needsUserInput ? <span className="rounded-full bg-violet-400/10 px-2.5 py-1 text-xs text-violet-100">Нужен ответ</span> : conversation.stage === 'waiting' ? <span className="rounded-full bg-surface-elevated px-2.5 py-1 text-xs text-ink-muted">Сообщений ещё нет</span> : <span className="rounded-full bg-sky-500/10 px-2.5 py-1 text-xs text-sky-200">{conversation.lastMessageMine ? 'SkillCue ответил' : 'Ждёт ответа'}</span>}
+                {conversation.needsUserInput ? <span className="rounded-full bg-violet-400/10 px-2.5 py-1 text-xs text-violet-100">Нужен ответ</span> : conversation.awaitingRecruiter ? <span className="rounded-full bg-sky-500/10 px-2.5 py-1 text-xs text-sky-200">Ждём решения HR</span> : conversation.stage === 'waiting' ? <span className="rounded-full bg-surface-elevated px-2.5 py-1 text-xs text-ink-muted">Сообщений ещё нет</span> : <span className="rounded-full bg-sky-500/10 px-2.5 py-1 text-xs text-sky-200">{conversation.lastMessageMine ? 'SkillCue ответил' : 'Ждёт ответа'}</span>}
                 <button type="button" className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-ink-faint hover:bg-surface-hover hover:text-ink" aria-label={expanded ? 'Свернуть диалог' : 'Показать диалог'} aria-expanded={expanded} onClick={() => setSelectedConversationKey(expanded ? '' : conversation.key)}><ChevronDown size={15} className={`transition-transform ${expanded ? 'rotate-180' : ''}`} /></button>
               </div>
               {expanded && <div className="border-t border-surface-border bg-surface/25 px-5 py-4">

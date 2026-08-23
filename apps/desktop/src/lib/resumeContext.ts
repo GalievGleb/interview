@@ -122,7 +122,7 @@ export async function resolvePreferredResume(
       hhResumes = [];
     }
   }
-  let stored = '';
+  let stored: string;
   try {
     stored = localStorage.getItem(RESUME_SOURCE_STORAGE_KEY) ?? '';
   } catch {

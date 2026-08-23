@@ -83,7 +83,8 @@ describe('macOS installer contract', () => {
       category: 'public.app-category.productivity',
       artifactName: 'SkillCue-macOS-${arch}.${ext}',
       minimumSystemVersion: '12.0',
-      hardenedRuntime: false,
+      // Required before any future codesign/notarization of macOS builds.
+      hardenedRuntime: true,
       extendInfo: {
         NSMicrophoneUsageDescription: expect.stringContaining('microphone'),
       },

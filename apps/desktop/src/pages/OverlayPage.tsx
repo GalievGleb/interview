@@ -9,6 +9,7 @@ import { useLiveCopilotPrefs } from '../hooks/useLiveCopilotPrefs';
 import { useApp } from '../context/AppContext';
 import type { TranscriptLine } from '../hooks/useLiveCopilot';
 import MarkdownText from '../components/MarkdownText';
+import OverlayAppIcon from '../components/OverlayAppIcon';
 import OverlayTooltipLayer from '../components/OverlayTooltipLayer';
 import { forceDarkTheme } from '../lib/theme';
 import { modeInstructionPrefix, useAnswerModes } from '../lib/answerModes';
@@ -95,7 +96,7 @@ const OPACITY_KEY = 'skillcue.overlayOpacity';
 const QUICK_GUIDE_KEY = 'skillcue.overlayQuickGuideSeen.v1';
 
 function clampOpacity(v: number): number {
-  return Number.isFinite(v) && v >= 40 && v <= 100 ? v : 60;
+  return Number.isFinite(v) && v >= 40 && v <= 100 ? v : 70;
 }
 
 type RecapTab = 'summary' | 'analysis' | 'transcript' | 'usage';
@@ -215,6 +216,7 @@ export default function OverlayPage() {
   const { hasStt, license, refreshLicense } = useApp();
   const {
     active,
+    paused,
     lines,
     answerHistory,
     currentQuestion,
@@ -227,6 +229,8 @@ export default function OverlayPage() {
     sessionId,
     forceAnswer,
     start,
+    pause,
+    resume,
     stop,
   } = useLiveCopilot();
   const { sources, sttOptions, setSources } = useLiveCopilotPrefs();
@@ -248,7 +252,7 @@ export default function OverlayPage() {
   const [avoidFocus, setAvoidFocus] = useState(() => localStorage.getItem(AVOID_FOCUS_KEY) === '1');
   const [opacity, setOpacity] = useState(() => {
     const saved = localStorage.getItem(OPACITY_KEY);
-    return saved === null ? 60 : clampOpacity(Number(saved));
+    return saved === null ? 70 : clampOpacity(Number(saved));
   });
 
   // Итоги сессии.
@@ -876,8 +880,9 @@ export default function OverlayPage() {
   };
 
   const toggleSession = () => {
-    if (active) stopSession();
-    else void startSession();
+    if (!active) void startSession();
+    else if (paused) void resume();
+    else pause();
   };
 
   const resumeFromRecap = async () => {
@@ -1091,7 +1096,7 @@ export default function OverlayPage() {
               size={15}
             />
           ) : (
-            <span className="text-[11px] font-black tracking-tight">SC</span>
+            <OverlayAppIcon />
           )}
         </button>
 
@@ -1103,10 +1108,12 @@ export default function OverlayPage() {
 
         <button
           type="button"
-          className={`ovl-rec tip ${active ? 'ovl-rec--live' : ''}`}
+          className={`ovl-rec tip ${active && !paused ? 'ovl-rec--live' : ''}`}
           data-tip={
             active
-              ? t('overlay.rec.stopTip')
+              ? paused
+                ? t('overlay.rec.resumeTip')
+                : t('overlay.rec.pauseTip')
               : liveBlocked
                 ? t('overlay.rec.needLicense')
                 : !hasStt
@@ -1115,7 +1122,9 @@ export default function OverlayPage() {
           }
           aria-label={
             active
-              ? t('overlay.rec.stopAria')
+              ? paused
+                ? t('overlay.rec.resumeAria')
+                : t('overlay.rec.pauseAria')
               : liveBlocked
                 ? t('overlay.rec.needLicense')
                 : !hasStt
@@ -1125,8 +1134,10 @@ export default function OverlayPage() {
           disabled={!hasStt && !active}
           onClick={toggleSession}
         >
-          {active ? (
-            <span className="h-3 w-3 rounded-[3px] bg-red-400" />
+          {active && paused ? (
+            <span className="ml-0.5 h-0 w-0 border-y-[6px] border-l-[9px] border-y-transparent border-l-emerald-300" />
+          ) : active ? (
+            <Icon d="M8 5v14|M16 5v14" size={16} />
           ) : (
             <span className="h-3 w-3 rounded-full bg-red-400" />
           )}
@@ -1135,7 +1146,7 @@ export default function OverlayPage() {
         {active && (
           <button
             type="button"
-            className="rounded-lg bg-red-500/20 px-2 py-1 text-[11px] font-semibold text-red-200 hover:bg-red-500/30"
+            className="overlay-no-drag rounded-lg bg-red-500/20 px-2 py-1 text-[11px] font-semibold text-red-200 hover:bg-red-500/30"
             onClick={stopSession}
             aria-label="Завершить созвон и запись"
             title="Полностью завершить запись и открыть итоги"

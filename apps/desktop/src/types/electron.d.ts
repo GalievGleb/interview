@@ -225,6 +225,7 @@ export interface HhChatConversation {
   lastMessageMine: boolean;
   lastRecruiterMessage?: string;
   needsUserInput: boolean;
+  awaitingRecruiter?: boolean;
 }
 
 export interface HhChatPendingDecision {
@@ -358,7 +359,7 @@ export interface ElectronAPI {
   quit?: () => Promise<void>;
   /** Собирает zip с логами и системной информацией, показывает его в проводнике. */
   collectDiagnostics?: (extra: Array<{ name: string; content: string }>) => Promise<string>;
-  shareSessionReport?: (input: { filename: string; content: string }) => Promise<{
+  shareSessionReport?: (input: { filename: string; content: string; message?: string }) => Promise<{
     path: string;
     telegramOpened: boolean;
     fallback: boolean;
@@ -399,6 +400,8 @@ export interface ElectronAPI {
       currentAnswer?: string,
     ) => Promise<HhScreeningDraftSuggestion>;
     forgetScreeningFact: (factId: string) => Promise<HhAssistantState>;
+    skipScreeningVacancy: (vacancyId: string) => Promise<HhAssistantState>;
+    restoreSkippedScreeningVacancy: (vacancyId: string) => Promise<HhAssistantState>;
     stopApply: () => Promise<HhAssistantState>;
     setDailySchedule: (enabled: boolean) => Promise<HhAssistantState>;
     onState: (cb: (state: HhAssistantState) => void) => () => void;

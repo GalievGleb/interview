@@ -2,6 +2,11 @@ packages:
   - 'apps/*'
   - 'packages/*'
 
+# pnpm v11+: overrides живут здесь, а не в package.json ("pnpm" поле игнорируется).
+# undici >= 6.28.0 закрывает moderate advisory (транзитивно через cheerio и др.).
+overrides:
+  undici: ^6.28.0
+
 allowBuilds:
   '@prisma/client': true
   '@prisma/engines': true

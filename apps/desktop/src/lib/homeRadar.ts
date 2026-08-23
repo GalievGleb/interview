@@ -14,6 +14,84 @@ export interface HomeApplicationFlow {
   reached: [boolean, boolean, boolean];
 }
 
+export type HomeHhAction = 'screening' | 'open-hh' | 'queue' | 'start';
+
+export interface HomeHhCommandInput {
+  running: boolean;
+  queued: number;
+  pendingQuestions: number;
+  loginRequired: boolean;
+  persistentVerification: boolean;
+}
+
+export interface HomeHhCommand {
+  eyebrow: string;
+  title: string;
+  action: HomeHhAction;
+  actionLabel: string;
+}
+
+function employerQuestionLabel(count: number): string {
+  const mod100 = count % 100;
+  const mod10 = count % 10;
+  if (mod100 >= 11 && mod100 <= 14) return 'вопросов работодателей';
+  if (mod10 === 1) return 'вопрос работодателя';
+  if (mod10 >= 2 && mod10 <= 4) return 'вопроса работодателей';
+  return 'вопросов работодателей';
+}
+
+export function getHomeHhCommand(input: HomeHhCommandInput): HomeHhCommand {
+  if (input.pendingQuestions > 0) {
+    return {
+      eyebrow: 'ТРЕБУЕТСЯ ОТВЕТ',
+      title: `Ответьте на ${input.pendingQuestions} ${employerQuestionLabel(input.pendingQuestions)}`,
+      action: 'screening',
+      actionLabel: 'Открыть вопросы',
+    };
+  }
+  if (input.loginRequired || input.persistentVerification) {
+    return {
+      eyebrow: 'НУЖЕН ВХОД В HH',
+      title: 'Восстановите фоновую сессию HH',
+      action: 'open-hh',
+      actionLabel: 'Открыть HH',
+    };
+  }
+  if (input.running) {
+    return {
+      eyebrow: 'АВТООТКЛИКИ РАБОТАЮТ',
+      title: 'SkillCue проверяет новые вакансии',
+      action: 'queue',
+      actionLabel: 'Смотреть очередь',
+    };
+  }
+  if (input.queued > 0) {
+    return {
+      eyebrow: 'ГОТОВО К ОТПРАВКЕ',
+      title: `${input.queued} вакансий ждут обработки`,
+      action: 'queue',
+      actionLabel: 'Продолжить отклики',
+    };
+  }
+  return {
+    eyebrow: 'ПОИСК ГОТОВ',
+    title: 'Найдите новые подходящие вакансии',
+    action: 'start',
+    actionLabel: 'Запустить сейчас',
+  };
+}
+
+export function isInterviewStartingSoon(
+  startAt: string | undefined,
+  now = new Date(),
+  thresholdMs = 2 * 60 * 60 * 1_000,
+): boolean {
+  if (!startAt) return false;
+  const starts = new Date(startAt).getTime();
+  const delay = starts - now.getTime();
+  return Number.isFinite(starts) && delay >= 0 && delay <= thresholdMs;
+}
+
 export function getHomeApplicationFlow({
   queued,
   sentToday,

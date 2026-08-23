@@ -5,18 +5,24 @@
  */
 
 :root {
-  /* radius / spacing */
+  /* radius / spacing (добавлены xs/2xl и крупные шаги из прототипа) */
   --radius-full: 9999px;
+  --radius-2xl: 20px;
   --radius-xl: 16px;
   --radius-lg: 12px;
   --radius-md: 10px;
   --radius-sm: 8px;
+  --radius-xs: 6px;
   --space-1: 4px;
   --space-1-5: 6px;
   --space-2: 8px;
+  --space-2-5: 10px;
   --space-3: 12px;
+  --space-3-5: 14px;
   --space-4: 16px;
   --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
 
   /* surfaces */
   --surface-app: #07101d;

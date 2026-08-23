@@ -57,8 +57,11 @@ describe('history analysis and privacy behavior', () => {
 
   it('uses one focused empty state before the first saved session', () => {
     expect(source).toContain('sessions.length === 0');
-    expect(source).toContain('className="practice-empty"');
+    // Пустое состояние по паттерну аудита: иконка + заголовок + подсказка.
+    expect(source).toContain('className="practice-empty flex flex-col items-center gap-2 py-10 text-center"');
+    expect(source).toContain('<Mic2 size={18} />');
     expect(source).toContain('Истории пока нет');
+    expect(source).toContain('text-xs text-ink-muted');
   });
 
   it('reloads history after the bundled backend finishes a cold start', () => {
@@ -83,8 +86,8 @@ describe('history analysis and privacy behavior', () => {
   });
 
   it('explains both the attached Telegram flow and the saved-file fallback', () => {
-    expect(reportModalSource).toContain('Telegram открыл выбор чата');
-    expect(reportModalSource).toContain('Отчёт сохранён, но Telegram Desktop не найден');
+    expect(reportModalSource).toContain('Открыт чат поддержки SkillCue с готовым сообщением');
+    expect(reportModalSource).toContain('Отчёт сохранён, но Telegram не открылся');
     expect(reportModalSource).toContain('Аудиозапись не отправляется');
     expect(reportModalSource).toContain('Старые сессии тоже поддерживаются');
   });

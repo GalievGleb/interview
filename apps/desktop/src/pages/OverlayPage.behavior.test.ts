@@ -276,11 +276,14 @@ describe('overlay request behavior', () => {
     expect(overlaySource).not.toContain('setCollapsed(');
   });
 
-  it('starts at sixty-percent opacity and ships without floating shadows', () => {
-    expect(overlaySource).toContain('return saved === null ? 60');
+  it('starts at seventy-percent opacity and gives floating panels real elevation', () => {
+    expect(overlaySource).toContain('return saved === null ? 70');
     const shadows = [...cssSource.matchAll(/box-shadow:\s*([^;]+);/g)].map((match) => match[1].trim());
+    // Аудит: панели поверх чужого экрана обязаны отделяться тенью, а не
+    // растворяться в фоне (box-shadow: none остался только у logo/status dot).
     expect(shadows.length).toBeGreaterThan(0);
-    expect(shadows.every((value) => value === 'none')).toBe(true);
+    expect(shadows.filter((value) => value !== 'none').length).toBeGreaterThan(0);
+    expect(cssSource).toContain('0 28px 70px');
   });
 
   it('keeps the top pill limited to app identity and recording', () => {
@@ -288,6 +291,38 @@ describe('overlay request behavior', () => {
     expect(overlaySource).toContain('className={`ovl-rec tip');
     expect(overlaySource).not.toContain('className="ovl-pill-btn tip"');
     expect(overlaySource).not.toContain('className="ovl-hide-caret');
+  });
+
+  it('pauses capture separately from ending the session and opening recap', () => {
+    expect(hookSource).toContain('entry.session.pause()');
+    expect(hookSource).toContain('entry.session.resume()');
+    expect(overlaySource).toContain('if (paused) void resume()');
+    expect(overlaySource).toContain('else pause()');
+    expect(overlaySource).toContain('onClick={stopSession}');
+    expect(overlaySource).toContain("t('overlay.rec.pauseTip')");
+    expect(overlaySource).toContain("t('overlay.rec.resumeTip')");
+  });
+
+  it('keeps the finish control clickable inside the draggable overlay pill', () => {
+    expect(overlaySource).toMatch(/className="[^"]*overlay-no-drag[^"]*"\s+onClick=\{stopSession\}/);
+  });
+
+  it('draws the pause symbol as one balanced SVG instead of separate rasterized bars', () => {
+    expect(overlaySource).toContain('<Icon d="M8 5v14|M16 5v14" size={16} />');
+    expect(overlaySource).not.toContain('<i className="h-3 w-[3px] rounded-full bg-slate-200" />');
+  });
+
+  it('does not paint a green halo behind the real app icon', () => {
+    const logoRule = cssSource.match(/\.ovl-logo\s*\{([\s\S]*?)\}/)?.[1] ?? '';
+    expect(logoRule).toContain('background: transparent');
+    expect(logoRule).not.toContain('background: var(--accent)');
+  });
+
+  it('keeps the active pause control neutral and reserves red for ending the session', () => {
+    const livePauseRule = cssSource.match(/\.ovl-rec--live\s*\{([\s\S]*?)\}/)?.[1] ?? '';
+    expect(livePauseRule).toContain('background: rgba(255, 255, 255, 0.12)');
+    expect(livePauseRule).not.toMatch(/248,\s*113,\s*113|239,\s*68,\s*68|red/i);
+    expect(overlaySource).toContain('bg-red-500/20');
   });
 
   it('receives global answer scrolling from the native window', () => {

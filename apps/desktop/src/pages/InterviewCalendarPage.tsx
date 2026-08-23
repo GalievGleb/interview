@@ -1284,7 +1284,7 @@ export default function InterviewCalendarPage() {
           <button type="button" className="btn-ghost" onClick={() => setEventToDelete(null)}>Отмена</button>
           <button
             type="button"
-            className="btn-primary bg-red-500 hover:bg-red-400"
+            className="btn-danger"
             disabled={!eventToDelete || busy === `delete:${eventToDelete.id}`}
             onClick={() => eventToDelete && void confirmRemoveEvent(eventToDelete)}
           >

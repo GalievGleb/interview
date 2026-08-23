@@ -134,6 +134,7 @@ function buildTimingDebug(t: LiveTimingState): Partial<SttDebugInfo> {
 
 export function useLiveCopilot() {
   const [active, setActive] = useState(false);
+  const [paused, setPaused] = useState(false);
   const [lines, setLines] = useState<TranscriptLine[]>([]);
   const [answerHistory, setAnswerHistory] = useState<CopilotAnswerEntry[]>([]);
   const answerHistoryRef = useRef<CopilotAnswerEntry[]>([]);
@@ -359,6 +360,7 @@ export function useLiveCopilot() {
       if (msg) setError(msg);
       if (liveRef.current.length === 0) {
         setActive(false);
+        setPaused(false);
         void endInterviewSession();
       }
     },
@@ -918,7 +920,7 @@ export function useLiveCopilot() {
   );
 
   const forceAnswer = useCallback((questionOverride?: string): ForceAnswerStatus => {
-    if (!active) return 'unavailable';
+    if (!active || paused) return 'unavailable';
 
     const typedQuestion = questionOverride?.trim();
     if (questionOverride != null && (!typedQuestion || typedQuestion.length < 3)) {
@@ -989,6 +991,7 @@ export function useLiveCopilot() {
     return 'unavailable';
   }, [
     active,
+    paused,
     askQuestion,
     cancelPendingQuestion,
     clearForceTimeout,
@@ -1040,6 +1043,7 @@ export function useLiveCopilot() {
       const language = stt.language ?? 'ru';
       setError('');
       setReconnecting(null);
+      setPaused(false);
       setLines([]);
       setAnswerHistory([]);
       answerHistoryRef.current = [];
@@ -1320,6 +1324,26 @@ export function useLiveCopilot() {
     [appendForcedFinal, appendLine, askQuestion, cancelPendingQuestion, clearForceTimeout, endInterviewSession, patchSttDebug, persistTranscriptLine, recordUtterance, removeStream, resetForceCoordinator, scheduleFinalFallback, scheduleForceScreenFallback, scheduleSpeechFinal, syncForceSnapshot],
   );
 
+  const pause = useCallback(() => {
+    if (!active || paused) return;
+    liveRef.current.forEach((entry) => entry.session.pause());
+    speechActivityRef.current.reset();
+    setReconnecting(null);
+    setPaused(true);
+  }, [active, paused]);
+
+  const resume = useCallback(async () => {
+    if (!active || !paused) return;
+    setError('');
+    try {
+      await Promise.all(liveRef.current.map((entry) => entry.session.resume()));
+      timingRef.current.audioCaptureStartAt = performance.now();
+      setPaused(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('live.startFailed'));
+    }
+  }, [active, paused]);
+
   const stop = useCallback(async () => {
     if (finalDebounceRef.current) clearTimeout(finalDebounceRef.current);
     resetForceCoordinator();
@@ -1332,6 +1356,7 @@ export function useLiveCopilot() {
     liveRef.current.forEach((e) => e.session.stop());
     liveRef.current = [];
     setActive(false);
+    setPaused(false);
     setReconnecting(null);
     sessionContextRef.current = createEmptySessionContext();
     if (hadStreams) await endInterviewSession();
@@ -1442,6 +1467,7 @@ export function useLiveCopilot() {
 
   return {
     active,
+    paused,
     lines,
     answerHistory,
     currentQuestion,
@@ -1462,6 +1488,8 @@ export function useLiveCopilot() {
     askQuestion,
     forceAnswer,
     start,
+    pause,
+    resume,
     stop,
   };
 }

@@ -163,11 +163,23 @@ export default function HistoryPage() {
           {loading ? (
             <p className="prep-faint py-8" role="status">Загружаем интервью…</p>
           ) : sessions.length === 0 ? (
-            <div className="practice-empty">
-              <p>Истории пока нет. Запустите помощника перед реальным созвоном.</p>
+            <div className="practice-empty flex flex-col items-center gap-2 py-10 text-center">
+              <span
+                className="flex h-11 w-11 items-center justify-center rounded-full border border-surface-border bg-surface-panel text-ink-faint"
+                aria-hidden="true"
+              >
+                <Mic2 size={18} />
+              </span>
+              <p className="text-sm font-medium text-ink">Истории пока нет</p>
+              <p className="max-w-xs text-xs text-ink-muted">
+                Запустите помощника перед реальным созвоном — расшифровки и ответы соберутся здесь.
+              </p>
             </div>
           ) : filtered.length === 0 ? (
-            <div className="practice-empty"><p>По этому фильтру ничего не найдено.</p></div>
+            <div className="practice-empty flex flex-col items-center gap-2 py-10 text-center">
+              <p className="text-sm font-medium text-ink">По этому фильтру ничего не найдено</p>
+              <p className="text-xs text-ink-muted">Попробуйте другой источник: все, собеседования или встречи.</p>
+            </div>
           ) : (
             <div className="interview-session-list">
               {filtered.map((session) => (

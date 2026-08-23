@@ -18,8 +18,9 @@ export function captureIsStale(
   stopped: boolean,
   currentWs: WebSocket | null,
   myWs: WebSocket | null,
+  paused = false,
 ): boolean {
-  return stopped || !myWs || currentWs !== myWs || myWs.readyState !== WEBSOCKET_OPEN;
+  return paused || stopped || !myWs || currentWs !== myWs || myWs.readyState !== WEBSOCKET_OPEN;
 }
 
 export function sendFinalizeControl(ws: WebSocket | null, requestId: string): boolean {
@@ -89,6 +90,8 @@ export interface LiveHandlers {
 export interface LiveSession {
   flush: (requestId: string) => boolean;
   stopCapture: () => void;
+  pause: () => void;
+  resume: () => Promise<void>;
   stop: () => void;
 }
 
@@ -121,7 +124,9 @@ export async function startLiveSession(
 
   let ws: WebSocket | null = null;
   let capture: AudioCapture | null = null;
+  let captureStarting: Promise<void> | null = null;
   let stopped = false;
+  let paused = false;
   let attempts = 0;
   let reconnectTimer: number | null = null;
   const MAX_RECONNECT = 5;
@@ -129,6 +134,49 @@ export async function startLiveSession(
   const stopCapture = () => {
     capture?.stop();
     capture = null;
+  };
+
+  const startAudioCapture = (myWs: WebSocket | null): Promise<void> => {
+    if (
+      stopped ||
+      paused ||
+      capture ||
+      !myWs ||
+      myWs.readyState !== WEBSOCKET_OPEN
+    ) {
+      return captureStarting ?? Promise.resolve();
+    }
+    if (captureStarting) return captureStarting;
+
+    const pending = (async () => {
+      try {
+        const cap = await startCapture(
+          source,
+          (buffer) => {
+            if (paused) return;
+            if (myWs.readyState === WEBSOCKET_OPEN) myWs.send(buffer);
+            handlers.onAudioFrame?.(buffer);
+          },
+          { sampleRateMode: audioMode },
+        );
+        if (captureIsStale(stopped, ws, myWs, paused)) {
+          // Pause/stop/reconnect could happen while the OS permission dialog was open.
+          cap.stop();
+          return;
+        }
+        capture = cap;
+      } catch (err) {
+        if (stopped || paused) return;
+        handlers.onError(err instanceof Error ? err.message : 'Нет доступа к источнику звука');
+        cleanup();
+      }
+    })();
+
+    captureStarting = pending;
+    void pending.finally(() => {
+      if (captureStarting === pending) captureStarting = null;
+    });
+    return pending;
   };
 
   const cleanup = () => {
@@ -171,26 +219,7 @@ export async function startLiveSession(
       // секунд). Пока идёт await, соединение могло закрыться и пересоздаться;
       // фиксируем «своё» ws, чтобы не осиротить только что открытый захват.
       const myWs = ws;
-      try {
-        const cap = await startCapture(
-          source,
-          (buffer) => {
-            if (ws && ws.readyState === WEBSOCKET_OPEN) ws.send(buffer);
-            handlers.onAudioFrame?.(buffer);
-          },
-          { sampleRateMode: audioMode },
-        );
-        if (captureIsStale(stopped, ws, myWs)) {
-          // Соединение сменилось/закрылось за время await — этот захват
-          // осиротел бы (микрофон/экран остались бы включены). Гасим сразу.
-          cap.stop();
-          return;
-        }
-        capture = cap;
-      } catch (err) {
-        handlers.onError(err instanceof Error ? err.message : 'Нет доступа к источнику звука');
-        cleanup();
-      }
+      await startAudioCapture(myWs);
     };
 
     ws.onmessage = (event) => {
@@ -259,6 +288,20 @@ export async function startLiveSession(
   return {
     flush: (requestId) => sendFinalizeControl(ws, requestId),
     stopCapture,
+    pause: () => {
+      if (stopped) return;
+      paused = true;
+      stopCapture();
+    },
+    resume: async () => {
+      if (stopped) return;
+      paused = false;
+      if (ws?.readyState === WEBSOCKET_OPEN) {
+        await startAudioCapture(ws);
+      } else if (ws?.readyState !== WEBSOCKET_CONNECTING && reconnectTimer == null) {
+        connect();
+      }
+    },
     stop: cleanup,
   };
 }

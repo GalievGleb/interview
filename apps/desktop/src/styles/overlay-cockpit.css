@@ -40,18 +40,21 @@
 /* ---------- Пилл сверху ---------- */
 .ovl-pill {
   @apply overlay-drag flex items-center gap-1.5 rounded-full px-2 py-1.5;
-  background: rgba(13, 19, 28, 0.96);
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  box-shadow: none;
+  background: rgb(15 17 23 / 0.97);
+  border: 1px solid var(--surface-border-strong);
+  box-shadow: 0 12px 32px -16px rgba(0, 0, 0, 0.7);
 }
 
 .ovl-logo {
   @apply overlay-no-drag flex h-8 w-8 items-center justify-center rounded-full transition-transform;
-  background: var(--accent);
-  color: #04240f;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  color: inherit;
 }
 .ovl-logo:hover {
-  transform: scale(1.06);
+  background: rgba(255, 255, 255, 0.07);
+  transform: scale(1.03);
 }
 
 .ovl-rec {
@@ -64,11 +67,11 @@
 }
 .ovl-rec:hover {
   background: rgba(255, 255, 255, 0.16);
-  transform: scale(1.1);
+  transform: scale(1.04);
 }
 .ovl-rec--live {
-  background: rgba(248, 113, 113, 0.18);
-  border-color: rgba(248, 113, 113, 0.4);
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.16);
 }
 
 /* ---------- Карточки (панель ответа + командная панель) ---------- */
@@ -77,9 +80,9 @@
    пилл. Ширина адаптивная (следует за размером окна), чтобы работал ресайз. */
 .ovl-card {
   @apply overlay-drag w-[94vw] max-w-[900px] rounded-2xl;
-  background: rgba(13, 19, 28, 0.97);
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  box-shadow: none;
+  background: rgb(15 17 23 / 0.97);
+  border: 1px solid var(--surface-border-strong);
+  box-shadow: 0 28px 70px -24px rgba(0, 0, 0, 0.8);
 }
 
 /* Кликабельные/скроллируемые элементы внутри карточки не должны перетаскивать
@@ -113,7 +116,7 @@
 
 .ovl-bubble {
   @apply ml-auto max-w-[85%] rounded-2xl rounded-br-md px-3.5 py-2 text-sm font-medium text-white;
-  background: #2563eb;
+  background: var(--accent);
 }
 
 .ovl-answer-label {
@@ -164,8 +167,17 @@
   height: 24px;
 }
 
-.ovl-input:focus-visible {
-  outline: none;
+.ovl-input:focus-visible,
+.ovl-action:focus-visible,
+.ovl-send:focus-visible,
+.ovl-rec:focus-visible,
+.ovl-close:focus-visible,
+.ovl-logo:focus-visible,
+.overlay-icon-btn:focus-visible,
+.ovl-smart:focus-visible,
+.ovl-switch:focus-visible {
+  outline: 2px solid var(--sc-brand, #34c77b);
+  outline-offset: 2px;
 }
 
 /* Пульсирующая белая точка — ИИ думает (до первого токена). */
@@ -189,10 +201,11 @@
 
 /* Крестик закрытия появляется только при наведении на панель ответа. */
 .ovl-response .ovl-close {
-  opacity: 0;
+  opacity: 0.65;
   transition: opacity 0.15s ease;
 }
-.ovl-response:hover .ovl-close {
+.ovl-response:hover .ovl-close,
+.ovl-response .ovl-close:focus-visible {
   opacity: 1;
 }
 
@@ -202,8 +215,9 @@
 }
 .ovl-shot-pop {
   @apply pointer-events-none absolute left-0 top-full z-[70] mt-1.5 hidden overflow-hidden rounded-xl;
-  border: 2px solid rgba(255, 255, 255, 0.2);
-  box-shadow: none;
+  border: 1px solid var(--surface-border-strong);
+  background: rgb(15 17 23 / 0.97);
+  box-shadow: 0 12px 32px -16px rgba(0, 0, 0, 0.7);
   width: 320px;
 }
 .ovl-viewed:hover .ovl-shot-pop {
@@ -227,7 +241,7 @@
 
 .ovl-send {
   @apply flex h-7 w-7 items-center justify-center rounded-full text-white transition-transform;
-  background: #2563eb;
+  background: var(--accent);
 }
 .ovl-send:hover {
   transform: scale(1.08);
@@ -249,8 +263,8 @@
   border-radius: 14px;
   padding: 12px;
   color: var(--text);
-  background: rgba(18, 25, 36, 0.97);
-  box-shadow: none;
+  background: rgb(15 17 23 / 0.97);
+  box-shadow: 0 28px 70px -24px rgba(0, 0, 0, 0.8);
 }
 
 .ovl-quick-guide__head {
@@ -311,16 +325,16 @@
 /* Меню и модалки поверх */
 .overlay-menu {
   @apply absolute z-50 mt-1.5 w-60 rounded-xl border p-1.5;
-  border-color: rgba(255, 255, 255, 0.1);
-  background: rgba(18, 25, 36, 0.98);
-  box-shadow: none;
+  border-color: var(--surface-border-strong);
+  background: rgb(15 17 23 / 0.97);
+  box-shadow: 0 12px 32px -16px rgba(0, 0, 0, 0.7);
 }
 
 .overlay-modal {
   @apply w-[440px] rounded-xl border p-4;
-  border-color: rgba(255, 255, 255, 0.1);
-  background: rgba(18, 25, 36, 0.98);
-  box-shadow: none;
+  border-color: var(--surface-border-strong);
+  background: rgb(15 17 23 / 0.97);
+  box-shadow: 0 28px 70px -24px rgba(0, 0, 0, 0.8);
 }
 
 .overlay-icon-btn {
@@ -715,12 +729,12 @@
   box-sizing: border-box;
   width: max-content;
   max-width: min(220px, calc(100vw - 16px));
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--surface-border-strong);
   border-radius: 0.5rem;
   padding: 0.375rem 0.625rem;
-  background: var(--surface-elevated);
+  background: rgb(15 17 23 / 0.97);
   color: var(--text);
-  box-shadow: none;
+  box-shadow: 0 12px 32px -16px rgba(0, 0, 0, 0.7);
   font-size: 11px;
   font-weight: 500;
   line-height: 1.35;

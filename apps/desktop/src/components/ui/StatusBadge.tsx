@@ -25,7 +25,7 @@ export default function StatusBadge({
   className = '',
 }: StatusBadgeProps) {
   return (
-    <span className={`inline-flex items-center gap-2 text-xs text-ink-muted ${className}`}>
+    <span role="status" className={`inline-flex items-center gap-2 text-xs text-ink-muted ${className}`}>
       <span
         className={`h-1.5 w-1.5 shrink-0 rounded-full ${TONE_DOT[tone]} ${
           pulse ? 'animate-pulse' : ''
@@ -70,7 +70,7 @@ export function LiveStatusBadge({ status }: { status: LiveSessionStatus }) {
   const { t } = useI18n();
   const pulse = status === 'listening' || status === 'processing';
   return (
-    <span className={`cockpit-status-pill ${LIVE_PILL_TINT[status]}`}>
+    <span role="status" className={`cockpit-status-pill ${LIVE_PILL_TINT[status]}`}>
       <span className="relative flex h-2 w-2 shrink-0 items-center justify-center">
         {pulse && (
           <span

@@ -30,7 +30,9 @@ describe('desktop polish contracts', () => {
   it('uses neutral indigo focus for ordinary form controls', () => {
     expect(indexCss).toContain('.field:focus-visible,');
     expect(indexCss).toContain('.select-compact:focus-visible');
-    expect(indexCss).toContain('border-color: rgba(99, 102, 241, 0.62)');
+    // Фокус завязан на бренд-токены: смена палитры не ломает контракт.
+    expect(indexCss).toContain('border-color: var(--accent-border)');
+    expect(indexCss).toContain('box-shadow: 0 0 0 3px var(--sc-brand-ring)');
     expect(indexCss).not.toContain('focus:border-accent focus:ring-2 focus:ring-accent-ring');
     expect(prepareCss).not.toContain('border-color: rgba(52, 199, 123, 0.55)');
     expect(cockpitCss).not.toContain('focus-within:border-accent/50');
@@ -58,33 +60,26 @@ describe('desktop polish contracts', () => {
     expect(indexCss).toContain('cubic-bezier(0.2, 0.8, 0.2, 1)');
   });
 
-  it('keeps the overlay input stable and neutral while it is focused', () => {
+  it('keeps the overlay input stable and gives it a visible brand focus ring', () => {
     expect(overlayCss).not.toContain('.ovl-input-wrap:focus-within');
     expect(overlayCss).not.toContain('.ovl-input:focus {');
     expect(overlayCss).not.toContain('transition: height');
     expect(overlayCss).toContain('.ovl-input:focus-visible');
-    expect(overlayCss).toContain('outline: none');
+    expect(overlayCss).toContain('outline: 2px solid var(--sc-brand, #34c77b)');
   });
 
-  it('uses the calm three-zone radar layout in both desktop themes', () => {
-    expect(prepareCss).toContain('.home-radar-grid');
+  it('uses a calm HH command center without the decorative journey rail', () => {
+    expect(prepareCss).toContain('.home-command-center');
     expect(prepareCss).toContain(
-      'grid-template-columns: minmax(0, 1.24fr) minmax(320px, 0.76fr)',
+      'grid-template-columns: minmax(0, 1.55fr) minmax(290px, 0.75fr)',
     );
-    expect(prepareCss).toContain('.home-radar-primary');
-    expect(home).toContain('home-radar-applications');
-    expect(home).toContain('home-radar-attention');
-    expect(prepareCss).toContain(":root[data-theme='light'] .home-radar-primary");
-    expect(prepareCss).toContain(":root[data-theme='light'] .home-radar-panel");
-    expect(home).toContain('home-radar-score');
-    expect(home).toContain('home-radar-flow');
-    expect(home).toContain('applicationFlow.reached[index]');
-    expect(prepareCss).toContain('.home-radar-flow__step:not(:last-child)::after');
-    expect(prepareCss).toContain('inset-inline-start: calc(50% + 28px)');
-    expect(prepareCss).toContain('inset-inline-end: calc(-50% + 28px)');
-    expect(prepareCss).not.toContain('.home-radar-flow__rail');
-    expect(prepareCss).not.toContain('.home-radar-primary::after');
-    expect(prepareCss).toContain('@container home-primary (max-width: 720px)');
+    expect(home).toContain('home-command-hero');
+    expect(home).toContain('home-command-attention');
+    expect(prepareCss).toContain(":root[data-theme='light'] .home-command-hero");
+    expect(home).not.toContain('<CandidateJourneyStrip');
+    expect(home).not.toContain('home-radar-flow');
+    expect(home).not.toContain('applicationFlow.reached[index]');
+    expect(home).toContain('home-command-stats');
     expect(prepareCss).toContain('grid-template-columns: repeat(3, minmax(0, 1fr))');
     expect(home).toContain('Ваш следующий шаг');
     expect(home).not.toContain('Следующий шаг без догадок');
@@ -101,13 +96,13 @@ describe('desktop polish contracts', () => {
     expect(home).toContain('Подключить HH');
     expect(home).toContain('Запустить оверлей');
     expect(home).not.toContain('Проверить оверлей');
-    expect(home).toContain('candidateJourney.action.label');
-    expect(home).toContain('<CandidateJourneyStrip');
+    expect(home).toContain('hhCommand.actionLabel');
+    expect(home).toContain('getHomeHhCommand');
     expect(home).toContain('отправлено сегодня');
     expect(home).toContain('Ближайших собеседований нет');
     expect(home).toContain('Нужно от вас');
     expect(home).toContain('visibleAttentionItems.length > 0');
-    expect(home).toContain('home-radar-automatic-status');
+    expect(home).toContain('home-command-clear');
     expect(home).toContain('formatHomeInterviewBadge');
   });
 

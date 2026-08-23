@@ -36,6 +36,21 @@ module.exports = {
     ...base.nsis,
     artifactName: 'SkillCue-Dev-Setup.${ext}',
   },
+  // Developer-only verification assets (STT benchmark cases, voice regression
+  // audio) are packaged into the private Dev installer only — never into the
+  // stable product (see tools/verify_dev_overlay.py and the Test Lab surface).
+  extraResources: [
+    ...(base.extraResources ?? []),
+    {
+      from: '../../tests/stt-benchmark/cases.json',
+      to: 'tests/stt-benchmark/cases.json',
+    },
+    {
+      from: '../../tests/voice/audio',
+      to: 'tests/voice/audio',
+      filter: ['*.wav'],
+    },
+  ],
   // A developer installer is private and never participates in public updates.
   publish: null,
   protocols: [
