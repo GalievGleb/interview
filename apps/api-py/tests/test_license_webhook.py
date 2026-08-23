@@ -86,3 +86,48 @@ def test_refunded_order_ignored(env):
     res = env.post("/webhook/lemonsqueezy", content=raw, headers=headers)
     assert res.status_code == 200
     assert "ignored" in res.json()
+
+
+# --- план из заказа: сайт продаёт «Базовый» и «Максимум» ---------------------
+def _attrs(product="", variant="", custom=None) -> dict:
+    attrs: dict = {}
+    if product or variant:
+        attrs["first_order_item"] = {"product_name": product, "variant_name": variant}
+    if custom:
+        attrs["custom_data"] = custom
+    return attrs
+
+
+def test_custom_data_plan_wins():
+    assert wh.plan_from_order(_attrs("SkillCue Максимум", custom={"plan": "basic"})) == "basic"
+    assert wh.plan_from_order(_attrs("SkillCue Базовый", custom={"plan": "max"})) == "max"
+
+
+def test_max_keywords_ru_and_en():
+    assert wh.plan_from_order(_attrs("SkillCue Максимум", "Месяц")) == "max"
+    assert wh.plan_from_order(_attrs("SkillCue Maximum", "Monthly")) == "max"
+
+
+def test_basic_keywords_ru_and_en():
+    assert wh.plan_from_order(_attrs("SkillCue Базовый", "Месяц")) == "basic"
+    assert wh.plan_from_order(_attrs("SkillCue Basic", "Monthly")) == "basic"
+
+
+def test_unknown_product_defaults_to_basic():
+    # Недовыдача тарифа чинится вручную; перевыдача «Максимума» — потеря денег.
+    assert wh.plan_from_order(_attrs("Совершенно другое имя")) == "basic"
+    assert wh.plan_from_order({}) == "basic"
+
+
+def test_order_mints_plan_from_product_name(env, caplog):
+    body = _order()
+    body["data"]["attributes"].update(
+        {"first_order_item": {"product_name": "SkillCue Базовый", "variant_name": "Месяц"}}
+    )
+    raw, headers = _signed(body)
+    with caplog.at_level("INFO", logger="license_webhook"):
+        res = env.post("/webhook/lemonsqueezy", content=raw, headers=headers)
+    assert res.status_code == 200 and res.json()["plan"] == "basic"
+    key = next(m for m in caplog.messages if "SKILLCUE-" in m).split(": ", 1)[1].strip()
+    info = lic.verify_license_key(key)
+    assert info and lic.normalize_plan(info.get("plan")) == "basic"

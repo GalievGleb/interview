@@ -38,16 +38,58 @@ KEY_PREFIX = "SKILLCUE-"
 # Подписочные планы можно мицевать с истечением: LICENSE_DAYS=365. Пусто — бессрочно.
 LICENSE_DAYS = int(os.environ.get("LICENSE_DAYS", "0")) or None
 
+# Тарифы, которые проверяет app/services/license.py ("pro"/"max" → max).
+_KNOWN_PLANS = ("basic", "max")
+
+
+def plan_from_order(attrs: dict) -> str:
+    """Определить купленный тариф из заказа LemonSqueezy.
+
+    Источник истины — название продукта/варианта в заказе (как заведено в
+    LS-дашборде: «SkillCue Базовый», «SkillCue Максимум» и т.п.) либо
+    custom_data.plan, если страница оплаты его передаёт. Неизвестное имя
+    трактуем как basic: недовыдача тарифа чинится вручную за минуту,
+    перевыдача лишнего — прямая потеря денег и дыра в тарифной сетке.
+    """
+    custom = attrs.get("custom_data") or attrs.get("custom") or {}
+    custom_plan = str((custom or {}).get("plan") or "").strip().lower()
+    if custom_plan in _KNOWN_PLANS:
+        return custom_plan
+
+    item = attrs.get("first_order_item") or {}
+    parts = [
+        str(item.get("product_name") or ""),
+        str(item.get("variant_name") or ""),
+        str(attrs.get("product_name") or ""),
+        str(attrs.get("variant_name") or ""),
+    ]
+    haystack = " ".join(parts).lower()
+    if any(word in haystack for word in ("max", "максимум")):
+        return "max"
+    if any(word in haystack for word in ("basic", "базовый")):
+        return "basic"
+    logger.warning(
+        "unknown product/variant in order (%r) — minting basic; "
+        "fix manually or pass custom_data.plan",
+        parts,
+    )
+    return "basic"
+
 
 def _b64url(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).decode().rstrip("=")
 
 
-def mint_key(email: str, days: int | None = None, priv_hex: str | None = None) -> str:
+def mint_key(
+    email: str,
+    days: int | None = None,
+    priv_hex: str | None = None,
+    plan: str = "basic",
+) -> str:
     """Тот же формат ключа, что проверяет app/services/license.py."""
     priv_hex = priv_hex or os.environ["LICENSE_SIGNING_KEY"]
     priv = Ed25519PrivateKey.from_private_bytes(bytes.fromhex(priv_hex.strip()))
-    payload: dict = {"email": email, "issued_at": int(time.time()), "plan": "pro"}
+    payload: dict = {"email": email, "issued_at": int(time.time()), "plan": plan}
     if days:
         payload["expires_at"] = int(time.time()) + days * 86400
     body = json.dumps(payload, separators=(",", ":")).encode()
@@ -118,8 +160,9 @@ async def lemonsqueezy_webhook(
     if status not in ("paid", ""):
         return {"ignored": f"order status {status}"}
 
-    key = mint_key(email, days=LICENSE_DAYS)
+    plan = plan_from_order(attrs)
+    key = mint_key(email, days=LICENSE_DAYS, plan=plan)
     emailed = send_key_email(email, key)
     # Ключ всегда в логе — если SMTP упал/не настроен, его можно отправить вручную.
-    logger.info("license minted for %s (emailed=%s): %s", email, emailed, key)
-    return {"minted": True, "emailed": emailed, "email": email}
+    logger.info("license minted for %s (plan=%s, emailed=%s): %s", email, plan, emailed, key)
+    return {"minted": True, "emailed": emailed, "email": email, "plan": plan}
