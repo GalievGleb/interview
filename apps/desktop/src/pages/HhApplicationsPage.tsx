@@ -3,6 +3,8 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AlertTriangle, ArrowRight, CalendarDays, Check, ChevronDown, Clock3, ExternalLink, FileText, Link2, Loader2, Mail, MessageCircle, RefreshCw, Search, Send, Settings2, Square, Trash2 } from 'lucide-react';
 import AvailabilityEditor, { formatAvailabilitySummary } from '../components/interview/AvailabilityEditor';
 import Modal from '../components/Modal';
+import { hhAutomationAllowed } from '../lib/billing';
+import { useApp } from '../context/AppContext';
 import { countUnansweredHhScreeningQuestions, readHhScreeningDrafts, summarizePendingHhScreening } from '../lib/hhScreening';
 import { compactHhResumeTitle } from '../lib/hhResumeTitle';
 import { pluralRu } from '../lib/pluralRu';
@@ -95,6 +97,9 @@ export default function HhApplicationsPage() {
   const chat = window.electronAPI?.hhChat;
   const calendar = window.electronAPI?.interviewCalendar;
   const navigate = useNavigate();
+  // Автоотклики HH — фича тарифа «Максимум» (условия на skill-cue.ru).
+  const { license } = useApp();
+  const hhAllowed = hhAutomationAllowed(license);
   const [searchParams, setSearchParams] = useSearchParams();
   const [state, setState] = useState<HhAssistantState | null>(null);
   const [draft, setDraft] = useState(EMPTY_CONFIG);
@@ -272,8 +277,39 @@ export default function HhApplicationsPage() {
       setBusy('');
     }
   };
+  // Владельцы trial/«Базового»: ежедневный автозапуск отключаем на месте
+  // (фича «Максимума» по условиям на skill-cue.ru), иначе он продолжал бы
+  // срабатывать по расписанию из прошлой сессии.
+  useEffect(() => {
+    if (hhAllowed || !assistant) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const current = await assistant.getState();
+        if (cancelled || !current.config.autoRunDaily) return;
+        const next = await assistant.saveConfig({ ...current.config, autoRunDaily: false });
+        if (cancelled) return;
+        setState(next);
+        setDraft(next.config);
+        setAutomationError(
+          'Ежедневный автозапуск откликов отключён: он входит в тариф «Максимум».',
+        );
+      } catch {
+        /* фон-гейт не должен ломать загрузку страницы */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [hhAllowed, assistant]);
   const saveAutomation = async () => {
     if (!assistant) return;
+    if (!hhAllowed) {
+      setAutomationError(
+        'Автоотклики HH входят в тариф «Максимум». Оформите его в Настройках → Тариф.',
+      );
+      return;
+    }
     await run('save', async () => {
       const next = await assistant.saveConfig(config());
       setDraft(next.config);

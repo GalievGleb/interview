@@ -1126,6 +1126,7 @@ export const ru = {
   'billing.feat.appExceptOverlay': 'Все разделы SkillCue, кроме оверлея',
   'billing.feat.live': 'Оверлей во время собеседования',
   'billing.feat.stealth': 'Скрытый режим при демонстрации экрана',
+  'billing.feat.hhAuto': 'Автоотклики и автоответы HH',
   'billing.feat.screen': 'Анализ экрана и скрытность',
   'billing.feat.allBasic': 'Всё из «Базового»',
   'billing.feat.liveDuring': 'Live-подсказки во время собеседования',

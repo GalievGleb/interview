@@ -34,6 +34,7 @@ export const PLANS: PlanInfo[] = [
       { textKey: 'billing.feat.fullCycle', included: true },
       { textKey: 'billing.feat.vacancyPractice', included: true },
       { textKey: 'billing.feat.appExceptOverlay', included: true },
+      { textKey: 'billing.feat.hhAuto', included: false },
       { textKey: 'billing.feat.live', included: false },
       { textKey: 'billing.feat.stealth', included: false },
     ],
@@ -49,10 +50,23 @@ export const PLANS: PlanInfo[] = [
       { textKey: 'billing.feat.overlay', included: true },
       { textKey: 'billing.feat.liveDuring', included: true },
       { textKey: 'billing.feat.screenshot', included: true },
+      // Как на skill-cue.ru: автоотклики HH — фича тарифа «Максимум».
+      { textKey: 'billing.feat.hhAuto', included: true },
       { textKey: 'billing.feat.stealth', included: true },
     ],
   },
 ];
+
+/**
+ * Автоотклики HH продаются только в тарифе «Максимум» (как заявлено на
+ * skill-cue.ru). Trial и «Базовый» — нет. Проверка клиентская; серверная
+ * часть контракта — план внутри подписанного лицензионного ключа.
+ */
+export function hhAutomationAllowed(
+  license: { status?: string | null; plan?: string | null } | null | undefined,
+): boolean {
+  return Boolean(license && license.status === 'active' && license.plan === 'max');
+}
 
 // Страница оплаты на лендинге (ведёт на ЮKassa). Переопределяется на сборке
 // через VITE_PAY_BASE, если домен другой.

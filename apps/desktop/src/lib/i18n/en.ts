@@ -1121,6 +1121,7 @@ export const en: Record<I18nKey, string> = {
   'billing.feat.appExceptOverlay': 'Every SkillCue section except the overlay',
   'billing.feat.live': 'Interview overlay',
   'billing.feat.stealth': 'Stealth mode during screen sharing',
+  'billing.feat.hhAuto': 'HH auto-applications and auto-replies',
   'billing.feat.screen': 'Screen analysis and stealth',
   'billing.feat.allBasic': 'Everything in Basic',
   'billing.feat.liveDuring': 'Live hints during the interview',
