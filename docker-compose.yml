@@ -1,3 +1,7 @@
+# Dev-only helper for the dormant NestJS SaaS layer (apps/api, см. ADR 0001).
+# Продуктовый десктоп его НЕ использует (apps/api-py работает без Docker).
+# Сервисы слушают только localhost, чтобы не экспонировать Postgres/Redis
+# с дефолтными кредами в сеть.
 services:
   postgres:
     image: postgres:16-alpine
@@ -7,7 +11,7 @@ services:
       POSTGRES_PASSWORD: interview
       POSTGRES_DB: interview
     ports:
-      - '5432:5432'
+      - '127.0.0.1:5432:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
@@ -15,7 +19,7 @@ services:
     image: redis:7-alpine
     restart: unless-stopped
     ports:
-      - '6379:6379'
+      - '127.0.0.1:6379:6379'
     volumes:
       - redis_data:/data
 

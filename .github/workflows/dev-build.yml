@@ -51,6 +51,29 @@ jobs:
           pnpm build:dev
           pnpm exec electron-builder --config electron-builder.dev.cjs --win nsis --publish never
           test -f release-dev/SkillCue-Dev-Setup.exe
+
+      # Обязательный Dev smoke gate (см. CLAUDE.md): ставим собранный инсталлятор
+      # на раннер и проверяем установленный бэкенд тем же E2E, что и локально.
+      # Семантическая проверка ответа требует реального OpenAI-ключа: без секрета
+      # шаг помечается warning, артефакт считается НЕВЕРИФИЦИРОВАННЫМ.
+      - name: Installed overlay verification (verify:dev:overlay)
+        env:
+          SKILLCUE_OPENAI_API_KEY: ${{ secrets.SKILLCUE_OPENAI_API_KEY }}
+        run: |
+          if [ -z "$SKILLCUE_OPENAI_API_KEY" ]; then
+            echo "::warning::SKILLCUE_OPENAI_API_KEY secret not set — installed-overlay gate SKIPPED, artifact is UNVERIFIED. Run 'pnpm --filter @interview/desktop release:dev:verified' locally before real use."
+            exit 0
+          fi
+          # '//S' — silent-флаг NSIS; в Git Bash двойной слэш доезжает как '/S'.
+          ./apps/desktop/release-dev/SkillCue-Dev-Setup.exe //S
+          backend="$LOCALAPPDATA/Programs/skillcue-dev/resources/backend/skillcue-backend.exe"
+          for _ in $(seq 1 60); do
+            [ -f "$backend" ] && break
+            sleep 2
+          done
+          test -f "$backend" || { echo "Dev backend was not installed at $backend"; exit 1; }
+          OPENAI_API_KEY="$SKILLCUE_OPENAI_API_KEY" python tools/verify_dev_overlay.py
+
       - name: Upload private developer installer
         uses: actions/upload-artifact@v4
         with:

@@ -31,7 +31,7 @@ source .venv/bin/activate
 # .venv\Scripts\activate
 
 pip install -r requirements.txt
-# Для распознавания речи используется настроенный облачный STT SkillCue/OpenAI.
+# Для распознавания речи используется облачный OpenAI STT — нужен настроенный ключ OpenAI/SkillCue (задаётся в UI или .env).
 cp .env.example .env   # ключи можно также задать в UI приложения
 
 uvicorn app.main:app --reload --port 8000 --reload-exclude "data" --reload-exclude "*.sqlite"
@@ -63,6 +63,20 @@ pnpm --filter @interview/desktop dev
 pnpm dist:desktop
 # apps/desktop/release/
 ```
+
+## Обязательная проверка Dev-сборки перед собеседованием
+
+После любой сборки/установки Dev-версии прогони smoke-gate установленного приложения:
+
+```bash
+pnpm dist:desktop:dev                 # сборка Dev-инсталлятора (+ PyInstaller бэкенда)
+# установить apps/desktop/release-dev/SkillCue-Dev-Setup.exe, затем:
+pnpm --filter @interview/desktop verify:dev:overlay
+# или одной командой (сборка → установка → проверка):
+pnpm --filter @interview/desktop release:dev:verified
+```
+
+Гейт стартует бэкенд из установленного приложения без Electron, отправляет точный SSE-запрос оверлея и валидирует ответ. Без пройденного гейта Dev-сборка считается неверифицированной.
 
 ## Горячие клавиши
 

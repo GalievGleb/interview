@@ -62,7 +62,38 @@ jobs:
         run: pnpm --filter @interview/desktop exec tsc --noEmit -p tsconfig.json
       - name: Typecheck electron main
         run: pnpm --filter @interview/desktop exec tsc -p tsconfig.electron.json
+      - name: Lint desktop
+        run: pnpm --filter @interview/desktop lint
       - name: Build desktop (vite)
         run: pnpm --filter @interview/desktop exec vite build
       - name: Desktop unit tests
         run: pnpm --filter @interview/desktop test
+
+  # Отчёт по известным уязвимостям зависимостей. Пока НЕ блокирующий:
+  # в дереве есть исторические advisory (Electron 33, vitest 2 и др.) —
+  # перевести continue-on-error в false после их устранения (см. AUDIT_REPORT.md).
+  dependency-audit:
+    name: Dependency audit (report)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - name: Install deps
+        run: pnpm install --frozen-lockfile
+      - name: pnpm audit (report)
+        run: pnpm audit --prod || true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: pip-audit (report)
+        working-directory: apps/api-py
+        run: |
+          pip install pip-audit
+          pip-audit -r requirements.txt || true

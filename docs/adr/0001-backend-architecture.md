@@ -1,14 +1,21 @@
 # ADR 0001 — Backend architecture & monetization path
 
-Status: **Proposed** (needs a product decision)
+Status: **Accepted** — Option A (local-first, BYO-key, offline-лицензии)
 Date: 2026-06-25
+
+> **Update (после аудита):** Option A уже реализован в продукте: монетизация —
+> оффлайн Ed25519-лицензии, активируемые deep-link `skillcue://activate?key=…`
+> (`apps/desktop` LicenseCard / main.ts) и выпускаемые webhook'ом LemonSqueezy
+> (`tools/license_webhook.py`). Путь к серверному биллингу описан в SECURITY.md
+> («Красная линия»: proxy.skillcue.app) — `apps/api` сохраняется как заготовка
+> под него и до подключения считается legacy.
 
 ## Context
 
 The repo currently ships **two backends**:
 
 - **`apps/api-py`** (FastAPI, SQLite, local) — the one the desktop app actually
-  talks to. Handles STT (on-device Whisper), LLM answer generation, sessions,
+  talks to. Handles STT (cloud OpenAI transcription), LLM answer generation, sessions,
   documents/RAG, settings. **No authentication** (it binds to `127.0.0.1` and is
   a single-user local process). Uses the user's own OpenAI/OpenRouter keys.
 
