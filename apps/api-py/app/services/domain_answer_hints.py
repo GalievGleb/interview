@@ -8,6 +8,10 @@ _POM_RE = re.compile(
     r"page\s*object|\bpom\b|page\s*object\s*model",
     re.IGNORECASE | re.UNICODE,
 )
+_LAST_ORDER_RE = re.compile(
+    r"last[_\s-]?order|последн\w*\s+заказ",
+    re.IGNORECASE | re.UNICODE,
+)
 _API_RE = re.compile(
     r"\bapi\b|rest\s*api|http[\s-]*api|endpoint|swagger|graphql",
     re.IGNORECASE | re.UNICODE,
@@ -16,6 +20,7 @@ _PYTEST_FIXTURES_RE = re.compile(
     r"fixtures?|фикстур|conftest|\bpytest\b",
     re.IGNORECASE | re.UNICODE,
 )
+_GIT_REBASE_RE = re.compile(r"\bgit\b.{0,40}\brebase\b|\brebase\b", re.IGNORECASE | re.UNICODE)
 _FLAKY_RE = re.compile(
     r"flaky|нестабильн|флейки|"
     r"(?:ci\s*/?\s*cd|cicd|pipeline|пайплайн).{0,50}(?:тест|test|автотест)|"
@@ -63,7 +68,8 @@ Name typical mistakes when relevant: god object; business logic inside page obje
 duplicated locators; sleep instead of explicit/auto waits; unclear method names like clickButton1().
 Sound like interview speech, not a checklist."""
 
-_API_HINT = """TOPIC HINT — API testing (concise say-aloud, max 4 bullets, ~50–80 words):
+_API_HINT = """TOPIC HINT — API testing:
+For a broad theory question stay concise. For a concrete endpoint task use 6–9 compact bullets and up to 180 words so every requested scenario and assertion is present:
 Weave naturally, do NOT dump as a keyword list. Mention when relevant:
 - status code;
 - response body;
@@ -73,7 +79,8 @@ Weave naturally, do NOT dump as a keyword list. Mention when relevant:
 - negative cases;
 - field/business validation;
 - response time / latency.
-Say «не только status code» if contrasting — that is a GOOD answer. Do NOT answer with «проверяю только статус-код»."""
+Say «не только status code» if contrasting — that is a GOOD answer. Do NOT answer with «проверяю только статус-код».
+If a concrete endpoint/schema is supplied, solve THAT contract rather than giving a generic checklist. REQUIRED for a last-order endpoint — explicitly name all of these in the answer: 200 + response schema/field types + order_price total calculation; existing client without orders (typically 200 + [] if the contract says so); missing client 404; invalid id 400/422; no authentication 401 versus insufficient permission 403; verify the returned order is truly latest by business date. Keep exact field names. Say statuses are typical and must be confirmed by Swagger when the contract does not prescribe them."""
 
 _TEST_CASE_HINT = """TOPIC HINT — test case / тест-кейс (~3–6 sentences, list OK):
 Answer about test case in general — NOT the previous interview topic.
@@ -90,6 +97,13 @@ _BUG_REPORT_HINT = """TOPIC HINT — bug report / баг-репорт (~3–6 se
 Mention: title/summary; steps to reproduce; actual vs expected result; severity; priority;
 environment; attachments (screenshots, logs, video).
 Do NOT say you do not know the term — this IS a standard QA artifact."""
+
+_GIT_REBASE_HINT = """TOPIC HINT — git rebase (concise but complete):
+rebase replays current-branch commits on top of the target base; replayed commits get new hashes because history is rewritten. Conflict flow: edit → git add → git rebase --continue; cancel with git rebase --abort. Warn not to rebase a shared published branch other people already use. Do not route Git hashes to Python knowledge."""
+
+_PYTEST_EXACT_ORDER_HINT = """VERIFIED EXACT FIXTURE ORDER for the named example — answer with the complete sequence, do not stop at generic rules:
+session_fixture → module_fixture → autouse_fixture → fixture_3 → fixture_4 setup (up to yield) → fixture_1 → fixture_2 → test_order → fixture_4 teardown (after yield).
+Mention that dependencies force fixture_3/fixture_4 before fixture_1 and same-scope order must otherwise follow the dependency graph."""
 
 _PYTEST_HINT = """TOPIC HINT — pytest / fixtures (concise say-aloud, max 4 bullets, ~50–80 words):
 - fixtures = setup/teardown, test data prep, shared code reuse;
@@ -146,6 +160,8 @@ def resolve_domain_answer_hints(question: str) -> str:
         blocks.append(_POM_HINT)
     if _API_RE.search(q):
         blocks.append(_API_HINT)
+    if _GIT_REBASE_RE.search(q):
+        blocks.append(_GIT_REBASE_HINT)
     if _TEST_CASE_RE.search(q):
         blocks.append(_TEST_CASE_HINT)
     if _CHECKLIST_RE.search(q):
@@ -154,6 +170,8 @@ def resolve_domain_answer_hints(question: str) -> str:
         blocks.append(_BUG_REPORT_HINT)
     if _PYTEST_FIXTURES_RE.search(q):
         blocks.append(_PYTEST_HINT)
+        if "fixture_1" in q.lower() and "session_fixture" in q.lower():
+            blocks.append(_PYTEST_EXACT_ORDER_HINT)
     if _FLAKY_RE.search(q):
         blocks.append(_FLAKY_HINT)
     if _AUTOMATION_TYPES_RE.search(q):
@@ -172,3 +190,13 @@ def resolve_domain_answer_hints(question: str) -> str:
     if not blocks:
         return _NONE_HINT
     return "\n\n".join(blocks)
+
+
+def resolve_required_output_contract(question: str) -> str:
+    """Return a short final recency constraint for exact high-density tasks."""
+    if not _LAST_ORDER_RE.search(question or ""):
+        return ""
+    return """
+FINAL REQUIRED OUTPUT CONTRACT — last_order (non-negotiable):
+The answer is incomplete unless it literally includes: 200; `schema/types: client_id, order_id and item_qty are integer, order is array, item_price/order_price are number`; order_price sum; 200 + empty order for an existing client with no orders (if Swagger specifies it); 404 for a missing client; 400/422 validation; 401 unauthenticated and 403 forbidden; and verification that the order is the latest by business date. Put schema/types in the positive bullet. Use enough bullets to include ALL of them; do not replace these checks with a generic summary.
+""".strip()

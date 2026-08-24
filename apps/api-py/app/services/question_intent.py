@@ -10,6 +10,7 @@ QuestionIntent = Literal[
     "technical_definition",
     "technical_list",
     "technical_comparison",
+    "technical_task",
     "practical_usage",
     "behavioral",
     "unclear",
@@ -30,9 +31,11 @@ class AnswerStrategy(TypedDict):
 # Каждый интент матчится по русским И английским формулировкам — движок ответов
 # один, а собеседования бывают на обоих языках.
 _BEHAVIORAL_RE = re.compile(
-    r"(?:почему\s+(?:уш\w*|уход|хот\w*\s+(?:работать|сменить|уйти))|конфликт|"
+    r"(?:почему\s+(?:уш\w*|уход|хот\w*\s+(?:работать|сменить|уйти))|"
+    r"конфликт(?:\w*\s+ситуац|\w*\s+(?:в|с)\s+(?:команд|коллег|руковод|работ))|"
     r"сильн\w+\s+сторон|слаб\w+\s+сторон|мотивац|куда\s+видишь\s+себя|"
-    r"why\s+(?:did\s+you\s+leave|do\s+you\s+want)|conflict|"
+    r"why\s+(?:did\s+you\s+leave|do\s+you\s+want)|"
+    r"conflict\s+(?:with|in\s+(?:a|the)\s+team|at\s+work)|"
     r"strengths?\s+and\s+weakness|greatest\s+(?:strength|weakness)|"
     r"where\s+do\s+you\s+see\s+yourself|motivat)",
     re.IGNORECASE | re.UNICODE,
@@ -58,20 +61,33 @@ _PRACTICAL_RE = re.compile(
     r"on\s+your\s+project)",
     re.IGNORECASE | re.UNICODE,
 )
+_TASK_RE = re.compile(
+    r"(?:как\s+(?:протестировать|проверить)\s+(?:api|endpoint|эндпоинт|метод\s+api|"
+    r"(?:get|post|put|patch|delete)\s+/)|напиши(?:те)?|реализуй(?:те)?|реализовать|исправь(?:те)?\s+(?:код|функц)|"
+    r"дополни(?:те)?\s+(?:код|функц)|что\s+(?:верн[её]т|выведет|произойд[её]т)|"
+    r"какой\s+(?:будет\s+)?результат|дан(?:ы|о)?\s+(?:код|выражени\w*|словар\w*)|"
+    r"как\s+определить\s+порядок\s+выполнения|write\s+(?:code|a\s+function|tests?)|"
+    r"implement\s+(?:a\s+)?(?:function|class|test)|fix\s+(?:the\s+)?code|"
+    r"what\s+(?:does|will)\s+.+\s+(?:return|print|output))",
+    re.IGNORECASE | re.UNICODE,
+)
 _COMPARISON_RE = re.compile(
     r"(?:чем\s+.+\s+отлича|разниц\w*|в\s+ч(?:е|ё)м\s+разниц|\bvs\.?\b|против\s+|"
     r"difference\s+between|how\s+(?:is|does)\s+.+\s+differ|compare\s+|versus\s+)",
     re.IGNORECASE | re.UNICODE,
 )
 _LIST_RE = re.compile(
-    r"(?:какие\s+(?:бывают\s+)?|перечисли|назови|какие\s+\w+\s+ты\s+знаешь|"
+    r"(?:как\s+(?:протестировать|проверить)\s+(?:api|endpoint|эндпоинт|метод\s+api)|"
+    r"какие\s+(?:бывают\s+)?|перечисли|назови|какие\s+\w+\s+ты\s+знаешь|"
     r"какие\s+тип\w+|какие\s+вид\w+|какие\s+ошибк\w+|основные\s+\w+\s+(?:групп|тип|вид)|список\s+|"
+    r"how\s+(?:would\s+you\s+)?test\s+(?:an?\s+)?(?:api|endpoint)|"
     r"what\s+(?:kinds?|types?)\s+of|list\s+(?:the|all|some)|name\s+(?:the|all|some)|"
     r"which\s+\w+\s+do\s+you\s+know|what\s+are\s+the\s+(?:main|different|common))",
     re.IGNORECASE | re.UNICODE,
 )
 _DEFINITION_RE = re.compile(
-    r"(?:что\s+такое|что\s+значит|что\s+это\s+за|объясни(?:те)?|расскаж\w*\s+что\s+такое|определени\w*|"
+    r"(?:как\s+работает|что\s+такое|что\s+значит|что\s+это\s+за|объясни(?:те)?|"
+    r"расскаж\w*\s+что\s+такое|определени\w*|how\s+does\s+.+\s+work|"
     r"what\s+is\s+(?:a|an|the)?\s*\w|what\s+does\s+\w+\s+mean|explain\s+|define\s+|"
     r"can\s+you\s+describe\s+what)",
     re.IGNORECASE | re.UNICODE,
@@ -141,6 +157,23 @@ _STRATEGIES: dict[QuestionIntent, AnswerStrategy] = {
         "resume_context_reason": "Comparison question — experience only if usage is implied.",
         "suggest_unclear_prefix": False,
     },
+    "technical_task": {
+        "question_intent": "technical_task",
+        "answer_strategy": (
+            "Solve the exact task shown. If code is requested, output complete copyable code first, "
+            "then 1–2 short explanation sentences. If output/error is requested, state the exact "
+            "result or exception first and explain why. If asked to design API/tests, give a "
+            "complete concrete test matrix with every scenario, expected status, schema and "
+            "business assertion named in the question/hints; never stop at a generic checklist. "
+            "Preserve punctuation, types and execution order. Do not use resume experience."
+        ),
+        "resume_context_used": False,
+        "resume_context_level": "none",
+        "resume_context_reason": (
+            "Concrete code/output task — solve the supplied artifact, no resume context."
+        ),
+        "suggest_unclear_prefix": False,
+    },
     "behavioral": {
         "question_intent": "behavioral",
         "answer_strategy": (
@@ -207,7 +240,9 @@ def classify_interview_question_intent(
         return _STRATEGIES["unclear"].copy()
 
     intent: QuestionIntent = "unclear"
-    if _BEHAVIORAL_RE.search(q_text):
+    if _TASK_RE.search(q_text):
+        intent = "technical_task"
+    elif _BEHAVIORAL_RE.search(q_text):
         intent = "behavioral"
     elif _EXPERIENCE_RE.search(q_text):
         intent = "experience"

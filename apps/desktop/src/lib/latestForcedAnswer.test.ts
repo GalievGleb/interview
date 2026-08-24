@@ -102,6 +102,22 @@ describe('LatestForcedAnswerCoordinator', () => {
     });
   });
 
+  it('routes a finalized visual-reference question to screen without starting text LLM', () => {
+    const coordinator = new LatestForcedAnswerCoordinator();
+    const decision = coordinator.press(
+      [{ sequence: 1, text: 'Что выведет этот код?', source: 'system' }],
+      'system',
+    );
+    expect(decision).toMatchObject({ action: 'submit', generation: 1 });
+    expect(coordinator.routeQuestionToScreen(1)).toBe(true);
+    expect(coordinator.snapshot()).toMatchObject({
+      generation: 1,
+      phase: 'screen-fallback',
+      requestId: null,
+    });
+    expect(coordinator.routeQuestionToScreen(0)).toBe(false);
+  });
+
   it('keeps accepting the real transcript after screen fallback has started', () => {
     const coordinator = new LatestForcedAnswerCoordinator(() => 'force-1');
     coordinator.press([], 'system');

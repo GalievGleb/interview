@@ -28,7 +28,10 @@ from app.prompts.meeting import (
 from app.prompts.system import SYSTEM_PROMPT
 from app.services import model_router, provider_adapter, rag_service
 from app.services.candidate_profile import get_profile_block
-from app.services.domain_answer_hints import resolve_domain_answer_hints
+from app.services.domain_answer_hints import (
+    resolve_domain_answer_hints,
+    resolve_required_output_contract,
+)
 from app.services.knowledge_pack import build_injection as build_python_pack_injection
 from app.services.knowledge_pack import detect_pack
 from app.services.preferences import load_preferences
@@ -368,6 +371,9 @@ async def _interview_event_stream(
                 prompt = f"{prompt}\n\n{kn_block}"
         prompt += _weak_topics_block(payload.weak_topics)
         prompt += _answer_language_block(payload.answer_language)
+        required_contract = resolve_required_output_contract(resolved_q)
+        if required_contract:
+            prompt += f"\n\n{required_contract}"
         correction_meta.update(knowledge_meta)
         answer_started_at = time.perf_counter()
         messages = [
@@ -393,9 +399,10 @@ async def _interview_event_stream(
     spoken = "".join(parts).strip()
     final_spoken = spoken
     if spoken:
-        parsed = _parse_fast_response(spoken)
-        # Live answers are Say-aloud: sanitize, then enforce the spoken word cap.
-        final_spoken = trim_spoken_answer(sanitize_live_answer(parsed.get("spoken") or spoken))
+        final_spoken = _finalize_live_spoken(
+            spoken,
+            str(correction_meta.get("question_intent") or "unclear"),
+        )
 
     if err_msg:
         # Never persist or publish a partial answer as successful. Keep provider
@@ -555,6 +562,9 @@ async def interview(payload: InterviewPayload, db: Session = Depends(get_db)) ->
             domain_hints=resolve_domain_answer_hints(resolved_q),
         )
         prompt += _weak_topics_block(payload.weak_topics)
+        required_contract = resolve_required_output_contract(resolved_q)
+        if required_contract:
+            prompt += f"\n\n{required_contract}"
         max_tokens = 450
         temperature = 0.3
         notes = ""
@@ -910,6 +920,12 @@ async def meeting_summary_stream(payload: MeetingPayload, db: Session = Depends(
 # Скриншот в base64: ~8 МБ достаточно для FullHD JPEG, больше — защита от абьюза.
 MAX_SCREEN_IMAGE_CHARS = 1_500_000
 
+_SCREEN_OUTPUT_TASK_RE = re.compile(
+    r"что\s+(?:выведет|верн[её]т|произойд[её]т)|какой\s+(?:будет\s+)?результат|"
+    r"what\s+(?:will|does)\s+.+\s+(?:print|output|return)",
+    re.IGNORECASE | re.UNICODE,
+)
+
 SCREEN_ASSIST_PROMPT = (
     "Ты — ассистент кандидата на техническом собеседовании. Тебе дают скриншот "
     "его экрана и, возможно, транскрипт разговора. На экране почти всегда "
@@ -919,17 +935,22 @@ SCREEN_ASSIST_PROMPT = (
     "(например, «Декоратор с args и kwargs»), считай это формулировкой задачи. Напиши полный рабочий "
     "пример на языке, выбранном в редакторе. Ответ должен быть готов копироваться вместо содержимого редактора. "
     "Не объясняй, как пользоваться сайтом или визуализатором.\n\n"
-    "ЖЁСТКОЕ ПРАВИЛО: если на экране просят написать, исправить или дополнить код, "
-    "ответ без исполняемого блока кода считается неправильным. Не ограничивайся планом, "
-    "псевдокодом или объяснением. Даже если формулировка короткая или частично обрезана, "
-    "сделай разумное допущение и выдай полный рабочий пример.\n\n"
-    "Формат ответа, если это код/задача:\n"
-    "1) СНАЧАЛА решение одним блоком кода — кандидат должен сразу увидеть, что печатать. "
-    "К КАЖДОЙ строке добавь короткий "
-    "комментарий на языке этого кода (# для Python, -- для SQL), что делает строка — "
-    "чтобы можно было читать, писать и диктовать построчно.\n"
-    "2) После кода — 1–3 короткие фразы простыми словами: логика решения и важное допущение.\n"
-    "3) Если на экране не код, а текстовый вопрос/задача — дай прямой готовый ответ "
+    "Сначала определи тип задания. Если спрашивают «что выведет/вернёт/произойдёт» или про ошибку, "
+    "НЕ переписывай и НЕ исправляй код: укажи точный stdout/результат либо класс исключения первой "
+    "строкой, затем кратко объясни порядок выполнения. Обязательно перечисли весь stdout, который "
+    "успел появиться ДО исключения; не заменяй его только названием ошибки. После первого "
+    "необработанного исключения следующие строки не исполняются. Сохраняй типы: строка '7' не равна числу 7. В Python str "
+    "неизменяем: s[0] = 'H' вызывает TypeError, а не меняет строку.\n\n"
+    "ЖЁСТКОЕ ПРАВИЛО ДЛЯ ЗАДАНИЙ «напиши/реализуй/исправь/дополни»: ответ без полного "
+    "исполняемого блока кода неправильный. Не ограничивайся планом или псевдокодом. Даже если "
+    "формулировка короткая, сделай разумное допущение и выдай рабочий пример с корректными "
+    "отступами.\n\n"
+    "Формат ответа:\n"
+    "1) Для написания/исправления — СНАЧАЛА решение одним блоком кода. К каждой существенной "
+    "строке добавь короткий комментарий на языке кода (# для Python, -- для SQL).\n"
+    "2) Для результата/ошибки — точный результат или исключение сначала, без нового решения.\n"
+    "3) После — 1–3 короткие фразы: логика и важное допущение.\n"
+    "4) Если на экране не код, а текстовый вопрос/задача — дай прямой готовый ответ "
     "от первого лица, без вступлений.\n\n"
     "НЕ начинай с «На экране…»/«Задание звучит так…» — сразу к делу. Отвечай на "
     "языке содержимого экрана (обычно русский), кратко и по делу."
@@ -961,6 +982,14 @@ async def screen_assist_stream(payload: ScreenAssistPayload, db: Session = Depen
     )
     if payload.context:
         user_text += f"\n\nТранскрипт разговора (для контекста):\n{_clip(payload.context, 2000)}"
+    if _SCREEN_OUTPUT_TASK_RE.search(user_text):
+        user_text += (
+            "\n\nФИНАЛЬНАЯ ПРОВЕРКА РЕЗУЛЬТАТА: анализируй именно видимый код, не "
+            "исправляй его. Сначала перечисли точный stdout до ошибки, затем назови первое "
+            "необработанное исключение; не пропускай уже выполненные print и не исполняй строки "
+            "после ошибки. Для Python помни: str неизменяем; присваивание s[index] = value "
+            "даёт TypeError. Символ строки остаётся строкой при сравнении с числом."
+        )
     user_text += _answer_language_block(payload.answer_language)
 
     messages: list[dict] = [
@@ -982,7 +1011,7 @@ async def screen_assist_stream(payload: ScreenAssistPayload, db: Session = Depen
     async def event_stream():
         try:
             async for delta in provider_adapter.stream_chat(
-                messages, provider, model, max_tokens=900, temperature=0.3
+                messages, provider, model, max_tokens=900, temperature=0.0
             ):
                 yield f"data: {json.dumps({'type': 'chunk', 'text': delta}, ensure_ascii=False)}\n\n"
             yield f"data: {json.dumps({'type': 'done', 'model': model})}\n\n"
@@ -1001,15 +1030,46 @@ async def screen_assist_stream(payload: ScreenAssistPayload, db: Session = Depen
     )
 
 
+def _sanitize_live_task_answer(text: str) -> str:
+    """Sanitize prose without destroying indentation inside fenced code."""
+    parts = re.split(r"(```[\s\S]*?```)", text.strip())
+    cleaned: list[str] = []
+    for part in parts:
+        if not part.strip():
+            continue
+        if part.lstrip().startswith("```"):
+            cleaned.append(part.strip())
+        else:
+            prose = sanitize_live_answer(part)
+            if prose:
+                cleaned.append(prose)
+    return "\n\n".join(cleaned).strip()
+
+
+def _finalize_live_spoken(raw: str, question_intent: str) -> str:
+    """Sanitize live output and preserve complete concrete-task code blocks."""
+    parsed = _parse_fast_response(raw)
+    spoken = parsed.get("spoken") or raw
+    if question_intent == "technical_task" or "```" in spoken:
+        # Cutting at 90 words can leave code incomplete; normal sanitization also
+        # collapses indentation and can remove Python # comments. Preserve every
+        # fenced block even when a theory answer includes a small code example.
+        return _sanitize_live_task_answer(spoken)
+    return trim_spoken_answer(sanitize_live_answer(spoken))
+
+
 def _parse_fast_response(raw: str) -> dict:
     """Live-режим: plain text / markdown, без обрезки."""
     empty = {"short": "", "spoken": "", "detailed": "", "english": "", "risk": ""}
     text = raw.strip()
 
-    if text.startswith("```"):
-        text = text.strip("`")
-        if text.lower().startswith("json"):
-            text = text[4:].strip()
+    # Only unwrap an explicit JSON fence. A Python/SQL fence is user-visible
+    # answer content and its indentation must survive task finalization.
+    if text.lower().startswith("```json"):
+        text = text[7:]
+        if text.endswith("```"):
+            text = text[:-3]
+        text = text.strip()
 
     # Только если явный JSON-объект
     if text.startswith("{") and '"short"' in text[:120]:

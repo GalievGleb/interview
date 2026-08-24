@@ -215,9 +215,11 @@ def test_screen_assist_stream_builds_multimodal_message(client, monkeypatch):
     system_prompt = captured["messages"][0]["content"]
     assert "Декоратор с args и kwargs" in system_prompt
     assert "полный рабочий" in system_prompt
-    assert "ответ без исполняемого блока кода считается неправильным" in system_prompt
+    assert "ответ без полного исполняемого блока кода неправильный" in system_prompt
+    assert "НЕ переписывай и НЕ исправляй код" in system_prompt
+    assert "s[0] = 'H' вызывает TypeError" in system_prompt
     assert system_prompt.index("СНАЧАЛА решение одним блоком кода") < system_prompt.index(
-        "После кода"
+        "Для результата/ошибки"
     )
 
 

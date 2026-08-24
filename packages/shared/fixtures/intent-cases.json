@@ -7,6 +7,12 @@
   { "question": "Что такое декоратор?", "intent": "technical_definition" },
   { "question": "Как ты настраивал Docker?", "intent": "practical_usage" },
   { "question": "Какие ошибки бывают в Page Object Model?", "intent": "technical_list" },
+  { "question": "Как работает git rebase и как разрешить конфликт?", "intent": "technical_definition" },
+  { "question": "Напиши словарь квадратов чисел от 0 до 9", "intent": "technical_task" },
+  { "question": "Что вернёт a == b для двух экземпляров класса?", "intent": "technical_task" },
+  { "question": "Что такое context manager? Реализовать собственный через contextmanager.", "intent": "technical_task" },
+  { "question": "Как протестировать API endpoint последнего заказа?", "intent": "technical_task" },
+  { "question": "Как протестировать GET /client/last_order?", "intent": "technical_task" },
 
   { "question": "Tell me about yourself", "intent": "experience" },
   { "question": "Walk me through your background", "intent": "experience" },

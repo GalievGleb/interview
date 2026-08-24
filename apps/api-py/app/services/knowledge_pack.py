@@ -27,7 +27,21 @@ SQL_PACK_NAME = "sql_interview_questions"
 _QA_TOPIC_RE = re.compile(
     r"pytest|playwright|selenium|allure|\bapi\b|ci\s*/?\s*cd|cicd|docker|gitlab|jenkins|"
     r"httpx|requests|page\s*object|\bpom\b|smoke|regression|тест[\s-]?кейс|чек[\s-]?лист|"
-    r"баг|flaky|автотест|локатор|селектор|фикстур|conftest|тест-дизайн",
+    r"баг|flaky|автотест|локатор|селектор|фикстур|\bfixtures?\b|\bfixture_\w+|conftest|тест-дизайн",
+    re.IGNORECASE | re.UNICODE,
+)
+
+# Git terms such as «hash» overlap with Python vocabulary but must never route
+# to the Python community pack.
+_GIT_TOPIC_RE = re.compile(
+    r"\bgit\b|\bstash\b|\brebase\b|\bcommit\b|коммит|\bfetch\b|\bpull\b|"
+    r"\bmerge\b|ветк\w*|репозитор",
+    re.IGNORECASE | re.UNICODE,
+)
+
+_PY_INSTANCE_EQUALITY_RE = re.compile(
+    r"(?:\ba\s*==\s*b\b.{0,120}\bclass\b|\bclass\b.{0,120}\ba\s*==\s*b\b)|"
+    r"\b__eq__\b",
     re.IGNORECASE | re.UNICODE,
 )
 
@@ -38,8 +52,10 @@ _PY_SIGNAL_RE = re.compile(
     r"контекстн|context\s*manager|исключени|exception|\bgil\b|поток|процесс|"
     r"thread|multiprocess|async|await|корутин|\bmro\b|staticmethod|classmethod|"
     r"__\w+__|метаклас|замыкан|closure|lambda|comprehension|\bargs\b|\bkwargs\b|"
-    r"изменяем|mutable|hashable|хешир|хеш|импорт|модул|пакет|наследован|полиморфизм|"
-    r"инкапсул|абстрак|\bооп\b|\boop\b|магическ|dunder|типизац|аннотац",
+    r"изменяем|mutable|immutable|hashable|хешир|хеш|импорт|модул|пакет|наследован|полиморфизм|"
+    r"инкапсул|абстрак|\bооп\b|\boop\b|магическ|dunder|типизац|аннотац|"
+    r"строк|\bstr\b|\brange\b|\bxrange\b|\bzip\b|\bsorted\b|сравнен\w*\s+экземпляр|"
+    r"равенств\w*\s+объект|\b__eq__\b|аргумент\w*\s+по\s+умолчанию",
     re.IGNORECASE | re.UNICODE,
 )
 
@@ -76,6 +92,24 @@ def _load() -> tuple[list[dict], dict[str, dict], dict]:
     return index, answers, metadata
 
 
+_GENERIC_CURATED_KEYWORDS = {
+    "python",
+    "что",
+    "такое",
+    "значение",
+    "метод",
+    "класс",
+    "класса",
+    "классы",
+    "объект",
+    "объекта",
+    "объекты",
+    "отличается",
+    "разница",
+    "делает",
+}
+
+
 @lru_cache(maxsize=8)
 def _load_curated_for(pack_dir: Path) -> tuple[dict, ...]:
     """Verified, Skillcue-normalized answers that OUTRANK the community source."""
@@ -93,10 +127,21 @@ def _match_curated(question: str, pack_dir: Path = PACK_DIR, limit: int = 1) -> 
         return []
     scored: list[tuple[int, int, dict]] = []
     for i, entry in enumerate(_load_curated_for(pack_dir)):
-        overlap = len(qwords & {k.lower() for k in entry.get("keywords", [])})
-        # Curated keywords are distinctive, so a single strong match is enough.
-        if overlap >= 1:
-            scored.append((overlap, -i, entry))
+        if (
+            pack_dir == PACK_DIR
+            and entry.get("id") == "python-instance-equality"
+            and _PY_INSTANCE_EQUALITY_RE.search(question)
+        ):
+            scored.append((100, -i, entry))
+            continue
+        keywords = {str(k).lower() for k in entry.get("keywords", [])}
+        matched = qwords & keywords
+        distinctive = matched - _GENERIC_CURATED_KEYWORDS
+        # One domain-specific term (yield/GIL/range/...) is enough. Generic
+        # words such as «object/value/method» need at least two overlaps so an
+        # unrelated curated answer cannot outrank the community retrieval.
+        if distinctive or len(matched) >= 2:
+            scored.append((len(distinctive) * 3 + len(matched), -i, entry))
     scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
     return [entry for _, _, entry in scored[:limit]]
 
@@ -107,9 +152,9 @@ def is_python_question(question: str) -> bool:
     q = (question or "").strip()
     if not q:
         return False
-    if _QA_TOPIC_RE.search(q):
+    if _QA_TOPIC_RE.search(q) or _GIT_TOPIC_RE.search(q):
         return False
-    return bool(_PY_SIGNAL_RE.search(q))
+    return bool(_PY_INSTANCE_EQUALITY_RE.search(q) or _PY_SIGNAL_RE.search(q))
 
 
 def is_sql_question(question: str) -> bool:
@@ -215,9 +260,10 @@ def build_injection(question: str, top_k: int = 3) -> tuple[str, dict]:
     started = time.perf_counter()
     matched = _match_curated(question)
     curated = matched[0] if matched else None
-    # A curated hit is authoritative; fill any remaining slots with community
-    # records (skipping a near-duplicate of the curated topic).
-    community = retrieve(question, top_k=top_k if not curated else top_k - 1)
+    # A verified curated hit is authoritative and sufficient. Mixing community
+    # answers back in reintroduced factual contradictions (notably range and
+    # default instance equality), so community is fallback-only.
+    community = [] if curated else retrieve(question, top_k=top_k)
     retrieval_ms = int((time.perf_counter() - started) * 1000)
 
     blocks: list[str] = []
@@ -244,12 +290,18 @@ def build_injection(question: str, top_k: int = 3) -> tuple[str, dict]:
         return "", _empty_metrics(retrieval_ms)
 
     body = "\n\n".join(blocks)
-    trust = "The first Q/A is VERIFIED — prefer it. " if source.startswith("curated") else ""
-    block_text = (
-        "PYTHON KNOWLEDGE PACK (auxiliary reference — may contain inaccuracies; "
-        f"{trust}normalize to the Skillcue say-aloud format, do NOT copy verbatim, "
-        "and let QA context / resume win on any conflict):\n" + body
-    )
+    if source == "curated":
+        block_text = (
+            "PYTHON VERIFIED FACTUAL CONTRACT (non-negotiable): The Q/A below is "
+            "authoritative. Follow its result exactly; an answer that contradicts it is "
+            "incorrect. Normalize wording but do not change facts:\n" + body
+        )
+    else:
+        block_text = (
+            "PYTHON KNOWLEDGE PACK (auxiliary community reference — may contain "
+            "inaccuracies; normalize to the Skillcue say-aloud format, do NOT copy "
+            "verbatim, and let QA context / resume win on any conflict):\n" + body
+        )
     return block_text, {
         "knowledgePackUsed": True,
         "knowledgePackName": PACK_NAME,

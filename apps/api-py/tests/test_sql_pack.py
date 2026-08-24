@@ -57,4 +57,4 @@ def test_python_injection_still_works():
     block, meta = build_injection("Чем список отличается от кортежа?")
     assert meta["knowledgePackUsed"] is True
     assert meta["knowledgePackName"] == "python_interview_questions"
-    assert "PYTHON KNOWLEDGE PACK" in block
+    assert block.startswith(("PYTHON KNOWLEDGE PACK", "PYTHON VERIFIED FACTUAL CONTRACT"))

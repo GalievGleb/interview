@@ -42,7 +42,7 @@ def test_retrieval_returns_1_to_3_relevant_records():
         block, meta = kp.build_injection(q)
         assert meta["knowledgePackUsed"] is True, q
         assert 1 <= meta["retrievedItemsCount"] <= 3, q
-        assert block.startswith("PYTHON KNOWLEDGE PACK")
+        assert block.startswith(("PYTHON KNOWLEDGE PACK", "PYTHON VERIFIED FACTUAL CONTRACT"))
         assert "Q:" in block and "A:" in block
 
 
@@ -69,6 +69,35 @@ def test_metrics_shape():
 def test_empty_for_blank_or_non_python():
     assert kp.is_python_question("") is False
     assert kp.is_python_question("Какая сегодня погода?") is False
+
+
+def test_named_pytest_fixtures_never_route_to_python_pack():
+    assert not kp.is_python_question(
+        "Как определить порядок session_fixture, fixture_1 и fixture_4 после yield?"
+    )
+
+
+def test_git_hash_and_rebase_never_route_to_python_pack():
+    assert kp.is_python_question(
+        "Как работает git rebase, что происходит с хешами и как разрешить конфликт?"
+    ) is False
+
+
+def test_corpus_factual_traps_use_verified_entries():
+    cases = {
+        "range в Python 3 — это генератор? Что было в Python 2?": "не генератор",
+        "Как реализована инкапсуляция в Python?": "соглашениях",
+        "Что вернёт a == b для двух разных экземпляров пустого класса?": "False",
+        "Что вернёт a == b для a=C(); b=C(), если class C: pass?": "False",
+        "Что произойдёт при присваивании элементу строки?": "SyntaxError",
+        "Когда использовать наследование, а когда композицию?": "is-a",
+    }
+    for question, expected in cases.items():
+        block, meta = kp.build_injection(question)
+        assert meta["knowledgeSource"] == "curated", question
+        assert meta["retrievedItemsCount"] == 1, question
+        assert "non-negotiable" in block, question
+        assert expected.lower() in block.lower(), question
 
 
 def test_metadata_is_well_formed():

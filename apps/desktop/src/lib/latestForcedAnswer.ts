@@ -236,6 +236,24 @@ export class LatestForcedAnswerCoordinator {
     return true;
   }
 
+  /** Route an already finalized deictic question («что выведет этот код?»)
+   * directly to vision. Unlike an empty-transcript fallback there is no pending
+   * STT request to preserve. */
+  routeQuestionToScreen(generation: number): boolean {
+    if (generation !== this.state.generation || this.state.phase !== 'waiting-first-token') {
+      return false;
+    }
+    this.pendingFinalizations.clear();
+    this.state = {
+      ...this.state,
+      requestId: null,
+      source: null,
+      phase: 'screen-fallback',
+      pendingRequestCount: 0,
+    };
+    return true;
+  }
+
   setPhase(generation: number, phase: ForcePhase): boolean {
     if (generation !== this.state.generation) return false;
     if (phase === 'done' || phase === 'error') {

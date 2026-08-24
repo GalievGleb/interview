@@ -173,6 +173,14 @@ describe('overlay request behavior', () => {
     expect(hookSource).toContain('Manual-only policy');
   });
 
+  it('routes deictic code-on-screen questions to vision after Ctrl+Enter', () => {
+    expect(hookSource).toContain('requiresScreenContext(question)');
+    expect(hookSource).toContain('routeQuestionToScreen(generation)');
+    expect(hookSource.match(/routeVisualQuestionToScreen\(decision\.question, decision\.generation\)/g))
+      .toHaveLength(2);
+    expect(hookSource).toContain('setForceScreenFallbackGeneration(generation)');
+  });
+
   it('blocks every legacy or queued LLM start without a Ctrl+Enter generation', () => {
     const runStreamAt = hookSource.indexOf('const runStream = useCallback');
     const requestTimingAt = hookSource.indexOf('const requestTimings = request.serverTimings', runStreamAt);

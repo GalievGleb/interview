@@ -5,6 +5,7 @@ import { startLiveSession, LiveSession, SttTimings } from '../lib/liveSession';
 import { prepareTranscriptForLlm, PreparedTranscript } from '../lib/prepareTranscriptForLlm';
 import { SttSessionOptions } from '../lib/sttOptions';
 import { getWeakTopicTitles } from '../lib/vacancyReview/weakTopics';
+import { requiresScreenContext } from '../lib/visualQuestion';
 import { recordSkipped } from '../lib/skippedLog';
 import { t } from '../lib/i18n';
 import { selectForceTargetSource, SpeechActivityTracker } from '../lib/forceLiveAnswer';
@@ -230,6 +231,18 @@ export function useLiveCopilot() {
         syncForceSnapshot();
         setForceScreenFallbackGeneration(generation);
       }, delayMs);
+    },
+    [clearForceTimeout, syncForceSnapshot],
+  );
+
+  const routeVisualQuestionToScreen = useCallback(
+    (question: string, generation: number): boolean => {
+      if (!requiresScreenContext(question)) return false;
+      clearForceTimeout();
+      if (!forceCoordinatorRef.current.routeQuestionToScreen(generation)) return false;
+      syncForceSnapshot();
+      setForceScreenFallbackGeneration(generation);
+      return true;
     },
     [clearForceTimeout, syncForceSnapshot],
   );
@@ -983,6 +996,9 @@ export function useLiveCopilot() {
 
     if (decision.action === 'submit') {
       utteranceBufferRef.current = [];
+      if (routeVisualQuestionToScreen(decision.question, decision.generation)) {
+        return 'finalizing';
+      }
       askQuestion(decision.question, decision.generation);
       return 'started';
     }
@@ -1007,6 +1023,7 @@ export function useLiveCopilot() {
     askQuestion,
     cancelPendingQuestion,
     clearForceTimeout,
+    routeVisualQuestionToScreen,
     scheduleForceScreenFallback,
     syncForceSnapshot,
   ]);
@@ -1177,6 +1194,7 @@ export function useLiveCopilot() {
                 syncForceSnapshot();
                 cancelPendingQuestion();
                 utteranceBufferRef.current = [];
+                if (routeVisualQuestionToScreen(decision.question, decision.generation)) return;
                 askQuestion(decision.question, decision.generation);
                 return;
               }
@@ -1333,7 +1351,7 @@ export function useLiveCopilot() {
     // The two speech-final helpers deliberately remain disconnected from STT callbacks:
     // keeping them in this closure makes accidental reactivation visible to the behavior test.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [appendForcedFinal, appendLine, askQuestion, cancelPendingQuestion, clearForceTimeout, endInterviewSession, patchSttDebug, persistTranscriptLine, recordUtterance, removeStream, resetForceCoordinator, scheduleFinalFallback, scheduleForceScreenFallback, scheduleSpeechFinal, syncForceSnapshot],
+    [appendForcedFinal, appendLine, askQuestion, cancelPendingQuestion, clearForceTimeout, endInterviewSession, patchSttDebug, persistTranscriptLine, recordUtterance, removeStream, resetForceCoordinator, routeVisualQuestionToScreen, scheduleFinalFallback, scheduleForceScreenFallback, scheduleSpeechFinal, syncForceSnapshot],
   );
 
   const pause = useCallback(() => {

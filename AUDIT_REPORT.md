@@ -66,6 +66,19 @@
 
 Осталось осознанно: trial ограничен токен-бюджетом 300k и 15 минутами live (жёсткого «1 разбор вакансии» нет — оферта формулирует лимит как «объём функций»); в карточке Максимума на лендинге есть «Автоотклики HH», в приложении фича добавлена в список Максимума.
 
+## 0.3 Надёжность live-overlay на полном interview-prep корпусе
+
+Проверен файл `interview-prep-python-git-pytest-api-ru.md` (SHA-256 `dc386c82e0a8a6c497e4956edb0baac3994b2d3a3d77ee0a7da193b942c2c088`) через реальный SSE-маршрут overlay `POST /chat/interview/stream`, а не через визуальный review. Dev-only runner `tools/verify_interview_prep_corpus.py` покрывает 25 случаев: все основные Git/Python/pytest/API темы исходника плюс точное присваивание строковому литералу и полный named fixture-order. Финальные прогоны: **25/25 PASS** на source-backend и **25/25 PASS** на backend из установленного Dev-пакета (`%TEMP%\skillcue-corpus-final-package-25.json`). После последней backend-сборки обязательный `verify:dev:overlay` также получил реальные `chunk` + `done`. Dev installer: 127315148 bytes, SHA-256 `8160F7C15D52E71C4ED79B0A0F98F006303D29E0991219A679BA2814C25C679B`; отчёты остаются вне customer package в `%TEMP%`. Stable Windows installer: 125359256 bytes, SHA-256 `607C4436F7E09E1ABD26BCE9FC8061674730D7D2C1AF4304D5E4B5AFACF8D038`; packaged backend SHA-256 `FA99DC604BE3A0EF29228F14FB62B69F240B8FF07C8D09A6A3BA237104334B4C` в точности совпадает с проверенным установленным Dev backend.
+
+Исправлено:
+
+- `technical_task` синхронно добавлен в TypeScript/Python intent-классификаторы; Git conflict больше не считается behavioral, API endpoint design и code/output задачи получают конкретную стратегию.
+- Git-темы с «хешами» исключены из Python retrieval; verified curated-ответы стали authoritative fallback без примеси противоречивого community-контента.
+- Закреплены factual traps: Python 3 `range` не generator, два разных `C()` без `__eq__` не равны, инкапсуляция Python основана на соглашениях, строковый item assignment и mutable default.
+- Кодовые ответы не режутся spoken-лимитом и сохраняют fenced-code отступы/`#`-комментарии; API last_order получает полный контракт статусов, схемы, суммы и бизнес-даты.
+- Ctrl+Enter с дейктическим вопросом («что выведет этот код?», «на экране») маршрутизируется в `/chat/screen/stream`, а не в text-only LLM. Реальный PNG vision-прогон воспроизводится `tools/verify_screen_code_task.py`; финальный установленный Dev PASS подтвердил точный порядок `False` → `TypeError` → остановка и неизменяемость строки.
+- Автоматический STT/очередь по-прежнему не может стартовать или заменить ответ: нижний guard требует `forceGeneration`, создаваемый только Ctrl+Enter.
+
 ---
 
 ## 1. Резюме
