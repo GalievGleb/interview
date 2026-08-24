@@ -21,6 +21,7 @@ export interface DebugEvent {
     | 'partial'
     | 'final'
     | 'low_quality'
+    | 'answer_blocked'
     | 'answer_started'
     | 'answer_first_token'
     | 'answer_done'

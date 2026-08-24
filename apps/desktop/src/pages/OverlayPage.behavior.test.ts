@@ -173,6 +173,17 @@ describe('overlay request behavior', () => {
     expect(hookSource).toContain('Manual-only policy');
   });
 
+  it('blocks every legacy or queued LLM start without a Ctrl+Enter generation', () => {
+    const runStreamAt = hookSource.indexOf('const runStream = useCallback');
+    const requestTimingAt = hookSource.indexOf('const requestTimings = request.serverTimings', runStreamAt);
+    expect(runStreamAt).toBeGreaterThan(-1);
+    expect(requestTimingAt).toBeGreaterThan(runStreamAt);
+    const guard = hookSource.slice(runStreamAt, requestTimingAt);
+    expect(guard).toContain('if (requestForceGeneration == null)');
+    expect(guard).toContain("reason: 'manual_only_without_force_generation'");
+    expect(guard).toContain('return;');
+  });
+
   it('opens the detailed real-answer review in the main window', () => {
     expect(overlaySource).toContain('overlay.openSessionAnalysis?.(recap.sessionId!)');
     expect(preloadSource).toContain("ipcRenderer.invoke('overlay:openSessionAnalysis', sessionId)");

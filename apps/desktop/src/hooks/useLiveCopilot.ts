@@ -369,6 +369,18 @@ export function useLiveCopilot() {
 
   const runStream = useCallback((request: AnswerRequest) => {
     const { prepared, forceGeneration: requestForceGeneration } = request;
+    // Hard manual-only invariant: only forceCoordinator.press()/submitQuestion()
+    // (Ctrl+Enter) owns a generation. Legacy speech-final/queued paths have no
+    // generation and therefore cannot start an LLM request or replace the
+    // question/answer card. Keep this guard at the lowest possible level so a
+    // future callback cannot accidentally reactivate automatic answering.
+    if (requestForceGeneration == null) {
+      debugRef.current.event('answer_blocked', {
+        reason: 'manual_only_without_force_generation',
+        text: prepared.rawTranscript,
+      });
+      return;
+    }
     const requestTimings = request.serverTimings;
     const requestQuestionFinalAt = request.questionFinalAt;
     const q = prepared.resolvedQuestion.trim();
