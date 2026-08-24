@@ -3,145 +3,127 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
     <loc>https://skill-cue.ru/</loc>
-    <lastmod>2026-08-24</lastmod>
+    <lastmod>2026-08-19</lastmod>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
   </url>
   <url>
-    <loc>https://skill-cue.ru/ii-intervyu.html</loc>
-    <lastmod>2026-08-24</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
     <loc>https://skill-cue.ru/en/</loc>
-    <lastmod>2026-08-24</lastmod>
+    <lastmod>2026-08-19</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://skill-cue.ru/voprosy/</loc>
-    <lastmod>2026-08-24</lastmod>
+    <lastmod>2026-07-06</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.9</priority>
   </url>
   <url>
     <loc>https://skill-cue.ru/voprosy/qa-manual.html</loc>
-    <lastmod>2026-08-24</lastmod>
+    <lastmod>2026-07-06</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://skill-cue.ru/voprosy/qa-avtomatizator.html</loc>
-    <lastmod>2026-08-24</lastmod>
+    <lastmod>2026-07-06</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://skill-cue.ru/voprosy/frontend.html</loc>
-    <lastmod>2026-08-24</lastmod>
+    <lastmod>2026-07-06</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://skill-cue.ru/voprosy/python.html</loc>
-    <lastmod>2026-08-24</lastmod>
+    <lastmod>2026-07-06</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://skill-cue.ru/voprosy/sistemnyj-analitik.html</loc>
-    <lastmod>2026-08-24</lastmod>
+    <lastmod>2026-07-06</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://skill-cue.ru/voprosy/java.html</loc>
-    <lastmod>2026-08-24</lastmod>
+    <lastmod>2026-07-06</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://skill-cue.ru/voprosy/devops.html</loc>
-    <lastmod>2026-08-24</lastmod>
+    <lastmod>2026-07-06</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://skill-cue.ru/voprosy/product-manager.html</loc>
-    <lastmod>2026-08-24</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
-    <loc>https://skill-cue.ru/voprosy/project-manager.html</loc>
-    <lastmod>2026-08-24</lastmod>
+    <lastmod>2026-07-06</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://skill-cue.ru/voprosy/1c-razrabotchik.html</loc>
-    <lastmod>2026-08-24</lastmod>
+    <lastmod>2026-07-06</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://skill-cue.ru/voprosy/data-science.html</loc>
-    <lastmod>2026-08-24</lastmod>
+    <lastmod>2026-07-06</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://skill-cue.ru/voprosy/menedzher-po-prodazham.html</loc>
-    <lastmod>2026-08-24</lastmod>
+    <lastmod>2026-07-06</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://skill-cue.ru/voprosy/marketolog.html</loc>
-    <lastmod>2026-08-24</lastmod>
+    <lastmod>2026-07-06</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://skill-cue.ru/voprosy/buhgalter.html</loc>
-    <lastmod>2026-08-24</lastmod>
+    <lastmod>2026-07-06</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://skill-cue.ru/voprosy/hr-menedzher.html</loc>
-    <lastmod>2026-08-24</lastmod>
+    <lastmod>2026-07-06</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://skill-cue.ru/voprosy/operator-podderzhki.html</loc>
-    <lastmod>2026-08-24</lastmod>
+    <lastmod>2026-07-06</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://skill-cue.ru/kak-podgotovitsya-za-3-dnya.html</loc>
-    <lastmod>2026-08-24</lastmod>
+    <lastmod>2026-07-06</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://skill-cue.ru/rasskazhite-o-sebe.html</loc>
-    <lastmod>2026-08-24</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.7</priority>
-  </url>
-  <url>
-    <loc>https://skill-cue.ru/skillcue-vs-mentor.html</loc>
-    <lastmod>2026-08-24</lastmod>
+    <lastmod>2026-07-06</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://skill-cue.ru/skillcue-vs-chatgpt.html</loc>
-    <lastmod>2026-08-24</lastmod>
+    <lastmod>2026-07-06</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
