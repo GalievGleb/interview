@@ -1,10 +1,30 @@
 """Concrete overlay tasks keep complete code while theory stays say-aloud."""
 
+from app.prompts.interview_fast import FAST_CORE_SYSTEM_PROMPT, build_fast_core_user_prompt
 from app.routers.chat import SCREEN_ASSIST_PROMPT, _finalize_live_spoken
 from app.services.domain_answer_hints import (
     resolve_domain_answer_hints,
     resolve_required_output_contract,
 )
+
+
+def test_fast_core_prompt_is_small_and_question_only():
+    prompt = build_fast_core_user_prompt(
+        "Что такое генератор?",
+        "technical_definition",
+        "\nOUTPUT LANGUAGE: Russian",
+    )
+    combined = FAST_CORE_SYSTEM_PROMPT + prompt
+    assert "Что такое генератор?" in prompt
+    assert len(combined) < 1800
+    for forbidden in ("DOMAIN-SPECIFIC", "KNOWLEDGE PACK", "CANDIDATE PROFILE", "RESUME"):
+        assert forbidden not in combined
+
+
+def test_fast_core_theory_cap_is_70_words():
+    answer = " ".join(f"слово{i}." for i in range(120))
+    finalized = _finalize_live_spoken(answer, "technical_definition", spoken_cap=70)
+    assert len(finalized.split()) <= 70
 
 
 def test_technical_task_is_not_cut_and_keeps_code_indentation():

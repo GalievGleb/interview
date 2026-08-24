@@ -11,6 +11,7 @@ QuestionIntent = Literal[
     "technical_list",
     "technical_comparison",
     "technical_task",
+    "api_test_task",
     "practical_usage",
     "behavioral",
     "unclear",
@@ -61,12 +62,17 @@ _PRACTICAL_RE = re.compile(
     r"on\s+your\s+project)",
     re.IGNORECASE | re.UNICODE,
 )
+_API_TEST_TASK_RE = re.compile(
+    r"(?:(?:как\s+)?(?:протестировать|проверить|покрыть\s+тестами|написать\s+тесты)[^\n]{0,80}"
+    r"(?:api|endpoint|эндпоинт|(?:get|post|put|patch|delete)\s+/)|"
+    r"(?:test|write\s+tests?|test\s+cases?)[^\n]{0,80}(?:api|endpoint|(?:get|post|put|patch|delete)\s+/))",
+    re.IGNORECASE | re.UNICODE,
+)
 _TASK_RE = re.compile(
-    r"(?:как\s+(?:протестировать|проверить)\s+(?:api|endpoint|эндпоинт|метод\s+api|"
-    r"(?:get|post|put|patch|delete)\s+/)|напиши(?:те)?|реализуй(?:те)?|реализовать|исправь(?:те)?\s+(?:код|функц)|"
+    r"(?:напиши(?:те)?|реализуй(?:те)?|реализовать|исправь(?:те)?\s+(?:код|функц)|"
     r"дополни(?:те)?\s+(?:код|функц)|что\s+(?:верн[её]т|выведет|произойд[её]т)|"
     r"какой\s+(?:будет\s+)?результат|дан(?:ы|о)?\s+(?:код|выражени\w*|словар\w*)|"
-    r"как\s+определить\s+порядок\s+выполнения|write\s+(?:code|a\s+function|tests?)|"
+    r"как\s+определить\s+(?:точн\w*\s+)?порядок(?:\s+выполнения|\s+для\s+кода)?|write\s+(?:code|a\s+function|tests?)|"
     r"implement\s+(?:a\s+)?(?:function|class|test)|fix\s+(?:the\s+)?code|"
     r"what\s+(?:does|will)\s+.+\s+(?:return|print|output))",
     re.IGNORECASE | re.UNICODE,
@@ -157,6 +163,19 @@ _STRATEGIES: dict[QuestionIntent, AnswerStrategy] = {
         "resume_context_reason": "Comparison question — experience only if usage is implied.",
         "suggest_unclear_prefix": False,
     },
+    "api_test_task": {
+        "question_intent": "api_test_task",
+        "answer_strategy": (
+            "Return 6–8 terse test bullets in at most 130 words. Every row must name scenario, request/data, "
+            "explicit expected HTTP status, response body/schema/types, and semantic assertions. "
+            "Separate authentication (401) from authorization (403); cover success, empty, "
+            "missing, invalid/boundary, and selection/order rules where relevant."
+        ),
+        "resume_context_used": False,
+        "resume_context_level": "none",
+        "resume_context_reason": "Concrete API test-design task — no resume context.",
+        "suggest_unclear_prefix": False,
+    },
     "technical_task": {
         "question_intent": "technical_task",
         "answer_strategy": (
@@ -240,7 +259,9 @@ def classify_interview_question_intent(
         return _STRATEGIES["unclear"].copy()
 
     intent: QuestionIntent = "unclear"
-    if _TASK_RE.search(q_text):
+    if _API_TEST_TASK_RE.search(q_text):
+        intent = "api_test_task"
+    elif _TASK_RE.search(q_text):
         intent = "technical_task"
     elif _BEHAVIORAL_RE.search(q_text):
         intent = "behavioral"

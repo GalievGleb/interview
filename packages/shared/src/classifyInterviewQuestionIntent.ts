@@ -4,6 +4,7 @@ export type QuestionIntent =
   | 'technical_list'
   | 'technical_comparison'
   | 'technical_task'
+  | 'api_test_task'
   | 'practical_usage'
   | 'behavioral'
   | 'unclear';
@@ -44,8 +45,11 @@ const EXPERIENCE_RE =
 const PRACTICAL_RE =
   /(?:как\s+ты\s+(?:применял\w*|использовал\w*|настраивал\w*|проверял\w*|запускал\w*|работал\w*|делал\w*|писал\w*)|ты\s+сам\w*\s+(?:настраивал\w*|делал\w*|писал\w*|использовал\w*|настраивал\w*)|сам\s+настраивал\w*|как\s+вы\s+(?:применял\w*|использовал\w*|настраивал\w*)|в\s+работ\w*|на\s+проект\w*|how\s+(?:did|do|have)\s+you\s+(?:use|apply|set\s*up|configure|implement|test|work)|have\s+you\s+(?:ever\s+)?(?:used|worked\s+with|built|set\s*up)|in\s+your\s+work|on\s+your\s+project)/iu;
 
+const API_TEST_TASK_RE =
+  /(?:(?:как\s+)?(?:протестировать|проверить|покрыть\s+тестами|написать\s+тесты)[^\n]{0,80}(?:api|endpoint|эндпоинт|(?:get|post|put|patch|delete)\s+\/)|(?:test|write\s+tests?|test\s+cases?)[^\n]{0,80}(?:api|endpoint|(?:get|post|put|patch|delete)\s+\/))/iu;
+
 const TASK_RE =
-  /(?:как\s+(?:протестировать|проверить)\s+(?:api|endpoint|эндпоинт|метод\s+api|(?:get|post|put|patch|delete)\s+\/)|напиши(?:те)?|реализуй(?:те)?|реализовать|исправь(?:те)?\s+(?:код|функц)|дополни(?:те)?\s+(?:код|функц)|что\s+(?:верн[её]т|выведет|произойд[её]т)|какой\s+(?:будет\s+)?результат|дан(?:ы|о)?\s+(?:код|выражени\w*|словар\w*)|как\s+определить\s+порядок\s+выполнения|write\s+(?:code|a\s+function|tests?)|implement\s+(?:a\s+)?(?:function|class|test)|fix\s+(?:the\s+)?code|what\s+(?:does|will)\s+.+\s+(?:return|print|output))/iu;
+  /(?:напиши(?:те)?|реализуй(?:те)?|реализовать|исправь(?:те)?\s+(?:код|функц)|дополни(?:те)?\s+(?:код|функц)|что\s+(?:верн[её]т|выведет|произойд[её]т)|какой\s+(?:будет\s+)?результат|дан(?:ы|о)?\s+(?:код|выражени\w*|словар\w*)|как\s+определить\s+(?:точн[а-яё]*\s+)?порядок(?:\s+выполнения|\s+для\s+кода)?|write\s+(?:code|a\s+function|tests?)|implement\s+(?:a\s+)?(?:function|class|test)|fix\s+(?:the\s+)?code|what\s+(?:does|will)\s+.+\s+(?:return|print|output))/iu;
 
 const COMPARISON_RE =
   /(?:чем\s+.+\s+отлича|разниц\w*|в\s+ч(?:е|ё)м\s+разниц|\bvs\.?\b|против\s+|difference\s+between|how\s+(?:is|does)\s+.+\s+differ|compare\s+|versus\s+)/iu;
@@ -104,6 +108,14 @@ const STRATEGY_BY_INTENT: Record<QuestionIntent, Omit<AnswerStrategyResult, 'que
     resumeContextUsed: false,
     resumeContextLevel: 'limited',
     resumeContextReason: 'Comparison question — experience only if usage is implied.',
+    suggestUnclearPrefix: false,
+  },
+  api_test_task: {
+    answerStrategy:
+      'Return 6–8 terse test bullets in at most 130 words. Every row must name scenario, request/data, explicit expected HTTP status, response body/schema/types, and semantic assertions. Separate authentication (401) from authorization (403); cover success, empty, missing, invalid/boundary, and selection/order rules where relevant.',
+    resumeContextUsed: false,
+    resumeContextLevel: 'none',
+    resumeContextReason: 'Concrete API test-design task — no resume context.',
     suggestUnclearPrefix: false,
   },
   technical_task: {
@@ -171,7 +183,9 @@ export function classifyInterviewQuestionIntent(
 
   let intent: QuestionIntent = 'unclear';
 
-  if (TASK_RE.test(question)) {
+  if (API_TEST_TASK_RE.test(question)) {
+    intent = 'api_test_task';
+  } else if (TASK_RE.test(question)) {
     intent = 'technical_task';
   } else if (BEHAVIORAL_RE.test(question)) {
     intent = 'behavioral';

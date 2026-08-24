@@ -876,32 +876,36 @@ export const api = {
     void (async () => {
       try {
         armIdle();
+        const fastAnswer = opts.fastAnswer ?? getFastAnswer();
+        const fastPayload = {
+          question,
+          raw_question: opts.rawQuestion ?? question,
+          session_id: opts.sessionId,
+          answer_language: answerLanguageParam(),
+          mode: 'fast',
+          fast_answer: true,
+        };
+        const enrichedPayload = {
+          ...fastPayload,
+          question_intent: opts.questionIntent ?? null,
+          answer_strategy: opts.answerStrategy ?? null,
+          resume_context_used: opts.resumeContextUsed ?? null,
+          resume_context_level: opts.resumeContextLevel ?? null,
+          resume_context_reason: opts.resumeContextReason ?? null,
+          suggest_unclear_prefix: opts.suggestUnclearPrefix ?? null,
+          resolved_follow_up_question: opts.resolvedQuestion ?? null,
+          previous_topic: opts.previousTopic ?? null,
+          used_previous_context: opts.usedPreviousContext ?? null,
+          is_follow_up: opts.isFollowUp ?? null,
+          follow_up_reason: opts.followUpReason ?? null,
+          current_canonical_topic: opts.currentCanonicalTopic ?? null,
+          weak_topics: opts.weakTopics?.length ? opts.weakTopics : null,
+          fast_answer: false,
+        };
         const resp = await fetch(`${API_URL}/chat/interview/stream`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
-          body: JSON.stringify({
-            question: question,
-            raw_question: opts.rawQuestion ?? question,
-            question_intent: opts.questionIntent ?? null,
-            answer_strategy: opts.answerStrategy ?? null,
-            resume_context_used: opts.resumeContextUsed ?? null,
-            resume_context_level: opts.resumeContextLevel ?? null,
-            resume_context_reason: opts.resumeContextReason ?? null,
-            suggest_unclear_prefix: opts.suggestUnclearPrefix ?? null,
-            resolved_follow_up_question: opts.resolvedQuestion ?? null,
-            previous_topic: opts.previousTopic ?? null,
-            used_previous_context: opts.usedPreviousContext ?? null,
-            is_follow_up: opts.isFollowUp ?? null,
-            follow_up_reason: opts.followUpReason ?? null,
-            current_canonical_topic: opts.currentCanonicalTopic ?? null,
-            weak_topics: opts.weakTopics?.length ? opts.weakTopics : null,
-            session_id: opts.sessionId,
-            answer_language: answerLanguageParam(),
-            mode: 'fast',
-            // Fast answer: skip the serial LLM correction pass + throughput
-            // routing. Default on; toggled via localStorage('fast-answer').
-            fast_answer: opts.fastAnswer ?? getFastAnswer(),
-          }),
+          body: JSON.stringify(fastAnswer ? fastPayload : enrichedPayload),
           signal: controller.signal,
         });
         if (!resp.ok || !resp.body) {

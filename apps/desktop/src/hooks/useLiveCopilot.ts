@@ -4,7 +4,6 @@ import { decideAnswerAction } from '../lib/liveAnswerMachine';
 import { startLiveSession, LiveSession, SttTimings } from '../lib/liveSession';
 import { prepareTranscriptForLlm, PreparedTranscript } from '../lib/prepareTranscriptForLlm';
 import { SttSessionOptions } from '../lib/sttOptions';
-import { getWeakTopicTitles } from '../lib/vacancyReview/weakTopics';
 import { requiresScreenContext } from '../lib/visualQuestion';
 import { recordSkipped } from '../lib/skippedLog';
 import { t } from '../lib/i18n';
@@ -396,7 +395,9 @@ export function useLiveCopilot() {
     }
     const requestTimings = request.serverTimings;
     const requestQuestionFinalAt = request.questionFinalAt;
-    const q = prepared.resolvedQuestion.trim();
+    // Ctrl+Enter fast-path sends the captured question as-is. Local intent and
+    // follow-up analysis stays diagnostics-only and never expands the LLM prompt.
+    const q = prepared.rawTranscript.trim();
     if (q.length < 3) return;
     streamLockRef.current = true;
     lastQuestionRef.current = q;
@@ -552,7 +553,9 @@ export function useLiveCopilot() {
             );
           }
           accumulated += chunk;
-          setStreamText(sanitizeLiveAnswer(accumulated));
+          const preserveCode =
+            ['technical_task', 'api_test_task'].includes(prepared.answerStrategy.questionIntent) || accumulated.includes('```');
+          setStreamText(preserveCode ? accumulated : sanitizeLiveAnswer(accumulated));
           setSuggestLoading(false);
         },
         onDone: (spoken: string, answerId?: string, responseMeta?: { model?: string; modelSource?: string }) => {
@@ -569,7 +572,10 @@ export function useLiveCopilot() {
           timingRef.current.llmEndAt = performance.now();
           lastCompletedRef.current = q;
           lastCompletedRawRef.current = prepared.rawTranscript;
-          const text = trimSpokenAnswer(sanitizeLiveAnswer(stripExperienceFooter(spoken || accumulated)));
+          const rawAnswer = stripExperienceFooter(spoken || accumulated).trim();
+          const preserveCode =
+            ['technical_task', 'api_test_task'].includes(prepared.answerStrategy.questionIntent) || rawAnswer.includes('```');
+          const text = preserveCode ? rawAnswer : trimSpokenAnswer(sanitizeLiveAnswer(rawAnswer));
           const debugSnapshot = sttDebugRef.current;
           const llmLatencyMs = performance.now() - answerStartedAt;
           const pipeline = buildPipelineFromPrepared(prepared, {
@@ -628,7 +634,10 @@ export function useLiveCopilot() {
           if (accumulated) {
             lastCompletedRef.current = q;
             lastCompletedRawRef.current = prepared.rawTranscript;
-            const text = trimSpokenAnswer(sanitizeLiveAnswer(stripExperienceFooter(accumulated)));
+            const rawAnswer = stripExperienceFooter(accumulated).trim();
+            const preserveCode =
+              ['technical_task', 'api_test_task'].includes(prepared.answerStrategy.questionIntent) || rawAnswer.includes('```');
+            const text = preserveCode ? rawAnswer : trimSpokenAnswer(sanitizeLiveAnswer(rawAnswer));
             const llmLatencyMs = performance.now() - answerStartedAt;
             const pipeline = buildPipelineFromPrepared(prepared, {
               previousTopic: sessionContextRef.current.lastCanonicalTopic,
@@ -648,21 +657,8 @@ export function useLiveCopilot() {
       },
       {
         sessionId: sessionRef.current ?? undefined,
-        rawQuestion: prepared.rawTranscript,
-        resolvedQuestion: prepared.resolvedQuestion,
-        previousTopic: sessionContextRef.current.lastCanonicalTopic,
-        isFollowUp: prepared.followUp.isFollowUp,
-        usedPreviousContext: prepared.followUp.usedPreviousContext,
-        followUpReason: prepared.followUp.reason,
-        currentCanonicalTopic: prepared.canonicalTopic ?? undefined,
-        questionIntent: prepared.answerStrategy.questionIntent,
-        answerStrategy: prepared.answerStrategy.answerStrategy,
-        resumeContextUsed: prepared.answerStrategy.resumeContextUsed,
-        resumeContextLevel: prepared.answerStrategy.resumeContextLevel,
-        resumeContextReason: prepared.answerStrategy.resumeContextReason,
-        suggestUnclearPrefix: prepared.answerStrategy.suggestUnclearPrefix,
-        // Подготовка ↔ live: слабые темы из последнего mock-отчёта.
-        weakTopics: getWeakTopicTitles(),
+        rawQuestion: q,
+        fastAnswer: true,
         onMeta: (correctionMeta) => {
           if (gen !== streamGenRef.current) return;
           setSttDebug((prev) => {

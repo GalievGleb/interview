@@ -66,17 +66,19 @@
 
 Осталось осознанно: trial ограничен токен-бюджетом 300k и 15 минутами live (жёсткого «1 разбор вакансии» нет — оферта формулирует лимит как «объём функций»); в карточке Максимума на лендинге есть «Автоотклики HH», в приложении фича добавлена в список Максимума.
 
-## 0.3 Надёжность live-overlay на полном interview-prep корпусе
+## 0.3 Надёжность и скорость live-overlay на полном interview-prep корпусе
 
-Проверен файл `interview-prep-python-git-pytest-api-ru.md` (SHA-256 `dc386c82e0a8a6c497e4956edb0baac3994b2d3a3d77ee0a7da193b942c2c088`) через реальный SSE-маршрут overlay `POST /chat/interview/stream`, а не через визуальный review. Dev-only runner `tools/verify_interview_prep_corpus.py` покрывает 25 случаев: все основные Git/Python/pytest/API темы исходника плюс точное присваивание строковому литералу и полный named fixture-order. Финальные прогоны: **25/25 PASS** на source-backend и **25/25 PASS** на backend из установленного Dev-пакета (`%TEMP%\skillcue-corpus-final-package-25.json`). После последней backend-сборки обязательный `verify:dev:overlay` также получил реальные `chunk` + `done`. Dev installer: 127315148 bytes, SHA-256 `8160F7C15D52E71C4ED79B0A0F98F006303D29E0991219A679BA2814C25C679B`; отчёты остаются вне customer package в `%TEMP%`. Stable Windows installer: 125359256 bytes, SHA-256 `607C4436F7E09E1ABD26BCE9FC8061674730D7D2C1AF4304D5E4B5AFACF8D038`; packaged backend SHA-256 `FA99DC604BE3A0EF29228F14FB62B69F240B8FF07C8D09A6A3BA237104334B4C` в точности совпадает с проверенным установленным Dev backend.
+Проверен файл `interview-prep-python-git-pytest-api-ru.md` (SHA-256 `dc386c82e0a8a6c497e4956edb0baac3994b2d3a3d77ee0a7da193b942c2c088`) через реальный SSE-маршрут overlay `POST /chat/interview/stream`. Dev-only runner `tools/verify_interview_prep_corpus.py` покрывает 25 Git/Python/pytest/API случаев. После замены точечных knowledge-патчей глобальным fast-core source-backend получил **25/25 PASS** (`%TEMP%\skillcue-fast-core-final-source-25.json`), установленный финальный Dev backend — **25/25 PASS** (`%TEMP%\skillcue-fast-core-installed-25.json`). Installed first-token: p50 **1203 ms**, p95 **1985 ms**, диапазон 1016–2313 ms; прежний enriched pipeline имел p50 2344 ms. Обязательный installed `verify:dev:overlay` получил `chunk` + `done` через `openai/gpt-4.1-mini` (first chunk 2172 ms). Dev installer: 127317348 bytes, SHA-256 `69B43E5C6D425785C06BD0AF010FD03677CB6A1DE1FCE0489E64BD334300A059`; installed backend SHA-256 `6FA87E24D8206BE82F3161670F50087238AC70B656222B4A41AC21151BC1E74D`. Stable installer: 125361376 bytes, SHA-256 `6DC3C8B0D4EA036824C4E6B364FB26863F2B5E31CF5FDCC5FF0C20D1378E8E51`; его packaged backend имеет тот же SHA-256, что проверенный Dev. Отчёты остаются вне customer package в `%TEMP%`.
 
-Исправлено:
+Глобальный Ctrl+Enter hot-path:
 
-- `technical_task` синхронно добавлен в TypeScript/Python intent-классификаторы; Git conflict больше не считается behavioral, API endpoint design и code/output задачи получают конкретную стратегию.
-- Git-темы с «хешами» исключены из Python retrieval; verified curated-ответы стали authoritative fallback без примеси противоречивого community-контента.
-- Закреплены factual traps: Python 3 `range` не generator, два разных `C()` без `__eq__` не равны, инкапсуляция Python основана на соглашениях, строковый item assignment и mutable default.
-- Кодовые ответы не режутся spoken-лимитом и сохраняют fenced-code отступы/`#`-комментарии; API last_order получает полный контракт статусов, схемы, суммы и бизнес-даты.
-- Ctrl+Enter с дейктическим вопросом («что выведет этот код?», «на экране») маршрутизируется в `/chat/screen/stream`, а не в text-only LLM. Реальный PNG vision-прогон воспроизводится `tools/verify_screen_code_task.py`; финальный установленный Dev PASS подтвердил точный порядок `False` → `TypeError` → остановка и неизменяемость строки.
+- Desktop отправляет исходный вопрос и минимальный JSON; локальные glossary/follow-up/intent вычисления остаются только диагностикой и не расширяют запрос.
+- Backend не вызывает transcript correction, resume/vacancy/legend RAG, candidate profile, weak topics, domain hints или knowledge packs; не читает эти контексты из БД и делает ровно один provider stream-вызов.
+- System+user prompt ограничен примерно 1.7–2.1 тыс. символов. Теория ограничена 70 словами; complete code/API tasks сохраняются без spoken-trim.
+- Fast-core использует глобально проверенный `openai/gpt-4.1-mini`, `temperature=0`; explicit model override оставлен только для диагностических сравнений.
+- Вместо правил под отдельные вопросы используются только общие intent-классы: definition/list/comparison, exact code task и `api_test_task` с универсальной status/schema/business matrix.
+- Старый enriched pipeline и curated knowledge сохранены только для не-fast сценариев. При проверке обнаружена и исправлена ошибка самого curated benchmark: `'1234567890'[6] = 7` синтаксически допустимо и даёт runtime `TypeError`, а не `SyntaxError`.
+- Ctrl+Enter с дейктическим вопросом («что выведет этот код?», «на экране») маршрутизируется в `/chat/screen/stream`. Реальный PNG vision-прогон `tools/verify_screen_code_task.py` подтверждает `False` → `TypeError` → остановка и неизменяемость строки.
 - Автоматический STT/очередь по-прежнему не может стартовать или заменить ответ: нижний guard требует `forceGeneration`, создаваемый только Ctrl+Enter.
 
 ---

@@ -14,6 +14,15 @@ def test_pick_auto_fast_skips_gemini3():
     assert model == "openai/gpt-4o-mini"
 
 
+def test_pick_auto_fast_prefers_quality_mini_without_reasoning_latency():
+    available = {
+        "openai/gpt-4o-mini",
+        "openai/gpt-4.1-mini",
+        "google/gemini-2.0-flash-001",
+    }
+    assert pick_auto_model("fast", available) == "openai/gpt-4.1-mini"
+
+
 def test_pick_auto_fast():
     available = {
         "openai/gpt-4o-mini",

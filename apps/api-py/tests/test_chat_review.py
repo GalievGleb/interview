@@ -331,6 +331,74 @@ def test_interview_stream_injects_answer_language_block(client, monkeypatch):
     assert "English" in user_msg
 
 
+def test_interview_fast_core_skips_every_enrichment_stage(client, monkeypatch):
+    captured: dict = {}
+
+    async def fake_stream(messages, provider=None, model=None, **kwargs):
+        captured["messages"] = messages
+        captured["model"] = model
+        captured["kwargs"] = kwargs
+        yield "Короткий ответ."
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("fast core must not call enrichment")
+
+    async def forbidden_async(*args, **kwargs):
+        raise AssertionError("fast core must not call correction")
+
+    from conftest import TestingSessionLocal
+
+    from app.routers import chat as chat_router
+
+    monkeypatch.setattr(chat_router, "SessionLocal", TestingSessionLocal)
+    monkeypatch.setattr(chat_router, "_finalize_question", forbidden_async)
+    monkeypatch.setattr(chat_router.rag_service, "get_context_text", forbidden)
+    monkeypatch.setattr(chat_router, "get_profile_block", forbidden)
+    monkeypatch.setattr(chat_router, "resolve_domain_answer_hints", forbidden)
+    monkeypatch.setattr(chat_router, "resolve_required_output_contract", forbidden)
+    monkeypatch.setattr(chat_router, "detect_pack", forbidden)
+    monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
+
+    question = "Что такое генератор в Python?"
+    response = client.post(
+        "/chat/interview/stream",
+        json={
+            "question": question,
+            "raw_question": "другой текст, который нельзя использовать",
+            "resolved_follow_up_question": "подменённый follow-up",
+            "question_intent": "experience",
+            "weak_topics": ["Python", "API"],
+            "fast_answer": True,
+            "answer_language": "ru",
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert len(captured["messages"]) == 2
+    system_prompt = captured["messages"][0]["content"]
+    user_prompt = captured["messages"][1]["content"]
+    assert question in user_prompt
+    assert "подменённый follow-up" not in user_prompt
+    assert "другой текст" not in user_prompt
+    assert "DOMAIN-SPECIFIC" not in user_prompt
+    assert "KNOWLEDGE PACK" not in user_prompt
+    assert "RESUME" not in system_prompt + user_prompt
+    assert len(system_prompt) + len(user_prompt) < 1800
+    assert captured["kwargs"]["route_fast"] is True
+    assert captured["model"] == "openai/gpt-4.1-mini"
+
+    done = next(
+        json.loads(line[6:])
+        for line in response.text.splitlines()
+        if line.startswith("data: ") and '"type": "done"' in line
+    )
+    meta = done["correction"]
+    assert meta["prompt_mode"] == "fast_core"
+    assert meta["enrichment_used"] is False
+    assert meta["knowledgePackUsed"] is False
+    assert meta["resume_context_used"] is False
+    assert meta["prompt_chars"] < 1800
+
+
 def test_interview_stream_failure_after_partial_tokens_is_not_success(client, monkeypatch):
     async def failing_stream(messages, provider=None, model=None, **kwargs):
         yield "partial"

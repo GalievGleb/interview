@@ -13,12 +13,14 @@ from app.db.models import Answer, ApiUsage
 from app.db.session import SessionLocal, get_db
 from app.prompts.interview import INTERVIEW_PROMPT
 from app.prompts.interview_fast import (
+    FAST_CORE_SYSTEM_PROMPT,
     INTERVIEW_PROMPT_STREAM,
     LEGEND_CONTEXT_LIMIT,
     LIVE_SYSTEM_PROMPT,
     RESUME_CONTEXT_LIMIT,
     RESUME_PLACEHOLDER_NONE,
     VACANCY_CONTEXT_LIMIT,
+    build_fast_core_user_prompt,
 )
 from app.prompts.meeting import (
     build_interview_outcome_prompt,
@@ -35,7 +37,10 @@ from app.services.domain_answer_hints import (
 from app.services.knowledge_pack import build_injection as build_python_pack_injection
 from app.services.knowledge_pack import detect_pack
 from app.services.preferences import load_preferences
-from app.services.question_intent import resolve_answer_strategy
+from app.services.question_intent import (
+    classify_interview_question_intent,
+    resolve_answer_strategy,
+)
 from app.services.sanitize_live_answer import sanitize_live_answer, trim_spoken_answer
 
 router = APIRouter(tags=["chat"])
@@ -320,77 +325,105 @@ async def _interview_event_stream(
     final_question = (payload.question or "").strip()
 
     try:
-        (
-            final_question,
-            raw_question,
-            glossary_corrected,
-            correction_meta,
-        ) = await _finalize_question(payload)
-        strategy = resolve_answer_strategy(payload)
-        correction_meta.update(
-            {
-                "question_intent": strategy["question_intent"],
-                "answer_strategy": strategy["answer_strategy"],
-                "resume_context_used": strategy["resume_context_used"],
-                "resume_context_level": strategy["resume_context_level"],
-                "resume_context_reason": strategy["resume_context_reason"],
-                "suggest_unclear_prefix": strategy["suggest_unclear_prefix"],
+        if not final_question:
+            raise AppError("Пустой вопрос", 400, "empty_question")
+
+        if payload.fast_answer:
+            # Ctrl+Enter hot path: one compact provider request. No transcript
+            # correction, follow-up resolution, resume/RAG reads, domain hints,
+            # knowledge packs, weak topics, or required-output patches.
+            raw_question = final_question
+            strategy = classify_interview_question_intent(final_question)
+            intent = str(strategy["question_intent"])
+            prompt = build_fast_core_user_prompt(
+                final_question,
+                intent,
+                _answer_language_block(payload.answer_language),
+            )
+            system_prompt = FAST_CORE_SYSTEM_PROMPT
+            correction_meta = {
+                "question_intent": intent,
+                "answer_strategy": "fast_core",
+                "resume_context_used": False,
+                "resume_context_level": "none",
+                "resume_context_reason": "fast_core_no_enrichment",
+                "knowledgePackUsed": False,
+                "prompt_mode": "fast_core",
+                "enrichment_used": False,
+                "prompt_chars": len(system_prompt) + len(prompt),
             }
-        )
-        resume_text = (
-            RESUME_PLACEHOLDER_NONE
-            if strategy["resume_context_level"] == "none"
-            else (resume or "(нет)")
-        )
-        resolved_q = correction_meta.get("resolved_follow_up_question") or final_question
-        domain_hints = resolve_domain_answer_hints(resolved_q)
-        prompt = INTERVIEW_PROMPT_STREAM.format(
-            resume=resume_text,
-            vacancy=vacancy or "(нет)",
-            legend=legend or "(нет)",
-            candidate_profile=candidate_profile,
-            question=final_question,
-            raw_question=raw_question,
-            glossary_corrected=glossary_corrected,
-            ambiguity=correction_meta.get("ambiguity") or "(none)",
-            resolved_follow_up_question=resolved_q,
-            previous_topic=correction_meta.get("previous_topic") or "(none)",
-            question_intent=strategy["question_intent"],
-            answer_strategy=strategy["answer_strategy"],
-            resume_context_level=strategy["resume_context_level"],
-            resume_context_used=str(strategy["resume_context_used"]).lower(),
-            resume_context_reason=strategy["resume_context_reason"],
-            domain_hints=domain_hints,
-        )
-        # Python Knowledge Pack: only for pure-Python questions (not QA topics),
-        # appended as a small auxiliary reference — never the whole source.
-        knowledge_meta: dict = {"knowledgePackUsed": False}
-        if detect_pack(resolved_q):
-            kn_block, knowledge_meta = build_python_pack_injection(resolved_q)
-            if kn_block:
-                prompt = f"{prompt}\n\n{kn_block}"
-        prompt += _weak_topics_block(payload.weak_topics)
-        prompt += _answer_language_block(payload.answer_language)
-        required_contract = resolve_required_output_contract(resolved_q)
-        if required_contract:
-            prompt += f"\n\n{required_contract}"
-        correction_meta.update(knowledge_meta)
+        else:
+            (
+                final_question,
+                raw_question,
+                glossary_corrected,
+                correction_meta,
+            ) = await _finalize_question(payload)
+            strategy = resolve_answer_strategy(payload)
+            correction_meta.update(
+                {
+                    "question_intent": strategy["question_intent"],
+                    "answer_strategy": strategy["answer_strategy"],
+                    "resume_context_used": strategy["resume_context_used"],
+                    "resume_context_level": strategy["resume_context_level"],
+                    "resume_context_reason": strategy["resume_context_reason"],
+                    "suggest_unclear_prefix": strategy["suggest_unclear_prefix"],
+                }
+            )
+            resume_text = (
+                RESUME_PLACEHOLDER_NONE
+                if strategy["resume_context_level"] == "none"
+                else (resume or "(нет)")
+            )
+            resolved_q = correction_meta.get("resolved_follow_up_question") or final_question
+            domain_hints = resolve_domain_answer_hints(resolved_q)
+            prompt = INTERVIEW_PROMPT_STREAM.format(
+                resume=resume_text,
+                vacancy=vacancy or "(нет)",
+                legend=legend or "(нет)",
+                candidate_profile=candidate_profile,
+                question=final_question,
+                raw_question=raw_question,
+                glossary_corrected=glossary_corrected,
+                ambiguity=correction_meta.get("ambiguity") or "(none)",
+                resolved_follow_up_question=resolved_q,
+                previous_topic=correction_meta.get("previous_topic") or "(none)",
+                question_intent=strategy["question_intent"],
+                answer_strategy=strategy["answer_strategy"],
+                resume_context_level=strategy["resume_context_level"],
+                resume_context_used=str(strategy["resume_context_used"]).lower(),
+                resume_context_reason=strategy["resume_context_reason"],
+                domain_hints=domain_hints,
+            )
+            knowledge_meta: dict = {"knowledgePackUsed": False}
+            if detect_pack(resolved_q):
+                kn_block, knowledge_meta = build_python_pack_injection(resolved_q)
+                if kn_block:
+                    prompt = f"{prompt}\n\n{kn_block}"
+            prompt += _weak_topics_block(payload.weak_topics)
+            prompt += _answer_language_block(payload.answer_language)
+            required_contract = resolve_required_output_contract(resolved_q)
+            if required_contract:
+                prompt += f"\n\n{required_contract}"
+            correction_meta.update(knowledge_meta)
+            system_prompt = LIVE_SYSTEM_PROMPT
+
         answer_started_at = time.perf_counter()
         messages = [
-            {"role": "system", "content": LIVE_SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt},
         ]
         async for delta in provider_adapter.stream_chat(
             messages,
             provider,
             model,
-            temperature=0.3,
+            temperature=0.0 if payload.fast_answer else 0.3,
             live_fast=True,
             route_fast=payload.fast_answer,
         ):
             parts.append(delta)
             yield f"data: {json.dumps({'type': 'chunk', 'text': delta}, ensure_ascii=False)}\n\n"
-        correction_meta["answerLatencyWithKnowledgeMs"] = int(
+        correction_meta["answerLatencyMs"] = int(
             (time.perf_counter() - answer_started_at) * 1000
         )
     except Exception as exc:  # noqa: BLE001
@@ -402,6 +435,7 @@ async def _interview_event_stream(
         final_spoken = _finalize_live_spoken(
             spoken,
             str(correction_meta.get("question_intent") or "unclear"),
+            spoken_cap=70 if payload.fast_answer else 90,
         )
 
     if err_msg:
@@ -703,19 +737,27 @@ async def interview_stream(payload: InterviewPayload, db: Session = Depends(get_
         model=payload.model,
         model_override=payload.model_override,
     )
+    if payload.fast_answer and not payload.model and not payload.model_override:
+        # The no-RAG core relies on model knowledge instead of factual patches.
+        # Keep one globally benchmarked quality/latency model; explicit API
+        # overrides remain available for diagnostics and controlled rollouts.
+        model = model_router.FAST_CORE_DEFAULT_MODEL
+        source = "fast_core_default"
 
     # We use a separate session for the streaming event to keep the Depends()
     # session free for the caller. Resolve the provider before opening it so
     # failures cannot leak a session before StreamingResponse is created.
     stream_db = SessionLocal()
-    try:
-        resume = _clip(rag_service.get_context_text(stream_db, "resume"), RESUME_CONTEXT_LIMIT)
-        vacancy = _clip(rag_service.get_context_text(stream_db, "vacancy"), VACANCY_CONTEXT_LIMIT)
-        legend = _clip(rag_service.get_context_text(stream_db, "legend"), LEGEND_CONTEXT_LIMIT)
-        profile_block = get_profile_block(stream_db)
-    except Exception:
-        stream_db.close()
-        raise
+    resume = vacancy = legend = profile_block = ""
+    if not payload.fast_answer:
+        try:
+            resume = _clip(rag_service.get_context_text(stream_db, "resume"), RESUME_CONTEXT_LIMIT)
+            vacancy = _clip(rag_service.get_context_text(stream_db, "vacancy"), VACANCY_CONTEXT_LIMIT)
+            legend = _clip(rag_service.get_context_text(stream_db, "legend"), LEGEND_CONTEXT_LIMIT)
+            profile_block = get_profile_block(stream_db)
+        except Exception:
+            stream_db.close()
+            raise
 
     async def event_stream():
         try:
@@ -1046,16 +1088,16 @@ def _sanitize_live_task_answer(text: str) -> str:
     return "\n\n".join(cleaned).strip()
 
 
-def _finalize_live_spoken(raw: str, question_intent: str) -> str:
+def _finalize_live_spoken(raw: str, question_intent: str, *, spoken_cap: int = 90) -> str:
     """Sanitize live output and preserve complete concrete-task code blocks."""
     parsed = _parse_fast_response(raw)
     spoken = parsed.get("spoken") or raw
-    if question_intent == "technical_task" or "```" in spoken:
+    if question_intent in {"technical_task", "api_test_task"} or "```" in spoken:
         # Cutting at 90 words can leave code incomplete; normal sanitization also
         # collapses indentation and can remove Python # comments. Preserve every
         # fenced block even when a theory answer includes a small code example.
         return _sanitize_live_task_answer(spoken)
-    return trim_spoken_answer(sanitize_live_answer(spoken))
+    return trim_spoken_answer(sanitize_live_answer(spoken), spoken_cap)
 
 
 def _parse_fast_response(raw: str) -> dict:

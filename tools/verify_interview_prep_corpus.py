@@ -46,14 +46,14 @@ CASES = (
     Case("encapsulation", "python", "Как реализована инкапсуляция в Python? Какие есть уровни доступа и можно ли обратиться к __private снаружи?", (("соглашен", "не строг"), ("_protected", "один подч", "одним подчеркив"), ("__private", "два подч", "двумя подчеркив"), ("name mangling", "_classname", "преобраз"), ("property",)), min_coverage=0.6),
     Case("pytest-fixtures", "pytest", "Что такое фикстуры pytest? Объясни yield, teardown и scope.", (("подгот", "setup"), ("yield",), ("teardown", "очист"), ("function", "функц"), ("module", "модул"), ("session", "сесс"))),
     Case("string-index", "python-code", "Что произойдёт в Python с выражением '1234567890'[6] == 7 и затем с кодом s = 'hello'; s[0] = 'H'?", (("false", "лож"), ("'7'", "строка 7", "символ"), ("typeerror", "нельзя измен", "неизменяем")), max_words=110),
-    Case("string-literal-assignment", "python-code", "Что произойдёт при присваивании элементу строки: '1234567890'[6] = 7?", (("syntaxerror", "синтаксическ"), ("нельзя присва", "cannot assign"), ("неизменяем", "immutable")), max_words=90),
+    Case("string-literal-assignment", "python-code", "Что произойдёт при присваивании элементу строки: '1234567890'[6] = 7?", (("typeerror",), ("нельзя присва", "нельзя измен", "cannot assign", "does not support item assignment"), ("неизменяем", "immutable")), max_words=90),
     Case("python-types", "python", "Назови основные типы Python и раздели mutable и immutable.", (("int", "целые чис"), ("str", "строк"), ("list", "списк"), ("dict", "словар"), ("set", "множеств"), ("tuple", "кортеж"), ("изменяем", "mutable"), ("неизменяем", "immutable")), min_coverage=0.75),
     Case("argument-passing", "python", "В Python передача по ссылке или по значению? Объясни на mutable объекте и переназначении имени.", (("объект", "присваив"), ("ссыл", "то же"), ("изменяем", "mutable"), ("переназнач", "локальн"))),
     Case("dict-squares", "python-code", "Напиши однострочник: словарь квадратов чисел от 0 до 9.", (("{", "dict"), ("for",), ("range(10)", "range (10)"), ("** 2", "**2", "x*x", "x * x")), max_words=None),
     Case("range-generator", "python", "range в Python 3 — это генератор? Что использовалось в Python 2?", (("не генератор",), ("ленив", "iterable", "итерируем"), ("xrange",), ("список",))),
     Case("zip-dict", "python-code", "Какой результат: dict(zip(('a','b','c','d','e'), (1,2,3,4,5)))? Что делает zip?", (("'a': 1", '"a": 1'), ("'e': 5", '"e": 5'), ("позиц", "пар", "объединяет элемент", "кортеж")), max_words=100),
-    Case("zip-shortest", "python", "Что будет, если передать в zip последовательности разной длины?", (("корот",), ("останов", "длина которой равна", "будет равна длине"), ("без ошиб", "не будут учтен", "игнорир", "просто не"))),
-    Case("sorted-dict", "python-code", "Дан D={'a':1,'b':2,'c':3,'d':4,'e':5}. Что вернёт sorted([D[s] for s in D]) и меняет ли sorted исходный объект?", (("[1, 2, 3, 4, 5]",), ("нов", "возвращ"), ("не измен",))),
+    Case("zip-shortest", "python", "Что будет, если передать в zip последовательности разной длины?", (("корот",), ("останов", "длина котор", "равна длине сам", "будет равна длине"), ("без ошиб", "не будут учтен", "игнорир", "просто не"))),
+    Case("sorted-dict", "python-code", "Дан D={'a':1,'b':2,'c':3,'d':4,'e':5}. Что вернёт sorted([D[s] for s in D]) и меняет ли sorted исходный объект?", (("[1, 2, 3, 4, 5]",), ("нов", "возвращ"), ("не измен", "не меня"))),
     Case("default-args", "python-code", "Напиши функцию interview(name, company), которая печатает '<name> на собеседовании в <company>', компания по умолчанию Ozon.", (("def interview",), ("company=\"ozon\"", "company='ozon'", "company = \"ozon\"", "company = 'ozon'"), ("print",), ("f\"", "f'")), max_words=None),
     Case("mutable-default", "python", "Почему нельзя использовать список как значение аргумента по умолчанию и как сделать правильно?", (("один раз", "определен"), ("между вызов", "общ", "всеми вызов", "разделяться"), ("none",), ("items = []", "создать новый", "создавать новый"))),
     Case("fixture-order", "pytest-code", "Как определить порядок выполнения pytest-фикстур разных scope, autouse, зависимостей и teardown после yield?", (("session",), ("module",), ("зависим",), ("autouse",), ("yield",), ("обратн", "teardown")), min_coverage=0.75),
@@ -96,13 +96,14 @@ def _wait_for_health(port: int, deadline: float) -> None:
     raise RuntimeError("The isolated SkillCue Dev backend did not start")
 
 
-def _stream_case(port: int, token: str, case: Case) -> dict:
+def _stream_case(port: int, token: str, case: Case, model_override: str | None = None) -> dict:
     payload = {
         "question": case.question,
         "raw_question": case.question,
         "mode": "fast",
         "fast_answer": True,
         "answer_language": "ru",
+        "model_override": model_override,
     }
     req = urllib.request.Request(
         f"http://127.0.0.1:{port}/chat/interview/stream",
@@ -180,6 +181,7 @@ def main() -> int:
     parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE)
     parser.add_argument("--source-backend", action="store_true", help="run app.main via uvicorn instead of installed Dev")
     parser.add_argument("--case", action="append", dest="case_ids")
+    parser.add_argument("--model", help="optional exact model override for benchmark comparisons")
     parser.add_argument("--report", type=Path)
     args = parser.parse_args()
     if hasattr(os.sys.stdout, "reconfigure"):
@@ -236,7 +238,7 @@ def main() -> int:
         _wait_for_health(port, time.monotonic() + 12)
         for index, case in enumerate(selected, 1):
             try:
-                evaluated = _evaluate(case, _stream_case(port, token, case))
+                evaluated = _evaluate(case, _stream_case(port, token, case, args.model))
             except Exception as exc:  # noqa: BLE001 - evaluation must continue
                 evaluated = {
                     "id": case.id,

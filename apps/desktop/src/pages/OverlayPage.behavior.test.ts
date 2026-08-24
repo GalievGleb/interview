@@ -173,6 +173,20 @@ describe('overlay request behavior', () => {
     expect(hookSource).toContain('Manual-only policy');
   });
 
+  it('uses a minimal raw-question fast path for every Ctrl+Enter answer', () => {
+    expect(hookSource).toContain('const q = prepared.rawTranscript.trim()');
+    expect(hookSource).toContain('fastAnswer: true');
+    expect(hookSource).not.toContain('getWeakTopicTitles()');
+    expect(apiSource).toContain('body: JSON.stringify(fastAnswer ? fastPayload : enrichedPayload)');
+    expect(apiSource).toContain('const fastPayload = {');
+    const fastPayloadBlock = apiSource.match(/const fastPayload = \{([\s\S]*?)\n\s{8}\};/)?.[1] ?? '';
+    expect(fastPayloadBlock).toContain('question,');
+    expect(fastPayloadBlock).toContain('fast_answer: true');
+    expect(fastPayloadBlock).not.toContain('question_intent');
+    expect(fastPayloadBlock).not.toContain('weak_topics');
+    expect(fastPayloadBlock).not.toContain('resolved_follow_up_question');
+  });
+
   it('routes deictic code-on-screen questions to vision after Ctrl+Enter', () => {
     expect(hookSource).toContain('requiresScreenContext(question)');
     expect(hookSource).toContain('routeQuestionToScreen(generation)');

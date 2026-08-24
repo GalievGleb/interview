@@ -13,6 +13,7 @@ VACANCY_DEFAULT_MODEL = "openai/gpt-4o"
 # Per-answer coaching is interactive: keep it on the small low-latency model.
 # The detailed end-of-interview report still has its separate vacancy route.
 FEEDBACK_DEFAULT_MODEL = "openai/gpt-4o-mini"
+FAST_CORE_DEFAULT_MODEL = "openai/gpt-4.1-mini"
 
 MODE_SETTING: dict[str, str] = {
     "general": "default_copilot_model",
@@ -27,11 +28,13 @@ MODE_SETTING: dict[str, str] = {
 
 # Паттерны id — проверяются по substring в lower(id). Без gemini-2.5/3 — thinking тормозит live.
 LIVE_PATTERNS = [
-    "gemini-2.0-flash-lite",
+    # 4.1-mini is still low-latency but materially more reliable on exact
+    # technical definitions than 4o-mini when the live prompt has no RAG.
+    "gpt-4.1-mini",
     "gpt-4o-mini",
+    "gemini-2.0-flash-lite",
     "gpt-4.1-nano",
     "gemini-2.0-flash",
-    "gpt-4.1-mini",
     "claude-3.5-haiku",
     "claude-haiku",
     "deepseek-chat",
@@ -143,6 +146,8 @@ def pick_auto_model(mode: str, available: set[str]) -> str:
             return FEEDBACK_DEFAULT_MODEL
         if mode == "vacancy":
             return VACANCY_DEFAULT_MODEL
+        if mode == "fast":
+            return FAST_CORE_DEFAULT_MODEL
         return "openai/gpt-4o-mini"
 
     if mode == "fast":
