@@ -1,7 +1,9 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  HhBrowserAssistant,
   browserLaunchArguments,
   debugInfoFromBrowserCommandLine,
   isAlreadyAppliedHhText,
@@ -109,6 +111,38 @@ describe('HH login navigation recovery', () => {
     expect(isBrokenHhLoginSourcePage('https://hh.ru/404')).toBe(true);
     expect(isBrokenHhLoginSourcePage('https://hh.ru/account/login')).toBe(false);
     expect(isBrokenHhLoginSourcePage('https://example.com/negotiations')).toBe(false);
+  });
+
+  it('treats an authenticated redirect away from login as an existing HH connection', async () => {
+    const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skillcue-hh-login-'));
+    try {
+      const assistant = new HhBrowserAssistant(userDataDir, () => undefined);
+      const internals = assistant as unknown as {
+        openFreshHhLoginPage: () => Promise<{
+          url: () => string;
+          locator: () => never;
+        }>;
+        hasHhAuthCookie: () => Promise<boolean>;
+      };
+      internals.openFreshHhLoginPage = async () => ({
+        url: () => 'https://hh.ru/applicant/profile/me',
+        locator: () => {
+          throw new Error('login DOM must not be queried after an authenticated redirect');
+        },
+      });
+      internals.hasHhAuthCookie = async () => true;
+
+      const result = await assistant.requestLoginCode('person@example.com');
+
+      expect(result).toEqual({ ok: true, message: 'HH уже подключён.' });
+      expect(assistant.getState()).toMatchObject({
+        browserOpen: true,
+        loginRequired: false,
+        message: 'HH уже подключён.',
+      });
+    } finally {
+      fs.rmSync(userDataDir, { recursive: true, force: true });
+    }
   });
 
   it('recognizes current and legacy HH already-applied messages', () => {

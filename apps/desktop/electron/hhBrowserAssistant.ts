@@ -3036,6 +3036,19 @@ export class HhBrowserAssistant {
       }
       const page = await this.openFreshHhLoginPage();
 
+      // HH redirects an already authenticated applicant away from /account/login.
+      // In that state there is no login DOM to automate: the durable auth cookie
+      // and the successful redirect are the connection confirmation.
+      if (!page.url().includes('/account/login') && await this.hasHhAuthCookie()) {
+        this.update({
+          phase: 'browser_open',
+          browserOpen: true,
+          loginRequired: false,
+          message: 'HH уже подключён.',
+        });
+        return { ok: true, message: 'HH уже подключён.' };
+      }
+
       const emailInputSelector = [
         'input[data-qa="applicant-login-input-email"]',
         'input[data-qa="account-login-input"]',

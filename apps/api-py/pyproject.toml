@@ -1,6 +1,6 @@
 [project]
 name = "interview-copilot-api"
-version = "0.1.0"
+version = "0.1.7"
 description = "SkillCue FastAPI backend: OpenAI Mini STT + LLM answer generation"
 # The code uses 3.11+ features (e.g. datetime.UTC). Do not run on 3.10.
 requires-python = ">=3.11"
