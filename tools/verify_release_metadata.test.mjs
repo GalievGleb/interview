@@ -16,13 +16,23 @@ async function fixture({
   pythonVersion = version,
   fastApiVersion = version,
   notesSource,
+  packageManager = 'pnpm@11.21.0',
+  workflowPnpmVersion = '11.21.0',
 } = {}) {
   const root = await mkdtemp(path.join(tmpdir(), 'skillcue-release-metadata-'));
+  await mkdir(path.join(root, '.github', 'workflows'), { recursive: true });
   await mkdir(path.join(root, 'apps', 'desktop', 'src', 'lib'), { recursive: true });
   await mkdir(path.join(root, 'apps', 'api'), { recursive: true });
   await mkdir(path.join(root, 'apps', 'api-py', 'app'), { recursive: true });
   await mkdir(path.join(root, 'packages', 'shared'), { recursive: true });
-  await writeFile(path.join(root, 'package.json'), JSON.stringify({ version: rootVersion }));
+  await writeFile(
+    path.join(root, 'package.json'),
+    JSON.stringify({ version: rootVersion, packageManager }),
+  );
+  await writeFile(
+    path.join(root, '.github', 'workflows', 'release.yml'),
+    `steps:\n  - uses: pnpm/action-setup@v4\n    with:\n      version: ${workflowPnpmVersion}\n`,
+  );
   await writeFile(path.join(root, 'apps', 'api', 'package.json'), JSON.stringify({ version: apiVersion }));
   await writeFile(path.join(root, 'apps', 'desktop', 'package.json'), JSON.stringify({ version }));
   await writeFile(
@@ -101,5 +111,13 @@ test('rejects duplicate in-app notes for the release version', async () => {
   await assert.rejects(
     verifyReleaseMetadata({ root, tag: 'v0.1.0' }),
     /release notes contain 2 entries for version 0\.1\.0/i,
+  );
+});
+
+test('rejects a CI pnpm version that cannot consume the repository lockfile configuration', async () => {
+  const root = await fixture({ workflowPnpmVersion: '9' });
+  await assert.rejects(
+    verifyReleaseMetadata({ root, tag: 'v0.0.38' }),
+    /\.github\/workflows\/release\.yml uses pnpm 9 but packageManager is pnpm@11\.21\.0/i,
   );
 });

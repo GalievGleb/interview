@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -23,6 +23,7 @@ export async function verifyReleaseMetadata({ root, tag }) {
     readFile(notesPath, 'utf8'),
     readFile(changelogPath, 'utf8'),
   ]);
+  const rootPackage = JSON.parse(rootPackageText);
   const version = String(JSON.parse(packageText).version ?? '');
   if (!STABLE_VERSION_RE.test(version)) {
     throw new Error(`Desktop package must use a stable semantic version, got ${version || '<empty>'}.`);
@@ -35,7 +36,7 @@ export async function verifyReleaseMetadata({ root, tag }) {
   const fastApiVersion = pythonMain.match(/FastAPI\([^)]*?\bversion\s*=\s*['"]([^'"]+)['"]/s)?.[1] ?? '';
   const healthVersion = pythonMain.match(/['"]version['"]\s*:\s*['"]([^'"]+)['"]/)?.[1] ?? '';
   const versionSources = [
-    ['package.json', String(JSON.parse(rootPackageText).version ?? '')],
+    ['package.json', String(rootPackage.version ?? '')],
     ['apps/api/package.json', String(JSON.parse(apiPackageText).version ?? '')],
     ['packages/shared/package.json', String(JSON.parse(sharedPackageText).version ?? '')],
     ['apps/api-py/pyproject.toml', pythonProjectVersion],
@@ -47,6 +48,34 @@ export async function verifyReleaseMetadata({ root, tag }) {
       throw new Error(
         `${source} version ${sourceVersion || '<missing>'} does not match desktop version ${version}.`,
       );
+    }
+  }
+  const packageManager = String(rootPackage.packageManager ?? '');
+  const packageManagerVersion = packageManager.match(/^pnpm@(\d+\.\d+\.\d+)$/)?.[1] ?? '';
+  if (!packageManagerVersion) {
+    throw new Error(
+      `package.json packageManager must pin an exact pnpm version, got ${packageManager || '<missing>'}.`,
+    );
+  }
+  const workflowsDirectory = path.join(root, '.github', 'workflows');
+  const workflowNames = (await readdir(workflowsDirectory)).filter((name) => /\.ya?ml$/i.test(name));
+  for (const workflowName of workflowNames) {
+    const workflowPath = path.join(workflowsDirectory, workflowName);
+    const workflow = await readFile(workflowPath, 'utf8');
+    const lines = workflow.split(/\r?\n/);
+    for (let index = 0; index < lines.length; index += 1) {
+      if (!/uses:\s*pnpm\/action-setup@/i.test(lines[index])) continue;
+      for (let lookahead = index + 1; lookahead < Math.min(lines.length, index + 9); lookahead += 1) {
+        if (/^\s*-\s+(?:uses|name):/i.test(lines[lookahead])) break;
+        const configuredVersion = lines[lookahead].match(/^\s*version:\s*['"]?([^'"\s#]+)/i)?.[1];
+        if (!configuredVersion) continue;
+        if (configuredVersion !== packageManagerVersion) {
+          throw new Error(
+            `.github/workflows/${workflowName} uses pnpm ${configuredVersion} but packageManager is ${packageManager}.`,
+          );
+        }
+        break;
+      }
     }
   }
   const firstNote = notes.match(/version:\s*['"]([^'"]+)['"]/i)?.[1];

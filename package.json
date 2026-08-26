@@ -2,6 +2,7 @@
   "name": "interview-assistant",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "pnpm@11.21.0",
   "scripts": {
     "dev:api": "pnpm --filter @interview/shared build && pnpm --filter @interview/api dev",
     "dev:desktop": "pnpm --filter @interview/shared build && pnpm --filter @interview/desktop dev",
