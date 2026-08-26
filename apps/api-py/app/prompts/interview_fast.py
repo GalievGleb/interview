@@ -242,12 +242,7 @@ FAST_CORE_INTENT_GUIDANCE = {
 
 def build_fast_core_user_prompt(question: str, intent: str, language_block: str = "") -> str:
     guidance = FAST_CORE_INTENT_GUIDANCE.get(intent, FAST_CORE_INTENT_GUIDANCE["unclear"])
-    return (
-        f"INTENT: {intent}\n"
-        f"FORMAT: {guidance}\n"
-        f"QUESTION: {question.strip()}"
-        f"{language_block}"
-    )
+    return f"INTENT: {intent}\nFORMAT: {guidance}\nQUESTION: {question.strip()}{language_block}"
 
 
 RESUME_CONTEXT_LIMIT = 2000

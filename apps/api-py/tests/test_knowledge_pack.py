@@ -78,9 +78,12 @@ def test_named_pytest_fixtures_never_route_to_python_pack():
 
 
 def test_git_hash_and_rebase_never_route_to_python_pack():
-    assert kp.is_python_question(
-        "Как работает git rebase, что происходит с хешами и как разрешить конфликт?"
-    ) is False
+    assert (
+        kp.is_python_question(
+            "Как работает git rebase, что происходит с хешами и как разрешить конфликт?"
+        )
+        is False
+    )
 
 
 def test_corpus_factual_traps_use_verified_entries():

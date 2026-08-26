@@ -18,6 +18,8 @@ async function fixture({
   notesSource,
   packageManager = 'pnpm@11.21.0',
   workflowPnpmVersion = '11.21.0',
+  nodeEngine = '>=22.13',
+  workflowNodeVersion = '24',
 } = {}) {
   const root = await mkdtemp(path.join(tmpdir(), 'skillcue-release-metadata-'));
   await mkdir(path.join(root, '.github', 'workflows'), { recursive: true });
@@ -27,11 +29,11 @@ async function fixture({
   await mkdir(path.join(root, 'packages', 'shared'), { recursive: true });
   await writeFile(
     path.join(root, 'package.json'),
-    JSON.stringify({ version: rootVersion, packageManager }),
+    JSON.stringify({ version: rootVersion, packageManager, engines: { node: nodeEngine } }),
   );
   await writeFile(
     path.join(root, '.github', 'workflows', 'release.yml'),
-    `steps:\n  - uses: pnpm/action-setup@v4\n    with:\n      version: ${workflowPnpmVersion}\n`,
+    `steps:\n  - uses: pnpm/action-setup@v4\n    with:\n      version: ${workflowPnpmVersion}\n  - uses: actions/setup-node@v4\n    with:\n      node-version: ${workflowNodeVersion}\n`,
   );
   await writeFile(path.join(root, 'apps', 'api', 'package.json'), JSON.stringify({ version: apiVersion }));
   await writeFile(path.join(root, 'apps', 'desktop', 'package.json'), JSON.stringify({ version }));
@@ -119,5 +121,13 @@ test('rejects a CI pnpm version that cannot consume the repository lockfile conf
   await assert.rejects(
     verifyReleaseMetadata({ root, tag: 'v0.0.38' }),
     /\.github\/workflows\/release\.yml uses pnpm 9 but packageManager is pnpm@11\.21\.0/i,
+  );
+});
+
+test('rejects a CI Node version that is too old for the pinned pnpm runtime', async () => {
+  const root = await fixture({ workflowNodeVersion: '20' });
+  await assert.rejects(
+    verifyReleaseMetadata({ root, tag: 'v0.0.38' }),
+    /\.github\/workflows\/release\.yml uses Node 20 but pnpm@11\.21\.0 requires Node >=22\.13/i,
   );
 });

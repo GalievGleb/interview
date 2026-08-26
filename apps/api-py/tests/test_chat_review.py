@@ -535,9 +535,7 @@ def test_interview_fast_core_hedges_slow_theory_with_quality_model(client, monke
     assert done["correction"]["hedgeWinner"] == "fallback"
 
 
-def test_interview_fast_core_uses_fast_theory_model_without_waiting_for_hedge(
-    client, monkeypatch
-):
+def test_interview_fast_core_uses_fast_theory_model_without_waiting_for_hedge(client, monkeypatch):
     from conftest import TestingSessionLocal
 
     from app.routers import chat as chat_router

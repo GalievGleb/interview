@@ -57,6 +57,14 @@ export async function verifyReleaseMetadata({ root, tag }) {
       `package.json packageManager must pin an exact pnpm version, got ${packageManager || '<missing>'}.`,
     );
   }
+  const pnpmMajor = Number(packageManagerVersion.split('.')[0]);
+  const minimumNodeVersion = pnpmMajor >= 11 ? '22.13' : '18.12';
+  const nodeEngine = String(rootPackage.engines?.node ?? '');
+  if (nodeEngine !== `>=${minimumNodeVersion}`) {
+    throw new Error(
+      `package.json engines.node must be >=${minimumNodeVersion} for ${packageManager}, got ${nodeEngine || '<missing>'}.`,
+    );
+  }
   const workflowsDirectory = path.join(root, '.github', 'workflows');
   const workflowNames = (await readdir(workflowsDirectory)).filter((name) => /\.ya?ml$/i.test(name));
   for (const workflowName of workflowNames) {
@@ -72,6 +80,24 @@ export async function verifyReleaseMetadata({ root, tag }) {
         if (configuredVersion !== packageManagerVersion) {
           throw new Error(
             `.github/workflows/${workflowName} uses pnpm ${configuredVersion} but packageManager is ${packageManager}.`,
+          );
+        }
+        break;
+      }
+    }
+    for (let index = 0; index < lines.length; index += 1) {
+      if (!/uses:\s*actions\/setup-node@/i.test(lines[index])) continue;
+      for (let lookahead = index + 1; lookahead < Math.min(lines.length, index + 9); lookahead += 1) {
+        if (/^\s*-\s+(?:uses|name):/i.test(lines[lookahead])) break;
+        const configuredVersion = lines[lookahead].match(
+          /^\s*node-version:\s*['"]?([^'"\s#]+)/i,
+        )?.[1];
+        if (!configuredVersion) continue;
+        const configuredMajor = Number(configuredVersion.match(/^\d+/)?.[0] ?? 0);
+        const minimumMajor = Number(minimumNodeVersion.split('.')[0]);
+        if (configuredMajor < minimumMajor) {
+          throw new Error(
+            `.github/workflows/${workflowName} uses Node ${configuredVersion} but ${packageManager} requires Node >=${minimumNodeVersion}.`,
           );
         }
         break;
