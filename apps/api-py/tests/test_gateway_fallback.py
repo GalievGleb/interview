@@ -1,5 +1,7 @@
 """Гейтвей-фолбэк provider_adapter: лицензия открывает прокси без ключа OpenRouter."""
 
+import time
+
 from app.services import provider_adapter
 
 
@@ -58,6 +60,31 @@ async def test_no_user_key_claims_limited_trial_key_via_gateway(monkeypatch):
     assert provider == "openrouter"
     assert base_url == "https://gw.example/v1"
     assert key == "SKILLCUE-trial.key"
+
+
+async def test_empty_initial_cache_is_not_fresh_during_first_system_minute(monkeypatch):
+    _reset_cache()
+    monkeypatch.setattr(provider_adapter.secrets, "get_secret", lambda name: "")
+    settings = provider_adapter.get_settings()
+    monkeypatch.setattr(settings, "skillcue_gateway_url", "https://gw.example/v1")
+    monkeypatch.setattr(provider_adapter, "_stored_gateway_license_key", lambda: "", raising=False)
+    monkeypatch.setattr(time, "monotonic", lambda: 30.0)
+
+    async def mock_claim_trial_key(gateway_url: str) -> str:
+        return "SKILLCUE-fresh-boot.key"
+
+    monkeypatch.setattr(
+        provider_adapter,
+        "_claim_gateway_trial_key",
+        mock_claim_trial_key,
+        raising=False,
+    )
+
+    provider, base_url, key = await provider_adapter._resolve("openrouter")
+
+    assert provider == "openrouter"
+    assert base_url == "https://gw.example/v1"
+    assert key == "SKILLCUE-fresh-boot.key"
 
 
 async def test_own_key_wins_over_gateway(monkeypatch):

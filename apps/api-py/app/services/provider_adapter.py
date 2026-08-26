@@ -236,7 +236,10 @@ async def _gateway_license_key() -> str:
 
     async with _gateway_cache_lock:
         now = time.monotonic()
-        if now - _gateway_cache["at"] < 60:
+        # ``0.0`` is the uninitialized sentinel. On a freshly booted machine
+        # monotonic time can still be below the TTL, so treating that sentinel
+        # as a real timestamp would cache an empty key for the first minute.
+        if _gateway_cache["at"] > 0.0 and now - _gateway_cache["at"] < 60:
             return _gateway_cache["key"]
         key = await asyncio.to_thread(_stored_gateway_license_key)
         if not key and get_settings().skillcue_gateway_url:
