@@ -5,6 +5,8 @@ import {
   formatHomeInterviewStart,
   getHomeApplicationFlow,
   getHomeHhCommand,
+  getHomeJourneyProgress,
+  getHomeQuickActions,
   isInterviewStartingSoon,
   isSameLocalDay,
 } from './homeRadar';
@@ -47,6 +49,19 @@ describe('home application flow visual', () => {
     });
   });
 
+  it('names a saved automatic queue as a destination instead of a manual continuation command', () => {
+    expect(getHomeHhCommand({
+      running: false,
+      queued: 7,
+      pendingQuestions: 0,
+      loginRequired: false,
+      persistentVerification: false,
+    })).toMatchObject({
+      action: 'queue',
+      actionLabel: 'Открыть автоочередь',
+    });
+  });
+
   it('promotes an interview only during the two-hour readiness window', () => {
     const now = new Date('2026-08-23T10:00:00+07:00');
     expect(isInterviewStartingSoon('2026-08-23T11:59:00+07:00', now)).toBe(true);
@@ -65,5 +80,35 @@ describe('home application flow visual', () => {
       .toEqual({ progress: 50, reached: [true, true, false] });
     expect(getHomeApplicationFlow({ queued: 0, sentToday: 0, activeDialogs: 2, running: false }))
       .toEqual({ progress: 100, reached: [true, true, true] });
+  });
+
+  it('derives the home progress rail from completed journey steps', () => {
+    expect(getHomeJourneyProgress([])).toBe(0);
+    expect(getHomeJourneyProgress(['done', 'done', 'current', 'upcoming', 'upcoming', 'upcoming']))
+      .toBe(33);
+    expect(getHomeJourneyProgress(['done', 'done', 'done'])).toBe(100);
+  });
+
+  it('keeps the three quick actions connected to their real product destinations', () => {
+    expect(getHomeQuickActions()).toEqual([
+      {
+        id: 'vacancies',
+        label: 'Найти вакансии',
+        detail: 'Подобрать новые предложения',
+        to: '/applications?mode=settings',
+      },
+      {
+        id: 'resume',
+        label: 'Анализ резюме',
+        detail: 'Улучшить резюме под вакансию',
+        to: '/documents',
+      },
+      {
+        id: 'interview',
+        label: 'Подготовиться к интервью',
+        detail: 'Практика и ответы на вопросы',
+        to: '/practice',
+      },
+    ]);
   });
 });

@@ -256,6 +256,25 @@ describe('HH browser assistant policy', () => {
     )).toBe(false);
   });
 
+  it('accepts the real Python AQA vacancy previously skipped for the selected resume', () => {
+    const selectedResume = 'Постоянная работа, подработка Qa Fullstack engineer python 240 000 ₽ · Удалённо';
+    const description = [
+      'Разрабатывать, поддерживать и развивать автоматизированные тесты.',
+      'Покрывать автотестами UI и API, интеграционные и E2E-сценарии.',
+      'Обязательные требования: опыт автоматизированного тестирования на Python.',
+      'Уверенное владение PyTest, Playwright и/или Selenium.',
+      'Формат работы: удалённо или гибрид.',
+    ].join(' ');
+
+    expect(isVacancyRelevantToSearchProfile({
+      id: '136348560',
+      title: 'AQA Engineer (Тестировщик-автоматизатор)',
+      company: 'ООО АФЛТ-Системс',
+      salary: '',
+      url: 'https://hh.ru/vacancy/136348560',
+    }, 'QA Automation engineer', description, selectedResume)).toBe(true);
+  });
+
   it('does not turn an unrelated role into QA or developer experience', () => {
     const config = normalizeHhAssistantConfig({
       query: 'Product manager',

@@ -196,15 +196,25 @@ describe('HH applications redesign', () => {
     expect(runQueueSource).toContain('canSendMore');
     expect(runQueueSource).toContain('dailyLimitReached');
     expect(runQueueSource).toContain('Продолжу автоматически после сброса лимита');
-    expect(runQueueSource).not.toContain('delayBetweenSec');
-    expect(runQueueSource).not.toContain('setTimeout');
+    expect(runQueueSource).toContain('waitBetweenQueueAttempts');
+    expect(assistantSource).toContain('jitterMs(this.state.config.delayBetweenSec)');
   });
 
-  it('exhausts every HH synonym and hydrates generic cards before rejecting them', () => {
-    expect(assistantSource).toContain('queries.length * this.state.config.maxPages');
+  it('checks every HH synonym incrementally without multiplying it by the full page limit', () => {
+    expect(assistantSource).toContain('hhDiscoveryPageBudget(queries.length, this.state.config.maxPages)');
+    expect(assistantSource).not.toContain('queries.length * this.state.config.maxPages');
+    expect(assistantSource).toContain('isFullyKnownDiscoveryPage');
+    expect(assistantSource).toContain('exhaustedQueries.add(searchQuery)');
     expect(assistantSource).toContain('parseHhVacancyPage(vacancy.url, await response.text())');
     expect(assistantSource).toContain('if (queue.length >= 5_000) break;');
     expect(pageSource).toContain('maxQueueSize: 5000');
+  });
+
+  it('turns persistent HH verification during discovery into an automatic global cooldown', () => {
+    expect(assistantSource).toContain('private applyDetectedVerificationCooldown(blocker: string)');
+    expect(assistantSource).toContain('if (this.applyDetectedVerificationCooldown(blocker))');
+    expect(assistantSource).toContain('const until = this.activateVerificationCooldown()');
+    expect(assistantSource).toContain('this.verificationCooldownMessage(until)');
   });
 
   it('keeps the redesigned compact search, schedule, and found-vacancies UI', () => {
@@ -213,7 +223,9 @@ describe('HH applications redesign', () => {
     expect(pageSource).toContain('Найти и добавить в очередь');
     expect(pageSource).toContain('Поиск вакансий');
     expect(pageSource).toContain('Предыдущих запусков:');
-    expect(pageSource).toContain('Вакансии в работе');
+    expect(pageSource).toContain('Автоматическая очередь');
+    expect(pageSource).toContain('отправятся автоматически');
+    expect(pageSource).toContain('повторим автоматически');
     expect(pageSource).toContain('{queuePanelMeta.title}');
     expect(pageSource).not.toContain('overflow-y-auto');
     expect(pageSource).not.toContain('max-h-[60vh]');
@@ -387,6 +399,15 @@ describe('HH applications redesign', () => {
     expect(pageSource).toContain('setSelectedConversationKey(conversation)');
     expect(pageSource).toContain("setQueueView('dialogs')");
     expect(mainSource).toContain('signal: AbortSignal.timeout(20_000)');
+  });
+
+  it('lets the user stop a pending HR dialogue without sending a reply', () => {
+    expect(pageSource).toContain('Не продолжать отклик');
+    expect(pageSource).toContain('chat.declineDecision(decisionId)');
+    expect(pageSource).toContain('Сам отклик на HH останется');
+    expect(mainSource).toContain("handle('hh-chat:decline-decision'");
+    expect(preloadSource).toContain("ipcRenderer.invoke('hh-chat:decline-decision', decisionId)");
+    expect(electronTypesSource).toContain('declineDecision: (decisionId: string) => Promise<HhChatState>');
   });
 
   it('configures interview availability inline before enabling HR replies', () => {
@@ -654,7 +675,7 @@ describe('HH applications redesign', () => {
   });
 
   it('reduces the vacancy navigation to five user-facing stages', () => {
-    expect(pageSource).toContain("['active', 'В работе', activeVacancyCount]");
+    expect(pageSource).toContain("['active', 'Автоочередь', activeVacancyCount]");
     expect(pageSource).toContain("['sent', 'Отправлено', sentVacancyCount]");
     expect(pageSource).toContain("['dialogs', 'Диалоги', conversationCount]");
     expect(pageSource).toContain("['replies', 'Ответы', chatState?.replyHistory.length ?? 0]");
@@ -665,11 +686,15 @@ describe('HH applications redesign', () => {
     expect(pageSource).toContain("conversationStage === 'all' || item.stage === conversationStage");
   });
 
-  it('keeps the work view actionable instead of turning counts into visual noise', () => {
+  it('keeps the automatic queue transparent without presenting automatic work as a manual task', () => {
     expect(pageSource).toContain('pendingScreeningVacancyCount + pendingHrDecisions');
     expect(pageSource).toContain('countUnansweredHhScreeningQuestions(screeningSummary, screeningDrafts)');
     expect(pageSource).toContain("queueView === 'active' && draft.platform === 'hh'");
-    expect(pageSource).toContain('Очередь в работе пуста');
+    expect(pageSource).toContain('Автоматическая очередь пуста');
+    expect(pageSource).toContain('presentation.showApplyButton');
+    expect(pageSource).toContain('state?.verificationCooldownUntil');
+    expect(pageSource).toContain('Автоотклики продолжатся сами');
+    expect(pageSource).toContain('state.lastScanSummary.newVacancies} новых');
     expect(pageSource).toContain('Проверить сообщения');
     expect(pageSource).toContain("pendingHrDecisions > 0");
     expect(pageSource.indexOf('pendingHrDecisions > 0')).toBeLessThan(pageSource.indexOf('pendingScreeningQuestions > 0', pageSource.indexOf('const overview')));

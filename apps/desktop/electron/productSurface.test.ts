@@ -99,7 +99,7 @@ describe('packaged product surface', () => {
     expect(settingsSource.match(/openSupportLink\(SUPPORT_TELEGRAM_URL\)/g)).toHaveLength(1);
   });
 
-  it('shows stealth and taskbar shortcuts in the sidebar for every build', () => {
+  it('shows the canonical stealth/theme utilities and keeps taskbar control in Settings', () => {
     const sidebarSource = fs.readFileSync(
       path.join(desktopRoot, 'src', 'components', 'Sidebar.tsx'),
       'utf8',
@@ -118,7 +118,10 @@ describe('packaged product surface', () => {
     expect(sidebarSource).not.toContain('{isDeveloperBuild && (');
     expect(sidebarSource).toContain('skillcue-sidebar__utility-row');
     expect(sidebarSource).toContain('<ShieldCheck');
-    expect(sidebarSource).toContain('<EyeOff');
+    expect(sidebarSource).toContain('<Moon');
+    expect(sidebarSource).toContain('nextSidebarTheme(theme)');
+    expect(settingsSource).toContain('setSkipTaskbar(enabled)');
+    expect(settingsSource).toContain('window.electronAPI?.window.setSkipTaskbar(enabled)');
     expect(licenseCardSource).not.toContain('if (!license) return null');
     expect(licenseCardSource).toContain("placeholder=\"SKILLCUE-…\"");
     expect(licenseCardSource).toContain("t('license.keyPrompt')");

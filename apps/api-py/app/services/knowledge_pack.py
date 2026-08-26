@@ -44,6 +44,11 @@ _PY_INSTANCE_EQUALITY_RE = re.compile(
     r"\b__eq__\b",
     re.IGNORECASE | re.UNICODE,
 )
+_LIST_TUPLE_PAIR_RE = re.compile(
+    r"(?:\blist\b|спис[а-яё]*)[^.!?\n]{0,100}(?:\btuple\b|кортеж[а-яё]*)|"
+    r"(?:\btuple\b|кортеж[а-яё]*)[^.!?\n]{0,100}(?:\blist\b|спис[а-яё]*)",
+    re.IGNORECASE | re.UNICODE,
+)
 
 # Signals that the question is about the Python language itself.
 _PY_SIGNAL_RE = re.compile(
@@ -107,6 +112,20 @@ _GENERIC_CURATED_KEYWORDS = {
     "отличается",
     "разница",
     "делает",
+    "list",
+    "tuple",
+    "dict",
+    "set",
+}
+_GENERIC_COLLECTION_KEYWORDS = {
+    "список",
+    "list",
+    "кортеж",
+    "tuple",
+    "словарь",
+    "dict",
+    "множество",
+    "set",
 }
 
 
@@ -127,6 +146,10 @@ def _match_curated(question: str, pack_dir: Path = PACK_DIR, limit: int = 1) -> 
         return []
     scored: list[tuple[int, int, dict]] = []
     for i, entry in enumerate(_load_curated_for(pack_dir)):
+        if pack_dir == PACK_DIR and entry.get("id") == "list-vs-tuple":
+            if _LIST_TUPLE_PAIR_RE.search(question):
+                scored.append((100, -i, entry))
+            continue
         if (
             pack_dir == PACK_DIR
             and entry.get("id") == "python-instance-equality"
@@ -136,11 +159,13 @@ def _match_curated(question: str, pack_dir: Path = PACK_DIR, limit: int = 1) -> 
             continue
         keywords = {str(k).lower() for k in entry.get("keywords", [])}
         matched = qwords & keywords
-        distinctive = matched - _GENERIC_CURATED_KEYWORDS
+        collection_matches = matched & _GENERIC_COLLECTION_KEYWORDS
+        non_collection_matches = matched - _GENERIC_COLLECTION_KEYWORDS
+        distinctive = non_collection_matches - _GENERIC_CURATED_KEYWORDS
         # One domain-specific term (yield/GIL/range/...) is enough. Generic
-        # words such as «object/value/method» need at least two overlaps so an
-        # unrelated curated answer cannot outrank the community retrieval.
-        if distinctive or len(matched) >= 2:
+        # words need at least two overlaps. Collection names are also generic:
+        # one `list` mention must not select list-vs-tuple, while list+tuple can.
+        if distinctive or len(non_collection_matches) >= 2 or len(collection_matches) >= 2:
             scored.append((len(distinctive) * 3 + len(matched), -i, entry))
     scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
     return [entry for _, _, entry in scored[:limit]]
@@ -248,7 +273,9 @@ def _build_sql_injection(question: str) -> tuple[str, dict]:
     }
 
 
-def build_injection(question: str, top_k: int = 3) -> tuple[str, dict]:
+def build_injection(
+    question: str, top_k: int = 3, *, verified_only: bool = False
+) -> tuple[str, dict]:
     """Retrieve + format a capped reference block plus retrieval metrics.
 
     Routes to the pack detected for the question. Returns (block_text, metrics);
@@ -263,7 +290,7 @@ def build_injection(question: str, top_k: int = 3) -> tuple[str, dict]:
     # A verified curated hit is authoritative and sufficient. Mixing community
     # answers back in reintroduced factual contradictions (notably range and
     # default instance equality), so community is fallback-only.
-    community = [] if curated else retrieve(question, top_k=top_k)
+    community = [] if curated or verified_only else retrieve(question, top_k=top_k)
     retrieval_ms = int((time.perf_counter() - started) * 1000)
 
     blocks: list[str] = []

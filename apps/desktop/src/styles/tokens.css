@@ -48,22 +48,22 @@
 /* Светлая тема — тот же навы-характер, но на светлых поверхностях.
    Бренд-зелёный темнее ради контраста на белом. */
 :root[data-theme='light'] {
-  --sc-brand: #1f9d5f;
-  --sc-brand-hover: #178a52;
-  --sc-brand-soft: rgba(31, 157, 95, 0.12);
-  --sc-brand-ring: rgba(31, 157, 95, 0.3);
+  --sc-brand: #0aa85c;
+  --sc-brand-hover: #078b4c;
+  --sc-brand-soft: rgba(10, 168, 92, 0.1);
+  --sc-brand-ring: rgba(10, 168, 92, 0.24);
 
-  --twc-surface: 238 243 249; /* #eef3f9 */
-  --twc-surface-panel: 247 250 253; /* #f7fafd */
+  --twc-surface: 247 249 250; /* #f7f9fa */
+  --twc-surface-panel: 252 253 253; /* #fcfdfd */
   --twc-surface-light: 255 255 255;
   --twc-surface-card: 255 255 255;
-  --twc-surface-hover: 227 236 246; /* #e3ecf6 */
+  --twc-surface-hover: 239 246 243; /* #eff6f3 */
   --twc-surface-elevated: 255 255 255;
-  --twc-surface-border: 211 223 236; /* #d3dfec */
-  --twc-surface-border-strong: 182 200 220; /* #b6c8dc */
-  --twc-accent: 31 157 95; /* #1f9d5f */
-  --twc-accent-hover: 23 138 82; /* #178a52 */
-  --twc-ink: 22 40 60; /* #16283c */
-  --twc-ink-muted: 74 93 116; /* #4a5d74 */
-  --twc-ink-faint: 89 111 134; /* #596f86 — >= 4.5:1 on light app surfaces */
+  --twc-surface-border: 222 229 232; /* #dee5e8 */
+  --twc-surface-border-strong: 198 210 216; /* #c6d2d8 */
+  --twc-accent: 10 168 92; /* #0aa85c */
+  --twc-accent-hover: 7 139 76; /* #078b4c */
+  --twc-ink: 14 25 48; /* #0e1930 */
+  --twc-ink-muted: 70 88 117; /* #465875 */
+  --twc-ink-faint: 91 107 132; /* #5b6b84 */
 }

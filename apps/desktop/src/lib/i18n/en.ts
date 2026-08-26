@@ -374,7 +374,7 @@ export const en: Record<I18nKey, string> = {
   'live.reconnectFailed':
     'Connection dropped. Check the backend and OpenAI Mini availability.',
   'live.startNoSource': 'Could not start any audio source',
-  'live.forceNoAudio': 'No recorded phrase found — keep speaking and press Ctrl+Enter again',
+  'live.forceNoAudio': 'Waiting for the final transcript…',
   'live.forceTimeout': 'Could not send the phrase — check the connection and try Ctrl+Enter again',
   'live.startFailed': 'Could not start the session',
 
@@ -871,7 +871,7 @@ export const en: Record<I18nKey, string> = {
   'overlay.rec.startTip': 'Start recording. AI answers and transcription work only while recording is active',
   'overlay.rec.stopAria': 'Stop recording',
   'overlay.rec.startAria': 'Start recording',
-  'overlay.inputPlaceholder': 'Ask about the conversation or screen — Ctrl+Enter for a Hint',
+  'overlay.inputPlaceholder': 'Ask about the conversation; use “Screen” for a visible task',
   'overlay.smartTip': 'Smart: thinks longer before answering — deeper and more accurate',
   'overlay.menuTip': 'Shortcuts, stealth, audio source, settings',
   'overlay.menuAria': 'Menu',
@@ -891,7 +891,7 @@ export const en: Record<I18nKey, string> = {
   'overlay.src.micOnly': 'Microphone only',
   'overlay.src.sysOnly': 'System audio only',
   'overlay.settings': 'SkillCue settings',
-  'overlay.sendTip': 'Send: screen + conversation (Enter)',
+  'overlay.sendTip': 'Answer from the conversation (Ctrl+Enter)',
   'overlay.sendAria': 'Send',
   'overlay.clearTip': 'Clear chat (Ctrl+R)',
   'overlay.clearAria': 'Clear chat',
@@ -899,6 +899,8 @@ export const en: Record<I18nKey, string> = {
   'overlay.liveAnswer': 'Live answer from the conversation',
   'overlay.thinking': 'Thinking…',
   'overlay.transcriptEmpty': 'Start recording (● in the pill) — lines will appear here.',
+  'overlay.sourceHealth.systemSilent':
+    'No interviewer audio detected. Check that system audio is enabled for the shared screen.',
 
   'common.error': 'Error',
   'common.open': 'Open',
@@ -978,9 +980,9 @@ export const en: Record<I18nKey, string> = {
   'settings.stealth.desc':
     'The overlay is hidden from screenshots, screen recording and Zoom/Meet sharing',
   'settings.stealth.aria': 'Stealth',
-  'settings.useScreen.title': 'Look at the screen when context is missing',
+  'settings.useScreen.title': 'Detect screen questions in the input field',
   'settings.useScreen.desc':
-    "If there's no conversation, the hint takes a screenshot and answers from it (a bit slower)",
+    'A normal Hint never takes a screenshot. The screen is used only for an explicit phrase such as “what is on screen?”',
   'settings.useScreen.aria': 'Screen analysis',
   'settings.hideWidget.title': '"Hide" hides the whole widget',
   'settings.hideWidget.desc':

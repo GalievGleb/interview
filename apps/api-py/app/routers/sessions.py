@@ -1,4 +1,6 @@
 import json
+import math
+import re
 from datetime import UTC, datetime
 from typing import Any
 
@@ -461,6 +463,360 @@ class SessionDiagnosticsPayload(BaseModel):
     events: list[dict[str, Any]] = Field(default_factory=list)
 
 
+_DIAGNOSTIC_EVENT_TYPES = {
+    "session_start",
+    "ready",
+    "speech_started",
+    "partial",
+    "final",
+    "low_quality",
+    "answer_blocked",
+    "answer_started",
+    "answer_first_token",
+    "answer_done",
+    "source_warning",
+    "source_recovered",
+    "error",
+}
+_DATA_URL_RE = re.compile(
+    r"(^|[^a-z0-9_-])data:[^,\s\"'<>]*,[^\s\"'<>]*",
+    re.I,
+)
+_AUTH_RE = re.compile(r"\b(?:authorization\s*[:=]\s*)?(?:Bearer|Basic)\s+[A-Za-z0-9._~+/-]+", re.I)
+_LABELLED_SECRET_RE = re.compile(
+    r"\b(?:token|api[_-]?key|access[_-]?key|private[_-]?key|license[_-]?key|password|secret)"
+    r"\s*[:=]\s*[^\s,;]+",
+    re.I,
+)
+_COOKIE_RE = re.compile(r"\b(?:cookie|set-cookie)\s*:\s*[^\r\n]+", re.I)
+_RAW_BASE64_RE = re.compile(r"(^|[\s\"'=:])([A-Za-z0-9+/]{32,}={0,2})(?=$|[\s\"',;])", re.M)
+
+
+def _diagnostic_text(value: Any, limit: int) -> str | None:
+    if not isinstance(value, str):
+        return None
+    cleaned = _DATA_URL_RE.sub(
+        lambda match: f"{match.group(1)}[OMITTED_DATA_URL]",
+        value,
+    )
+    cleaned = _AUTH_RE.sub("[REDACTED]", cleaned)
+    cleaned = _LABELLED_SECRET_RE.sub("[REDACTED]", cleaned)
+    cleaned = _COOKIE_RE.sub("[REDACTED]", cleaned)
+    cleaned = _RAW_BASE64_RE.sub(lambda match: f"{match.group(1)}[OMITTED_BASE64]", cleaned)
+    return cleaned[:limit]
+
+
+def _diagnostic_number(value: Any) -> int | float | None:
+    return (
+        value
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+        else None
+    )
+
+
+def _put_if(target: dict[str, Any], key: str, value: Any) -> None:
+    if value is not None:
+        target[key] = value
+
+
+def _diagnostic_dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _diagnostic_list(value: Any) -> list[Any]:
+    return value if isinstance(value, list) else []
+
+
+def _sanitize_event_meta(value: Any) -> dict[str, Any] | None:
+    source = _diagnostic_dict(value)
+    result: dict[str, Any] = {}
+    for key in ("model", "modelSource", "engine", "readyKind", "utteranceId", "recoveredFrom"):
+        _put_if(result, key, _diagnostic_text(source.get(key), 300))
+    for key in (
+        "sampleRate",
+        "sttLatencyMs",
+        "llmLatencyMs",
+        "speechEndToFinalMs",
+        "openaiInferenceMs",
+        "queueWaitMs",
+        "queueDepth",
+        "capturedAtMs",
+        "captureEpoch",
+    ):
+        _put_if(result, key, _diagnostic_number(source.get(key)))
+    for key in ("reconnected", "recoverable", "nonFatal"):
+        if isinstance(source.get(key), bool):
+            result[key] = source[key]
+    return result or None
+
+
+def _sanitize_diagnostic_event(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict) or value.get("type") not in _DIAGNOSTIC_EVENT_TYPES:
+        return None
+    result: dict[str, Any] = {
+        "tMs": max(0, _diagnostic_number(value.get("tMs")) or 0),
+        "type": value["type"],
+    }
+    if value.get("source") in {"mic", "system"}:
+        result["source"] = value["source"]
+    if value.get("speaker") in {"me", "other"}:
+        result["speaker"] = value["speaker"]
+    _put_if(result, "text", _diagnostic_text(value.get("text"), 550))
+    _put_if(result, "reason", _diagnostic_text(value.get("reason"), 550))
+    _put_if(result, "meta", _sanitize_event_meta(value.get("meta")))
+    return result
+
+
+def _sanitize_source_health(value: Any) -> dict[str, Any] | None:
+    source = _diagnostic_dict(value)
+    raw_sources = _diagnostic_dict(source.get("sources"))
+    sources: dict[str, Any] = {}
+    for source_name in ("mic", "system"):
+        raw_state = raw_sources.get(source_name)
+        if not isinstance(raw_state, dict):
+            continue
+        state: dict[str, Any] = {}
+        for key in ("requested", "ready"):
+            if isinstance(raw_state.get(key), bool):
+                state[key] = raw_state[key]
+        for key in (
+            "readyAtMs",
+            "captureEpoch",
+            "firstFrameAtMs",
+            "firstSignalAtMs",
+            "firstSpeechAtMs",
+            "signalFrameCount",
+            "speechStartCount",
+        ):
+            if raw_state.get(key) is None and key in raw_state:
+                state[key] = None
+            else:
+                _put_if(state, key, _diagnostic_number(raw_state.get(key)))
+        if raw_state.get("warning") is None and "warning" in raw_state:
+            state["warning"] = None
+        else:
+            _put_if(state, "warning", _diagnostic_text(raw_state.get("warning"), 300))
+        sources[source_name] = state
+    result: dict[str, Any] = {}
+    if sources:
+        result["sources"] = sources
+    if source.get("warning") is None and "warning" in source:
+        result["warning"] = None
+    else:
+        _put_if(result, "warning", _diagnostic_text(source.get("warning"), 300))
+    return result or None
+
+
+def _sanitize_screen_assist(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    screen_id = _diagnostic_text(value.get("id"), 300)
+    if not screen_id:
+        return None
+    result: dict[str, Any] = {"id": screen_id}
+    for key in (
+        "generation",
+        "startedAtMs",
+        "captureMs",
+        "firstOutputMs",
+        "totalMs",
+        "encodedByteCount",
+    ):
+        _put_if(result, key, _diagnostic_number(value.get(key)))
+    if value.get("trigger") in {"manual", "visual_question", "stt_timeout"}:
+        result["trigger"] = value["trigger"]
+    if value.get("status") in {"requested", "captured", "done", "error", "cancelled"}:
+        result["status"] = value["status"]
+    for key, limit in (
+        ("mode", 80),
+        ("effectiveQuestion", 2000),
+        ("model", 200),
+        ("modelSource", 100),
+        ("answer", 8000),
+        ("error", 1000),
+        ("imageMimeType", 100),
+    ):
+        _put_if(result, key, _diagnostic_text(value.get(key), limit))
+    return result
+
+
+def _sanitize_exchange(value: Any) -> dict[str, Any]:
+    source = _diagnostic_dict(value)
+    result: dict[str, Any] = {}
+    for key, limit in (("id", 300), ("question", 2000), ("spoken", 8000)):
+        _put_if(result, key, _diagnostic_text(source.get(key), limit))
+    _put_if(result, "ts", _diagnostic_number(source.get("ts")))
+    if source.get("source") in {"live", "manual"}:
+        result["source"] = source["source"]
+    pipeline_source = _diagnostic_dict(source.get("pipeline"))
+    pipeline: dict[str, Any] = {}
+    for key in (
+        "model",
+        "modelSource",
+        "rawTranscript",
+        "normalizedTranscript",
+        "resolvedQuestion",
+        "previousTopic",
+        "currentCanonicalTopic",
+        "followUpReason",
+        "resetPreviousTopicReason",
+        "questionIntent",
+        "answerStrategy",
+        "hallucinationRisk",
+        "resumeContextLevel",
+        "resumeContextReason",
+    ):
+        _put_if(pipeline, key, _diagnostic_text(pipeline_source.get(key), 2000))
+    for key in (
+        "isFollowUp",
+        "usedPreviousContext",
+        "wasPreviousTopicUsed",
+        "resetPreviousTopic",
+        "resumeContextUsed",
+    ):
+        if isinstance(pipeline_source.get(key), bool):
+            pipeline[key] = pipeline_source[key]
+    for key in ("timeToAnswerMs", "timeToFinalMs"):
+        _put_if(pipeline, key, _diagnostic_number(pipeline_source.get(key)))
+    knowledge_source = _diagnostic_dict(pipeline_source.get("knowledge"))
+    knowledge: dict[str, Any] = {}
+    if isinstance(knowledge_source.get("knowledgePackUsed"), bool):
+        knowledge["knowledgePackUsed"] = knowledge_source["knowledgePackUsed"]
+    for key in ("knowledgePackName", "knowledgeSource"):
+        _put_if(knowledge, key, _diagnostic_text(knowledge_source.get(key), 300))
+    for key in (
+        "retrievedItemsCount",
+        "injectedContextTokens",
+        "knowledgeRetrievalMs",
+        "answerLatencyWithKnowledgeMs",
+    ):
+        _put_if(knowledge, key, _diagnostic_number(knowledge_source.get(key)))
+    if knowledge:
+        pipeline["knowledge"] = knowledge
+    if pipeline:
+        result["pipeline"] = pipeline
+    for group in ("latency", "stt"):
+        group_source = _diagnostic_dict(source.get(group))
+        allowed = (
+            ("sttLatencyMs", "llmLatencyMs", "totalLatencyMs")
+            if group == "latency"
+            else (
+                "capturedAtMs",
+                "queueWaitMs",
+                "queueDepth",
+                "speechEndToFinalMs",
+                "openaiInferenceMs",
+            )
+        )
+        sanitized: dict[str, Any] = {}
+        for key in allowed:
+            if group_source.get(key) is None and key in group_source:
+                sanitized[key] = None
+            else:
+                _put_if(sanitized, key, _diagnostic_number(group_source.get(key)))
+        if group == "latency":
+            breakdown_source = _diagnostic_dict(group_source.get("breakdown"))
+            breakdown: dict[str, Any] = {}
+            for key in (
+                "speechEndToFinalMs",
+                "speechStartToFinalMs",
+                "finalToAnswerStartMs",
+                "llmFirstTokenMs",
+                "llmTotalMs",
+                "sessionElapsedToFinalMs",
+            ):
+                _put_if(breakdown, key, _diagnostic_number(breakdown_source.get(key)))
+            if breakdown:
+                sanitized["breakdown"] = breakdown
+        if group == "stt":
+            _put_if(
+                sanitized, "utteranceId", _diagnostic_text(group_source.get("utteranceId"), 300)
+            )
+            if group_source.get("source") in {"mic", "system"}:
+                sanitized["source"] = group_source["source"]
+        if sanitized:
+            result[group] = sanitized
+    return result
+
+
+def _sanitize_retention(
+    value: Any,
+    limit: int,
+    retained: int,
+    input_count: int,
+) -> dict[str, int]:
+    source = _diagnostic_dict(value)
+    prior_dropped = max(0, int(_diagnostic_number(source.get("dropped")) or 0))
+    dropped = prior_dropped + max(0, input_count - retained)
+    return {
+        "limit": limit,
+        "retained": retained,
+        "dropped": dropped,
+        "total": max(
+            retained + dropped,
+            int(_diagnostic_number(source.get("total")) or retained + dropped),
+        ),
+    }
+
+
+def _sanitize_schema_v2_diagnostics(value: dict[str, Any]) -> dict[str, Any]:
+    raw_events = _diagnostic_list(value.get("events"))
+    events = [
+        event
+        for event in (_sanitize_diagnostic_event(item) for item in raw_events)
+        if event is not None
+    ][-1000:]
+    extra_source = _diagnostic_dict(value.get("extra"))
+    extra: dict[str, Any] = {}
+    stt = _sanitize_event_meta(extra_source.get("stt"))
+    if stt:
+        extra["stt"] = stt
+    raw_sources = _diagnostic_dict(extra_source.get("sources"))
+    sources = {
+        key: raw_sources[key] for key in ("mic", "system") if isinstance(raw_sources.get(key), bool)
+    }
+    if sources:
+        extra["sources"] = sources
+    source_health = _sanitize_source_health(extra_source.get("sourceHealth"))
+    if source_health:
+        extra["sourceHealth"] = source_health
+    if isinstance(extra_source.get("exchanges"), list):
+        extra["exchanges"] = [_sanitize_exchange(item) for item in extra_source["exchanges"][-200:]]
+    screens: list[dict[str, Any]] = []
+    raw_screens = _diagnostic_list(extra_source.get("screenAssists"))
+    if raw_screens:
+        valid_screens = [
+            screen
+            for screen in (_sanitize_screen_assist(item) for item in raw_screens)
+            if screen is not None
+        ]
+        screens = valid_screens[-40:]
+        extra["screenAssists"] = screens
+    retention_source = _diagnostic_dict(value.get("retention"))
+    result: dict[str, Any] = {
+        "schemaVersion": 2,
+        "generatedAt": _diagnostic_text(value.get("generatedAt"), 100)
+        or datetime.now(UTC).isoformat(),
+        "sampleRate": max(0, _diagnostic_number(value.get("sampleRate")) or 16000),
+        "durationMs": max(0, _diagnostic_number(value.get("durationMs")) or 0),
+        "audioFile": _diagnostic_text(value.get("audioFile"), 255)
+        if value.get("audioFile") is not None
+        else None,
+        "events": events,
+        "retention": {
+            "events": _sanitize_retention(
+                retention_source.get("events"), 1000, len(events), len(raw_events)
+            ),
+            "screenAssists": _sanitize_retention(
+                retention_source.get("screenAssists"), 40, len(screens), len(raw_screens)
+            ),
+        },
+    }
+    if extra:
+        result["extra"] = extra
+    return result
+
+
 @router.put("/{session_id}/diagnostics")
 def save_session_diagnostics(
     session_id: str,
@@ -470,7 +826,11 @@ def save_session_diagnostics(
     session = db.get(InterviewSession, session_id)
     if not session:
         raise AppError("Session not found", 404, "not_found")
-    serialized = json.dumps(payload.model_dump(), ensure_ascii=False, separators=(",", ":"))
+    raw_payload = payload.model_dump()
+    stored_payload = (
+        _sanitize_schema_v2_diagnostics(raw_payload) if payload.schemaVersion >= 2 else raw_payload
+    )
+    serialized = json.dumps(stored_payload, ensure_ascii=False, separators=(",", ":"))
     if len(serialized.encode("utf-8")) > MAX_SESSION_DIAGNOSTICS_BYTES:
         raise AppError(
             "Session diagnostics are too large",
@@ -485,7 +845,7 @@ def save_session_diagnostics(
         row.payload_json = serialized
         row.updated_at = _naive_utc_now()
     db.commit()
-    return {"saved": session_id, "event_count": len(payload.events)}
+    return {"saved": session_id, "event_count": len(stored_payload.get("events", []))}
 
 
 @router.delete("")

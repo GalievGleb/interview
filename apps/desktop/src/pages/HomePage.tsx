@@ -2,14 +2,15 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowRight,
-  ArrowUpRight,
   CalendarClock,
   CheckCircle2,
   ChevronRight,
   EyeOff,
   FileText,
   ListChecks,
+  MessageCircleMore,
   Mic2,
+  RefreshCcw,
   Send,
   Sparkles,
 } from 'lucide-react';
@@ -28,6 +29,8 @@ import {
   formatHomeInterviewBadge,
   formatHomeInterviewStart,
   getHomeHhCommand,
+  getHomeJourneyProgress,
+  getHomeQuickActions,
   isInterviewStartingSoon,
   isSameLocalDay,
 } from '../lib/homeRadar';
@@ -99,6 +102,23 @@ function interviewTypeLabel(type: InterviewCalendarEvent['type']): string {
   if (type === 'technical') return 'Техническое собеседование';
   if (type === 'hr') return 'Разговор с HR';
   return 'Собеседование';
+}
+
+function HomeApplicationIllustration() {
+  return (
+    <div className="home-application-illustration" aria-hidden="true">
+      <span className="home-application-illustration__spark is-one">✦</span>
+      <span className="home-application-illustration__spark is-two">✦</span>
+      <span className="home-application-illustration__folder" />
+      <span className="home-application-illustration__document is-back">
+        <i /><i /><i />
+      </span>
+      <span className="home-application-illustration__document is-front">
+        <i /><i /><i />
+      </span>
+      <span className="home-application-illustration__check"><CheckCircle2 size={34} /></span>
+    </div>
+  );
 }
 
 export default function HomePage() {
@@ -316,6 +336,10 @@ export default function HomePage() {
     activeResumeTitle: activePreparation?.vacancyAnalysis.resumeSource?.title,
   });
   const pathChooserVisible = showPathChooser || candidateJourney.path === null;
+  const journeyProgress = getHomeJourneyProgress(candidateJourney.steps.map((step) => step.status));
+  const quickActions = getHomeQuickActions();
+  const newVacancies = assistantState?.lastScanSummary?.newVacancies ?? queuedApplications;
+  const repeatedAutomatically = queueGates.daily;
   const resumeReady = candidateSources.documents.length > 0 || candidateSources.hhResumeCount > 0;
   const hhReady = candidateSources.hhResumeCount > 0;
 
@@ -335,14 +359,15 @@ export default function HomePage() {
     persistentVerification: persistentVerificationCount > 0,
   });
   const interviewStartingSoon = isInterviewStartingSoon(nearestInterview?.startAt, now);
+  const homePrimaryLabel = hhCommand.action === 'queue' ? 'Продолжить отклики' : hhCommand.actionLabel;
   const runHomeHhCommand = async () => {
     const assistant = window.electronAPI?.hhAssistant;
     if (hhCommand.action === 'screening') {
       navigate('/applications/hr-profile');
       return;
     }
-    if (hhCommand.action === 'queue' && activeRun) {
-      navigate('/applications');
+    if (hhCommand.action === 'queue') {
+      navigate('/applications?view=active');
       return;
     }
     if (!assistant) {
@@ -353,9 +378,7 @@ export default function HomePage() {
     try {
       const next = hhCommand.action === 'open-hh'
         ? await assistant.openBrowser('hh')
-        : hhCommand.action === 'queue'
-          ? await assistant.applyAll()
-          : await assistant.runNow();
+        : await assistant.runNow();
       setAssistantState(next);
     } finally {
       setHomeActionBusy(false);
@@ -493,11 +516,8 @@ export default function HomePage() {
     <>
       <div className="prep h-full overflow-y-auto">
         <div className="prep-wrap home-radar prep-rise">
-        <header className="home-radar__heading">
-          <div>
-            <p className="prep-eyebrow">ВАШ ПУТЬ</p>
-            <h1>Ваш следующий шаг</h1>
-          </div>
+        <header className="home-radar__heading home-dashboard-heading">
+          <h1 className="sr-only">Главная SkillCue</h1>
           <p className="home-radar-date">
             <CalendarClock size={16} aria-hidden="true" />
             <span>{formatHomeDate(now)}</span>
@@ -539,26 +559,32 @@ export default function HomePage() {
         >
           <article className="home-command-hero">
             <div className="home-command-hero__top">
-              <span className="home-command-kicker"><Send size={15} aria-hidden="true" />АВТООТКЛИКИ HH</span>
+              <span className="home-command-kicker"><b className="home-command-service-icon">hh</b>АВТООТКЛИКИ HH</span>
               <button type="button" className="home-command-link" onClick={() => navigate('/applications')}>
-                Все отклики<ArrowUpRight size={14} aria-hidden="true" />
+                Все отклики<ChevronRight size={16} aria-hidden="true" />
               </button>
             </div>
-            <div className="home-command-hero__copy">
-              <p className="home-command-eyebrow">{hhCommand.eyebrow}</p>
-              <h2>{hhCommand.title}</h2>
-              <p>
-                {pendingScreeningQuestions > 0
-                  ? 'SkillCue уже подготовил подходящие ответы. Нужны только неизвестные личные факты.'
-                  : activeRun
-                    ? 'Новые вакансии проверяются по выбранному резюме; очередь продолжает работу в фоне.'
-                    : 'Поиск, отправка откликов и ответы работодателям собраны в одном месте.'}
-              </p>
+            <div className="home-command-hero__body">
+              <div className="home-command-hero__copy">
+                <p className="home-command-eyebrow">{hhCommand.eyebrow}</p>
+                <h2>{hhCommand.title}</h2>
+                <p>
+                  {pendingScreeningQuestions > 0
+                    ? 'SkillCue уже подготовил подходящие ответы. Нужны только неизвестные личные факты.'
+                    : activeRun
+                      ? 'Новые вакансии проверяются по выбранному резюме; очередь продолжает работу в фоне.'
+                      : 'Все отклики и ответы работодателей — в одном месте.'}
+                </p>
+              </div>
+              <HomeApplicationIllustration />
             </div>
             <div className="home-command-stats" aria-label="Состояние откликов">
-              <div><strong>{queuedApplications}</strong><span>в очереди</span></div>
-              <div><strong>{sentTodayCount}</strong><span>отправлено сегодня</span></div>
-              <div><strong>{activeHrDialogs}</strong><span>диалогов с HR</span></div>
+              <div><strong>{newVacancies}</strong><span>новые вакансии</span></div>
+              <div><strong>{sentTodayCount}</strong><span>откликов отправлено</span></div>
+              <div><strong>{activeHrDialogs}</strong><span>ответов от HR</span></div>
+              {repeatedAutomatically > 0 && (
+                <p className="home-command-repeat"><RefreshCcw size={14} />{repeatedAutomatically} повторятся автоматически</p>
+              )}
             </div>
             {(queueGates.daily > 0 || persistentVerificationCount > 0 || unknownManualCount > 0) && (
               <div className="home-command-barriers">
@@ -569,10 +595,16 @@ export default function HomePage() {
             )}
             <div className="home-command-actions">
               <button type="button" className="home-command-cta" disabled={homeActionBusy} onClick={() => void runHomeHhCommand()}>
-                {homeActionBusy ? 'Запускаю…' : hhCommand.actionLabel}<ArrowRight size={16} aria-hidden="true" />
+                {homeActionBusy ? 'Запускаю…' : homePrimaryLabel}<ArrowRight size={17} aria-hidden="true" />
               </button>
-              <button type="button" className="home-command-secondary" onClick={() => setShowPathChooser(true)}>Изменить сценарий</button>
+              <button type="button" className="home-command-secondary" onClick={() => setShowPathChooser(true)}>Изменить путь</button>
             </div>
+            <button type="button" className="home-command-progress" onClick={() => navigate(candidateJourney.action.to)}>
+              <span><i />{journeyProgress > 0 ? 'Вы на пути к цели' : 'Начните путь к цели'}</span>
+              <b><i style={{ width: `${journeyProgress}%` }} /></b>
+              <em>{journeyProgress}%</em>
+              <ChevronRight size={18} />
+            </button>
           </article>
 
           <aside className="home-command-side">
@@ -613,6 +645,26 @@ export default function HomePage() {
             ) : (
               <div className="home-command-clear" role="status"><CheckCircle2 size={16} /><span>Срочных действий нет</span></div>
             )}
+
+            <article className="home-command-quick-actions">
+              <h3>Быстрые действия</h3>
+              <div>
+                {quickActions.map((action) => {
+                  const Icon = action.id === 'vacancies'
+                    ? Send
+                    : action.id === 'resume'
+                      ? FileText
+                      : MessageCircleMore;
+                  return (
+                    <button type="button" key={action.id} onClick={() => navigate(action.to)}>
+                      <span className="home-command-quick-actions__icon"><Icon size={18} /></span>
+                      <span><strong>{action.label}</strong><small>{action.detail}</small></span>
+                      <ChevronRight size={17} />
+                    </button>
+                  );
+                })}
+              </div>
+            </article>
           </aside>
         </section>
         )}

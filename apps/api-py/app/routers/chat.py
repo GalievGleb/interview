@@ -32,8 +32,10 @@ from app.services import model_router, provider_adapter, rag_service
 from app.services.candidate_profile import get_profile_block
 from app.services.domain_answer_hints import (
     resolve_domain_answer_hints,
+    resolve_fast_domain_answer_hints,
     resolve_required_output_contract,
 )
+from app.services.hedged_stream import select_hedged_stream
 from app.services.knowledge_pack import build_injection as build_python_pack_injection
 from app.services.knowledge_pack import detect_pack
 from app.services.preferences import load_preferences
@@ -48,6 +50,11 @@ router = APIRouter(tags=["chat"])
 logger = logging.getLogger("chat")
 
 FAST_CONTEXT_LIMIT = 350
+LIVE_THEORY_HEDGE_AFTER_SECONDS = 0.85
+LIVE_THEORY_FAST_MODEL = "openai/gpt-4.1-nano"
+LIVE_THEORY_HEDGE_INTENTS = frozenset(
+    {"technical_definition", "technical_list", "technical_comparison", "practical_usage"}
+)
 
 
 def _clip(text: str, limit: int = FAST_CONTEXT_LIMIT) -> str:
@@ -323,6 +330,8 @@ async def _interview_event_stream(
     err_msg: str | None = None
     correction_meta: dict = {}
     final_question = (payload.question or "").strip()
+    answer_model = model
+    answer_source = source
 
     try:
         if not final_question:
@@ -330,8 +339,8 @@ async def _interview_event_stream(
 
         if payload.fast_answer:
             # Ctrl+Enter hot path: one compact provider request. No transcript
-            # correction, follow-up resolution, resume/RAG reads, domain hints,
-            # knowledge packs, weak topics, or required-output patches.
+            # correction, follow-up resolution, resume/RAG reads, weak topics,
+            # or personal facts. Deterministic local facts remain in-process.
             raw_question = final_question
             strategy = classify_interview_question_intent(final_question)
             intent = str(strategy["question_intent"])
@@ -340,18 +349,39 @@ async def _interview_event_stream(
                 intent,
                 _answer_language_block(payload.answer_language),
             )
+            enrichment_blocks: list[str] = []
+            domain_hints = resolve_fast_domain_answer_hints(final_question)
+            if not domain_hints.startswith("(none"):
+                enrichment_blocks.append(domain_hints)
+
+            knowledge_meta = {"knowledgePackUsed": False}
+            if detect_pack(final_question):
+                kn_block, knowledge_meta = build_python_pack_injection(
+                    final_question, verified_only=True
+                )
+                if kn_block:
+                    enrichment_blocks.append(kn_block)
+
+            required_contract = resolve_required_output_contract(final_question)
+            if required_contract:
+                enrichment_blocks.append(required_contract)
+            if enrichment_blocks:
+                prompt = f"{prompt}\n\n" + "\n\n".join(enrichment_blocks)
+
             system_prompt = FAST_CORE_SYSTEM_PROMPT
             correction_meta = {
                 "question_intent": intent,
                 "answer_strategy": "fast_core",
                 "resume_context_used": False,
                 "resume_context_level": "none",
-                "resume_context_reason": "fast_core_no_enrichment",
-                "knowledgePackUsed": False,
+                "resume_context_reason": (
+                    "fast_core_local_enrichment" if enrichment_blocks else "fast_core_no_enrichment"
+                ),
                 "prompt_mode": "fast_core",
-                "enrichment_used": False,
+                "enrichment_used": bool(enrichment_blocks),
                 "prompt_chars": len(system_prompt) + len(prompt),
             }
+            correction_meta.update(knowledge_meta)
         else:
             (
                 final_question,
@@ -395,7 +425,7 @@ async def _interview_event_stream(
                 resume_context_reason=strategy["resume_context_reason"],
                 domain_hints=domain_hints,
             )
-            knowledge_meta: dict = {"knowledgePackUsed": False}
+            knowledge_meta = {"knowledgePackUsed": False}
             if detect_pack(resolved_q):
                 kn_block, knowledge_meta = build_python_pack_injection(resolved_q)
                 if kn_block:
@@ -413,19 +443,56 @@ async def _interview_event_stream(
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt},
         ]
-        async for delta in provider_adapter.stream_chat(
-            messages,
-            provider,
-            model,
-            temperature=0.0 if payload.fast_answer else 0.3,
-            live_fast=True,
-            route_fast=payload.fast_answer,
-        ):
-            parts.append(delta)
-            yield f"data: {json.dumps({'type': 'chunk', 'text': delta}, ensure_ascii=False)}\n\n"
-        correction_meta["answerLatencyMs"] = int(
-            (time.perf_counter() - answer_started_at) * 1000
+
+        def stream_for(selected_model: str):
+            return provider_adapter.stream_chat(
+                messages,
+                provider,
+                selected_model,
+                temperature=0.0 if payload.fast_answer else 0.3,
+                live_fast=True,
+                route_fast=payload.fast_answer,
+            )
+
+        intent = str(correction_meta.get("question_intent") or "unclear")
+        use_latency_hedge = (
+            payload.fast_answer
+            and not payload.model
+            and not payload.model_override
+            and model == model_router.FAST_CORE_DEFAULT_MODEL
+            and intent in LIVE_THEORY_HEDGE_INTENTS
         )
+        if use_latency_hedge:
+            # Theory and concrete "how I use it" answers are grounded by the
+            # local factual packs above, so start the low-latency model first.
+            # If it stalls, race the quality-first global default instead.
+            hedge_primary_model = LIVE_THEORY_FAST_MODEL
+            hedge_fallback_model = model
+            selected = await select_hedged_stream(
+                primary_model=hedge_primary_model,
+                fallback_model=hedge_fallback_model,
+                stream_factory=stream_for,
+                hedge_after_seconds=LIVE_THEORY_HEDGE_AFTER_SECONDS,
+            )
+            answer_model = selected.model
+            if selected.model != model:
+                answer_source = "fast_core_latency_hedge"
+            correction_meta["hedgeStarted"] = selected.hedge_started
+            correction_meta["hedgeWinner"] = (
+                "primary" if selected.model == hedge_primary_model else "fallback"
+            )
+            parts.append(selected.first_chunk)
+            yield f"data: {json.dumps({'type': 'chunk', 'text': selected.first_chunk}, ensure_ascii=False)}\n\n"
+            async for delta in selected.remainder:
+                parts.append(delta)
+                yield f"data: {json.dumps({'type': 'chunk', 'text': delta}, ensure_ascii=False)}\n\n"
+        else:
+            correction_meta["hedgeStarted"] = False
+            async for delta in stream_for(model):
+                parts.append(delta)
+                yield f"data: {json.dumps({'type': 'chunk', 'text': delta}, ensure_ascii=False)}\n\n"
+        correction_meta["answerModel"] = answer_model
+        correction_meta["answerLatencyMs"] = int((time.perf_counter() - answer_started_at) * 1000)
     except Exception as exc:  # noqa: BLE001
         err_msg = getattr(exc, "message", str(exc))
 
@@ -451,7 +518,7 @@ async def _interview_event_stream(
                     session_id=payload.session_id,
                     question=final_question,
                     spoken=final_spoken,
-                    model=model,
+                    model=answer_model,
                     provider=provider,
                 )
             except Exception as exc:  # noqa: BLE001
@@ -459,8 +526,8 @@ async def _interview_event_stream(
         done_payload = {
             "type": "done",
             "id": answer_id,
-            "model": model,
-            "model_source": source,
+            "model": answer_model,
+            "model_source": answer_source,
             "spoken": final_spoken,
             "correction": correction_meta,
         }
@@ -752,7 +819,9 @@ async def interview_stream(payload: InterviewPayload, db: Session = Depends(get_
     if not payload.fast_answer:
         try:
             resume = _clip(rag_service.get_context_text(stream_db, "resume"), RESUME_CONTEXT_LIMIT)
-            vacancy = _clip(rag_service.get_context_text(stream_db, "vacancy"), VACANCY_CONTEXT_LIMIT)
+            vacancy = _clip(
+                rag_service.get_context_text(stream_db, "vacancy"), VACANCY_CONTEXT_LIMIT
+            )
             legend = _clip(rag_service.get_context_text(stream_db, "legend"), LEGEND_CONTEXT_LIMIT)
             profile_block = get_profile_block(stream_db)
         except Exception:
@@ -968,16 +1037,30 @@ _SCREEN_OUTPUT_TASK_RE = re.compile(
     re.IGNORECASE | re.UNICODE,
 )
 
+SCREEN_TASK_REQUEST = (
+    "Сначала прочитай точную формулировку задания на скриншоте, включая текст "
+    "над и под кодом. Определи, какое действие от кандидата требуется, и выполни "
+    "именно его. Если просят определить порядок, последовательность, результат, "
+    "ошибку или объяснить поведение существующего кода, вычисли это и дай прямой "
+    "ответ — не переписывай исходный код. Новый полный код давай только если на "
+    "экране явно просят написать, реализовать, исправить или дополнить программу."
+)
+
 SCREEN_ASSIST_PROMPT = (
     "Ты — ассистент кандидата на техническом собеседовании. Тебе дают скриншот "
     "его экрана и, возможно, транскрипт разговора. На экране почти всегда "
     "ЗАДАНИЕ: SQL-запрос, задача на Python (или другом языке) либо текстовая "
     "формулировка, что нужно сделать. Не пересказывай экран — сразу помогай решить.\n\n"
     "Если в редакторе видна только короткая фраза, заголовок, строка в кавычках или комментарий "
-    "(например, «Декоратор с args и kwargs»), считай это формулировкой задачи. Напиши полный рабочий "
-    "пример на языке, выбранном в редакторе. Ответ должен быть готов копироваться вместо содержимого редактора. "
+    "(например, «Декоратор с args и kwargs»), считай это темой задачи, но это не означает автоматически, "
+    "что нужно писать новый код. По видимому условию и контексту определи, нужно ли объяснить, вычислить "
+    "порядок или написать полный рабочий пример на языке, выбранном в редакторе. Для явной задачи на код "
+    "ответ должен быть готов копироваться вместо содержимого редактора. "
     "Не объясняй, как пользоваться сайтом или визуализатором.\n\n"
-    "Сначала определи тип задания. Если спрашивают «что выведет/вернёт/произойдёт» или про ошибку, "
+    "Сначала прочитай формулировку вокруг кода и определи тип задания. Видимое условие важнее "
+    "общих инструкций режима. Если спрашивают про порядок или последовательность выполнения "
+    "(в том числе setup, зависимости и teardown фикстур), перечисли точный trace и кратко объясни "
+    "его, не копируя и не переписывая код. Если спрашивают «что выведет/вернёт/произойдёт» или про ошибку, "
     "НЕ переписывай и НЕ исправляй код: укажи точный stdout/результат либо класс исключения первой "
     "строкой, затем кратко объясни порядок выполнения. Обязательно перечисли весь stdout, который "
     "успел появиться ДО исключения; не заменяй его только названием ошибки. После первого "
@@ -1011,17 +1094,26 @@ async def screen_assist_stream(payload: ScreenAssistPayload, db: Session = Depen
     if not image.startswith("data:image/"):
         image = f"data:image/jpeg;base64,{image}"
 
-    provider, model, _ = _resolve_chat(
+    provider, model, model_source = _resolve_chat(
         payload.mode,
         provider=payload.provider,
         model=payload.model,
         model_override=payload.model_override,
     )
+    # Screen assist is not just OCR: it must trace dependency/setup/teardown
+    # semantics exactly. In a real fixture-order image 4.1-mini read every
+    # symbol but swapped two independent setup steps; full 4.1 returned the
+    # verified pytest order and was faster in the same installed-backend check.
+    # Preserve every explicit user/configured model; strengthen Auto only.
+    if model_source == "auto":
+        model = model_router.SCREEN_DEFAULT_MODEL
 
-    user_text = (
-        payload.question.strip()
-        or "Реши задачу на экране. Если это программирование, обязательно дай полный рабочий код."
-    )
+    user_text = SCREEN_TASK_REQUEST
+    if payload.question.strip():
+        user_text += (
+            "\n\nДополнительная просьба пользователя (не заменяет видимое условие):\n"
+            f"{payload.question.strip()}"
+        )
     if payload.context:
         user_text += f"\n\nТранскрипт разговора (для контекста):\n{_clip(payload.context, 2000)}"
     if _SCREEN_OUTPUT_TASK_RE.search(user_text):
@@ -1056,7 +1148,7 @@ async def screen_assist_stream(payload: ScreenAssistPayload, db: Session = Depen
                 messages, provider, model, max_tokens=900, temperature=0.0
             ):
                 yield f"data: {json.dumps({'type': 'chunk', 'text': delta}, ensure_ascii=False)}\n\n"
-            yield f"data: {json.dumps({'type': 'done', 'model': model})}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'model': model, 'model_source': model_source})}\n\n"
         except Exception as exc:  # noqa: BLE001
             msg = getattr(exc, "message", str(exc))
             yield f"data: {json.dumps({'type': 'error', 'message': msg}, ensure_ascii=False)}\n\n"

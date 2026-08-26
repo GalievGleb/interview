@@ -9,6 +9,7 @@ const hookSource = fs.readFileSync(
 );
 const apiSource = fs.readFileSync(path.resolve(__dirname, '../lib/api.ts'), 'utf8');
 const ruSource = fs.readFileSync(path.resolve(__dirname, '../lib/i18n/ru.ts'), 'utf8');
+const enSource = fs.readFileSync(path.resolve(__dirname, '../lib/i18n/en.ts'), 'utf8');
 const mainSource = fs.readFileSync(path.resolve(__dirname, '../../electron/main.ts'), 'utf8');
 const preloadSource = fs.readFileSync(path.resolve(__dirname, '../../electron/preload.ts'), 'utf8');
 const cssSource = fs.readFileSync(
@@ -23,13 +24,63 @@ describe('overlay request behavior', () => {
     expect(overlaySource).toContain("overlay.openSettings?.('billing')");
   });
 
-  it('shows live startup failures instead of silently returning to the record button', () => {
+  it('starts live without blocking on readiness and still surfaces startup failures', () => {
     expect(overlaySource).toMatch(/\{error && \([\s\S]*?role="alert"[\s\S]*?\{error\}/);
     expect(overlaySource).toContain('if (!active && error) void refreshLicense();');
-    expect(overlaySource).toContain('const readiness = await api.providerReadiness();');
-    expect(overlaySource).toContain('Созвон не запущен: ИИ недоступен.');
+    expect(overlaySource).toContain('void liveStartupWarmup.warm();');
+    expect(overlaySource).not.toContain('const readiness = await api.providerReadiness();');
+    expect(overlaySource).not.toContain('Проверяю ИИ перед созвоном…');
     expect(overlaySource).toContain('Завершить созвон и запись');
     expect(overlaySource).toContain("license?.plan === 'trial'");
+  });
+
+  it('shows silent requested system audio as a non-fatal warning only', () => {
+    expect(hookSource).toContain('sourceHealthWarning');
+    expect(overlaySource).toContain("t('overlay.sourceHealth.systemSilent')");
+    expect(ruSource).toContain("'overlay.sourceHealth.systemSilent'");
+    expect(enSource).toContain("'overlay.sourceHealth.systemSilent'");
+
+    const warningAt = overlaySource.indexOf("t('overlay.sourceHealth.systemSilent')");
+    const warningUi = overlaySource.slice(Math.max(0, warningAt - 300), warningAt + 300);
+    expect(warningUi).toContain('role="status"');
+    expect(warningUi).not.toContain('onClick');
+    expect(warningUi).not.toContain('stopSession');
+    expect(warningUi).not.toContain('setSources');
+    expect(warningUi).not.toContain('forceAnswer');
+  });
+
+  it('tags source-handler diagnostics independently from the displayed speaker', () => {
+    expect(hookSource).toContain("withAudioSource(source, { speaker })");
+    const lowQualityAt = hookSource.indexOf('onLowQuality:');
+    const lowQualityBody = hookSource.slice(lowQualityAt, lowQualityAt + 1500);
+    expect(lowQualityBody).toContain('withAudioSource(source, {');
+    expect(lowQualityBody).toContain('speaker,');
+    expect(lowQualityBody).toContain('meta: toSttDiagnosticMeta(metadata)');
+    expect(hookSource).not.toContain(
+      "debugRef.current.event('low_quality', { text: question, reason })",
+    );
+    expect(hookSource).toContain("'source_warning',");
+    expect(hookSource).toContain("'source_recovered',");
+  });
+
+  it('starts health timing after capture permission and schedules the exact deadline', () => {
+    expect(hookSource).toContain('onCaptureReady:');
+    expect(hookSource).toContain('sourceHealthRef.current.markCaptureReady(');
+    expect(hookSource).toContain('sourceHealthRef.current.nextEvaluationAtMs()');
+    expect(hookSource).toContain('sourceHealthTimerRef');
+    expect(hookSource).not.toContain(
+      'applySourceHealthResult(sourceHealthRef.current.markReady(source))',
+    );
+  });
+
+  it('invalidates source health when a fatal source removal stops that stream', () => {
+    const removeStart = hookSource.indexOf('const removeStream = useCallback');
+    const removeEnd = hookSource.indexOf('const runStream = useCallback', removeStart);
+    const removeBody = hookSource.slice(removeStart, removeEnd);
+
+    expect(removeBody).toContain(
+      'updateSourceHealth(sourceHealthRef.current.markSourceRemoved(source))',
+    );
   });
 
   it('routes typed requests without silently capturing the screen', () => {
@@ -50,8 +101,8 @@ describe('overlay request behavior', () => {
 
   it('records finals from both audio sources for explicit Ctrl+Enter', () => {
     expect(hookSource).toContain('forcedFinalLedgerRef');
-    expect(hookSource).toContain('appendForcedFinal(trimmed, source)');
-    const appendAt = hookSource.indexOf('appendForcedFinal(trimmed, source)');
+    expect(hookSource).toContain('appendForcedFinal(trimmed, source, metadata)');
+    const appendAt = hookSource.indexOf('appendForcedFinal(trimmed, source, metadata)');
     const nonTriggerAt = hookSource.indexOf('if (speaker !== triggerSpeakerRef.current)', appendAt);
     expect(appendAt).toBeGreaterThan(-1);
     expect(nonTriggerAt).toBeGreaterThan(appendAt);
@@ -71,17 +122,28 @@ describe('overlay request behavior', () => {
     );
   });
 
-  it('forces the active utterance to finish instead of reusing the previous final', () => {
-    expect(hookSource).toContain(
-      'Boolean(targetSource && speechActivity[targetSource])',
-    );
+  it('does not let noisy VAD hide an already finalized Ctrl+Enter question', () => {
+    expect(hookSource).toContain('shouldFinalizeCurrentSpeech(');
+    expect(hookSource).toContain('unconsumedForcedFinals');
   });
 
-  it('falls back to the screen when forced speech has no final transcript', () => {
-    expect(hookSource).toContain('forceScreenFallbackGeneration');
-    expect(overlaySource).toContain('forceScreenFallbackGeneration');
-    expect(overlaySource).toContain("void runScreenAssist('', smart ? 'deep' : 'general')");
-    expect(overlaySource).not.toContain("text: `⚠ ${t('overlay.forceUnavailable')}`");
+  it('stabilizes a recent final so a split continuation stays in one Ctrl+Enter question', () => {
+    expect(hookSource).toContain('latestUnconsumedFinal?.receivedAt');
+    expect(hookSource).toContain('FORCE_PREFIX_STABILIZATION_MS');
+    expect(hookSource).toContain('commitFinalizedPrefix');
+  });
+
+  it('keeps Ctrl+Enter on the conversation path while its final transcript is delayed', () => {
+    expect(hookSource).toContain('forceScreenFallback');
+    expect(overlaySource).toContain('forceScreenFallback');
+    expect(hookSource).toContain('notifyDelayedForcedTranscript');
+    expect(hookSource).not.toContain(
+      'forceCoordinatorRef.current.beginScreenFallback(scheduledGeneration)',
+    );
+    const forceAt = overlaySource.indexOf('const submitForcedAnswer');
+    const forceBody = overlaySource.slice(forceAt, forceAt + 900);
+    expect(forceBody).toContain("setNotice(t('overlay.forceUnavailable'))");
+    expect(forceBody).not.toContain("runScreenAssist('', smart ? 'deep' : 'general'");
   });
 
   it('invalidates a pending screen capture when a newer Ctrl+Enter starts', () => {
@@ -98,11 +160,51 @@ describe('overlay request behavior', () => {
     );
   });
 
-  it('cancels the same-generation screen fallback when the delayed transcript arrives', () => {
-    expect(hookSource).toContain('forceCoordinatorRef.current.beginScreenFallback(generation)');
+  it('reserves screen fallback ownership for explicit visual questions', () => {
+    expect(hookSource).toContain('routeVisualQuestionToScreen');
     expect(hookSource).toContain("forceSnapshot.phase === 'screen-fallback'");
+    expect(hookSource).toContain("if (decision.action !== 'submit')");
     expect(overlaySource).toContain('forceScreenFallbackOwnerRef');
-    expect(overlaySource).toContain('cancelOwnedForceScreenFallback(forceGeneration)');
+    expect(overlaySource).toContain("forcePhase === 'waiting-first-token'");
+    expect(overlaySource).toContain('cancelOwnedForceScreenFallback(ownedGeneration)');
+  });
+
+  it('commits the first nonempty screen chunk before rendering it', () => {
+    expect(hookSource).toContain('commitScreenFirstOutput');
+    const chunkAt = overlaySource.indexOf('onChunk: (t) => {', overlaySource.indexOf('streamScreenAssist'));
+    const chunkSource = overlaySource.slice(chunkAt, chunkAt + 800);
+    expect(chunkSource).toContain('commitScreenFirstOutput');
+    expect(chunkSource.indexOf('commitScreenFirstOutput')).toBeLessThan(
+      chunkSource.indexOf('setExchange'),
+    );
+  });
+
+  it('revalidates every forced-screen chunk instead of trusting a prior commit', () => {
+    const chunkAt = overlaySource.indexOf('onChunk: (t) => {', overlaySource.indexOf('streamScreenAssist'));
+    const chunkSource = overlaySource.slice(chunkAt, chunkAt + 900);
+    expect(chunkSource).toContain('commitScreenFirstOutput(forceOwner.generation');
+    expect(chunkSource).not.toContain("forceChunkAuthority === 'committed'");
+  });
+
+  it('cancels the old screen owner when a newer generation is still finalizing', () => {
+    expect(overlaySource).toContain('shouldCancelScreenFallbackOwner(');
+    expect(overlaySource).toContain('cancelOwnedForceScreenFallback(ownedGeneration)');
+    const cancelAt = overlaySource.indexOf('const cancelOwnedForceScreenFallback');
+    const cancelSource = overlaySource.slice(cancelAt, cancelAt + 420);
+    expect(cancelSource).toContain('manualBusyRef.current = false');
+  });
+
+  it('keeps stale finals diagnostic-only without asking text LLM or cancelling screen', () => {
+    const acceptAt = hookSource.indexOf('export function dispatchForcedSttAcceptDecision');
+    const decisionSource = hookSource.slice(acceptAt, acceptAt + 500);
+    expect(decisionSource).toContain("if (decision.action !== 'submit')");
+    expect(decisionSource.indexOf("if (decision.action !== 'submit')")).toBeLessThan(
+      decisionSource.indexOf('dispatchForcedSttSubmission(decision'),
+    );
+    expect(hookSource).toContain('dispatchAcceptedForceDecision(decision)');
+    expect(overlaySource).not.toContain(
+      "forcePhase === 'screen-fallback' && cancelOwnedForceScreenFallback",
+    );
   });
 
   it('keeps all overlay cards reachable in one vertical scroll area', () => {
@@ -127,11 +229,12 @@ describe('overlay request behavior', () => {
     expect(overlaySource).not.toContain('<strong>{interviewContext.companyName}</strong>');
   });
 
-  it('uses deep screen analysis for forced fallback when Smart is enabled', () => {
-    const fallbackCalls = overlaySource.match(
-      /runScreenAssist\('', smart \? 'deep' : 'general'\)/g,
-    );
-    expect(fallbackCalls).toHaveLength(2);
+  it('uses deep screen analysis for an explicit visual question when Smart is enabled', () => {
+    expect(
+      overlaySource.match(
+        /runScreenAssist\(forceScreenFallback\.question, smart \? 'deep' : 'general', \{/g,
+      ),
+    ).toHaveLength(1);
   });
 
   it('replaces the pending card on every forced generation', () => {
@@ -190,9 +293,33 @@ describe('overlay request behavior', () => {
   it('routes deictic code-on-screen questions to vision after Ctrl+Enter', () => {
     expect(hookSource).toContain('requiresScreenContext(question)');
     expect(hookSource).toContain('routeQuestionToScreen(generation)');
-    expect(hookSource.match(/routeVisualQuestionToScreen\(decision\.question, decision\.generation\)/g))
-      .toHaveLength(2);
-    expect(hookSource).toContain('setForceScreenFallbackGeneration(generation)');
+    expect(hookSource).toContain(
+      'routeVisualQuestionToScreen(decision.question, decision.generation)',
+    );
+    expect(hookSource).toContain('routeVisualToScreen: (question, generation) =>');
+    expect(hookSource).toContain('routeVisualQuestionToScreen(question, generation)');
+    expect(hookSource).toContain(
+      'setForceScreenFallback({ generation, screenRevision, question: question.trim() })',
+    );
+    expect(overlaySource).toContain('runScreenAssist(forceScreenFallback.question');
+  });
+
+  it('restarts the same-generation screen fallback when a late exact question arrives', () => {
+    expect(overlaySource).toContain('const requestKey = JSON.stringify(forceScreenFallback)');
+    expect(overlaySource).toContain('lastForceScreenFallbackRef.current === requestKey');
+    expect(overlaySource).toContain('lastForceScreenFallbackRef.current = requestKey');
+  });
+
+  it('captures the uncovered desktop before rendering a loading answer card', () => {
+    const runAt = overlaySource.indexOf('const runScreenAssist = useCallback');
+    const captureAt = overlaySource.indexOf('const image = await capture()', runAt);
+    const exchangeAt = overlaySource.indexOf('setExchange({', runAt);
+    expect(captureAt).toBeGreaterThan(runAt);
+    expect(exchangeAt).toBeGreaterThan(captureAt);
+    expect(overlaySource.slice(captureAt, captureAt + 900)).toContain('effectiveQuestion,');
+    expect(mainSource).toContain('captureScreenWithoutOverlay(');
+    expect(mainSource).toContain('screenCaptureCoordinator.run(');
+    expect(mainSource).toContain("showOverlayWindow(currentOverlay, 'inactive')");
   });
 
   it('blocks every legacy or queued LLM start without a Ctrl+Enter generation', () => {
@@ -225,6 +352,82 @@ describe('overlay request behavior', () => {
     const endAt = hookSource.indexOf('api.endSession(sid)', saveAt);
     expect(saveAt).toBeGreaterThan(-1);
     expect(endAt).toBeGreaterThan(saveAt);
+  });
+
+  it('owns one epoch-safe coalescing diagnostics writer and flushes the final snapshot before end', () => {
+    expect(hookSource).toContain('SerializedDiagnosticsWriter');
+    expect(hookSource).toContain('diagnosticsEpochRef');
+    expect(hookSource).toContain('enqueueDiagnosticsSnapshot');
+    const endAt = hookSource.indexOf('const endInterviewSession = useCallback');
+    const endBody = hookSource.slice(endAt, hookSource.indexOf('const removeStream', endAt));
+    expect(endBody).toContain('activeScreenCancellationRef.current.cancelAndClear()');
+    expect(endBody).toContain('await diagnosticsWriterRef.current.flush(');
+    expect(endBody.indexOf('await diagnosticsWriterRef.current.flush(')).toBeLessThan(
+      endBody.indexOf('await api.endSession(sid)'),
+    );
+  });
+
+  it('waits for an in-progress prior end before resetting or activating a reused session epoch', () => {
+    expect(hookSource).toContain('endingSessionRef');
+    const startAt = hookSource.indexOf('const start = useCallback');
+    const epochAt = hookSource.indexOf('const diagnosticsEpoch =', startAt);
+    const startPrefix = hookSource.slice(startAt, epochAt);
+    expect(startPrefix).toContain('await endingSessionRef.current');
+    expect(startPrefix).toContain('await endInterviewSession()');
+  });
+
+  it('cancels any standalone screen owner before a new live diagnostics reset', () => {
+    const startAt = hookSource.indexOf('const start = useCallback');
+    const epochAt = hookSource.indexOf('const diagnosticsEpoch =', startAt);
+    const resetAt = hookSource.indexOf('screenAssistDiagnosticsRef.current.reset(', epochAt);
+    const startPrefix = hookSource.slice(startAt, resetAt);
+    expect(startPrefix).toContain('activeScreenCancellationRef.current.cancelAndClear()');
+    expect(startPrefix.indexOf('activeScreenCancellationRef.current.cancelAndClear()')).toBeLessThan(
+      startPrefix.indexOf('const diagnosticsEpoch ='),
+    );
+  });
+
+  it('invalidates frozen partial hints on rejection and across capture lifecycle changes', () => {
+    const lowQualityAt = hookSource.indexOf('onLowQuality:');
+    const forceEmptyAt = hookSource.indexOf('onForceEmpty:', lowQualityAt);
+    const pauseAt = hookSource.indexOf('const pause = useCallback');
+    const resumeAt = hookSource.indexOf('const resume = useCallback');
+    const captureReadyAt = hookSource.indexOf('onCaptureReady:');
+    expect(hookSource.slice(lowQualityAt, forceEmptyAt)).toContain('clearGeneration(');
+    expect(hookSource.slice(forceEmptyAt, forceEmptyAt + 500)).toContain('clearGeneration(');
+    expect(hookSource.slice(pauseAt, resumeAt)).toContain('clearCandidates()');
+    expect(hookSource.slice(resumeAt, resumeAt + 500)).toContain('clearCandidates()');
+    expect(hookSource.slice(captureReadyAt, captureReadyAt + 500)).toContain('clearCandidate(source)');
+  });
+
+  it('records every screen lifecycle transition through hook-owned diagnostics', () => {
+    const runAt = overlaySource.indexOf('const runScreenAssist = useCallback');
+    const runBody = overlaySource.slice(runAt, overlaySource.indexOf('const runAction', runAt));
+    expect(runBody).toContain('screenAssistDiagnostics.request(');
+    expect(runBody).toContain('screenAssistDiagnostics.captured(');
+    expect(runBody).toContain('screenAssistDiagnostics.firstOutput(');
+    expect(runBody).toContain('screenAssistDiagnostics.done(');
+    expect(runBody).toContain('screenAssistDiagnostics.error(');
+    expect(overlaySource).toContain('screenAssistDiagnostics.cancel(');
+  });
+
+  it('passes only a frozen labelled timeout partial to screen context and never text LLM', () => {
+    expect(hookSource).toContain('freezeGeneration(');
+    expect(hookSource).toContain('untrustedPartialHint');
+    expect(overlaySource).toContain('UNTRUSTED CURRENT PARTIAL HINT');
+    const interviewAt = hookSource.indexOf('api.streamInterview(');
+    const interviewBody = hookSource.slice(interviewAt, interviewAt + 2200);
+    expect(interviewBody).not.toContain('untrustedPartialHint');
+  });
+
+  it('records the exact prefixed screen question and keeps manual triggers manual', () => {
+    const runAt = overlaySource.indexOf('const runScreenAssist = useCallback');
+    const runBody = overlaySource.slice(runAt, overlaySource.indexOf('const runAction', runAt));
+    expect(runBody).toContain("const effectiveTrigger = trigger ?? 'manual'");
+    expect(runBody).toContain('const effectiveQuestion = `${modeInstructionPrefix()}${request}`.trim()');
+    expect(runBody).toContain('effectiveQuestion,');
+    expect(runBody).toContain('api.streamScreenAssist(\n        image,\n        effectiveQuestion,');
+    expect(overlaySource).not.toContain("runScreenAssist('', smart ? 'deep' : 'general', undefined, 'stt_timeout')");
   });
 
   it('ignores metadata from a superseded stream generation', () => {

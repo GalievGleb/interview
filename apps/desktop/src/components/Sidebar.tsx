@@ -1,30 +1,39 @@
 import { useEffect, useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
+  ArrowRight,
   BookOpenCheck,
   BriefcaseBusiness,
   CalendarDays,
   ChevronLeft,
   ChevronRight,
-  EyeOff,
   FileUser,
   Dumbbell,
   History,
   House,
+  EyeOff,
   Mic2,
+  Moon,
   Send,
   Settings,
   ShieldCheck,
+  Sparkles,
+  Sun,
 } from 'lucide-react';
 import { useI18n, type I18nKey } from '../lib/i18n';
 import { useApp } from '../context/AppContext';
 import { launchLive } from '../lib/launchLive';
+import { useTheme, type ThemePref } from '../lib/theme';
 import type { InterviewCalendarEvent, InterviewCalendarState } from '../types/electron';
 import skillCueAppIcon from '../../assets/branding/skillcue-app-icon-512.png';
 
 const SIDEBAR_COLLAPSED_KEY = 'skillcue.sidebarCollapsed';
 const STEALTH_KEY = 'skillcue.overlayStealth';
 const SKIP_TASKBAR_KEY = 'skillcue.skipTaskbar';
+
+export function nextSidebarTheme(current: ThemePref): ThemePref {
+  return current === 'light' ? 'dark' : 'light';
+}
 
 const NAV_ITEMS: Array<{
   to: string;
@@ -61,6 +70,7 @@ export default function Sidebar() {
   const { backendStatus } = useApp();
   const { t } = useI18n();
   const navigate = useNavigate();
+  const { pref: theme, setPref: setTheme } = useTheme();
   const sessionLive = useSessionLive();
   const [collapsed, setCollapsed] = useState(
     () => localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1',
@@ -71,7 +81,7 @@ export default function Sidebar() {
   const [undetected, setUndetected] = useState(
     () => localStorage.getItem(STEALTH_KEY) === '1',
   );
-  const [hiddenTaskbar, setHiddenTaskbar] = useState(
+  const [skipTaskbar, setSkipTaskbar] = useState(
     () => localStorage.getItem(SKIP_TASKBAR_KEY) === '1',
   );
   const [calendarAttention, setCalendarAttention] = useState(0);
@@ -160,20 +170,20 @@ export default function Sidebar() {
         <img
           src={skillCueAppIcon}
           alt=""
-          width={36}
-          height={36}
+          width={48}
+          height={48}
           className="skillcue-logo"
           aria-hidden="true"
           draggable={false}
         />
         {!visuallyCollapsed && (
-          <div className="min-w-0 leading-tight">
-            <p className="truncate text-sm font-semibold tracking-tight">SkillCue</p>
+          <div className="skillcue-sidebar__brand-copy min-w-0 leading-tight">
+            <p className="truncate font-semibold tracking-tight">SkillCue</p>
           </div>
         )}
       </div>
 
-      <nav className="flex-1 space-y-1 overflow-y-auto px-2.5 py-2" aria-label={t('sidebar.mainNav')}>
+      <nav className="skillcue-sidebar__nav flex-1 overflow-y-auto" aria-label={t('sidebar.mainNav')}>
         {NAV_ITEMS.map((item) => {
           const NavIcon = item.icon;
           return (
@@ -205,17 +215,25 @@ export default function Sidebar() {
         <button
           type="button"
           onClick={() => void launchUpcomingLive()}
-          className={`skillcue-live-launch ${sessionLive ? 'is-live' : ''}`}
+          className={`skillcue-sidebar__assistant-card skillcue-live-launch ${sessionLive ? 'is-live' : ''}`}
           title={visuallyCollapsed ? t('sidebar.openLiveOverlay') : undefined}
           aria-label={t('sidebar.openLiveOverlay')}
         >
-          <Mic2 size={17} aria-hidden="true" />
-          {!visuallyCollapsed && (
+          {visuallyCollapsed ? (
+            <Mic2 size={18} aria-hidden="true" />
+          ) : (
             <>
-              <span className="min-w-0 flex-1 truncate">{t('sidebar.openLiveOverlay')}</span>
-              {sessionLive && (
-                <span className="skillcue-live-launch__hint">{t('sidebar.liveNow')}</span>
-              )}
+              <span className="skillcue-sidebar__assistant-visual" aria-hidden="true">
+                <span className="skillcue-sidebar__assistant-bubble is-back" />
+                <span className="skillcue-sidebar__assistant-bubble is-front" />
+                <Sparkles size={18} />
+              </span>
+              <span className="skillcue-sidebar__assistant-action">
+                <span>{t('sidebar.openLiveOverlay')}</span>
+                {sessionLive
+                  ? <small className="skillcue-live-launch__hint">{t('sidebar.liveNow')}</small>
+                  : <ArrowRight size={18} aria-hidden="true" />}
+              </span>
             </>
           )}
         </button>
@@ -238,6 +256,26 @@ export default function Sidebar() {
           </NavLink>
           <button
             type="button"
+            className={`skillcue-sidebar__icon-button ${skipTaskbar ? 'is-active' : ''}`}
+            onClick={async () => {
+              const next = !skipTaskbar;
+              setSkipTaskbar(next);
+              localStorage.setItem(SKIP_TASKBAR_KEY, next ? '1' : '0');
+              try {
+                await window.electronAPI?.window.setSkipTaskbar(next);
+              } catch {
+                setSkipTaskbar(!next);
+                localStorage.setItem(SKIP_TASKBAR_KEY, !next ? '1' : '0');
+              }
+            }}
+            aria-pressed={skipTaskbar}
+            aria-label={t('sidebar.taskbarTitle')}
+            title={t('sidebar.taskbarTitle')}
+          >
+            <EyeOff size={16} aria-hidden="true" />
+          </button>
+          <button
+            type="button"
             className={`skillcue-sidebar__icon-button ${undetected ? 'is-active' : ''}`}
             onClick={async () => {
               const next = !undetected;
@@ -258,23 +296,14 @@ export default function Sidebar() {
           </button>
           <button
             type="button"
-            className={`skillcue-sidebar__icon-button ${hiddenTaskbar ? 'is-active' : ''}`}
-            onClick={async () => {
-              const next = !hiddenTaskbar;
-              setHiddenTaskbar(next);
-              localStorage.setItem(SKIP_TASKBAR_KEY, next ? '1' : '0');
-              try {
-                await window.electronAPI?.window.setSkipTaskbar(next);
-              } catch {
-                setHiddenTaskbar(!next);
-                localStorage.setItem(SKIP_TASKBAR_KEY, !next ? '1' : '0');
-              }
-            }}
-            aria-pressed={hiddenTaskbar}
-            aria-label={t('sidebar.taskbarTitle')}
-            title={t('sidebar.taskbarTitle')}
+            className="skillcue-sidebar__icon-button"
+            onClick={() => setTheme(nextSidebarTheme(theme))}
+            aria-label="Переключить тему"
+            title="Переключить тему"
           >
-            <EyeOff size={16} aria-hidden="true" />
+            {theme === 'light'
+              ? <Moon size={17} aria-hidden="true" />
+              : <Sun size={17} aria-hidden="true" />}
           </button>
         </div>
       </div>

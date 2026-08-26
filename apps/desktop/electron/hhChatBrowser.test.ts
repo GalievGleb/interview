@@ -1395,6 +1395,80 @@ describe('HhChatBrowser current HH contract', () => {
     }
   });
 
+  it('stops an application dialogue without sending and ignores future recruiter messages', async () => {
+    const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skillcue-hh-chat-decline-'));
+    const negotiationKey = 'QA-инженер (ручное тестирование, web + mobile)\u0000ТИС';
+    const messageId = `${negotiationKey}:chatik-chat-message-test-task`;
+    try {
+      fs.writeFileSync(path.join(userDataDir, 'hh-chat-browser.json'), JSON.stringify({
+        config: { ...DEFAULT_CHAT_CONFIG, replyDelaySec: 0 },
+        seenMessageIds: [],
+        repliesToday: 0,
+        replyDate: '2000-01-01',
+        pendingDecisions: [{
+          id: 'test-task-decision',
+          negotiationKey,
+          messageId,
+          vacancyTitle: 'QA-инженер (ручное тестирование, web + mobile)',
+          companyName: 'ТИС',
+          recruiterMessage: 'Спасибо за отклик! На выполнение тестового задания у вас есть сутки.',
+          question: 'Подтвердите, готовы ли вы выполнить тестовое задание.',
+          kind: 'candidate_fact',
+          createdAt: new Date().toISOString(),
+        }],
+      }), 'utf8');
+      const page = {
+        isClosed: () => false,
+        url: () => HH_NEGOTIATIONS_URL,
+        locator: () => ({ first: () => ({ waitFor: () => Promise.resolve() }) }),
+      };
+      const llmCall = vi.fn(async () => 'Не должно вызываться');
+      const chat = new HhChatBrowser(userDataDir, async () => page as never, llmCall);
+
+      const state = chat.declineDecision('test-task-decision');
+
+      expect(state.pendingDecisions).toEqual([]);
+      expect(llmCall).not.toHaveBeenCalled();
+      const persisted = JSON.parse(fs.readFileSync(path.join(userDataDir, 'hh-chat-browser.json'), 'utf8')) as {
+        ignoredNegotiationKeys?: string[];
+      };
+      expect(persisted.ignoredNegotiationKeys).toEqual([negotiationKey]);
+
+      const restored = new HhChatBrowser(userDataDir, async () => page as never, llmCall);
+      const internals = restored as unknown as {
+        scrapeNegotiations: () => Promise<Array<{
+          index: number;
+          key: string;
+          vacancyTitle: string;
+          companyName: string;
+          isDiscussion: boolean;
+          hasUnread: boolean;
+          isRejected: boolean;
+        }>>;
+        openNegotiation: () => Promise<Record<string, never>>;
+        pollOnce: () => Promise<void>;
+      };
+      vi.spyOn(internals, 'scrapeNegotiations').mockResolvedValue([{
+        index: 0,
+        key: negotiationKey,
+        vacancyTitle: 'QA-инженер (ручное тестирование, web + mobile)',
+        companyName: 'ТИС',
+        isDiscussion: true,
+        hasUnread: true,
+        isRejected: false,
+      }]);
+      const openNegotiation = vi.spyOn(internals, 'openNegotiation').mockResolvedValue({});
+
+      await internals.pollOnce();
+
+      expect(openNegotiation).not.toHaveBeenCalled();
+      expect(llmCall).not.toHaveBeenCalled();
+      expect(restored.getState().pendingDecisions).toEqual([]);
+    } finally {
+      fs.rmSync(userDataDir, { recursive: true, force: true });
+    }
+  });
+
   it('retries a legacy seen recruiter question when no outgoing answer exists', async () => {
     const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skillcue-hh-chat-retry-'));
     const negotiationKey = 'TeamLead/Руководитель разработки\u0000Гарпикс';

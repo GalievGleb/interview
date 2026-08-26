@@ -14,6 +14,10 @@ VACANCY_DEFAULT_MODEL = "openai/gpt-4o"
 # The detailed end-of-interview report still has its separate vacancy route.
 FEEDBACK_DEFAULT_MODEL = "openai/gpt-4o-mini"
 FAST_CORE_DEFAULT_MODEL = "openai/gpt-4.1-mini"
+# Vision needs more than OCR: it must accurately trace dependencies, fixture
+# setup/teardown and code execution. The mini model can read the same image yet
+# swap independent steps, so automatic screen assist uses the full 4.1 model.
+SCREEN_DEFAULT_MODEL = "openai/gpt-4.1"
 
 MODE_SETTING: dict[str, str] = {
     "general": "default_copilot_model",

@@ -135,6 +135,7 @@ export interface HhAssistantState {
   lastScanSummary: HhScanSummary | null;
   nextRunAt: string | null;
   nextQueueResumeAt: string | null;
+  verificationCooldownUntil: string | null;
   updatedAt: string;
 }
 
@@ -382,6 +383,7 @@ export interface ElectronAPI {
       status: Extract<HhQueueStatus, 'sent' | 'skipped'>,
     ) => Promise<HhAssistantState>;
     closeBrowser: () => Promise<HhAssistantState>;
+    logout: () => Promise<HhAssistantState>;
     login: (login: string, password: string) => Promise<{ ok: boolean; message: string }>;
     requestLoginCode: (email: string) => Promise<{ ok: boolean; message: string }>;
     confirmLoginCode: (code: string) => Promise<{ ok: boolean; message: string }>;
@@ -423,6 +425,7 @@ export interface ElectronAPI {
     setEnabled: (enabled: boolean) => Promise<HhChatState>;
     pollNow: () => Promise<HhChatState>;
     answerDecision: (decisionId: string, answer: string, remember?: boolean) => Promise<HhChatState>;
+    declineDecision: (decisionId: string) => Promise<HhChatState>;
     forgetFact: (factId: string) => Promise<HhChatState>;
   };
   interviewCalendar?: {

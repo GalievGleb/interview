@@ -4,7 +4,9 @@ import json
 import wave
 
 import httpx
+import pytest
 
+from app.services.stt import openai_mini_stream as openai_mini_stream_module
 from app.services.stt import openai_transcribe
 from app.services.stt.base import TranscriptResult
 from app.services.stt.openai_mini_stream import (
@@ -20,6 +22,85 @@ from app.services.stt.openai_transcribe import (
 from app.services.stt.pcm_audio import pcm16_mono_wav
 from app.services.stt.registry import all_providers, diagnostics, resolve_default_provider
 from app.services.stt.settings_store import SttSettings
+
+
+class _QueuedWebSocket:
+    def __init__(self):
+        self.messages = asyncio.Queue()
+        self.sent = []
+        self.received_count = 0
+        self._received = asyncio.Condition()
+
+    async def receive(self):
+        message = await self.messages.get()
+        async with self._received:
+            self.received_count += 1
+            self._received.notify_all()
+        return message
+
+    async def send_json(self, payload):
+        self.sent.append(payload)
+
+    async def wait_until_received(self, count: int) -> None:
+        async with self._received:
+            await asyncio.wait_for(
+                self._received.wait_for(lambda: self.received_count >= count),
+                timeout=1,
+            )
+
+
+async def _wait_for_sent(ws: _QueuedWebSocket, event_type: str, count: int = 1):
+    async def find_events():
+        while True:
+            matching = [event for event in ws.sent if event.get("type") == event_type]
+            if len(matching) >= count:
+                return matching
+            await asyncio.sleep(0)
+
+    return await asyncio.wait_for(find_events(), timeout=1)
+
+
+async def _put_auto_turn(ws: _QueuedWebSocket) -> None:
+    voice_300ms = (1200).to_bytes(2, byteorder="little", signed=True) * 4800
+    silence_100ms = b"\0\0" * 1600
+    await ws.messages.put({"type": "websocket.receive", "bytes": voice_300ms})
+    for _ in range(5):
+        await ws.messages.put({"type": "websocket.receive", "bytes": silence_100ms})
+
+
+async def _disconnect(ws: _QueuedWebSocket, stream_task: asyncio.Task) -> None:
+    await ws.messages.put({"type": "websocket.disconnect"})
+    await asyncio.wait_for(stream_task, timeout=1)
+
+
+class _BlockingProvider:
+    def __init__(self, texts: list[str]):
+        self.texts = texts
+        self.audio = []
+        self.first_started = asyncio.Event()
+        self.release_first = asyncio.Event()
+
+    def is_available(self):
+        return True
+
+    async def prepare_async(self):
+        return None
+
+    def _active_model(self):
+        return MINI_MODEL
+
+    async def transcribe_audio_file(self, audio, **_kwargs):
+        self.audio.append(audio)
+        call_index = len(self.audio) - 1
+        if call_index == 0:
+            self.first_started.set()
+            await self.release_first.wait()
+        return TranscriptResult(
+            text=self.texts[call_index],
+            latency_ms=50,
+            provider_id="openai-gpt-4o-mini-transcribe",
+            model=MINI_MODEL,
+        )
 
 
 def test_legacy_stt_settings_are_forced_to_openai_mini():
@@ -93,6 +174,42 @@ async def test_openai_mini_retries_transient_500_before_returning(monkeypatch):
 
     assert attempts == 3
     assert text == "API transcript"
+
+
+async def test_managed_live_utterances_have_no_obsolete_client_side_spacing(monkeypatch):
+    delays: list[float] = []
+
+    async def record_sleep(delay: float) -> None:
+        delays.append(delay)
+
+    async def license_key() -> str:
+        return "signed-test-license"
+
+    class Settings:
+        skillcue_gateway_url = "https://skill-cue.ru"
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"text": "Быстрый вопрос"})
+
+    monkeypatch.setattr(openai_transcribe.asyncio, "sleep", record_sleep)
+    monkeypatch.setattr(openai_transcribe, "_gateway_license_key", license_key)
+    monkeypatch.setattr(openai_transcribe, "get_settings", lambda: Settings())
+    provider = OpenAiMiniTranscribeProvider()
+    provider._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    try:
+        first = await provider._transcribe_via_gateway(
+            b"RIFF first WAVE audio",
+            language="ru",
+        )
+        second = await provider._transcribe_via_gateway(
+            b"RIFF second WAVE audio",
+            language="ru",
+        )
+    finally:
+        await provider.aclose()
+
+    assert [first, second] == ["Быстрый вопрос", "Быстрый вопрос"]
+    assert delays == []
 
 
 def test_provider_model_cannot_be_changed():
@@ -180,25 +297,6 @@ def test_quality_gate_does_not_rewrite_transcript():
 
 
 async def test_live_stream_finalizes_pending_audio_on_control_message():
-    class FakeWebSocket:
-        def __init__(self):
-            voice = (1200).to_bytes(2, byteorder="little", signed=True) * 4800
-            self.messages = [
-                {"type": "websocket.receive", "bytes": voice},
-                {
-                    "type": "websocket.receive",
-                    "text": json.dumps({"type": "finalize", "request_id": "force-1"}),
-                },
-                {"type": "websocket.disconnect"},
-            ]
-            self.sent = []
-
-        async def receive(self):
-            return self.messages.pop(0)
-
-        async def send_json(self, payload):
-            self.sent.append(payload)
-
     class FakeProvider:
         def is_available(self):
             return True
@@ -218,8 +316,18 @@ async def test_live_stream_finalizes_pending_audio_on_control_message():
                 model=MINI_MODEL,
             )
 
-    ws = FakeWebSocket()
-    await run_openai_mini_stream(ws, provider=FakeProvider())
+    ws = _QueuedWebSocket()
+    voice = (1200).to_bytes(2, byteorder="little", signed=True) * 4800
+    await ws.messages.put({"type": "websocket.receive", "bytes": voice})
+    await ws.messages.put(
+        {
+            "type": "websocket.receive",
+            "text": json.dumps({"type": "finalize", "request_id": "force-1"}),
+        }
+    )
+    stream_task = asyncio.create_task(run_openai_mini_stream(ws, provider=FakeProvider()))
+    await _wait_for_sent(ws, "utterance_end")
+    await _disconnect(ws, stream_task)
 
     assert any(
         event.get("type") == "transcript"
@@ -234,25 +342,6 @@ async def test_live_stream_finalizes_pending_audio_on_control_message():
 
 
 async def test_forced_finalize_accepts_a_short_explicit_question():
-    class FakeWebSocket:
-        def __init__(self):
-            voice = (1200).to_bytes(2, byteorder="little", signed=True) * 4800
-            self.messages = [
-                {"type": "websocket.receive", "bytes": voice},
-                {
-                    "type": "websocket.receive",
-                    "text": json.dumps({"type": "finalize", "request_id": "force-short"}),
-                },
-                {"type": "websocket.disconnect"},
-            ]
-            self.sent = []
-
-        async def receive(self):
-            return self.messages.pop(0)
-
-        async def send_json(self, payload):
-            self.sent.append(payload)
-
     class FakeProvider:
         def is_available(self):
             return True
@@ -271,8 +360,18 @@ async def test_forced_finalize_accepts_a_short_explicit_question():
                 model=MINI_MODEL,
             )
 
-    ws = FakeWebSocket()
-    await run_openai_mini_stream(ws, provider=FakeProvider())
+    ws = _QueuedWebSocket()
+    voice = (1200).to_bytes(2, byteorder="little", signed=True) * 4800
+    await ws.messages.put({"type": "websocket.receive", "bytes": voice})
+    await ws.messages.put(
+        {
+            "type": "websocket.receive",
+            "text": json.dumps({"type": "finalize", "request_id": "force-short"}),
+        }
+    )
+    stream_task = asyncio.create_task(run_openai_mini_stream(ws, provider=FakeProvider()))
+    await _wait_for_sent(ws, "utterance_end")
+    await _disconnect(ws, stream_task)
 
     assert any(
         event.get("type") == "transcript"
@@ -324,25 +423,6 @@ async def test_live_stream_reports_empty_manual_finalize():
 
 
 async def test_transient_provider_failure_keeps_live_stream_recoverable():
-    class FakeWebSocket:
-        def __init__(self):
-            voice = (1200).to_bytes(2, byteorder="little", signed=True) * 4800
-            self.messages = [
-                {"type": "websocket.receive", "bytes": voice},
-                {
-                    "type": "websocket.receive",
-                    "text": json.dumps({"type": "finalize", "request_id": "force-error"}),
-                },
-                {"type": "websocket.disconnect"},
-            ]
-            self.sent = []
-
-        async def receive(self):
-            return self.messages.pop(0)
-
-        async def send_json(self, payload):
-            self.sent.append(payload)
-
     class FailingProvider:
         def is_available(self):
             return True
@@ -356,8 +436,18 @@ async def test_transient_provider_failure_keeps_live_stream_recoverable():
         async def transcribe_audio_file(self, _audio, **_kwargs):
             raise RuntimeError("OpenAI Mini STT 500: Internal server error")
 
-    ws = FakeWebSocket()
-    await run_openai_mini_stream(ws, provider=FailingProvider())
+    ws = _QueuedWebSocket()
+    voice = (1200).to_bytes(2, byteorder="little", signed=True) * 4800
+    await ws.messages.put({"type": "websocket.receive", "bytes": voice})
+    await ws.messages.put(
+        {
+            "type": "websocket.receive",
+            "text": json.dumps({"type": "finalize", "request_id": "force-error"}),
+        }
+    )
+    stream_task = asyncio.create_task(run_openai_mini_stream(ws, provider=FailingProvider()))
+    await _wait_for_sent(ws, "force_empty")
+    await _disconnect(ws, stream_task)
 
     assert any(event.get("type") == "transcription_error" for event in ws.sent)
     assert any(
@@ -367,20 +457,127 @@ async def test_transient_provider_failure_keeps_live_stream_recoverable():
     assert not any(event.get("type") == "error" for event in ws.sent)
 
 
-async def test_force_during_auto_inference_binds_to_inflight_transcript():
+async def test_first_blocked_call_coalesces_three_later_turns_into_one_pending_call(monkeypatch):
     provider_started = asyncio.Event()
     allow_provider_finish = asyncio.Event()
+    utterance_ids = iter(["turn-1", "turn-2", "turn-3", "turn-4"])
 
-    class FakeWebSocket:
+    class FakeUuid:
+        def __init__(self, value):
+            self.hex = value
+
+    monkeypatch.setattr(
+        openai_mini_stream_module.uuid,
+        "uuid4",
+        lambda: FakeUuid(next(utterance_ids)),
+    )
+
+    class FakeProvider:
         def __init__(self):
-            self.messages = asyncio.Queue()
-            self.sent = []
+            self.audio = []
 
-        async def receive(self):
-            return await self.messages.get()
+        def is_available(self):
+            return True
 
-        async def send_json(self, payload):
-            self.sent.append(payload)
+        async def prepare_async(self):
+            return None
+
+        def _active_model(self):
+            return MINI_MODEL
+
+        async def transcribe_audio_file(self, audio, **_kwargs):
+            self.audio.append(audio)
+            if len(self.audio) == 1:
+                provider_started.set()
+                await allow_provider_finish.wait()
+            return TranscriptResult(
+                text=f"Как вы тестировали API вызов номер {len(self.audio)}?",
+                latency_ms=50,
+                provider_id="openai-gpt-4o-mini-transcribe",
+                model=MINI_MODEL,
+            )
+
+    ws = _QueuedWebSocket()
+    provider = FakeProvider()
+    await _put_auto_turn(ws)
+    stream_task = asyncio.create_task(run_openai_mini_stream(ws, provider=provider))
+    await asyncio.wait_for(provider_started.wait(), timeout=1)
+    for _ in range(3):
+        await _put_auto_turn(ws)
+    await ws.wait_until_received(24)
+
+    assert len(provider.audio) == 1
+
+    allow_provider_finish.set()
+    await _wait_for_sent(ws, "utterance_end", count=2)
+    await asyncio.sleep(0.02)
+    await _disconnect(ws, stream_task)
+
+    assert len(provider.audio) == 2
+    with wave.open(io.BytesIO(provider.audio[1]), "rb") as wav:
+        assert wav.getnframes() == 41600
+    utterance_ends = [event for event in ws.sent if event.get("type") == "utterance_end"]
+    assert utterance_ends[1]["utterance_id"] == "turn-4"
+    assert utterance_ends[1]["queueDepth"] == 1
+
+
+async def test_disconnect_cancels_active_call_and_discards_pending_turn():
+    provider_started = asyncio.Event()
+    provider_cancelled = asyncio.Event()
+    allow_provider_finish = asyncio.Event()
+
+    class FakeProvider:
+        def __init__(self):
+            self.starts = 0
+
+        def is_available(self):
+            return True
+
+        async def prepare_async(self):
+            return None
+
+        def _active_model(self):
+            return MINI_MODEL
+
+        async def transcribe_audio_file(self, _audio, **_kwargs):
+            self.starts += 1
+            if self.starts == 1:
+                provider_started.set()
+                try:
+                    await allow_provider_finish.wait()
+                except asyncio.CancelledError:
+                    provider_cancelled.set()
+                    raise
+            return TranscriptResult(
+                text="Как вы тестировали отмену активного запроса?",
+                latency_ms=50,
+                provider_id="openai-gpt-4o-mini-transcribe",
+                model=MINI_MODEL,
+            )
+
+    ws = _QueuedWebSocket()
+    provider = FakeProvider()
+    await _put_auto_turn(ws)
+    stream_task = asyncio.create_task(run_openai_mini_stream(ws, provider=provider))
+    await asyncio.wait_for(provider_started.wait(), timeout=1)
+    await _put_auto_turn(ws)
+    await ws.wait_until_received(12)
+    await ws.messages.put({"type": "websocket.disconnect"})
+
+    try:
+        await asyncio.wait_for(asyncio.shield(stream_task), timeout=0.2)
+    except TimeoutError:
+        allow_provider_finish.set()
+        await asyncio.wait_for(stream_task, timeout=1)
+        pytest.fail("disconnect waited for and drained provider work")
+
+    assert provider_cancelled.is_set()
+    assert provider.starts == 1
+
+
+async def test_force_during_auto_inference_does_not_retag_active_transcript():
+    provider_started = asyncio.Event()
+    allow_provider_finish = asyncio.Event()
 
     class FakeProvider:
         def is_available(self):
@@ -402,13 +599,8 @@ async def test_force_during_auto_inference_binds_to_inflight_transcript():
                 model=MINI_MODEL,
             )
 
-    ws = FakeWebSocket()
-    voice_300ms = (1200).to_bytes(2, byteorder="little", signed=True) * 4800
-    silence_100ms = b"\0\0" * 1600
-    await ws.messages.put({"type": "websocket.receive", "bytes": voice_300ms})
-    for _ in range(6):
-        await ws.messages.put({"type": "websocket.receive", "bytes": silence_100ms})
-
+    ws = _QueuedWebSocket()
+    await _put_auto_turn(ws)
     stream_task = asyncio.create_task(run_openai_mini_stream(ws, provider=FakeProvider()))
     await asyncio.wait_for(provider_started.wait(), timeout=1)
     await ws.messages.put(
@@ -417,16 +609,177 @@ async def test_force_during_auto_inference_binds_to_inflight_transcript():
             "text": json.dumps({"type": "finalize", "request_id": "force-inflight"}),
         }
     )
-    await asyncio.sleep(0.01)
+    await ws.wait_until_received(7)
     allow_provider_finish.set()
-    await ws.messages.put({"type": "websocket.disconnect"})
-    await asyncio.wait_for(stream_task, timeout=1)
+    transcripts = await _wait_for_sent(ws, "transcript")
+    await _disconnect(ws, stream_task)
 
     assert any(
-        event.get("type") == "transcript" and event.get("force_request_id") == "force-inflight"
-        for event in ws.sent
-    )
-    assert not any(
         event.get("type") == "force_empty" and event.get("force_request_id") == "force-inflight"
         for event in ws.sent
     )
+    assert transcripts[0].get("force_request_id") is None
+
+
+async def test_transcript_utterance_end_and_low_quality_expose_stable_metadata():
+    class FakeProvider:
+        def __init__(self):
+            self.calls = 0
+
+        def is_available(self):
+            return True
+
+        async def prepare_async(self):
+            return None
+
+        def _active_model(self):
+            return MINI_MODEL
+
+        async def transcribe_audio_file(self, _audio, **_kwargs):
+            self.calls += 1
+            text = "Как вы тестировали API кроме статуса 200?" if self.calls == 1 else "Нет"
+            return TranscriptResult(
+                text=text,
+                latency_ms=50,
+                provider_id="openai-gpt-4o-mini-transcribe",
+                model=MINI_MODEL,
+            )
+
+    ws = _QueuedWebSocket()
+    await _put_auto_turn(ws)
+    stream_task = asyncio.create_task(run_openai_mini_stream(ws, provider=FakeProvider()))
+    transcript = (await _wait_for_sent(ws, "transcript"))[0]
+    utterance_end = (await _wait_for_sent(ws, "utterance_end"))[0]
+    await _put_auto_turn(ws)
+    low_quality = (await _wait_for_sent(ws, "low_quality"))[0]
+    await _disconnect(ws, stream_task)
+
+    assert transcript["utterance_id"] == utterance_end["utterance_id"]
+    assert transcript["captured_at_ms"] == utterance_end["captured_at_ms"]
+    for event in (transcript, utterance_end, low_quality):
+        assert isinstance(event["utterance_id"], str) and event["utterance_id"]
+        assert isinstance(event["captured_at_ms"], int) and event["captured_at_ms"] > 0
+        assert event["queueDepth"] == 0
+        assert isinstance(event["queueWaitMs"], int) and event["queueWaitMs"] >= 0
+        assert isinstance(event["speechEndToFinalMs"], int)
+        assert isinstance(event["openaiInferenceMs"], int)
+
+
+async def test_normal_turn_after_forced_pending_supersedes_it_in_the_single_slot(monkeypatch):
+    utterance_ids = iter(["active-turn", "forced-turn", "later-normal-turn"])
+
+    class FakeUuid:
+        def __init__(self, value):
+            self.hex = value
+
+    monkeypatch.setattr(
+        openai_mini_stream_module.uuid,
+        "uuid4",
+        lambda: FakeUuid(next(utterance_ids)),
+    )
+    provider = _BlockingProvider(
+        [
+            "Как вы тестировали API кроме статуса 200?",
+            "Нет",
+            "Нет",
+        ]
+    )
+    ws = _QueuedWebSocket()
+    await _put_auto_turn(ws)
+    stream_task = asyncio.create_task(run_openai_mini_stream(ws, provider=provider))
+    await asyncio.wait_for(provider.first_started.wait(), timeout=1)
+    await _put_auto_turn(ws)
+    await ws.wait_until_received(12)
+    await ws.messages.put(
+        {
+            "type": "websocket.receive",
+            "text": json.dumps({"type": "finalize", "request_id": "force-frozen"}),
+        }
+    )
+    await ws.wait_until_received(13)
+    await _put_auto_turn(ws)
+    await ws.wait_until_received(19)
+    await asyncio.sleep(0)
+    displaced_force_completed = any(
+        event.get("type") == "force_empty" and event.get("force_request_id") == "force-frozen"
+        for event in ws.sent
+    )
+
+    provider.release_first.set()
+    await _wait_for_sent(ws, "low_quality")
+    await asyncio.sleep(0.02)
+    await _disconnect(ws, stream_task)
+
+    assert displaced_force_completed is True
+    assert len(provider.audio) == 2
+    assert not any(
+        event.get("type") == "transcript" and event.get("force_request_id") == "force-frozen"
+        for event in ws.sent
+    )
+    later_normal = next(
+        event
+        for event in ws.sent
+        if event.get("type") == "low_quality" and event.get("utterance_id") == "later-normal-turn"
+    )
+    assert later_normal.get("force_request_id") is None
+
+
+async def test_repeated_finalize_completes_superseded_ids_and_resolves_the_latest():
+    provider = _BlockingProvider(
+        [
+            "Как вы тестировали API кроме статуса 200?",
+            "Какие виды?",
+        ]
+    )
+    ws = _QueuedWebSocket()
+    await _put_auto_turn(ws)
+    stream_task = asyncio.create_task(run_openai_mini_stream(ws, provider=provider))
+    await asyncio.wait_for(provider.first_started.wait(), timeout=1)
+    await _put_auto_turn(ws)
+    await ws.wait_until_received(12)
+    for request_id in ("force-1", "force-2", "force-3"):
+        await ws.messages.put(
+            {
+                "type": "websocket.receive",
+                "text": json.dumps({"type": "finalize", "request_id": request_id}),
+            }
+        )
+    await ws.wait_until_received(15)
+    await asyncio.sleep(0)
+    completed_before_release = {
+        event.get("force_request_id") for event in ws.sent if event.get("type") == "force_empty"
+    }
+
+    provider.release_first.set()
+    await _wait_for_sent(ws, "utterance_end", count=2)
+    await _disconnect(ws, stream_task)
+
+    assert completed_before_release == {"force-1", "force-2"}
+    assert any(
+        event.get("type") == "transcript" and event.get("force_request_id") == "force-3"
+        for event in ws.sent
+    )
+
+
+async def test_coalesced_pending_audio_is_capped_to_thirty_seconds():
+    provider = _BlockingProvider(
+        [
+            "Как вы тестировали API кроме статуса 200?",
+            "Как ограничивается очередь аудио при перегрузке?",
+        ]
+    )
+    ws = _QueuedWebSocket()
+    await _put_auto_turn(ws)
+    stream_task = asyncio.create_task(run_openai_mini_stream(ws, provider=provider))
+    await asyncio.wait_for(provider.first_started.wait(), timeout=1)
+    for _ in range(34):
+        await _put_auto_turn(ws)
+    await ws.wait_until_received(210)
+
+    provider.release_first.set()
+    await _wait_for_sent(ws, "utterance_end", count=2)
+    await _disconnect(ws, stream_task)
+
+    assert len(provider.audio) == 2
+    with wave.open(io.BytesIO(provider.audio[1]), "rb") as wav:
+        assert wav.getnframes() == 480000

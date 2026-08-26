@@ -181,6 +181,7 @@ interface PersistedChatState {
   replyHistoryVersion?: 1;
   replyHistory?: HhChatReplyRecord[];
   pendingDecisions?: HhChatPendingDecision[];
+  ignoredNegotiationKeys?: string[];
   confirmedFacts?: HhChatFact[];
   notifiedInterviewMessageIds?: string[];
   pollCursor?: number;
@@ -724,9 +725,11 @@ export class HhChatBrowser {
   private conversations: HhChatConversation[] = [];
   private replyHistory: HhChatReplyRecord[] = [];
   private pendingDecisions: HhChatPendingDecision[] = [];
+  private ignoredNegotiationKeys: Set<string> = new Set();
   private confirmedFacts: HhChatFact[] = [];
   private notifiedInterviewMessageIds: Set<string> = new Set();
   private pollCursor = 0;
+  private accountSessionRevision = 0;
   private readonly userDataDir: string;
 
   constructor(
@@ -761,6 +764,9 @@ export class HhChatBrowser {
     }
     if (Array.isArray(persisted?.pendingDecisions)) {
       this.pendingDecisions = persisted.pendingDecisions.slice(-100);
+    }
+    if (Array.isArray(persisted?.ignoredNegotiationKeys)) {
+      this.ignoredNegotiationKeys = new Set(persisted.ignoredNegotiationKeys.slice(-300));
     }
     if (Array.isArray(persisted?.replyHistory)) {
       this.replyHistory = persisted.replyHistory.slice(-300);
@@ -841,6 +847,28 @@ export class HhChatBrowser {
     return this.getState();
   }
 
+  /** Stop account-bound polling and hide live data from the previous HH account. */
+  resetAccountSession(): HhChatState {
+    this.accountSessionRevision += 1;
+    this.stopPolling();
+    this.config = { ...this.config, enabled: false };
+    this.seenMessageIds.clear();
+    this.repliesToday = 0;
+    this.replyDate = this.todayKey();
+    this.lastPollAt = null;
+    this.error = null;
+    this.activeNegotiations = 0;
+    this.checkedNegotiations = 0;
+    this.unreadMessages = 0;
+    this.conversations = [];
+    this.pendingDecisions = [];
+    this.ignoredNegotiationKeys.clear();
+    this.notifiedInterviewMessageIds.clear();
+    this.pollCursor = 0;
+    this.persist();
+    return this.getState();
+  }
+
   async pollNow(): Promise<HhChatState> {
     await this.pollOnce(true);
     return this.getState();
@@ -910,6 +938,27 @@ export class HhChatBrowser {
     return this.getState();
   }
 
+  declineDecision(decisionId: string): HhChatState {
+    if (this.polling) throw new Error('Дождитесь завершения текущей проверки сообщений.');
+    const pending = this.pendingDecisions.find((item) => item.id === decisionId);
+    if (!pending) throw new Error('Этот вопрос уже обработан или больше не найден.');
+
+    this.ignoredNegotiationKeys.delete(pending.negotiationKey);
+    this.ignoredNegotiationKeys.add(pending.negotiationKey);
+    while (this.ignoredNegotiationKeys.size > 300) {
+      const oldestKey = this.ignoredNegotiationKeys.values().next().value as string | undefined;
+      if (!oldestKey) break;
+      this.ignoredNegotiationKeys.delete(oldestKey);
+    }
+    this.pendingDecisions = this.pendingDecisions.filter(
+      (item) => item.negotiationKey !== pending.negotiationKey,
+    );
+    this.conversations = this.conversations.filter((item) => item.key !== pending.negotiationKey);
+    this.interviewCalendar?.cancelNegotiation(pending.negotiationKey);
+    this.persist();
+    return this.getState();
+  }
+
   forgetFact(factId: string): HhChatState {
     this.confirmedFacts = this.confirmedFacts.filter((item) => item.id !== factId);
     this.persist();
@@ -944,6 +993,8 @@ export class HhChatBrowser {
 
   private async pollOnce(explicit = false): Promise<void> {
     if (this.polling) return;
+    const accountSessionRevision = this.accountSessionRevision;
+    const accountSessionIsCurrent = () => accountSessionRevision === this.accountSessionRevision;
     this.polling = true;
     this.error = null;
     this.unreadMessages = 0;
@@ -952,6 +1003,7 @@ export class HhChatBrowser {
 
     try {
       const page = await this.getPage(explicit ? 'explicit' : 'background');
+      if (!accountSessionIsCurrent()) return;
       if (!page || page.isClosed()) {
         if (!explicit) return;
         throw new Error('Браузер HH не открыт. Сначала подключите HH в разделе автооткликов.');
@@ -962,6 +1014,7 @@ export class HhChatBrowser {
           waitUntil: 'domcontentloaded',
           timeout: 30_000,
         });
+        if (!accountSessionIsCurrent()) return;
       }
       if (page.url().includes('/account/login')) {
         throw new Error('Сессия HH истекла. Повторно подключите аккаунт HH.');
@@ -972,6 +1025,7 @@ export class HhChatBrowser {
         .first()
         .waitFor({ state: 'attached', timeout: 10_000 })
         .catch(() => undefined);
+      if (!accountSessionIsCurrent()) return;
 
       const priorityKeys = new Set([
         ...this.pendingDecisions.map((item) => item.negotiationKey),
@@ -980,6 +1034,7 @@ export class HhChatBrowser {
           .map((messageId) => messageId.split(':chatik-chat-message-')[0]),
       ]);
       const allNegotiations = await this.findNegotiationsPage(page, priorityKeys);
+      if (!accountSessionIsCurrent()) return;
       const rejectedKeys = new Set(
         allNegotiations.filter((item) => item.isRejected).map((item) => item.key),
       );
@@ -991,7 +1046,9 @@ export class HhChatBrowser {
         const negotiationKey = messageId.split(':chatik-chat-message-')[0];
         if (rejectedKeys.has(negotiationKey)) this.seenMessageIds.delete(messageId);
       }
-      const negotiations = allNegotiations.filter((item) => !item.isRejected);
+      const negotiations = allNegotiations.filter(
+        (item) => !item.isRejected && !this.ignoredNegotiationKeys.has(item.key),
+      );
       const pendingCountBeforeRejectCleanup = this.pendingDecisions.length;
       this.pendingDecisions = this.pendingDecisions.filter(
         (pending) => !rejectedKeys.has(pending.negotiationKey),
@@ -1028,13 +1085,18 @@ export class HhChatBrowser {
       let chatFailures = 0;
 
       for (const negotiation of ordered) {
+        if (!accountSessionIsCurrent()) return;
         try {
           const frame = await this.openNegotiation(page, negotiation);
+        if (!accountSessionIsCurrent()) return;
         const messages = await this.scrapeMessages(frame);
+        if (!accountSessionIsCurrent()) return;
         const latestMessage = await this.scrapeLastMessage(frame, messages);
+        if (!accountSessionIsCurrent()) return;
         const unansweredQuestionnaire = findLatestUnansweredRecruiterQuestionnaire(messages);
         const lastMessage = unansweredQuestionnaire ?? latestMessage;
         const frameLabel = compactText(await frame.locator('body').innerText({ timeout: 1_500 }).catch(() => ''));
+        if (!accountSessionIsCurrent()) return;
         const previousConversation = conversations.get(negotiation.key)!;
         const verifiedBot = isBotRecruiterLabel(frameLabel);
         const hasInboundMessage = messages.some((message) => (
@@ -1143,7 +1205,9 @@ export class HhChatBrowser {
           .first()
           .isVisible()
           .catch(() => false);
+        if (!accountSessionIsCurrent()) return;
         const quickReplyVisible = chatInputVisible ? false : await this.hasVisibleYesNoReply(frame);
+        if (!accountSessionIsCurrent()) return;
         if (!chatInputVisible && !quickReplyVisible) continue;
         // A numbered questionnaire may contain words such as "интервью",
         // "дата" or "время". It still has to reach the questionnaire prompt
@@ -1164,7 +1228,9 @@ export class HhChatBrowser {
             continue;
           }
           await this.delay(this.config.replyDelaySec * 1000);
+          if (!accountSessionIsCurrent()) return;
           await this.sendChatMessage(frame, scheduling.reply);
+          if (!accountSessionIsCurrent()) return;
           this.seenMessageIds.add(messageId);
           this.recordReply({
             negotiationKey: negotiation.key,
@@ -1205,6 +1271,7 @@ export class HhChatBrowser {
               8_000,
               '',
             );
+            if (!accountSessionIsCurrent()) return;
             const selectedResumeText = candidateProfile
               ? candidateProfile.selectedResumeText
               : '';
@@ -1229,7 +1296,9 @@ export class HhChatBrowser {
           const automaticAnswer = resumeAnswer || confirmed?.answer || '';
           if (automaticAnswer) {
             await this.delay(this.config.replyDelaySec * 1000);
+            if (!accountSessionIsCurrent()) return;
             await this.sendChatAnswer(frame, automaticAnswer);
+            if (!accountSessionIsCurrent()) return;
             this.seenMessageIds.add(messageId);
             this.pendingDecisions = this.pendingDecisions.filter((item) => item.messageId !== messageId);
             this.recordReply({
@@ -1296,6 +1365,7 @@ export class HhChatBrowser {
           8_000,
           '',
         );
+        if (!accountSessionIsCurrent()) return;
         const candidateProfile = (candidateProfileResult
           ? buildHhChatCandidateProfileContent(candidateProfileResult)
           : '')
@@ -1374,6 +1444,7 @@ export class HhChatBrowser {
         let rawReply = trustedReply ?? (await this.settleWithin(this.llmCall(prompt), 20_000, ''))
           .trim()
           .slice(0, 6_000);
+        if (!accountSessionIsCurrent()) return;
         let reply = prepareRecruiterReply(rawReply, lastMessage.text);
         if (!reply && !trustedReply) {
           rawReply = (await this.settleWithin(
@@ -1387,6 +1458,7 @@ export class HhChatBrowser {
             20_000,
             '',
           )).trim().slice(0, 6_000);
+          if (!accountSessionIsCurrent()) return;
           reply = prepareRecruiterReply(rawReply, lastMessage.text);
         }
         if (!reply) {
@@ -1437,7 +1509,9 @@ export class HhChatBrowser {
         }
 
         await this.delay(this.config.replyDelaySec * 1000);
+        if (!accountSessionIsCurrent()) return;
         await this.sendChatMessage(frame, reply);
+        if (!accountSessionIsCurrent()) return;
 
         this.seenMessageIds.add(messageId);
         this.recordReply({
@@ -1474,6 +1548,7 @@ export class HhChatBrowser {
         }
       }
 
+      if (!accountSessionIsCurrent()) return;
       this.conversations = [...conversations.values()];
       this.lastPollAt = new Date().toISOString();
       if (chatFailures > 0) {
@@ -1481,13 +1556,17 @@ export class HhChatBrowser {
       }
       if (shouldPersist) this.persist();
     } catch (error) {
-      this.error = formatChatPollError(error);
-      console.warn('[hh-chat-browser] poll error:', this.error);
+      if (accountSessionIsCurrent()) {
+        this.error = formatChatPollError(error);
+        console.warn('[hh-chat-browser] poll error:', this.error);
+      }
     } finally {
-      this.polling = false;
-      await Promise.resolve(this.afterBackgroundAction?.()).catch((error) => {
-        console.warn('[hh-chat-browser] could not restore the user tab:', error);
-      });
+      if (accountSessionIsCurrent()) {
+        this.polling = false;
+        await Promise.resolve(this.afterBackgroundAction?.()).catch((error) => {
+          console.warn('[hh-chat-browser] could not restore the user tab:', error);
+        });
+      }
     }
   }
 
@@ -2091,6 +2170,7 @@ export class HhChatBrowser {
             replyHistoryVersion: 1,
             replyHistory: this.replyHistory,
             pendingDecisions: this.pendingDecisions,
+            ignoredNegotiationKeys: [...this.ignoredNegotiationKeys].slice(-300),
             confirmedFacts: this.confirmedFacts,
             notifiedInterviewMessageIds: [...this.notifiedInterviewMessageIds].slice(-500),
             pollCursor: this.pollCursor,

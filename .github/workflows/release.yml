@@ -186,6 +186,9 @@ jobs:
           backend_bin=$(find release -path '*/SkillCue.app/Contents/Resources/backend/skillcue-backend' -type f -print -quit)
           test -n "$app_bin"
           test -x "$backend_bin"
+          info_plist=$(dirname "$(dirname "$app_bin")")/Info.plist
+          test "$(plutil -extract NSMicrophoneUsageDescription raw "$info_plist")" != ''
+          test "$(plutil -extract NSAudioCaptureUsageDescription raw "$info_plist")" != ''
           file "$app_bin" | grep -q '${{ matrix.binary_arch }}'
           file "$backend_bin" | grep -q '${{ matrix.binary_arch }}'
           "$app_bin" --disable-gpu > packaged-smoke.log 2>&1 &

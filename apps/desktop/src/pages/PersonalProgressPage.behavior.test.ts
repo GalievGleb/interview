@@ -46,7 +46,7 @@ describe('personal progress migration', () => {
 
   it('moves progress into practice results and leaves History for real interviews', () => {
     expect(practice).toContain('listSessions()');
-    expect(practice).toContain('Последние попытки');
+    expect(practice).toContain('Последние сессии');
     expect(history).toContain('Реальные разговоры');
     expect(history).not.toContain('buildCareerProgress');
   });

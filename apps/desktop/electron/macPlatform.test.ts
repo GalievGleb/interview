@@ -39,8 +39,21 @@ describe('macOS desktop distribution', () => {
     expect(workflow).toContain('arch: x64');
     expect(workflow).toContain('skillcue-backend');
     expect(workflow).toContain('Smoke-test packaged macOS app');
+    expect(workflow).toContain('NSAudioCaptureUsageDescription');
+    expect(workflow).toContain('plutil');
     expect(workflow).toContain('SkillCue-macOS-${{ matrix.arch }}.dmg');
     expect(workflow).toContain('gh release upload');
+  });
+
+  it('packages the macOS audio-capture permission required by the Electron runtime', () => {
+    const packageJson = JSON.parse(
+      fs.readFileSync(path.join(desktopRoot, 'package.json'), 'utf8'),
+    ) as {
+      build: { electronVersion: string; mac: { extendInfo: Record<string, string> } };
+    };
+
+    expect(Number(packageJson.build.electronVersion.split('.')[0])).toBeGreaterThanOrEqual(39);
+    expect(packageJson.build.mac.extendInfo.NSAudioCaptureUsageDescription).toContain('system audio');
   });
 
   it('uses native macOS window controls and does not request Windows update metadata', () => {

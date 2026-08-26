@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react';
 
 /**
- * Тема оформления: тёмная (по умолчанию), светлая или системная.
+ * Тема оформления: светлая (по умолчанию), тёмная или системная.
  * Палитра целиком живёт в CSS-переменных (tokens.css + workspace.css),
  * поэтому смена темы — это только атрибут data-theme на <html>.
  * Оверлей всегда тёмный: он плавает над рабочим столом (см. OverlayPage).
@@ -12,7 +12,7 @@ export type ThemePref = 'system' | 'dark' | 'light';
 const THEME_KEY = 'skillcue.theme';
 
 const listeners = new Set<() => void>();
-let current: ThemePref = 'dark';
+let current: ThemePref = 'light';
 let darkThemeForced = false;
 
 const media =

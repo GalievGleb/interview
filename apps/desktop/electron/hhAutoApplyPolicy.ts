@@ -1,5 +1,7 @@
 import type { HhAssistantConfig } from './hhAssistantPolicy';
 
+export const HH_VERIFICATION_COOLDOWN_MS = 2 * 60 * 60 * 1_000;
+
 /** Возможные состояния страницы вакансии при отклике. */
 export type HhApplySituation =
   | 'response_button'
@@ -13,6 +15,7 @@ export type HhApplySituation =
   | 'captcha'
   | 'employer_questions'
   | 'login'
+  | 'unavailable'
   | 'unknown';
 
 export interface HhApplyContext {
@@ -41,6 +44,11 @@ export type HhApplyAction =
   | { action: 'wait_letter'; reason: string }
   | { action: 'skip'; reason: string }
   | { action: 'wait_user'; reason: string };
+
+export function isUnavailableHhVacancyText(value: string): boolean {
+  return /вам\s+недоступна\s+эта\s+вакансия|вакансия\s+(?:больше\s+)?недоступна|вакансия\s+не\s+найдена|такой\s+вакансии\s+(?:уже\s+)?нет/i
+    .test(value);
+}
 
 /** Чистая FSM: по состоянию страницы решает, что делать дальше. Без IO. */
 export function decideNextAction(
@@ -84,6 +92,8 @@ export function decideNextAction(
         action: 'wait_user',
         reason: 'Сессия HH истекла. Войдите в открытом браузере.',
       };
+    case 'unavailable':
+      return { action: 'skip', reason: 'Вакансия больше недоступна на HH.' };
     case 'response_button':
       return { action: 'click_response' };
     case 'resume_select':
@@ -172,6 +182,38 @@ export function nextDiscoveryRunDelayMs(
     return ranToday ? 2 * 60 * 60 * 1_000 : 5_000;
   }
   return nextAutoRunDelayMs(config, now);
+}
+
+/**
+ * Search synonyms are independent, but multiplying every synonym by the full
+ * page limit produces hundreds of back-to-back HH navigations. Spend one
+ * global budget in round-robin order while always visiting each synonym once.
+ */
+export function hhDiscoveryPageBudget(queryCount: number, configuredMaxPages: number): number {
+  const queries = Math.max(0, Math.trunc(queryCount || 0));
+  if (queries === 0) return 0;
+  const configured = Math.max(1, Math.trunc(configuredMaxPages || 1));
+  return Math.max(queries, configured);
+}
+
+export function isFullyKnownDiscoveryPage(
+  candidateKeys: readonly string[],
+  knownKeys: ReadonlySet<string>,
+): boolean {
+  return candidateKeys.length > 0 && candidateKeys.every((key) => knownKeys.has(key));
+}
+
+export function hhVerificationCooldownUntil(now: Date = new Date()): string {
+  return new Date(now.getTime() + HH_VERIFICATION_COOLDOWN_MS).toISOString();
+}
+
+export function isFutureIsoTimestamp(
+  value: string | null | undefined,
+  now: Date = new Date(),
+): boolean {
+  if (!value) return false;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) && timestamp > now.getTime();
 }
 
 /** Случайная пауза 0.6–1.4 от базовой, random инжектится ради тестов. */

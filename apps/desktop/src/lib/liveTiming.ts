@@ -21,17 +21,16 @@ export function sanitizeSttLatencyMs(value: number): number | undefined {
 
 /**
  * The REAL per-utterance STT latency (speech-end → final). Prefer the server's
- * measurement; fall back to a sane client delta (answerStart − questionFinal),
- * never the session-relative anchor that inflated to 24s/56s/113s.
+ * measurement. A client final-arrival → LLM-dispatch delta is a different stage
+ * and must never be relabelled as STT.
  */
 export function computeExchangeSttLatencyMs(
   serverSpeechEndToFinalMs: number | undefined,
-  answerStartedAt: number,
-  questionFinalAt: number | null,
-): number | undefined {
-  if (serverSpeechEndToFinalMs != null) return serverSpeechEndToFinalMs;
-  if (questionFinalAt != null) return sanitizeSttLatencyMs(answerStartedAt - questionFinalAt);
-  return undefined;
+  _answerStartedAt: number,
+  _questionFinalAt: number | null,
+): number | null {
+  if (serverSpeechEndToFinalMs == null) return null;
+  return sanitizeSttLatencyMs(serverSpeechEndToFinalMs) ?? null;
 }
 
 /** Per-stage breakdown for the exchange (all relative to the utterance). */

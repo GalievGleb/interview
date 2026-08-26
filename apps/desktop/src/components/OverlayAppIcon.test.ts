@@ -1,14 +1,16 @@
-import { createElement } from 'react';
+import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import OverlayAppIcon from './OverlayAppIcon';
 
-describe('OverlayAppIcon', () => {
-  it('renders the real SkillCue icon instead of the SC placeholder', () => {
-    const markup = renderToStaticMarkup(createElement(OverlayAppIcon));
+describe('overlay app icon', () => {
+  it('has native dimensions before styles load so the 512px asset cannot flash stretched', () => {
+    const html = renderToStaticMarkup(React.createElement(OverlayAppIcon));
 
-    expect(markup).toContain('<img');
-    expect(markup).toContain('skillcue-app-icon-512.png');
-    expect(markup).not.toContain('>SC<');
+    expect(html).toContain('<img');
+    expect(html).toContain('skillcue-app-icon-512.png');
+    expect(html).not.toContain('>SC<');
+    expect(html).toContain('width="26"');
+    expect(html).toContain('height="26"');
   });
 });

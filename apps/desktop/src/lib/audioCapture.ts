@@ -7,6 +7,16 @@ export interface AudioCapture {
 
 export type AudioSource = 'mic' | 'system';
 
+export interface AudioFrameSignal {
+  capturedAtMs: number;
+  rms: number;
+  peak: number;
+  hasSignal: boolean;
+}
+
+export const PCM16_SIGNAL_RMS_THRESHOLD = 512 / 0x8000;
+export const AUDIO_SIGNAL_SAMPLE_INTERVAL_MS = 250;
+
 export interface CaptureOptions {
   sampleRateMode: AudioSampleRateMode;
 }
@@ -29,9 +39,45 @@ function resample(input: Float32Array, fromRate: number, toRate: number): Float3
   return output;
 }
 
+export function analyzePcm16Signal(
+  pcm16: Int16Array,
+  capturedAtMs = Date.now(),
+): AudioFrameSignal {
+  if (pcm16.length === 0) {
+    return { capturedAtMs, rms: 0, peak: 0, hasSignal: false };
+  }
+
+  let sumSquares = 0;
+  let peak = 0;
+  for (let i = 0; i < pcm16.length; i += 1) {
+    const normalized = pcm16[i] / 0x8000;
+    const magnitude = Math.abs(normalized);
+    sumSquares += normalized * normalized;
+    if (magnitude > peak) peak = magnitude;
+  }
+  const rms = Math.sqrt(sumSquares / pcm16.length);
+  return {
+    capturedAtMs,
+    rms,
+    peak,
+    hasSignal: rms >= PCM16_SIGNAL_RMS_THRESHOLD,
+  };
+}
+
+export function createAudioSignalSampler(
+  intervalMs = AUDIO_SIGNAL_SAMPLE_INTERVAL_MS,
+): (pcm16: Int16Array, capturedAtMs?: number) => AudioFrameSignal | undefined {
+  let lastSampleAtMs = Number.NEGATIVE_INFINITY;
+  return (pcm16, capturedAtMs = Date.now()) => {
+    if (capturedAtMs - lastSampleAtMs < intervalMs) return undefined;
+    lastSampleAtMs = capturedAtMs;
+    return analyzePcm16Signal(pcm16, capturedAtMs);
+  };
+}
+
 function pipeStream(
   stream: MediaStream,
-  onChunk: (buffer: ArrayBuffer) => void,
+  onChunk: (buffer: ArrayBuffer, signal?: AudioFrameSignal) => void,
   sampleRateMode: AudioSampleRateMode,
 ): AudioCapture {
   const audioContext = new AudioContext();
@@ -40,13 +86,14 @@ function pipeStream(
   const source = audioContext.createMediaStreamSource(stream);
   const processor = audioContext.createScriptProcessor(4096, 1, 1);
   const silent = audioContext.createGain();
+  const sampleSignal = createAudioSignalSampler();
   silent.gain.value = 0;
 
   processor.onaudioprocess = (event) => {
     const raw = event.inputBuffer.getChannelData(0);
     const samples = nativeRate !== outputRate ? resample(raw, nativeRate, outputRate) : raw;
     const pcm16 = floatTo16BitPCM(samples);
-    onChunk(pcm16.buffer as ArrayBuffer);
+    onChunk(pcm16.buffer as ArrayBuffer, sampleSignal(pcm16));
   };
 
   source.connect(processor);
@@ -67,7 +114,7 @@ function pipeStream(
 }
 
 export async function startMicCapture(
-  onChunk: (buffer: ArrayBuffer) => void,
+  onChunk: (buffer: ArrayBuffer, signal?: AudioFrameSignal) => void,
   opts: CaptureOptions,
 ): Promise<AudioCapture> {
   const deviceId = getSelectedMicId();
@@ -82,7 +129,7 @@ export async function startMicCapture(
 }
 
 export async function startSystemAudioCapture(
-  onChunk: (buffer: ArrayBuffer) => void,
+  onChunk: (buffer: ArrayBuffer, signal?: AudioFrameSignal) => void,
   opts: CaptureOptions,
 ): Promise<AudioCapture> {
   const stream = await navigator.mediaDevices.getDisplayMedia({
@@ -106,7 +153,7 @@ export async function startSystemAudioCapture(
 
 export async function startCapture(
   source: AudioSource,
-  onChunk: (buffer: ArrayBuffer) => void,
+  onChunk: (buffer: ArrayBuffer, signal?: AudioFrameSignal) => void,
   opts: CaptureOptions,
 ): Promise<AudioCapture> {
   return source === 'system'

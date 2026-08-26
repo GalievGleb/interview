@@ -122,21 +122,20 @@ export default function Layout({ children }: { children: ReactNode }) {
   }, [pathname, routeKey, t]);
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-surface text-ink">
+    <div className="skillcue-shell flex h-screen overflow-hidden bg-surface text-ink">
       <a href="#skillcue-main" className="skillcue-skip-link">
         {t('shell.skipContent')}
       </a>
       <CommandPalette />
       <UpdateToast />
-      {showTitleBar && <TitleBar pathname={routeKey} />}
-      <div className="flex min-h-0 flex-1 overflow-hidden">
-        <Sidebar />
-        <main
-          ref={mainRef}
-          id="skillcue-main"
-          tabIndex={-1}
-          className="skillcue-main flex min-w-0 flex-1 flex-col overflow-hidden"
-        >
+      <Sidebar />
+      <main
+        ref={mainRef}
+        id="skillcue-main"
+        tabIndex={-1}
+        className="skillcue-main flex min-w-0 flex-1 flex-col overflow-hidden"
+      >
+        {showTitleBar && <TitleBar pathname={routeKey} />}
           {backendBannerKind === 'failed' ? (
             <div
               className="flex shrink-0 items-center gap-2 border-b border-red-900/40 bg-red-950/20 px-5 py-2 text-sm text-red-200/90"
@@ -180,8 +179,7 @@ export default function Layout({ children }: { children: ReactNode }) {
               {children}
             </Suspense>
           </div>
-        </main>
-      </div>
+      </main>
     </div>
   );
 }

@@ -8,6 +8,7 @@ import {
   hhScreeningSemanticKey,
   readHhScreeningDrafts,
   reconcileHhScreeningLocalDraft,
+  shouldAutomaticallyPrepareHhScreeningDraft,
   summarizePendingHhScreening,
 } from './hhScreening';
 import type { HhQueueItem } from '../types/electron';
@@ -28,6 +29,46 @@ function vacancy(id: string, prompt: string, assistantReason?: string): HhQueueI
 }
 
 describe('HH pending screening summary', () => {
+  it('automatically replaces the generic local experience fallback for the visible question', () => {
+    const prompt = 'Есть ли у вас опыт работы со средствами виртуализации и гипервизорами (VMware, Proxmox, VirtualBox и др.)?';
+    expect(shouldAutomaticallyPrepareHhScreeningDraft(
+      { id: 'virtualization', prompt, kind: 'text', options: [], required: true },
+      {
+        answer: 'Подтверждённый релевантный опыт и инструменты перечислены в моём резюме; готов предметно уточнить глубину опыта по технологиям, которые важны для этой позиции.',
+        selectedOptions: [],
+        confirmedByUser: false,
+        promptKey: hhScreeningPromptKey(prompt),
+      },
+    )).toBe(true);
+  });
+
+  it('does not replace a useful answer, a user-confirmed answer, or a sensitive factual fallback automatically', () => {
+    const experiencePrompt = 'Есть ли опыт с VMware?';
+    const question = { id: 'vmware', prompt: experiencePrompt, kind: 'text' as const, options: [], required: true };
+    expect(shouldAutomaticallyPrepareHhScreeningDraft(question, {
+      answer: 'Да, знаком с VMware и VirtualBox, детали готов обсудить.',
+      selectedOptions: [],
+      confirmedByUser: false,
+      promptKey: hhScreeningPromptKey(experiencePrompt),
+    })).toBe(false);
+    expect(shouldAutomaticallyPrepareHhScreeningDraft(question, {
+      answer: 'Подтверждённый релевантный опыт и инструменты перечислены в моём резюме.',
+      selectedOptions: [],
+      confirmedByUser: true,
+      promptKey: hhScreeningPromptKey(experiencePrompt),
+    })).toBe(false);
+    const salaryPrompt = 'Какая сумма на руки будет комфортна?';
+    expect(shouldAutomaticallyPrepareHhScreeningDraft(
+      { ...question, id: 'salary', prompt: salaryPrompt },
+      {
+        answer: 'Ориентируюсь на рыночную компенсацию; точный диапазон готов согласовать.',
+        selectedOptions: [],
+        confirmedByUser: false,
+        promptKey: hhScreeningPromptKey(salaryPrompt),
+      },
+    )).toBe(false);
+  });
+
   it('treats a visible answer as ready for the explicit Send action without a second confirmation click', () => {
     expect(isHhScreeningDraftReady(
       { kind: 'text' },

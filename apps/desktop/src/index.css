@@ -4,6 +4,7 @@
 @import './styles/overlay-cockpit.css';
 @import './styles/workspace.css';
 @import './styles/prepare.css';
+@import './styles/desktop-vitrine.css';
 
 @tailwind base;
 @tailwind components;
@@ -576,17 +577,17 @@
 
   /* Sidebar nav pill */
   .nav-pill {
-    @apply flex min-h-10 items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-150;
+    @apply flex min-h-[52px] items-center gap-3 rounded-2xl px-4 py-3 text-[15px] font-medium transition-colors duration-150;
   }
   .nav-pill-active {
-    @apply bg-surface-elevated text-ink shadow-soft ring-1 ring-surface-border-strong;
+    @apply bg-accent-soft text-accent;
   }
   .nav-pill-idle {
     @apply text-ink-muted hover:bg-surface-hover hover:text-ink;
   }
 
 .skillcue-titlebar {
-    @apply flex h-11 shrink-0 items-center gap-3 border-b border-surface-border px-4;
+    @apply flex h-11 shrink-0 items-center gap-3 px-6;
     /* Наш тайтлбар — зона перетаскивания окна (нативная рамка скрыта). Справа
        нативные кнопки окна (titleBarOverlay): резервируем под них место, чтобы
        контент не заезжал. В браузере env() = 0, отступ схлопывается до 16px. */
@@ -595,7 +596,7 @@
     /* Плоский #0c1726 = ровно цвет нативных кнопок окна (titleBarOverlay.color),
        иначе верхний-правый угол под кнопками отличался фоном и «терял» линию.
        Зелёное свечение — слева, вдали от кнопок, поэтому шва не создаёт. */
-    background: rgb(var(--twc-surface-panel));
+    background: transparent;
   }
   /* Интерактивные элементы тайтлбара должны кликаться, а не таскать окно. */
   .skillcue-titlebar button,
@@ -608,23 +609,21 @@
   /* Светлая тема: хардкод тёмного градиента ломал контраст с уже
      перевёрнутым тёмным текстом навигации. */
   :root[data-theme='light'] .skillcue-titlebar {
-    background:
-      radial-gradient(circle at 12% 0%, rgb(var(--twc-accent) / 0.08), transparent 28rem),
-      linear-gradient(180deg, rgb(var(--twc-surface-panel)) 0%, rgb(var(--twc-surface)) 100%);
+    background: transparent;
   }
 
   .skillcue-sidebar {
-    @apply relative flex w-[224px] shrink-0 flex-col border-r border-surface-border;
-    background: rgb(var(--twc-surface));
+    @apply relative flex w-[288px] shrink-0 flex-col border-r border-surface-border;
+    background: rgb(var(--twc-surface-panel));
     transition: width 190ms cubic-bezier(0.2, 0.8, 0.2, 1);
   }
 
   .skillcue-sidebar--collapsed {
-    @apply w-16;
+    @apply w-[76px];
   }
 
   .skillcue-sidebar__brand {
-    @apply flex h-[60px] shrink-0 items-center gap-2.5 px-3;
+    @apply flex h-[118px] shrink-0 items-center gap-4 px-7;
   }
 
   .skillcue-sidebar--collapsed .skillcue-sidebar__brand {
@@ -632,13 +631,18 @@
   }
 
   .skillcue-sidebar--collapsed .skillcue-logo {
-    @apply h-7 w-7 rounded-lg;
+    @apply h-10 w-10 rounded-xl;
+  }
+
+  .skillcue-sidebar__brand-copy p {
+    @apply text-[22px];
   }
 
   .skillcue-sidebar__collapse {
-    @apply absolute right-[-13px] top-[17px] z-30 inline-flex h-[27px] w-[27px] items-center justify-center rounded-full border border-surface-border-strong text-ink-faint shadow-soft;
+    @apply absolute right-[-22px] top-[45px] z-30 inline-flex h-11 w-11 items-center justify-center rounded-full border border-surface-border text-ink-muted;
     background: rgb(var(--twc-surface-elevated));
-    opacity: 0.72;
+    box-shadow: 0 10px 28px -14px rgb(15 35 45 / 0.32);
+    opacity: 1;
     transition:
       color 140ms ease,
       background-color 140ms ease,
@@ -656,7 +660,7 @@
 
   .skillcue-sidebar__collapse:hover {
     @apply bg-surface-elevated text-accent;
-    transform: scale(1.06);
+    transform: translateX(-1px);
   }
 
   .skillcue-sidebar__collapse:focus-visible {
@@ -669,8 +673,16 @@
     @apply justify-center px-0;
   }
 
+  .skillcue-sidebar__nav {
+    @apply space-y-1.5 px-3 py-1;
+  }
+
+  .skillcue-sidebar--collapsed .skillcue-sidebar__nav {
+    @apply px-2.5;
+  }
+
   .skillcue-sidebar__live-zone {
-    @apply border-t border-surface-border px-2.5 py-2;
+    @apply px-4 pb-4 pt-2;
   }
 
   .skillcue-sidebar--collapsed .skillcue-sidebar__live-zone {
@@ -678,7 +690,7 @@
   }
 
   .skillcue-live-launch {
-    @apply flex min-h-10 w-full items-center gap-2.5 rounded-lg border border-surface-border bg-transparent px-3 py-2 text-left text-sm font-semibold text-ink-muted;
+    @apply flex min-h-10 w-full items-center gap-2.5 rounded-2xl border border-surface-border bg-transparent px-3 py-2 text-left text-sm font-semibold text-ink-muted;
     transition:
       color 140ms ease,
       background-color 140ms ease,
@@ -697,8 +709,108 @@
   }
 
   .skillcue-live-launch.is-live {
-    @apply border-emerald-300/50 bg-transparent text-emerald-200;
-    box-shadow: inset 3px 0 0 rgb(52 211 153 / 0.72);
+    @apply border-emerald-300/50 text-emerald-200;
+  }
+
+  .skillcue-sidebar__assistant-card {
+    position: relative;
+    display: grid;
+    min-height: 218px;
+    grid-template-rows: 1fr auto;
+    overflow: hidden;
+    padding: 20px;
+    border-radius: 22px;
+    background:
+      radial-gradient(circle at 72% 28%, rgb(var(--twc-accent) / 0.09), transparent 8rem),
+      rgb(var(--twc-surface-elevated));
+    box-shadow: 0 16px 40px -30px rgb(16 36 44 / 0.42);
+  }
+
+  .skillcue-sidebar__assistant-visual {
+    position: relative;
+    display: block;
+    min-height: 112px;
+  }
+
+  .skillcue-sidebar__assistant-visual > svg {
+    position: absolute;
+    top: 30px;
+    right: 22px;
+    z-index: 3;
+    color: rgb(var(--twc-accent));
+  }
+
+  .skillcue-sidebar__assistant-bubble {
+    position: absolute;
+    width: 112px;
+    height: 58px;
+    border: 1px solid rgb(var(--twc-surface-border));
+    border-radius: 14px;
+    background: rgb(var(--twc-surface-light));
+    box-shadow: 0 14px 32px -22px rgb(30 60 70 / 0.46);
+  }
+
+  .skillcue-sidebar__assistant-bubble::before,
+  .skillcue-sidebar__assistant-bubble::after {
+    position: absolute;
+    left: 18px;
+    height: 4px;
+    border-radius: 999px;
+    background: rgb(80 126 190 / 0.86);
+    content: '';
+  }
+
+  .skillcue-sidebar__assistant-bubble::before {
+    top: 21px;
+    width: 58px;
+  }
+
+  .skillcue-sidebar__assistant-bubble::after {
+    top: 34px;
+    width: 34px;
+    opacity: 0.46;
+  }
+
+  .skillcue-sidebar__assistant-bubble.is-back {
+    top: 8px;
+    left: 12px;
+  }
+
+  .skillcue-sidebar__assistant-bubble.is-front {
+    top: 64px;
+    right: 16px;
+    border-color: rgb(var(--twc-accent) / 0.18);
+    background: color-mix(in srgb, rgb(var(--twc-accent)) 8%, rgb(var(--twc-surface-light)));
+  }
+
+  .skillcue-sidebar__assistant-bubble.is-front::before,
+  .skillcue-sidebar__assistant-bubble.is-front::after {
+    background: rgb(var(--twc-accent) / 0.54);
+  }
+
+  .skillcue-sidebar__assistant-action {
+    display: flex;
+    min-height: 52px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    border-radius: 14px;
+    padding: 0 16px;
+    background: linear-gradient(180deg, #16c66d, #08a957);
+    color: white;
+    font-size: 15px;
+    font-weight: 750;
+    box-shadow: 0 14px 25px -17px rgba(10, 168, 92, 0.75);
+  }
+
+  .skillcue-sidebar--collapsed .skillcue-sidebar__assistant-card {
+    display: flex;
+    min-height: 44px;
+    padding: 0;
+    border: 0;
+    border-radius: 13px;
+    background: transparent;
+    box-shadow: none;
   }
 
   .skillcue-live-launch__hint {
@@ -706,8 +818,8 @@
   }
 
   .skillcue-sidebar__footer {
-    @apply flex shrink-0 flex-col items-stretch gap-1 border-t border-surface-border px-2.5 py-2;
-    padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+    @apply mx-4 flex shrink-0 flex-col items-stretch gap-1 border-t border-surface-border py-4;
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
   }
 
   .skillcue-sidebar--collapsed .skillcue-sidebar__footer {
@@ -723,11 +835,11 @@
   }
 
   .skillcue-sidebar__icon-button {
-    @apply inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-ink-faint transition-colors hover:bg-surface-hover hover:text-ink;
+    @apply inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-ink-muted transition-colors hover:bg-surface-hover hover:text-ink;
   }
 
   .skillcue-sidebar__utility-row {
-    @apply flex min-h-9 items-center gap-1 px-1;
+    @apply flex min-h-10 items-center gap-3 px-0;
   }
 
   .skillcue-sidebar--collapsed .skillcue-sidebar__utility-row {
@@ -739,7 +851,7 @@
   }
 
   :root[data-theme='light'] .skillcue-sidebar {
-    background: rgb(var(--twc-surface));
+    background: rgba(252, 253, 253, 0.96);
   }
 
   :root[data-theme='light'] .skillcue-sidebar__collapse {
@@ -747,7 +859,8 @@
   }
 
   .skillcue-logo {
-    @apply h-9 w-9 shrink-0 rounded-xl border border-emerald-300/20 object-cover shadow-soft;
+    @apply h-12 w-12 shrink-0 rounded-2xl border border-emerald-300/20 object-cover;
+    box-shadow: 0 10px 24px -14px rgb(13 35 47 / 0.48);
   }
 
   .skillcue-logo--small {
@@ -757,9 +870,50 @@
   .skillcue-main {
     /* База — токен темы, а не хекс: в светлой теме тёмная подложка ломала контраст. */
     background:
-      radial-gradient(circle at 18% 0%, rgb(var(--twc-accent) / 0.08), transparent 32rem),
-      radial-gradient(circle at 88% 8%, rgba(143, 182, 216, 0.1), transparent 34rem),
+      radial-gradient(circle at 18% 0%, rgb(var(--twc-accent) / 0.055), transparent 32rem),
+      radial-gradient(circle at 88% 8%, rgba(143, 182, 216, 0.07), transparent 34rem),
       rgb(var(--twc-surface));
+  }
+
+  @media (max-width: 1180px) {
+    .skillcue-sidebar:not(.skillcue-sidebar--collapsed) {
+      width: 252px;
+    }
+
+    .skillcue-sidebar__brand {
+      padding-inline: 20px;
+    }
+
+    .skillcue-sidebar__live-zone {
+      padding-inline: 12px;
+    }
+  }
+
+  @media (max-height: 780px) {
+    .skillcue-sidebar__brand {
+      height: 86px;
+    }
+
+    .skillcue-sidebar__collapse {
+      top: 28px;
+    }
+
+    .skillcue-sidebar__assistant-card {
+      display: flex;
+      min-height: 52px;
+      padding: 4px;
+      border: 0;
+      background: transparent;
+      box-shadow: none;
+    }
+
+    .skillcue-sidebar__assistant-visual {
+      display: none;
+    }
+
+    .skillcue-sidebar__assistant-action {
+      width: 100%;
+    }
   }
 
   .skillcue-local-pill {

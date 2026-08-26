@@ -256,6 +256,7 @@ describe('HH persisted queue recovery', () => {
     const mutable = assistant as unknown as {
       state: { queue: HhQueueItem[]; config: ReturnType<HhBrowserAssistant['getState']>['config'] };
       applyToVacancy: (item: HhQueueItem) => Promise<{ sent: boolean; blocked: boolean; reason: string }>;
+      waitBetweenQueueAttempts: () => Promise<void>;
       runQueue: () => Promise<{ attempted: number; blocked: boolean }>;
     };
     mutable.state.queue = [pending('1', { status: 'new', pendingQuestions: undefined }), pending('2', { status: 'new', pendingQuestions: undefined })];
@@ -266,6 +267,7 @@ describe('HH persisted queue recovery', () => {
       return { sent: false, blocked: false, reason: 'Пропущено в тесте.' };
     });
     mutable.applyToVacancy = apply;
+    mutable.waitBetweenQueueAttempts = vi.fn(async () => undefined);
 
     const stats = await mutable.runQueue();
 
@@ -277,14 +279,15 @@ describe('HH persisted queue recovery', () => {
     });
   });
 
-  it('isolates a captcha exception to one vacancy and continues the queue', async () => {
+  it('stops the whole queue and starts an automatic cooldown after HH verification', async () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'skillcue-hh-fatal-queue-'));
     directories.push(directory);
     const assistant = new HhBrowserAssistant(directory, () => undefined);
     const mutable = assistant as unknown as {
       state: { queue: HhQueueItem[]; config: ReturnType<HhBrowserAssistant['getState']>['config'] };
       applyToVacancy: (item: HhQueueItem) => Promise<{ sent: boolean; blocked: boolean; reason: string }>;
-      runQueue: () => Promise<{ attempted: number; blocked: boolean }>;
+      waitBetweenQueueAttempts: () => Promise<void>;
+      runQueue: () => Promise<{ attempted: number; blocked: boolean; cooldown: boolean }>;
     };
     mutable.state.queue = [pending('1', { status: 'new', pendingQuestions: undefined }), pending('2', { status: 'new', pendingQuestions: undefined })];
     mutable.state.config = { ...mutable.state.config, dailyLimit: 200 };
@@ -294,15 +297,79 @@ describe('HH persisted queue recovery', () => {
       return { sent: false, blocked: false, reason: 'Пропущено в тесте.' };
     });
     mutable.applyToVacancy = apply;
+    mutable.waitBetweenQueueAttempts = vi.fn(async () => undefined);
 
     const stats = await mutable.runQueue();
 
-    expect(apply).toHaveBeenCalledTimes(2);
-    expect(stats).toMatchObject({ attempted: 2, blocked: false });
+    expect(apply).toHaveBeenCalledOnce();
+    expect(stats).toMatchObject({ attempted: 1, blocked: true, cooldown: true });
     expect(assistant.getState().queue[0]).toMatchObject({
       status: 'opened',
-      autoRetryBlockedUntil: 'manual',
+      autoRetryBlockedUntil: 'daily',
     });
+    expect(assistant.getState().queue[1]).toMatchObject({ status: 'new' });
+    expect(Date.parse(assistant.getState().verificationCooldownUntil ?? '')).toBeGreaterThan(Date.now());
+  });
+
+  it('does not let a manual bulk run hammer daily-gated vacancies again', async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'skillcue-hh-manual-gates-'));
+    directories.push(directory);
+    const assistant = new HhBrowserAssistant(directory, () => undefined);
+    const mutable = assistant as unknown as {
+      state: { queue: HhQueueItem[]; config: ReturnType<HhBrowserAssistant['getState']>['config'] };
+      applyToVacancy: (item: HhQueueItem) => Promise<{ sent: boolean; blocked: boolean; reason: string }>;
+      waitBetweenQueueAttempts: () => Promise<void>;
+      runQueue: () => Promise<{ attempted: number }>;
+    };
+    mutable.state.queue = [
+      pending('1', { status: 'opened', pendingQuestions: undefined, autoRetryBlockedUntil: 'daily' }),
+      pending('2', { status: 'new', pendingQuestions: undefined, autoRetryBlockedUntil: undefined }),
+    ];
+    mutable.state.config = { ...mutable.state.config, dailyLimit: 200 };
+    const apply = vi.fn(async (item: HhQueueItem) => {
+      assistant.mark(item.key, 'skipped');
+      return { sent: false, blocked: false, reason: 'Пропущено в тесте.' };
+    });
+    mutable.applyToVacancy = apply;
+    mutable.waitBetweenQueueAttempts = vi.fn(async () => undefined);
+
+    const stats = await mutable.runQueue();
+
+    expect(stats.attempted).toBe(1);
+    expect(apply).toHaveBeenCalledOnce();
+    expect(apply).toHaveBeenCalledWith(expect.objectContaining({ id: '2' }));
+    expect(assistant.getState().queue[0]).toMatchObject({
+      status: 'opened',
+      autoRetryBlockedUntil: 'daily',
+    });
+  });
+
+  it('waits between ordinary vacancy attempts instead of sending them back-to-back', async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'skillcue-hh-paced-queue-'));
+    directories.push(directory);
+    const assistant = new HhBrowserAssistant(directory, () => undefined);
+    const mutable = assistant as unknown as {
+      state: { queue: HhQueueItem[]; config: ReturnType<HhBrowserAssistant['getState']>['config'] };
+      applyToVacancy: (item: HhQueueItem) => Promise<{ sent: boolean; blocked: boolean; reason: string }>;
+      waitBetweenQueueAttempts: () => Promise<void>;
+      runQueue: () => Promise<{ attempted: number }>;
+    };
+    mutable.state.queue = [
+      pending('1', { status: 'new', pendingQuestions: undefined, autoRetryBlockedUntil: undefined }),
+      pending('2', { status: 'new', pendingQuestions: undefined, autoRetryBlockedUntil: undefined }),
+    ];
+    mutable.state.config = { ...mutable.state.config, dailyLimit: 200 };
+    mutable.applyToVacancy = vi.fn(async (item: HhQueueItem) => {
+      assistant.mark(item.key, 'skipped');
+      return { sent: false, blocked: false, reason: 'Пропущено в тесте.' };
+    });
+    const wait = vi.fn(async () => undefined);
+    mutable.waitBetweenQueueAttempts = wait;
+
+    const stats = await mutable.runQueue();
+
+    expect(stats.attempted).toBe(2);
+    expect(wait).toHaveBeenCalledOnce();
   });
 
   it('silently retries a transient HH verification before treating it as persistent', async () => {
@@ -340,10 +407,11 @@ describe('HH persisted queue recovery', () => {
     const state = await assistant.applyOne(item.key, { explicitUserSelection: true });
 
     expect(state.phase).toBe('ready');
+    expect(Date.parse(state.verificationCooldownUntil ?? '')).toBeGreaterThan(Date.now());
     expect(state.queue[0]).toMatchObject({
       status: 'opened',
-      autoRetryBlockedUntil: 'manual',
-      reason: 'HH трижды показал проверку для этой вакансии. Она отложена; остальные вакансии продолжаю обрабатывать.',
+      autoRetryBlockedUntil: 'daily',
+      reason: 'HH трижды показал проверку. Вакансия отложена, вся автоочередь поставлена на безопасную паузу.',
     });
   });
 

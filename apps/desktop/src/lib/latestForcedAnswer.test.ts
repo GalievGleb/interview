@@ -1,7 +1,48 @@
-import { describe, expect, it } from 'vitest';
-import { LatestForcedAnswerCoordinator } from './latestForcedAnswer';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import * as forcedAnswerModule from './latestForcedAnswer';
+import {
+  LatestForcedAnswerCoordinator,
+  notifyDelayedForcedTranscript,
+} from './latestForcedAnswer';
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 describe('LatestForcedAnswerCoordinator', () => {
+  it('keeps a forced conversation request pending when the STT final is delayed', () => {
+    const coordinator = new LatestForcedAnswerCoordinator(() => 'force-test-design');
+    const waiting = vi.fn();
+
+    expect(coordinator.press([], 'system', true)).toMatchObject({
+      action: 'flush',
+      generation: 1,
+      requestId: 'force-test-design',
+    });
+
+    expect(notifyDelayedForcedTranscript(coordinator, 1, waiting)).toBe(true);
+    expect(waiting).toHaveBeenCalledOnce();
+    expect(coordinator.snapshot()).toMatchObject({
+      generation: 1,
+      phase: 'finalizing-transcript',
+      pendingRequestCount: 1,
+    });
+    expect(
+      coordinator.acceptFinal(
+        {
+          sequence: 1,
+          text: 'Какие техники тест-дизайна ты применяешь?',
+          source: 'system',
+        },
+        'force-test-design',
+      ),
+    ).toMatchObject({
+      action: 'submit',
+      generation: 1,
+      question: 'Какие техники тест-дизайна ты применяешь?',
+    });
+  });
+
   it('lets the newest Ctrl+Enter supersede an older finalization', () => {
     const ids = ['force-1', 'force-2'];
     const coordinator = new LatestForcedAnswerCoordinator(() => ids.shift()!);
@@ -102,6 +143,54 @@ describe('LatestForcedAnswerCoordinator', () => {
     });
   });
 
+  it('submits the current id-less final after force-empty reports an already active STT job', () => {
+    const coordinator = new LatestForcedAnswerCoordinator(() => 'force-wav', () => 100_000);
+    coordinator.press([], 'mic', true);
+
+    expect(coordinator.acceptEmpty('force-wav')).toEqual({ action: 'wait', generation: 1 });
+    expect(
+      coordinator.acceptFinal({
+        sequence: 1,
+        text: 'Расскажи, пожалуйста, про техники тест-дизайна, какие ты знаешь.',
+        source: 'mic',
+        utteranceId: 'wav-2026-08-25-11-11-24',
+        capturedAtMs: 99_800,
+      }),
+    ).toMatchObject({
+      action: 'submit',
+      generation: 1,
+      sequence: 1,
+      question: 'Расскажи, пожалуйста, про техники тест-дизайна, какие ты знаешь.',
+    });
+  });
+
+  it('submits an id-less final that wins the race just before force-empty', () => {
+    const coordinator = new LatestForcedAnswerCoordinator(() => 'force-race', () => 100_000);
+    coordinator.press([], 'mic', true);
+
+    expect(
+      coordinator.acceptFinal({
+        sequence: 1,
+        text: 'Привет! Расскажи, пожалуйста, про виды тестирования, которые ты знаешь.',
+        source: 'mic',
+        utteranceId: 'user-wav-final-before-empty',
+        capturedAtMs: 99_800,
+      }),
+    ).toEqual({ action: 'wait', generation: 1 });
+
+    expect(coordinator.acceptEmpty('force-race')).toMatchObject({
+      action: 'submit',
+      generation: 1,
+      sequence: 1,
+      question: 'Привет! Расскажи, пожалуйста, про виды тестирования, которые ты знаешь.',
+    });
+    expect(coordinator.snapshot()).toMatchObject({
+      phase: 'waiting-first-token',
+      requestId: null,
+      consumedSequence: 1,
+    });
+  });
+
   it('routes a finalized visual-reference question to screen without starting text LLM', () => {
     const coordinator = new LatestForcedAnswerCoordinator();
     const decision = coordinator.press(
@@ -119,7 +208,7 @@ describe('LatestForcedAnswerCoordinator', () => {
   });
 
   it('keeps accepting the real transcript after screen fallback has started', () => {
-    const coordinator = new LatestForcedAnswerCoordinator(() => 'force-1');
+    const coordinator = new LatestForcedAnswerCoordinator(() => 'force-1', () => 10_000);
     coordinator.press([], 'system');
 
     expect(coordinator.beginScreenFallback(1)).toBe(true);
@@ -135,6 +224,7 @@ describe('LatestForcedAnswerCoordinator', () => {
           sequence: 1,
           text: 'Какие бывают техники тест-дизайна?',
           source: 'system',
+          capturedAtMs: 9_000,
         },
         'force-1',
       ),
@@ -183,12 +273,112 @@ describe('LatestForcedAnswerCoordinator', () => {
       });
   });
 
-  it('finalizes current speech instead of reusing an older unconsumed final', () => {
+  it('submits every final fragment of the current question on one Ctrl+Enter press', () => {
+    const coordinator = new LatestForcedAnswerCoordinator(() => 'unused');
+
+    expect(
+      coordinator.press(
+        [
+          {
+            sequence: 3,
+            text: 'Можешь написать list comprehension, который считает от 1 до 10?',
+            source: 'system',
+          },
+          {
+            sequence: 4,
+            text: 'И выводит также значение квадрата.',
+            source: 'system',
+          },
+        ],
+        'system',
+      ),
+    ).toMatchObject({
+      action: 'submit',
+      generation: 1,
+      sequence: 4,
+      question:
+        'Можешь написать list comprehension, который считает от 1 до 10? И выводит также значение квадрата.',
+    });
+  });
+
+  it('keeps multiple complete subquestions spoken before one Ctrl+Enter press', () => {
+    const coordinator = new LatestForcedAnswerCoordinator(() => 'unused');
+
+    expect(
+      coordinator.press(
+        [
+          {
+            sequence: 1,
+            text: 'Расскажите о последнем проекте?',
+            source: 'system',
+            receivedAt: 1_000,
+          },
+          {
+            sequence: 2,
+            text: 'Какие задачи вы выполняли?',
+            source: 'system',
+            receivedAt: 2_000,
+          },
+        ],
+        'system',
+      ),
+    ).toMatchObject({
+      action: 'submit',
+      sequence: 2,
+      question: 'Расскажите о последнем проекте? Какие задачи вы выполняли?',
+    });
+  });
+
+  it('does not repeat fragments consumed by the previous Ctrl+Enter press', () => {
+    const coordinator = new LatestForcedAnswerCoordinator(() => 'unused');
+    const first = { sequence: 1, text: 'Что такое API?', source: 'system' as const };
+
+    expect(coordinator.press([first], 'system')).toMatchObject({
+      action: 'submit',
+      sequence: 1,
+      question: 'Что такое API?',
+    });
+    expect(
+      coordinator.press(
+        [
+          first,
+          { sequence: 2, text: 'Напиши функцию от 1 до 10.', source: 'system' },
+          { sequence: 3, text: 'И выведи квадрат каждого числа.', source: 'system' },
+        ],
+        'system',
+      ),
+    ).toMatchObject({
+      action: 'submit',
+      sequence: 3,
+      question: 'Напиши функцию от 1 до 10. И выведи квадрат каждого числа.',
+    });
+  });
+
+  it('does not mix microphone finals into a system-audio question', () => {
+    const coordinator = new LatestForcedAnswerCoordinator(() => 'unused');
+
+    expect(
+      coordinator.press(
+        [
+          { sequence: 1, text: 'Расскажите про REST API.', source: 'system' },
+          { sequence: 2, text: 'Да, сейчас отвечу.', source: 'mic' },
+          { sequence: 3, text: 'И приведите пример идемпотентности.', source: 'system' },
+        ],
+        'system',
+      ),
+    ).toMatchObject({
+      action: 'submit',
+      sequence: 3,
+      question: 'Расскажите про REST API. И приведите пример идемпотентности.',
+    });
+  });
+
+  it('combines an already finalized prefix with the forced final of current speech', () => {
     const coordinator = new LatestForcedAnswerCoordinator(() => 'force-current');
 
     expect(
       coordinator.press(
-        [{ sequence: 1, text: 'Предыдущая уже распознанная фраза', source: 'mic' }],
+        [{ sequence: 1, text: 'Можешь написать функцию от 1 до 10?', source: 'mic' }],
         'mic',
         true,
       ),
@@ -199,13 +389,139 @@ describe('LatestForcedAnswerCoordinator', () => {
     });
     expect(
       coordinator.acceptFinal(
-        { sequence: 2, text: 'Самая последняя фраза', source: 'mic' },
+        { sequence: 2, text: 'И вывести квадрат каждого числа.', source: 'mic' },
         'force-current',
       ),
     ).toMatchObject({
       action: 'submit',
       sequence: 2,
-      question: 'Самая последняя фраза',
+      question: 'Можешь написать функцию от 1 до 10? И вывести квадрат каждого числа.',
+    });
+  });
+
+  it('submits a stabilized finalized prefix when forced flush finds no continuation', () => {
+    const coordinator = new LatestForcedAnswerCoordinator(() => 'force-prefix');
+    const force = coordinator.press(
+      [
+        {
+          sequence: 1,
+          text: 'Какие техники тест-дизайна ты знаешь?',
+          source: 'mic',
+        },
+      ],
+      'mic',
+      true,
+    );
+    if (force.action !== 'flush') throw new Error(`Expected flush, got ${force.action}`);
+
+    expect(coordinator.acceptEmpty(force.requestId)).toEqual({
+      action: 'wait',
+      generation: 1,
+    });
+    expect(coordinator.commitFinalizedPrefix(force.requestId)).toMatchObject({
+      action: 'submit',
+      generation: 1,
+      sequence: 1,
+      question: 'Какие техники тест-дизайна ты знаешь?',
+    });
+  });
+
+  it('does not prepend a stale final separated from current speech by a long gap', () => {
+    const coordinator = new LatestForcedAnswerCoordinator(() => 'force-current');
+    coordinator.press(
+      [
+        {
+          sequence: 1,
+          text: 'Что такое REST API?',
+          source: 'system',
+          receivedAt: 1_000,
+        },
+      ],
+      'system',
+      true,
+    );
+
+    expect(
+      coordinator.acceptFinal(
+        {
+          sequence: 2,
+          text: 'Напиши функцию для проверки статуса ответа.',
+          source: 'system',
+          receivedAt: 22_000,
+        },
+        'force-current',
+      ),
+    ).toMatchObject({
+      action: 'submit',
+      sequence: 2,
+      question: 'Напиши функцию для проверки статуса ответа.',
+    });
+  });
+
+  it('keeps capitalized middle fragments from the current forced question', () => {
+    const coordinator = new LatestForcedAnswerCoordinator(() => 'force-current');
+    coordinator.press(
+      [
+        {
+          sequence: 1,
+          text: 'Напиши функцию для списка чисел.',
+          source: 'system',
+          receivedAt: 1_000,
+        },
+        {
+          sequence: 2,
+          text: 'Она должна пройти от 1 до 10.',
+          source: 'system',
+          receivedAt: 2_000,
+        },
+      ],
+      'system',
+      true,
+    );
+
+    expect(
+      coordinator.acceptFinal(
+        {
+          sequence: 3,
+          text: 'Вернуть квадрат каждого значения.',
+          source: 'system',
+          receivedAt: 3_000,
+        },
+        'force-current',
+      ),
+    ).toMatchObject({
+      action: 'submit',
+      sequence: 3,
+      question:
+        'Напиши функцию для списка чисел. Она должна пройти от 1 до 10. Вернуть квадрат каждого значения.',
+    });
+  });
+
+  it('does not merge finals separated by a long pause', () => {
+    const coordinator = new LatestForcedAnswerCoordinator(() => 'unused');
+
+    expect(
+      coordinator.press(
+        [
+          {
+            sequence: 1,
+            text: 'Расскажи про прошлый проект.',
+            source: 'system',
+            receivedAt: 1_000,
+          },
+          {
+            sequence: 2,
+            text: 'И назови техники тест-дизайна.',
+            source: 'system',
+            receivedAt: 22_000,
+          },
+        ],
+        'system',
+      ),
+    ).toMatchObject({
+      action: 'submit',
+      sequence: 2,
+      question: 'И назови техники тест-дизайна.',
     });
   });
 
@@ -243,14 +559,301 @@ describe('LatestForcedAnswerCoordinator', () => {
     expect(coordinator.acceptFinal({ sequence: 8, text: 'Stale question' }, 'old')).toEqual({
       action: 'store-only',
     });
-    expect(coordinator.snapshot().consumedSequence).toBe(0);
+    expect(coordinator.snapshot().consumedSequence).toBe(8);
     expect(coordinator.acceptEmpty('current')).toMatchObject({ action: 'wait' });
     expect(coordinator.press([{ sequence: 8, text: 'Stale question' }], 'system')).toMatchObject({
-      action: 'submit',
+      action: 'flush',
       generation: 3,
-      sequence: 8,
-      question: 'Stale question',
+      requestId: 'next',
     });
+  });
+
+  it('accepts capture age 20,000 ms and permanently consumes 20,001 ms', () => {
+    const fresh = new LatestForcedAnswerCoordinator(() => 'unused', () => 100_000);
+    expect(
+      fresh.press(
+        [{ sequence: 1, text: 'Boundary question', source: 'system', capturedAtMs: 80_000 }],
+        'system',
+      ),
+    ).toMatchObject({ action: 'submit', question: 'Boundary question' });
+
+    const stale = new LatestForcedAnswerCoordinator(() => 'next-force', () => 100_000);
+    expect(
+      stale.press(
+        [{ sequence: 1, text: 'Stale question', source: 'system', capturedAtMs: 79_999 }],
+        'system',
+      ),
+    ).toMatchObject({ action: 'flush', requestId: 'next-force' });
+    expect(stale.snapshot().consumedSequence).toBe(1);
+  });
+
+  it('allows screen replacement at +1,500 ms but not +1,501 ms', () => {
+    let now = 100_000;
+    const eligible = new LatestForcedAnswerCoordinator(() => 'force-ok', () => now);
+    eligible.press([], 'system');
+    eligible.beginScreenFallback(1);
+    now += 1_500;
+    expect(
+      eligible.acceptFinal(
+        { sequence: 1, text: 'Fresh boundary', source: 'system', capturedAtMs: 99_000 },
+        'force-ok',
+      ),
+    ).toMatchObject({ action: 'submit', question: 'Fresh boundary' });
+
+    now = 200_000;
+    const late = new LatestForcedAnswerCoordinator(() => 'force-late', () => now);
+    late.press([], 'system');
+    late.beginScreenFallback(1);
+    now += 1_501;
+    expect(
+      late.acceptFinal(
+        { sequence: 1, text: 'Too late', source: 'system', capturedAtMs: 200_000 },
+        'force-late',
+      ),
+    ).toEqual({ action: 'store-only' });
+  });
+
+  it('accepts missing capture metadata before fallback but rejects it after fallback', () => {
+    const before = new LatestForcedAnswerCoordinator(() => 'force-before', () => 10_000);
+    before.press([], 'system');
+    expect(
+      before.acceptFinal({ sequence: 1, text: 'Legacy final', source: 'system' }, 'force-before'),
+    ).toMatchObject({ action: 'submit', question: 'Legacy final' });
+
+    const after = new LatestForcedAnswerCoordinator(() => 'force-after', () => 10_000);
+    after.press([], 'system');
+    after.beginScreenFallback(1);
+    expect(
+      after.acceptFinal({ sequence: 1, text: 'Legacy final', source: 'system' }, 'force-after'),
+    ).toEqual({ action: 'store-only' });
+  });
+
+  it('first committed screen output permanently closes text replacement', () => {
+    const coordinator = new LatestForcedAnswerCoordinator(() => 'force-1', () => 10_000);
+    coordinator.press([], 'system');
+    coordinator.beginScreenFallback(1);
+    const { screenRevision } = coordinator.snapshot();
+
+    expect(coordinator.commitScreenFirstOutput(1, screenRevision)).toBe(true);
+    expect(
+      coordinator.acceptFinal(
+        { sequence: 1, text: 'Fresh but too late', source: 'system', capturedAtMs: 9_000 },
+        'force-1',
+      ),
+    ).toEqual({ action: 'store-only' });
+  });
+
+  it('revalidates every committed screen chunk and rejects the old owner in a new generation', () => {
+    const coordinator = new LatestForcedAnswerCoordinator(() => 'force-1', () => 10_000);
+    coordinator.press([], 'system');
+    coordinator.beginScreenFallback(1);
+    const { screenRevision } = coordinator.snapshot();
+
+    expect(coordinator.commitScreenFirstOutput(1, screenRevision)).toBe(true);
+    expect(coordinator.commitScreenFirstOutput(1, screenRevision)).toBe(true);
+
+    expect(coordinator.press([], 'system')).toMatchObject({
+      action: 'flush',
+      generation: 2,
+    });
+    expect(coordinator.snapshot().phase).toBe('finalizing-transcript');
+    expect(coordinator.commitScreenFirstOutput(1, screenRevision)).toBe(false);
+  });
+
+  it('cancels a committed screen owner as soon as a newer generation is finalizing', () => {
+    type CancelCheck = (
+      ownedGeneration: number,
+      currentGeneration: number,
+      phase: string,
+    ) => boolean;
+    const check = (
+      forcedAnswerModule as unknown as { shouldCancelScreenFallbackOwner?: CancelCheck }
+    ).shouldCancelScreenFallbackOwner;
+
+    expect(check).toBeTypeOf('function');
+    if (!check) return;
+    expect(check(1, 2, 'finalizing-transcript')).toBe(true);
+    expect(check(1, 1, 'screen-fallback')).toBe(false);
+  });
+
+  it('fresh tagged final just before first screen chunk invalidates that screen revision', () => {
+    const coordinator = new LatestForcedAnswerCoordinator(() => 'force-1', () => 10_000);
+    coordinator.press([], 'system');
+    coordinator.beginScreenFallback(1);
+    const { screenRevision } = coordinator.snapshot();
+
+    expect(
+      coordinator.acceptFinal(
+        { sequence: 1, text: 'Winning text', source: 'system', capturedAtMs: 9_000 },
+        'force-1',
+      ),
+    ).toMatchObject({ action: 'submit', question: 'Winning text' });
+    expect(coordinator.commitScreenFirstOutput(1, screenRevision)).toBe(false);
+  });
+
+  it('repeated fallback events do not extend the original replacement deadline', () => {
+    let now = 5_000;
+    const coordinator = new LatestForcedAnswerCoordinator(() => 'force-1', () => now);
+    coordinator.press([], 'system');
+    coordinator.beginScreenFallback(1);
+    const first = coordinator.snapshot();
+    now += 1_000;
+    coordinator.beginScreenFallback(1);
+    expect(coordinator.snapshot()).toMatchObject({
+      fallbackStartedAtMs: first.fallbackStartedAtMs,
+      fallbackDeadlineMs: first.fallbackDeadlineMs,
+      screenRevision: first.screenRevision,
+    });
+    now = 6_501;
+    expect(
+      coordinator.acceptFinal(
+        { sequence: 1, text: 'After original deadline', source: 'system', capturedAtMs: 5_000 },
+        'force-1',
+      ),
+    ).toEqual({ action: 'store-only' });
+  });
+
+  it('does not restart the same-generation fallback timer after another empty result', () => {
+    type Scheduler = {
+      schedule: (generation: number, delayMs: number) => boolean;
+      cancel: (generation?: number) => boolean;
+      snapshot: () => { generation: number; deadlineMs: number } | null;
+    };
+    type SchedulerConstructor = new (onElapsed: (generation: number) => void) => Scheduler;
+    const Scheduler = (
+      forcedAnswerModule as unknown as { ForceFallbackScheduler?: SchedulerConstructor }
+    ).ForceFallbackScheduler;
+
+    expect(Scheduler).toBeTypeOf('function');
+    if (!Scheduler) return;
+
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const coordinator = new LatestForcedAnswerCoordinator(() => 'force-1', () => Date.now());
+    coordinator.press([], 'system');
+    const scheduler = new Scheduler((generation) => coordinator.beginScreenFallback(generation));
+
+    expect(scheduler.schedule(1, 1_400)).toBe(true);
+    expect(scheduler.snapshot()).toEqual({ generation: 1, deadlineMs: 1_400 });
+    vi.advanceTimersByTime(700);
+    expect(scheduler.schedule(1, 1_400)).toBe(false);
+    expect(scheduler.snapshot()).toEqual({ generation: 1, deadlineMs: 1_400 });
+    vi.advanceTimersByTime(700);
+
+    expect(coordinator.snapshot()).toMatchObject({
+      phase: 'screen-fallback',
+      fallbackStartedAtMs: 1_400,
+      fallbackDeadlineMs: 2_900,
+    });
+    expect(scheduler.snapshot()).toBeNull();
+  });
+
+  it('tightens the same-generation fallback to an earlier absolute deadline', () => {
+    type Scheduler = {
+      schedule: (generation: number, delayMs: number) => boolean;
+      snapshot: () => { generation: number; deadlineMs: number } | null;
+    };
+    type SchedulerConstructor = new (onElapsed: (generation: number) => void) => Scheduler;
+    const Scheduler = (
+      forcedAnswerModule as unknown as { ForceFallbackScheduler?: SchedulerConstructor }
+    ).ForceFallbackScheduler;
+    expect(Scheduler).toBeTypeOf('function');
+    if (!Scheduler) return;
+
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const elapsed: number[] = [];
+    const scheduler = new Scheduler((generation) => elapsed.push(generation));
+
+    expect(scheduler.schedule(1, 3_500)).toBe(true);
+    vi.advanceTimersByTime(500);
+    expect(scheduler.schedule(1, 1_400)).toBe(true);
+    expect(scheduler.snapshot()).toEqual({ generation: 1, deadlineMs: 1_900 });
+    vi.advanceTimersByTime(1_399);
+    expect(elapsed).toEqual([]);
+    vi.advanceTimersByTime(1);
+    expect(elapsed).toEqual([1]);
+  });
+
+  it('ignores equal or later same-generation deadlines but lets a newer generation replace', () => {
+    type Scheduler = {
+      schedule: (generation: number, delayMs: number) => boolean;
+      snapshot: () => { generation: number; deadlineMs: number } | null;
+    };
+    type SchedulerConstructor = new (onElapsed: (generation: number) => void) => Scheduler;
+    const Scheduler = (
+      forcedAnswerModule as unknown as { ForceFallbackScheduler?: SchedulerConstructor }
+    ).ForceFallbackScheduler;
+    expect(Scheduler).toBeTypeOf('function');
+    if (!Scheduler) return;
+
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const elapsed: number[] = [];
+    const scheduler = new Scheduler((generation) => elapsed.push(generation));
+
+    expect(scheduler.schedule(1, 1_400)).toBe(true);
+    vi.advanceTimersByTime(500);
+    expect(scheduler.schedule(1, 900)).toBe(false);
+    expect(scheduler.schedule(1, 2_000)).toBe(false);
+    expect(scheduler.snapshot()).toEqual({ generation: 1, deadlineMs: 1_400 });
+
+    expect(scheduler.schedule(2, 2_500)).toBe(true);
+    expect(scheduler.snapshot()).toEqual({ generation: 2, deadlineMs: 3_000 });
+    vi.advanceTimersByTime(2_499);
+    expect(elapsed).toEqual([]);
+    vi.advanceTimersByTime(1);
+    expect(elapsed).toEqual([2]);
+  });
+
+  it('does not merge 7.7 s delivery spacing when capture spacing exceeds 20 s', () => {
+    const coordinator = new LatestForcedAnswerCoordinator(() => 'unused', () => 100_000);
+    expect(
+      coordinator.press(
+        [
+          {
+            sequence: 1,
+            text: 'Old delivered-late question.',
+            source: 'system',
+            capturedAtMs: 79_999,
+            receivedAt: 92_300,
+          },
+          {
+            sequence: 2,
+            text: 'Current question.',
+            source: 'system',
+            capturedAtMs: 100_000,
+            receivedAt: 100_000,
+          },
+        ],
+        'system',
+      ),
+    ).toMatchObject({ action: 'submit', question: 'Current question.' });
+  });
+
+  it('deduplicates repeated finals by utterance id', () => {
+    const coordinator = new LatestForcedAnswerCoordinator(() => 'unused', () => 10_000);
+    expect(
+      coordinator.press(
+        [
+          {
+            sequence: 1,
+            text: 'First delivery.',
+            source: 'system',
+            utteranceId: 'same-turn',
+            capturedAtMs: 9_000,
+          },
+          {
+            sequence: 2,
+            text: 'Corrected delivery.',
+            source: 'system',
+            utteranceId: 'same-turn',
+            capturedAtMs: 9_000,
+          },
+        ],
+        'system',
+      ),
+    ).toMatchObject({ action: 'submit', question: 'Corrected delivery.' });
   });
 
   it('keeps only the current transcript-finalization request', () => {

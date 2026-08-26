@@ -93,7 +93,8 @@ export default function SessionReportModal({
       <div className="grid gap-4">
         <div className="rounded-xl border border-surface-border bg-surface/60 p-3 text-sm text-ink-muted">
           <p className="flex items-center gap-2 font-semibold text-ink"><FileText size={16} aria-hidden="true" />Что попадёт в отчёт</p>
-          <p className="mt-1">Модели STT/LLM, реальные тайминги, ошибки и переподключения, транскрипт и подсказки этой сессии. Ключи и локальное имя пользователя удаляются. Аудиозапись не отправляется.</p>
+          <p className="mt-1">Модели STT/LLM, реальные тайминги, здоровье аудиоисточников, ошибки, транскрипт, подсказки и диагностический текст screen-запросов/ответов этой сессии. Ключи и локальное имя пользователя удаляются.</p>
+          <p className="mt-2">Пиксели скриншотов и screenshot/base64 payload не прикладываются — сохраняются только тип и размер изображения. Аудиозапись не отправляется. Cookies, авторизационный контекст и секреты тоже не отправляются.</p>
           <p className="mt-2 text-ink-faint">Старые сессии тоже поддерживаются: SkillCue добавит всё, что сохранилось в их версии, и честно отметит отсутствующие тайминги.</p>
         </div>
 
@@ -110,7 +111,7 @@ export default function SessionReportModal({
 
         <label className="flex items-start gap-3 rounded-xl border border-surface-border p-3 text-sm text-ink-muted">
           <input type="checkbox" className="mt-0.5" checked={consent} onChange={(event) => setConsent(event.target.checked)} />
-          <span><strong className="text-ink">Я согласен отправить транскрипт</strong><br />Он нужен, чтобы сопоставить вопрос, распознавание и задержку ответа.</span>
+          <span><strong className="text-ink">Я согласен отправить транскрипт и диагностический текст</strong><br />В него входят вопросы и ответы, чтобы сопоставить распознавание, screen-запрос и задержку. Скриншоты и аудио не прикладываются.</span>
         </label>
 
         {error && <p className="prep-inline-error" role="alert">{error}</p>}

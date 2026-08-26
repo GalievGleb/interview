@@ -182,5 +182,29 @@
     "forbiddenAnswerPhrases": ["ошибок не бывает", "не знаю", "не использовал"],
     "maxAnswerLengthWords": 140,
     "maxTotalLatencyMs": 10000
+  },
+  {
+    "id": "06_ctrl_enter_before_final",
+    "title": "Ctrl+Enter before final transcript: test-design techniques",
+    "audioFile": "tests/voice/audio/06_ctrl_enter_before_final.wav",
+    "expectedQuestion": "Расскажи, пожалуйста, про техники тест-дизайна, какие ты знаешь.",
+    "requiredTranscriptKeywords": [
+      { "key": "техники", "aliases": ["техники", "техника", "техник"] },
+      { "key": "тест-дизайн", "aliases": ["тест-дизайн", "тест дизайн", "тест-дизайна", "тест дизайна"] },
+      { "key": "знаешь", "aliases": ["знаешь", "знаете", "применяешь", "применяете"] }
+    ],
+    "requiredAnswerKeywords": [
+      { "key": "классы эквивалентности", "aliases": ["классы эквивалентности", "эквивалентное разбиение", "эквивалентн"] },
+      { "key": "граничные значения", "aliases": ["граничные значения", "границы", "граничн"] },
+      { "key": "таблицы решений", "aliases": ["таблицы решений", "таблица решений", "таблицы принятия решений", "decision table", "таблиц"] },
+      { "key": "переходы состояний", "aliases": ["переходы состояний", "состояния и переходы", "state transition", "состояни", "переход"] },
+      { "key": "попарное тестирование", "aliases": ["попарное тестирование", "pairwise", "попарные комбинации", "попарн"] },
+      { "key": "предугадывание ошибок", "aliases": ["предугадывание ошибок", "error guessing", "угадывание ошибок"] },
+      { "key": "причина и следствие", "aliases": ["причинно-следственн", "причина и следствие", "cause-effect", "cause effect"] },
+      { "key": "сценарии использования", "aliases": ["сценарии использования", "use case", "сценарн"] }
+    ],
+    "forbiddenAnswerPhrases": ["я не знаю", "не могу ответить", "таких техник нет"],
+    "maxAnswerLengthWords": 120,
+    "maxTotalLatencyMs": 10000
   }
 ]

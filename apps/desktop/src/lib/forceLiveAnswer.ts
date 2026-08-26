@@ -1,5 +1,7 @@
 export type ForceAudioSource = 'mic' | 'system';
 
+const RECENT_FINAL_STABILIZATION_MS = 900;
+
 interface SpeechActivityState {
   pending: number;
   provisionalPartial: boolean;
@@ -70,13 +72,33 @@ export function selectForceTargetSource(
     system: number;
   } = { mic: 0, system: 0 },
 ): 'mic' | 'system' | null {
-  const micSpeaking = sources.mic && speaking.mic;
-  const systemSpeaking = sources.system && speaking.system;
-  if (micSpeaking !== systemSpeaking) return micSpeaking ? 'mic' : 'system';
-  if (systemSpeaking) return 'system';
-  if (sources.system && unconsumed.system > 0) return 'system';
-  if (sources.mic && unconsumed.mic > 0) return 'mic';
+  // With desktop/system capture enabled, that channel owns the interviewer's
+  // questions. Candidate speech on mic must never steal Ctrl+Enter merely
+  // because it is newer or still active; doing so also advances the shared
+  // transcript cursor past the real interviewer question.
   if (sources.system) return 'system';
+  if (sources.mic && (speaking.mic || unconsumed.mic > 0)) return 'mic';
   if (sources.mic) return 'mic';
   return null;
+}
+
+export function shouldFinalizeCurrentSpeech(
+  source: ForceAudioSource | null,
+  speaking: Record<ForceAudioSource, boolean>,
+  unconsumed: Record<ForceAudioSource, number>,
+  latestUnconsumedFinalReceivedAt?: number,
+  pressedAtMs = Date.now(),
+): boolean {
+  if (source == null) return false;
+  if (speaking[source] && unconsumed[source] === 0) return true;
+  if (
+    unconsumed[source] === 0 ||
+    latestUnconsumedFinalReceivedAt == null ||
+    !Number.isFinite(latestUnconsumedFinalReceivedAt)
+  ) {
+    return false;
+  }
+
+  const finalAgeMs = pressedAtMs - latestUnconsumedFinalReceivedAt;
+  return finalAgeMs >= 0 && finalAgeMs <= RECENT_FINAL_STABILIZATION_MS;
 }

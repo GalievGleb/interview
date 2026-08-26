@@ -14,6 +14,7 @@ import OverlayTooltipLayer from '../components/OverlayTooltipLayer';
 import { forceDarkTheme } from '../lib/theme';
 import { modeInstructionPrefix, useAnswerModes } from '../lib/answerModes';
 import { deriveLiveExchange } from '../lib/liveOverlaySync';
+import { shouldCancelScreenFallbackOwner } from '../lib/latestForcedAnswer';
 import {
   acceptForceHotkey,
   type ForceHotkeyEvent,
@@ -31,6 +32,7 @@ import { useI18n, type I18nKey } from '../lib/i18n';
 import { refreshSessionKnowledge } from '../lib/sessionKnowledge';
 import { resolveSessionEvidenceLayout } from '../lib/sessionAnalysisPresentation';
 import { answerLanguageParam } from '../lib/answerLanguage';
+import { liveStartupWarmup } from '../lib/liveStartupWarmup';
 import type {
   InterviewCalendarEvent,
   InterviewOutcome,
@@ -224,7 +226,10 @@ export default function OverlayPage() {
     streaming,
     forceGeneration,
     forcePhase,
-    forceScreenFallbackGeneration,
+    forceScreenFallback,
+    commitScreenFirstOutput,
+    screenAssistDiagnostics,
+    sourceHealthWarning,
     error,
     sessionId,
     forceAnswer,
@@ -277,9 +282,10 @@ export default function OverlayPage() {
   const summaryCancelRef = useRef<(() => void) | null>(null);
   const analysisRequestGenerationRef = useRef(0);
   const screenAssistGenerationRef = useRef(0);
+  const activeScreenDiagnosticRef = useRef<{ id: string; requestGeneration: number } | null>(null);
   const forceScreenFallbackOwnerRef = useRef(0);
   const manualBusyRef = useRef(false);
-  const lastForceScreenFallbackRef = useRef(0);
+  const lastForceScreenFallbackRef = useRef('');
   const rootRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
@@ -296,14 +302,14 @@ export default function OverlayPage() {
     ? {
         title: 'Как пользоваться',
         record: 'Нажмите красную кнопку — начнутся запись и транскрипция.',
-        answer: 'Ctrl+Enter — ответ по разговору; без голоса SkillCue посмотрит на экран.',
+        answer: 'Ctrl+Enter — ответ по разговору. Экран — по кнопке «Экран» или явному вопросу о видимом.',
         move: 'Ctrl+Shift+H скрывает панель, Ctrl+стрелки перемещают её.',
         done: 'Понятно',
       }
     : {
         title: 'How it works',
         record: 'Press the red button to start recording and transcription.',
-        answer: 'Ctrl+Enter answers from the conversation; without audio SkillCue checks the screen.',
+        answer: 'Ctrl+Enter answers from the conversation. Use “Screen” or explicitly refer to what is visible.',
         move: 'Ctrl+Shift+H hides the panel; Ctrl+arrows move it.',
         done: 'Got it',
       };
@@ -389,13 +395,25 @@ export default function OverlayPage() {
     pointerControllerRef.current?.refresh();
   });
 
+  const cancelActiveScreenAssist = useCallback(() => {
+    const activeScreen = activeScreenDiagnosticRef.current;
+    if (!activeScreen) return;
+    screenAssistGenerationRef.current += 1;
+    cancelRef.current?.();
+    cancelRef.current = null;
+    manualBusyRef.current = false;
+    screenAssistDiagnostics.cancel(activeScreen.id);
+    activeScreenDiagnosticRef.current = null;
+    screenAssistDiagnostics.registerActiveCancel(null);
+  }, [screenAssistDiagnostics]);
+
   useEffect(
     () => () => {
-      screenAssistGenerationRef.current += 1;
+      cancelActiveScreenAssist();
       cancelRef.current?.();
       summaryCancelRef.current?.();
     },
-    [],
+    [cancelActiveScreenAssist],
   );
 
   // The backend is authoritative for trial/plan limits. If it rejects a live
@@ -433,10 +451,33 @@ export default function OverlayPage() {
   }, [lines, showTranscript]);
 
   const runScreenAssist = useCallback(
-    async (customText: string, mode: 'general' | 'deep') => {
+    async (
+      customText: string,
+      mode: 'general' | 'deep',
+      forceOwner?: { generation: number; screenRevision: number },
+      trigger?: 'manual' | 'visual_question',
+      untrustedPartialHint?: string,
+    ) => {
+      cancelActiveScreenAssist();
       const requestGeneration = ++screenAssistGenerationRef.current;
+      const diagnosticId = `${sessionId ?? 'local'}:${requestGeneration}:${crypto.randomUUID()}`;
       const capture = window.electronAPI?.overlay.captureScreen;
+      const request = customText || t('overlay.whatOnScreen');
+      const effectiveTrigger = trigger ?? 'manual';
+      const effectiveQuestion = `${modeInstructionPrefix()}${request}`.trim();
+      screenAssistDiagnostics.request({
+        id: diagnosticId,
+        generation: forceOwner?.generation ?? requestGeneration,
+        trigger: effectiveTrigger,
+        mode,
+        effectiveQuestion,
+      });
+      activeScreenDiagnosticRef.current = { id: diagnosticId, requestGeneration };
+      screenAssistDiagnostics.registerActiveCancel(cancelActiveScreenAssist);
       if (!capture) {
+        screenAssistDiagnostics.error(diagnosticId, t('overlay.screenOnlyDesktop'));
+        activeScreenDiagnosticRef.current = null;
+        screenAssistDiagnostics.registerActiveCancel(null);
         setNotice(t('overlay.screenOnlyDesktop'));
         return;
       }
@@ -444,32 +485,53 @@ export default function OverlayPage() {
       cancelRef.current?.();
       cancelRef.current = null;
       manualBusyRef.current = true;
-      const request = customText || t('overlay.whatOnScreen');
-      setExchange({ label: t('overlay.action.screen'), request, text: '', streaming: true });
       setInput('');
 
       const image = await capture().catch(() => '');
       if (requestGeneration !== screenAssistGenerationRef.current) return;
       if (!image) {
+        screenAssistDiagnostics.error(diagnosticId, t('overlay.screenshotFailed'));
+        activeScreenDiagnosticRef.current = null;
+        screenAssistDiagnostics.registerActiveCancel(null);
         manualBusyRef.current = false;
         setExchange(null);
         setNotice(t('overlay.screenshotFailed'));
         return;
       }
-      setExchange((prev) => (prev ? { ...prev, image } : prev));
+      screenAssistDiagnostics.captured(diagnosticId, image);
+      setExchange({ label: t('overlay.action.screen'), request, text: '', streaming: true, image });
 
       let acc = '';
+      let screenOutputCommitted = false;
       cancelRef.current = api.streamScreenAssist(
         image,
-        `${modeInstructionPrefix()}${customText}`.trim(),
+        effectiveQuestion,
         {
           onChunk: (t) => {
             if (requestGeneration !== screenAssistGenerationRef.current) return;
+            if (t.trim()) screenAssistDiagnostics.firstOutput(diagnosticId, t);
+            if (forceOwner) {
+              if (!screenOutputCommitted && !t.trim()) return;
+              if (!commitScreenFirstOutput(forceOwner.generation, forceOwner.screenRevision)) {
+                cancelActiveScreenAssist();
+                return;
+              }
+              screenOutputCommitted = true;
+            }
             acc += t;
             setExchange((prev) => (prev ? { ...prev, text: prev.text + t } : prev));
           },
-          onDone: () => {
+          onDone: (meta) => {
             if (requestGeneration !== screenAssistGenerationRef.current) return;
+            screenAssistDiagnostics.done(diagnosticId, {
+              answer: acc,
+              model: meta?.model,
+              modelSource: meta?.modelSource,
+            });
+            if (activeScreenDiagnosticRef.current?.id === diagnosticId) {
+              activeScreenDiagnosticRef.current = null;
+              screenAssistDiagnostics.registerActiveCancel(null);
+            }
             cancelRef.current = null;
             manualBusyRef.current = false;
             setExchange((prev) => (prev ? { ...prev, streaming: false } : prev));
@@ -477,6 +539,11 @@ export default function OverlayPage() {
           },
           onError: (msg) => {
             if (requestGeneration !== screenAssistGenerationRef.current) return;
+            screenAssistDiagnostics.error(diagnosticId, msg);
+            if (activeScreenDiagnosticRef.current?.id === diagnosticId) {
+              activeScreenDiagnosticRef.current = null;
+              screenAssistDiagnostics.registerActiveCancel(null);
+            }
             cancelRef.current = null;
             manualBusyRef.current = false;
             setExchange((prev) =>
@@ -485,12 +552,24 @@ export default function OverlayPage() {
           },
         },
         {
-          context: transcriptContext() || undefined,
+          context: [
+            transcriptContext(),
+            untrustedPartialHint
+              ? `UNTRUSTED CURRENT PARTIAL HINT (screen context only; may be incomplete): ${untrustedPartialHint}`
+              : '',
+          ].filter(Boolean).join('\n\n') || undefined,
           mode,
         },
       );
     },
-    [transcriptContext, t],
+    [
+      cancelActiveScreenAssist,
+      commitScreenFirstOutput,
+      screenAssistDiagnostics,
+      sessionId,
+      transcriptContext,
+      t,
+    ],
   );
 
   const runAction = useCallback(
@@ -514,10 +593,12 @@ export default function OverlayPage() {
       }
 
       if (route.kind === 'notice') {
+        cancelActiveScreenAssist();
         screenAssistGenerationRef.current += 1;
         setNotice(action.needsContext ? t('overlay.noConvContext') : t('overlay.noConvManual'));
         return;
       }
+      cancelActiveScreenAssist();
       screenAssistGenerationRef.current += 1;
       setNotice('');
       cancelRef.current?.();
@@ -560,35 +641,40 @@ export default function OverlayPage() {
         },
       );
     },
-    [runScreenAssist, smart, transcriptContext, t],
+    [cancelActiveScreenAssist, runScreenAssist, smart, transcriptContext, t],
   );
 
   // Live-ответы (авто) — в ту же панель, пока нет ручного запроса.
   const lastEntry = answerHistory[answerHistory.length - 1];
   useEffect(() => {
-    if (!forceScreenFallbackGeneration) {
-      lastForceScreenFallbackRef.current = 0;
+    if (!forceScreenFallback.generation) {
+      lastForceScreenFallbackRef.current = '';
       return;
     }
-    if (lastForceScreenFallbackRef.current === forceScreenFallbackGeneration) return;
-    lastForceScreenFallbackRef.current = forceScreenFallbackGeneration;
-    forceScreenFallbackOwnerRef.current = forceScreenFallbackGeneration;
-    void runScreenAssist('', smart ? 'deep' : 'general');
-  }, [forceScreenFallbackGeneration, runScreenAssist, smart]);
+    const requestKey = JSON.stringify(forceScreenFallback);
+    if (lastForceScreenFallbackRef.current === requestKey) return;
+    lastForceScreenFallbackRef.current = requestKey;
+    forceScreenFallbackOwnerRef.current = forceScreenFallback.generation;
+    void runScreenAssist(forceScreenFallback.question, smart ? 'deep' : 'general', {
+        generation: forceScreenFallback.generation,
+        screenRevision: forceScreenFallback.screenRevision,
+      },
+      'visual_question',
+      forceScreenFallback.untrustedPartialHint,
+    );
+  }, [forceScreenFallback, runScreenAssist, smart]);
 
   const cancelOwnedForceScreenFallback = useCallback((generation: number) => {
     if (!generation || forceScreenFallbackOwnerRef.current !== generation) return;
     forceScreenFallbackOwnerRef.current = 0;
-    screenAssistGenerationRef.current += 1;
-    cancelRef.current?.();
-    cancelRef.current = null;
+    cancelActiveScreenAssist();
     manualBusyRef.current = false;
-  }, []);
+  }, [cancelActiveScreenAssist]);
 
   useEffect(() => {
-    if (forcePhase === 'waiting-first-token' || forcePhase === 'streaming') {
-      cancelOwnedForceScreenFallback(forceGeneration);
-    }
+    const ownedGeneration = forceScreenFallbackOwnerRef.current;
+    if (!shouldCancelScreenFallbackOwner(ownedGeneration, forceGeneration, forcePhase)) return;
+    cancelOwnedForceScreenFallback(ownedGeneration);
   }, [cancelOwnedForceScreenFallback, forceGeneration, forcePhase]);
 
   useEffect(() => {
@@ -651,12 +737,9 @@ export default function OverlayPage() {
 
   const closeExchange = useCallback(() => {
     forceScreenFallbackOwnerRef.current = 0;
-    screenAssistGenerationRef.current += 1;
-    cancelRef.current?.();
-    cancelRef.current = null;
-    manualBusyRef.current = false;
+    cancelActiveScreenAssist();
     setExchange(null);
-  }, []);
+  }, [cancelActiveScreenAssist]);
 
   // ---------- Итоги сессии ----------
   const generateSummary = useCallback((ls: TranscriptLine[]) => {
@@ -851,16 +934,7 @@ export default function OverlayPage() {
       void window.electronAPI?.overlay.openSettings?.('billing');
       return;
     }
-    setNotice('Проверяю ИИ перед созвоном…');
-    try {
-      const readiness = await api.providerReadiness();
-      if (!readiness.ok) throw new Error('ИИ не подтвердил готовность');
-    } catch (readinessError) {
-      const detail = readinessError instanceof Error ? readinessError.message : String(readinessError);
-      setNotice(`Созвон не запущен: ИИ недоступен. ${detail}`);
-      void refreshLicense();
-      return;
-    }
+    void liveStartupWarmup.warm();
     closeRecap();
     setUsageLog([]);
     setNotice('');
@@ -942,15 +1016,13 @@ export default function OverlayPage() {
     }
 
     forceScreenFallbackOwnerRef.current = 0;
+    cancelActiveScreenAssist();
     screenAssistGenerationRef.current += 1;
-    cancelRef.current?.();
-    cancelRef.current = null;
-    manualBusyRef.current = false;
     setNotice('');
     const status = forceAnswer();
     if (status === 'started' || status === 'finalizing') return;
-    void runScreenAssist('', smart ? 'deep' : 'general');
-  }, [forceAnswer, input, runAction, runScreenAssist, smart]);
+    setNotice(t('overlay.forceUnavailable'));
+  }, [cancelActiveScreenAssist, forceAnswer, input, runAction, t]);
 
   const scrollOverlayContent = useCallback((direction: -1 | 1) => {
     const candidates = [
@@ -1803,6 +1875,11 @@ export default function OverlayPage() {
               </div>
 
               {notice && <p className="px-1.5 pt-1.5 text-[11.5px] text-amber-300">{notice}</p>}
+              {sourceHealthWarning && (
+                <p className="px-1.5 pt-1.5 text-[11.5px] text-amber-300" role="status">
+                  {t('overlay.sourceHealth.systemSilent')}
+                </p>
+              )}
               {error && (
                 <p className="px-1.5 pt-1.5 text-[11.5px] text-red-300" role="alert">
                   {error}

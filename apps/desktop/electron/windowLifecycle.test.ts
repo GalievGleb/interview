@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   hideOverlayAndShowMain,
+  openOverlayOverWorkspace,
   hideOverlayOnly,
   hideWindowOnClose,
   isLiveWindow,
@@ -16,6 +17,20 @@ function fakeWindow(destroyed = false) {
 }
 
 describe('window lifecycle helpers', () => {
+  it('shows the overlay over the active workspace without hiding the main app first', () => {
+    const overlay = fakeWindow(false);
+    const main = fakeWindow(false);
+
+    openOverlayOverWorkspace(main, () => {
+      overlay.show();
+      overlay.focus();
+    });
+
+    expect(main.hide).not.toHaveBeenCalled();
+    expect(overlay.show).toHaveBeenCalledOnce();
+    expect(overlay.focus).toHaveBeenCalledOnce();
+  });
+
   it('hides the overlay without showing or focusing another window', () => {
     const overlay = fakeWindow(false);
     const main = fakeWindow(false);

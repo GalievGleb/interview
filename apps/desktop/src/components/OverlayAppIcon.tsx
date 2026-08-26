@@ -7,6 +7,8 @@ export default function OverlayAppIcon() {
       alt=""
       aria-hidden="true"
       draggable={false}
+      width={26}
+      height={26}
       className="h-[26px] w-[26px] rounded-[8px] object-cover"
     />
   );

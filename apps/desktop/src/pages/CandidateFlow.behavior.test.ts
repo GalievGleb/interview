@@ -39,6 +39,11 @@ describe('candidate flow across every primary tab', () => {
     expect(applications).toContain("setQueueView(requestedView as typeof queueView)");
   });
 
+  it('opens the automatic queue from the home command instead of silently staying on home', () => {
+    expect(home).toContain("if (hhCommand.action === 'queue')");
+    expect(home).toContain("navigate('/applications?view=active')");
+  });
+
   it('connects calendar events back to applications and preparation context', () => {
     expect(calendar).toContain("navigate('/applications')");
     expect(calendar).toContain('Что ждёт на созвоне');
@@ -53,7 +58,7 @@ describe('candidate flow across every primary tab', () => {
   });
 
   it('keeps practice and real interviews as separate destinations', () => {
-    expect(practice).toContain('Последние попытки');
+    expect(practice).toContain('Последние сессии');
     expect(practice).toContain('По вакансии');
     expect(history).toContain('Реальные разговоры');
     expect(history).not.toContain('listMockSessions');

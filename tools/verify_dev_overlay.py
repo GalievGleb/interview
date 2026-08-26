@@ -19,6 +19,8 @@ import urllib.request
 import uuid
 from pathlib import Path
 
+from dev_e2e_identity import seed_installed_gateway_identity
+
 QUESTION = "Что такое техники тест-дизайна? Назови несколько примеров и кратко объясни их."
 EXPECTED_CONCEPTS = (
     "эквивалент",
@@ -64,6 +66,7 @@ def main() -> int:
     port = _free_port()
     token = uuid.uuid4().hex
     db_path = Path(tempfile.gettempdir()) / f"skillcue-overlay-e2e-{token}.sqlite"
+    seed_installed_gateway_identity(db_path)
     env = {
         **os.environ,
         "SKILLCUE_PORT": str(port),

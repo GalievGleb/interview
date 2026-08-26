@@ -44,6 +44,7 @@ const SECTIONS: Array<{ id: SettingsTab; labelKey: I18nKey; d: string }> = [
 const STEALTH_KEY = 'skillcue.overlayStealth';
 const USE_SCREEN_KEY = 'skillcue.overlayUseScreen';
 const HIDE_WIDGET_KEY = 'skillcue.overlayHideWidget';
+const SKIP_TASKBAR_KEY = 'skillcue.skipTaskbar';
 
 function Icon({ d, size = 15 }: { d: string; size?: number }) {
   return (
@@ -136,6 +137,7 @@ function GeneralSection() {
   const [stealth, setStealth] = useState(() => localStorage.getItem(STEALTH_KEY) === '1');
   const [useScreen, setUseScreen] = useState(() => localStorage.getItem(USE_SCREEN_KEY) !== '0');
   const [hideWidget, setHideWidget] = useState(() => localStorage.getItem(HIDE_WIDGET_KEY) !== '0');
+  const [skipTaskbar, setSkipTaskbar] = useState(() => localStorage.getItem(SKIP_TASKBAR_KEY) === '1');
   const [autoLaunch, setAutoLaunch] = useState(false);
   const [autoLaunchAvailable, setAutoLaunchAvailable] = useState(false);
   const [operationalTelemetryEnabled, setOperationalTelemetryEnabled] = useState(false);
@@ -309,6 +311,20 @@ function GeneralSection() {
             />
           </SettingRow>
         )}
+        <SettingRow
+          title={t('sidebar.taskbarTitle')}
+          desc="Окно остаётся доступным через трей и горячие клавиши, но не занимает место в панели Windows."
+        >
+          <Toggle
+            on={skipTaskbar}
+            label={t('sidebar.taskbarTitle')}
+            onChange={(enabled) => {
+              setSkipTaskbar(enabled);
+              localStorage.setItem(SKIP_TASKBAR_KEY, enabled ? '1' : '0');
+              void window.electronAPI?.window.setSkipTaskbar(enabled);
+            }}
+          />
+        </SettingRow>
         <SettingRow
           title="Обезличенная диагностика"
           desc="Хранит локально только категории сбоев и счётчики. Не отправляет резюме, ответы, записи, экран, cookies или ключи. Попадает в архив только когда вы сами нажимаете «Сообщить о проблеме»."

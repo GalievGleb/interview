@@ -24,15 +24,24 @@ describe('computeExchangeSttLatencyMs', () => {
     // Even if the client delta is huge (session-anchor bug), the server wins.
     expect(computeExchangeSttLatencyMs(444, 120000, 0)).toBe(444);
   });
-  it('falls back to a sane client delta when no server timing', () => {
-    expect(computeExchangeSttLatencyMs(undefined, 5000, 4200)).toBe(800);
+  it('keeps STT unknown without authoritative provider timing', () => {
+    expect(computeExchangeSttLatencyMs(undefined, 5000, 4200)).toBeNull();
+    expect(buildLatencyBreakdown({
+      serverTimings: null,
+      answerStartedAt: 5000,
+      questionFinalAt: 4200,
+      llmFirstTokenMs: undefined,
+      llmLatencyMs: 100,
+      speechEndedAt: null,
+      audioCaptureStartAt: null,
+    }).finalToAnswerStartMs).toBe(800);
   });
   it('drops an implausible client fallback (the 24s/56s/113s bug)', () => {
     // questionFinalAt anchored at session start → absurd delta → undefined.
-    expect(computeExchangeSttLatencyMs(undefined, 113737, 0)).toBeUndefined();
+    expect(computeExchangeSttLatencyMs(undefined, 113737, 0)).toBeNull();
   });
   it('is undefined when there is nothing to measure', () => {
-    expect(computeExchangeSttLatencyMs(undefined, 5000, null)).toBeUndefined();
+    expect(computeExchangeSttLatencyMs(undefined, 5000, null)).toBeNull();
   });
 });
 

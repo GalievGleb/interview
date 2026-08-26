@@ -9,6 +9,7 @@ const titleBarTheme = fs.readFileSync(
 );
 const indexCss = fs.readFileSync(path.resolve(__dirname, '../index.css'), 'utf8');
 const prepareCss = fs.readFileSync(path.resolve(__dirname, 'prepare.css'), 'utf8');
+const vitrineCss = fs.readFileSync(path.resolve(__dirname, 'desktop-vitrine.css'), 'utf8');
 const cockpitCss = fs.readFileSync(path.resolve(__dirname, 'interview-cockpit.css'), 'utf8');
 const overlayCss = fs.readFileSync(path.resolve(__dirname, 'overlay-cockpit.css'), 'utf8');
 const sidebar = fs.readFileSync(path.resolve(__dirname, '../components/Sidebar.tsx'), 'utf8');
@@ -38,14 +39,16 @@ describe('desktop polish contracts', () => {
     expect(cockpitCss).not.toContain('focus-within:border-accent/50');
   });
 
-  it('keeps stealth and taskbar shortcuts in the sidebar utility row', () => {
+  it('keeps stealth and theme shortcuts in the sidebar utility row', () => {
     expect(sidebar).not.toContain("t('sidebar.ready')");
     expect(sidebar).toContain("t('sidebar.unavailable')");
     expect(sidebar).not.toContain("t('sidebar.quickActions')");
     expect(sidebar).not.toContain('skillcue:open-palette');
     expect(sidebar).not.toContain('{isDeveloperBuild && (');
     expect(sidebar).toContain('setContentProtection');
-    expect(sidebar).toContain('setSkipTaskbar');
+    expect(sidebar).toContain('setContentProtection');
+    expect(sidebar).toContain('nextSidebarTheme(theme)');
+    expect(sidebar).toContain('Переключить тему');
     expect(sidebar).toContain('skillcue-sidebar__utility-row');
     expect(sidebar).toContain('aria-label={t(\'nav.settings\')}');
   });
@@ -56,7 +59,7 @@ describe('desktop polish contracts', () => {
     expect(sidebar).toContain("event.key !== '\\\\'");
     expect(sidebar).toContain('<ChevronLeft size={15} />');
     expect(sidebar).toContain('<ChevronRight size={15} />');
-    expect(indexCss).toContain('right-[-13px]');
+    expect(indexCss).toContain('right-[-22px]');
     expect(indexCss).toContain('cubic-bezier(0.2, 0.8, 0.2, 1)');
   });
 
@@ -70,18 +73,19 @@ describe('desktop polish contracts', () => {
 
   it('uses a calm HH command center without the decorative journey rail', () => {
     expect(prepareCss).toContain('.home-command-center');
-    expect(prepareCss).toContain(
-      'grid-template-columns: minmax(0, 1.55fr) minmax(290px, 0.75fr)',
+    expect(vitrineCss).toContain(
+      'grid-template-columns: minmax(0, 1.72fr) minmax(330px, 0.9fr)',
     );
     expect(home).toContain('home-command-hero');
     expect(home).toContain('home-command-attention');
-    expect(prepareCss).toContain(":root[data-theme='light'] .home-command-hero");
+    expect(vitrineCss).toContain('.home-application-illustration');
+    expect(vitrineCss).toContain('.home-command-quick-actions');
     expect(home).not.toContain('<CandidateJourneyStrip');
     expect(home).not.toContain('home-radar-flow');
     expect(home).not.toContain('applicationFlow.reached[index]');
     expect(home).toContain('home-command-stats');
-    expect(prepareCss).toContain('grid-template-columns: repeat(3, minmax(0, 1fr))');
-    expect(home).toContain('Ваш следующий шаг');
+    expect(vitrineCss).toContain('grid-template-columns: repeat(3, minmax(0, 1fr))');
+    expect(home).toContain('Главная SkillCue');
     expect(home).not.toContain('Следующий шаг без догадок');
     expect(home).not.toContain('СЛЕДУЮЩИЙ ЛОГИЧЕСКИЙ ШАГ');
     expect(home).not.toContain('className="prep-eyebrow">СЕГОДНЯ');
@@ -98,7 +102,7 @@ describe('desktop polish contracts', () => {
     expect(home).not.toContain('Проверить оверлей');
     expect(home).toContain('hhCommand.actionLabel');
     expect(home).toContain('getHomeHhCommand');
-    expect(home).toContain('отправлено сегодня');
+    expect(home).toContain('откликов отправлено');
     expect(home).toContain('Ближайших собеседований нет');
     expect(home).toContain('Нужно от вас');
     expect(home).toContain('visibleAttentionItems.length > 0');
@@ -133,7 +137,7 @@ describe('desktop polish contracts', () => {
 
   it('keeps secondary text legible and honours reduced motion globally', () => {
     expect(tokens).toContain('--twc-ink-faint: 135 153 175');
-    expect(tokens).toContain('--twc-ink-faint: 89 111 134');
+    expect(tokens).toContain('--twc-ink-faint: 91 107 132');
     expect(indexCss).toContain('@media (prefers-reduced-motion: reduce)');
     expect(indexCss).toContain('animation-duration: 0.01ms !important');
     expect(indexCss).toContain('scroll-behavior: auto !important');
@@ -148,7 +152,7 @@ describe('desktop polish contracts', () => {
   });
 
   it('keeps the first preparation navigation item clear of the title bar edge', () => {
-    expect(sidebar).toContain('overflow-y-auto px-2.5 py-2');
+    expect(sidebar).toContain('skillcue-sidebar__nav flex-1 overflow-y-auto');
   });
 
   it('keeps inactive live interview navigation neutral and action badges calm', () => {

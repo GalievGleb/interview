@@ -102,6 +102,18 @@ describe('HR profile question flow', () => {
     expect(assistantSource).toContain('buildHhScreeningReviewDraft(question');
   });
 
+  it('automatically prepares the visible question when the queue only contains a generic local fallback', () => {
+    expect(profileSource).toContain('shouldAutomaticallyPrepareHhScreeningDraft(');
+    expect(profileSource).toContain("const requestKey = `visible-ai::${currentDraftKey}::${hhScreeningPromptKey(currentQuestion.prompt)}`");
+    const autoStart = profileSource.indexOf('const requestKey = `visible-ai::');
+    const autoEnd = profileSource.indexOf('}, [assistant, activeVacancy', autoStart);
+    const automaticPreparation = profileSource.slice(autoStart, autoEnd);
+    expect(automaticPreparation).toContain('assistant.suggestScreeningAnswer(');
+    expect(automaticPreparation).toContain('activeVacancy.key,');
+    expect(automaticPreparation).toContain('currentQuestion.id,');
+    expect(automaticPreparation).toContain('currentDraft.answer,');
+  });
+
   it('uses the visible send action as confirmation instead of hiding a second acceptance step', () => {
     expect(profileSource).toContain('confirmedByUser: false');
     expect(profileSource).toContain('confirmedByUser: true');

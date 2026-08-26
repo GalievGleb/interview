@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  AUDIO_SIGNAL_SAMPLE_INTERVAL_MS,
+  PCM16_SIGNAL_RMS_THRESHOLD,
+  analyzePcm16Signal,
+  createAudioSignalSampler,
+} from './audioCapture';
+import {
   captureIsStale,
+  parseSttTranscriptMetadata,
   recoverableSttErrorMessage,
   sendFinalizeControl,
 } from './liveSession';
@@ -43,6 +50,11 @@ describe('captureIsStale', () => {
     const ws = openWs();
     expect(captureIsStale(false, ws, ws, true)).toBe(true);
   });
+
+  it('устарел: кадр относится к предыдущей эпохе захвата', () => {
+    const ws = openWs();
+    expect(captureIsStale(false, ws, ws, false, 2, 1)).toBe(true);
+  });
 });
 
 describe('recoverable STT errors', () => {
@@ -74,5 +86,103 @@ describe('sendFinalizeControl', () => {
   it('returns false for a closed or missing socket', () => {
     expect(sendFinalizeControl(openWs(CLOSED), 'force-1')).toBe(false);
     expect(sendFinalizeControl(null, 'force-1')).toBe(false);
+  });
+});
+
+describe('transcript metadata', () => {
+  it('maps the server freshness fields into the client transcript contract', () => {
+    expect(
+      parseSttTranscriptMetadata({
+        force_request_id: 'force-7',
+        utterance_id: 'utterance-9',
+        captured_at_ms: 123_456,
+        queueWaitMs: 780,
+        queueDepth: 2,
+        speechEndToFinalMs: 910,
+        openaiInferenceMs: 640,
+      }),
+    ).toEqual({
+      forceRequestId: 'force-7',
+      utteranceId: 'utterance-9',
+      capturedAtMs: 123_456,
+      queueWaitMs: 780,
+      queueDepth: 2,
+      speechEndToFinalMs: 910,
+      openaiInferenceMs: 640,
+    });
+  });
+
+  it('keeps legacy transcript events working and drops invalid numeric metadata', () => {
+    expect(parseSttTranscriptMetadata({ force_request_id: 'legacy-force' })).toEqual({
+      forceRequestId: 'legacy-force',
+      utteranceId: undefined,
+      capturedAtMs: undefined,
+      queueWaitMs: undefined,
+      queueDepth: undefined,
+      speechEndToFinalMs: undefined,
+      openaiInferenceMs: undefined,
+    });
+    expect(
+      parseSttTranscriptMetadata({
+        captured_at_ms: Number.POSITIVE_INFINITY,
+        queueWaitMs: 'not-a-number',
+        queueDepth: Number.NaN,
+        speechEndToFinalMs: 'wrong',
+        openaiInferenceMs: Number.NEGATIVE_INFINITY,
+      }),
+    ).toMatchObject({
+      capturedAtMs: undefined,
+      queueWaitMs: undefined,
+      queueDepth: undefined,
+      speechEndToFinalMs: undefined,
+      openaiInferenceMs: undefined,
+    });
+  });
+});
+
+describe('PCM16 signal metadata', () => {
+  it('distinguishes literal silence from a non-silent frame with normalized levels', () => {
+    const silence = analyzePcm16Signal(new Int16Array([0, 0, 0, 0]), 10_000);
+    const signal = analyzePcm16Signal(
+      new Int16Array([0, 16_384, -16_384, 0]),
+      10_250,
+    );
+
+    expect(silence).toEqual({
+      capturedAtMs: 10_000,
+      rms: 0,
+      peak: 0,
+      hasSignal: false,
+    });
+    expect(signal.capturedAtMs).toBe(10_250);
+    expect(signal.rms).toBeCloseTo(Math.sqrt(0.125), 6);
+    expect(signal.peak).toBeCloseTo(0.5, 6);
+    expect(signal.rms).toBeGreaterThan(PCM16_SIGNAL_RMS_THRESHOLD);
+    expect(signal.hasSignal).toBe(true);
+  });
+
+  it('uses the literal PCM value below, at, and above the named RMS threshold', () => {
+    const below = analyzePcm16Signal(new Int16Array([511, -511]), 30_000);
+    const exact = analyzePcm16Signal(new Int16Array([512, -512]), 30_001);
+    const above = analyzePcm16Signal(new Int16Array([513, -513]), 30_002);
+    const empty = analyzePcm16Signal(new Int16Array(), 30_003);
+
+    expect(PCM16_SIGNAL_RMS_THRESHOLD).toBe(512 / 32_768);
+    expect(below.hasSignal).toBe(false);
+    expect(exact.rms).toBe(PCM16_SIGNAL_RMS_THRESHOLD);
+    expect(exact.hasSignal).toBe(true);
+    expect(above.hasSignal).toBe(true);
+    expect(empty).toEqual({ capturedAtMs: 30_003, rms: 0, peak: 0, hasSignal: false });
+  });
+
+  it('samples level computation immediately and then at the named throttle interval', () => {
+    const sample = createAudioSignalSampler();
+    const pcm = new Int16Array([0, 16_384, -16_384, 0]);
+
+    expect(sample(pcm, 20_000)?.hasSignal).toBe(true);
+    expect(sample(pcm, 20_000 + AUDIO_SIGNAL_SAMPLE_INTERVAL_MS - 1)).toBeUndefined();
+    expect(sample(pcm, 20_000 + AUDIO_SIGNAL_SAMPLE_INTERVAL_MS)?.capturedAtMs).toBe(
+      20_000 + AUDIO_SIGNAL_SAMPLE_INTERVAL_MS,
+    );
   });
 });

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { AlertTriangle, ArrowRight, CalendarDays, Check, ChevronDown, Clock3, ExternalLink, FileText, Link2, Loader2, Mail, MessageCircle, RefreshCw, Search, Send, Settings2, Square, Trash2 } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Ban, CalendarDays, Check, ChevronDown, Clock3, ExternalLink, FileText, Link2, Loader2, LogOut, Mail, MessageCircle, RefreshCw, Search, Send, Settings2, Square, Trash2 } from 'lucide-react';
 import AvailabilityEditor, { formatAvailabilitySummary } from '../components/interview/AvailabilityEditor';
 import Modal from '../components/Modal';
 import { hhAutomationAllowed } from '../lib/billing';
@@ -37,6 +37,15 @@ const sentToday = (queue: HhQueueItem[]) => {
   return queue.filter((item) => item.status === 'sent' && item.sentAt && new Date(item.sentAt).toDateString() === today).length;
 };
 
+const HH_VERIFICATION_REASON_RE = /проверк|captcha|капч|не\s+робот|код\s+с\s+картинк/i;
+
+export function hhVerificationCooldownLabel(until: string | null | undefined, now = new Date()): string {
+  if (!until) return '';
+  const timestamp = Date.parse(until);
+  if (!Number.isFinite(timestamp) || timestamp <= now.getTime()) return '';
+  return `HH временно включил проверку. Автоотклики продолжатся сами ${new Date(timestamp).toLocaleString('ru-RU')}.`;
+}
+
 export function summarizeHhQueueGates(queue: readonly HhQueueItem[]) {
   const actionable = queue.filter((item) =>
     item.status === 'new' || item.status === 'opened' || item.status === 'prepared');
@@ -44,6 +53,7 @@ export function summarizeHhQueueGates(queue: readonly HhQueueItem[]) {
     eligible: actionable.filter((item) => !item.autoRetryBlockedUntil).length,
     daily: actionable.filter((item) => item.autoRetryBlockedUntil === 'daily').length,
     manual: actionable.filter((item) => item.autoRetryBlockedUntil === 'manual').length,
+    verification: actionable.filter((item) => HH_VERIFICATION_REASON_RE.test(item.reason ?? '')).length,
   };
 }
 
@@ -51,15 +61,28 @@ export function hhScreeningVacancyPath(vacancyKey: string): string {
   return `/applications/hr-profile?${new URLSearchParams({ vacancy: vacancyKey }).toString()}`;
 }
 
-const queueStatus = (item: HhQueueItem) => {
-  if (item.status === 'sent') return { label: 'Отправлено', tone: 'bg-emerald-500/10 text-emerald-300' };
-  if (item.status === 'already_applied') return { label: 'Уже откликались', tone: 'bg-sky-500/10 text-sky-200' };
-  if (item.status === 'skipped') return { label: 'Пропущено', tone: 'bg-amber-500/10 text-amber-200' };
-  if (item.status === 'needs_input') return { label: 'Нужен ваш ответ', tone: 'bg-amber-400/10 text-amber-100' };
-  if (item.status === 'prepared') return { label: 'Письмо готово', tone: 'bg-sky-500/10 text-sky-200' };
-  if (item.status === 'opened') return { label: 'Открыто', tone: 'bg-surface-elevated text-ink-muted' };
-  return { label: 'В очереди', tone: 'bg-surface-elevated text-ink-muted' };
-};
+export function hhQueueItemPresentation(item: HhQueueItem, autoSend: boolean) {
+  const actionable = item.status === 'new' || item.status === 'opened' || item.status === 'prepared';
+  if (item.status === 'sent') return { statusLabel: 'Отправлено', tone: 'bg-emerald-500/10 text-emerald-300', showApplyButton: false };
+  if (item.status === 'already_applied') return { statusLabel: 'Уже откликались', tone: 'bg-sky-500/10 text-sky-200', showApplyButton: false };
+  if (item.status === 'skipped') return { statusLabel: 'Пропущено', tone: 'bg-amber-500/10 text-amber-200', showApplyButton: false };
+  if (item.status === 'needs_input') return { statusLabel: 'Нужен ваш ответ', tone: 'bg-amber-400/10 text-amber-100', showApplyButton: false };
+  if (autoSend && actionable) {
+    if (item.autoRetryBlockedUntil === 'daily' && HH_VERIFICATION_REASON_RE.test(item.reason ?? '')) {
+      return { statusLabel: 'Пауза HH', tone: 'bg-amber-400/10 text-amber-100', showApplyButton: false };
+    }
+    if (item.autoRetryBlockedUntil === 'manual') {
+      return { statusLabel: 'Нужно вмешательство', tone: 'bg-amber-400/10 text-amber-100', showApplyButton: true };
+    }
+    if (item.autoRetryBlockedUntil === 'daily' || item.status === 'opened') {
+      return { statusLabel: 'Автоповтор', tone: 'bg-sky-500/10 text-sky-200', showApplyButton: false };
+    }
+    return { statusLabel: 'В автоочереди', tone: 'bg-sky-500/10 text-sky-200', showApplyButton: false };
+  }
+  if (item.status === 'prepared') return { statusLabel: 'Письмо готово', tone: 'bg-sky-500/10 text-sky-200', showApplyButton: actionable };
+  if (item.status === 'opened') return { statusLabel: 'Открыто', tone: 'bg-surface-elevated text-ink-muted', showApplyButton: actionable };
+  return { statusLabel: 'В очереди', tone: 'bg-surface-elevated text-ink-muted', showApplyButton: actionable };
+}
 
 const runTriggerLabel = (trigger: 'manual' | 'schedule' | 'resume' | 'direct_link') => {
   if (trigger === 'schedule') return 'По расписанию';
@@ -638,6 +661,36 @@ export default function HhApplicationsPage() {
     }
   };
 
+  const logoutHhAccount = async () => {
+    if (!assistant || busy) return;
+    setBusy('logout');
+    setAuthMessage('');
+    setAutomationError('');
+    try {
+      const next = await assistant.logout();
+      setState(next);
+      setDraft((current) => ({
+        ...current,
+        resumeTitles: [],
+        resumeTitleContains: '',
+        autoRunDaily: false,
+      }));
+      setResumes([]);
+      setResumeSelectionExplicitlyConfirmed(false);
+      setResumeLoadError('');
+      setHhRestoreTimedOut(false);
+      setEmail('');
+      setCode('');
+      setCodeRequested(false);
+      if (chat) setChatState(await chat.getState());
+      setAuthMessage('Вы вышли из HH. Теперь можно подключить другой аккаунт.');
+    } catch (error) {
+      setAuthMessage(errorMessage(error, 'Не удалось выйти из HH. Повторите попытку.'));
+    } finally {
+      setBusy('');
+    }
+  };
+
   const toggleChat = async () => {
     if (!chat) return;
     if (!chatState?.enabled && !calendarState?.settings.availabilityConfigured) {
@@ -715,6 +768,28 @@ export default function HhApplicationsPage() {
     }
   };
 
+  const declineChatDecision = async (decisionId: string) => {
+    if (!chat) return;
+    const confirmed = window.confirm(
+      'SkillCue перестанет отвечать в этом диалоге. Сам отклик на HH останется. Продолжить?',
+    );
+    if (!confirmed) return;
+    setChatBusy(true);
+    setChatError('');
+    try {
+      setChatState(await chat.declineDecision(decisionId));
+      setChatDecisionDrafts((current) => {
+        const next = { ...current };
+        delete next[decisionId];
+        return next;
+      });
+    } catch (error) {
+      setChatError(errorMessage(error, 'Не удалось остановить ответы в этом диалоге.'));
+    } finally {
+      setChatBusy(false);
+    }
+  };
+
   const forgetChatFact = async (factId: string) => {
     if (!chat) return;
     setChatBusy(true);
@@ -759,14 +834,15 @@ export default function HhApplicationsPage() {
   const manualQueueItems = activeQueue.filter((item) =>
     item.autoRetryBlockedUntil === 'manual'
     && (item.status === 'new' || item.status === 'opened' || item.status === 'prepared'));
-  const verificationQueueCount = manualQueueItems.filter((item) =>
-    /проверк|captcha|капч|не\s+робот|код\s+с\s+картинк/i.test(item.reason ?? '')).length;
-  const unknownManualQueueCount = Math.max(0, manualQueueItems.length - verificationQueueCount);
+  const verificationQueueCount = queueGates.verification;
+  const unknownManualQueueCount = Math.max(0, manualQueueItems.length - manualQueueItems.filter((item) =>
+    HH_VERIFICATION_REASON_RE.test(item.reason ?? '')).length);
+  const verificationCooldownLabel = hhVerificationCooldownLabel(state?.verificationCooldownUntil);
   const queueGateLabel = [
-    queueGates.eligible > 0 ? `${queueGates.eligible} готовы сейчас` : '',
+    queueGates.eligible > 0 ? `${queueGates.eligible} отправятся автоматически` : '',
     queueGates.daily > 0
       ? state?.config.autoRunDaily
-        ? `${queueGates.daily} до следующего ежедневного запуска`
+        ? `${queueGates.daily} повторим автоматически`
         : `${queueGates.daily} требуют повторного запуска`
       : '',
     verificationQueueCount > 0 ? `${verificationQueueCount} отложены после трёх проверок HH` : '',
@@ -778,7 +854,7 @@ export default function HhApplicationsPage() {
   const conversationCount = chatState?.conversations.length ?? 0;
   const replyHistoryCount = chatState?.replyHistory.length ?? 0;
   const queuePanelMeta = queueView === 'active'
-    ? { title: 'Вакансии в работе', detail: `В работе: ${activeVacancyCount} · Отправлено сегодня: ${todaySent}` }
+    ? { title: 'Автоматическая очередь', detail: `В автоматической обработке: ${activeVacancyCount} · Отправлено сегодня: ${todaySent}` }
     : queueView === 'sent'
       ? { title: 'Отправленные отклики', detail: `С откликом: ${sentVacancyCount}` }
       : queueView === 'dialogs'
@@ -793,7 +869,7 @@ export default function HhApplicationsPage() {
     action?: () => void;
   } = queueView === 'active'
     ? {
-        title: 'Очередь в работе пуста',
+        title: 'Автоматическая очередь пуста',
         detail: 'Выберите площадку и направление — SkillCue соберёт подходящие вакансии.',
         actionLabel: 'Настроить поиск',
         action: () => selectPageMode('settings'),
@@ -975,7 +1051,13 @@ export default function HhApplicationsPage() {
             <div className={`grid h-10 w-10 place-items-center rounded-full ${hhConnected ? 'bg-emerald-500/10 text-emerald-300' : hhSessionUnchecked ? 'bg-sky-500/10 text-sky-200' : 'bg-surface-elevated text-ink-muted'}`}>{hhSessionUnchecked ? <Loader2 className="animate-spin" size={19} /> : <Mail size={19} />}</div>
             <div><h2 className="panel-title">{hhConnected ? 'HH подключён' : hhSessionUnchecked ? 'Проверяю сессию HH' : 'Подключите аккаунт HH'}</h2><p className="text-xs text-ink-faint">{hhConnected ? 'Готово к поиску и сообщениям' : hhSessionUnchecked ? 'Это займёт не больше нескольких секунд' : 'Войдите по почте и коду из письма'}</p></div>
           </div>
-          {hhConnected && <span className="flex items-center gap-1.5 text-sm text-emerald-300"><Check size={15} /> Готово</span>}
+          {(hhConnected || hhRestoreCandidate) && <div className="flex flex-wrap items-center gap-2">
+            {hhConnected && <span className="flex items-center gap-1.5 text-sm text-emerald-300"><Check size={15} /> Готово</span>}
+            <button type="button" className="btn-ghost btn-sm" disabled={busy !== ''} onClick={() => void logoutHhAccount()}>
+              {busy === 'logout' ? <Loader2 className="animate-spin" size={14} /> : <LogOut size={14} />}
+              {busy === 'logout' ? 'Выходим…' : 'Сменить аккаунт'}
+            </button>
+          </div>}
         </div>
         {!hhConnected && !hhSessionUnchecked && <div className="mt-4 flex max-w-xl flex-wrap gap-2">
           {!codeRequested ? <>
@@ -1335,7 +1417,9 @@ export default function HhApplicationsPage() {
           <span className="min-w-0 flex-1">
             <strong className="block text-sm text-ink">{activeRun ? 'Текущий поиск' : 'Последний поиск'}</strong>
             <small className="mt-0.5 block text-xs text-ink-muted">
-              {featuredRun.found} найдено · {featuredRun.sent} отправлено{featuredRun.needsAttention > 0 ? ` · ${featuredRun.needsAttention} требуют внимания` : ''}
+              {state.lastScanSummary && state.lastScanSummary.platform === draft.platform
+                ? `${state.lastScanSummary.newVacancies} новых · ${state.lastScanSummary.alreadyProcessed} уже известных`
+                : `${featuredRun.found} найдено`} · {featuredRun.sent} отправлено{featuredRun.needsAttention > 0 ? ` · ${featuredRun.needsAttention} требуют внимания` : ''}
             </small>
           </span>
           <span className={`rounded-full px-2.5 py-1 text-xs ${runStatusMeta(featuredRun.status).tone}`}>{runStatusMeta(featuredRun.status).label}</span>
@@ -1357,14 +1441,14 @@ export default function HhApplicationsPage() {
       </details>}
 
       <section id="hh-conversations-panel" className="panel-card shrink-0 scroll-mt-5 overflow-hidden">
-        <div className="panel-header flex-wrap gap-3"><div><h2 className="panel-title">{queuePanelMeta.title}</h2><p className="mt-0.5 text-xs text-ink-faint">{queuePanelMeta.detail}</p></div>{queueView === 'active' && draft.platform === 'hh' && platformMatches && state?.queuePaused ? <span className="ml-auto flex items-center gap-1.5 text-xs text-ink-muted"><Square size={11} /> Очередь приостановлена</span> : queueView === 'active' && draft.platform === 'hh' && platformMatches && queueGateLabel ? <span className={`ml-auto flex items-center gap-1.5 text-xs ${queueGates.eligible > 0 && state?.config.autoRunDaily ? 'text-emerald-300' : 'text-ink-muted'}`}><span className={`sc-dot ${queueGates.eligible > 0 && state?.config.autoRunDaily ? 'sc-dot--live' : ''}`} /> {queueGateLabel}</span> : null}</div>
+        <div className="panel-header flex-wrap gap-3"><div><h2 className="panel-title">{queuePanelMeta.title}</h2><p className="mt-0.5 text-xs text-ink-faint">{queuePanelMeta.detail}</p></div>{queueView === 'active' && draft.platform === 'hh' && platformMatches && state?.queuePaused ? <span className="ml-auto flex items-center gap-1.5 text-xs text-ink-muted"><Square size={11} /> Очередь приостановлена</span> : queueView === 'active' && draft.platform === 'hh' && platformMatches && verificationCooldownLabel ? <span className="ml-auto flex items-center gap-1.5 text-xs text-amber-200"><Clock3 size={12} /> {verificationCooldownLabel}</span> : queueView === 'active' && draft.platform === 'hh' && platformMatches && queueGateLabel ? <span className={`ml-auto flex items-center gap-1.5 text-xs ${queueGates.eligible > 0 && state?.config.autoRunDaily ? 'text-emerald-300' : 'text-ink-muted'}`}><span className={`sc-dot ${queueGates.eligible > 0 && state?.config.autoRunDaily ? 'sc-dot--live' : ''}`} /> {queueGateLabel}</span> : null}</div>
         <div className="flex flex-wrap gap-2 border-b border-surface-border px-5 py-3" aria-label="Фильтры вакансий">
           {([
             ...(draft.platform === 'hh' ? [
               ['dialogs', 'Диалоги', conversationCount],
               ['replies', 'Ответы', chatState?.replyHistory.length ?? 0],
             ] as const : []),
-            ['active', 'В работе', activeVacancyCount],
+            ['active', 'Автоочередь', activeVacancyCount],
             ['sent', 'Отправлено', sentVacancyCount],
             ['archive', 'Пропущено', archivedVacancyCount],
           ] as const).map(([id, label, count]) => <button key={id} type="button" aria-pressed={queueView === id} onClick={() => selectQueueView(id)} className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${queueView === id ? 'bg-emerald-500/15 text-emerald-200' : 'bg-surface-light text-ink-muted hover:bg-surface-hover'}`}>{label} · {count}</button>)}
@@ -1430,21 +1514,20 @@ export default function HhApplicationsPage() {
               </div>}
             </article>;
           })) : visibleQueue.length === 0 ? <div className="flex min-h-[180px] items-center justify-center p-8 text-center"><div className="max-w-sm"><Send className="mx-auto text-ink-faint" size={22} /><p className="mt-3 text-sm font-semibold text-ink">{emptyQueueCopy.title}</p><p className="mt-1 text-xs leading-relaxed text-ink-muted">{emptyQueueCopy.detail}</p>{emptyQueueCopy.action && <button type="button" className="btn-secondary btn-sm mt-4" onClick={emptyQueueCopy.action}>{emptyQueueCopy.actionLabel}</button>}</div></div> : shownQueue.map((item) => {
-            const status = queueStatus(item);
-            const actionable = item.status === 'new' || item.status === 'opened' || item.status === 'prepared';
+            const presentation = hhQueueItemPresentation(item, state?.config.autoSend === true);
             return <div key={item.key} className="hh-queue-row hh-vacancy-row">
               <div className="hh-vacancy-row__main">
                 <p className="break-words text-sm font-medium text-ink">{item.title}</p>
                 <p className="break-words text-xs text-ink-faint">{item.company}{item.salary ? ` · ${item.salary}` : ''}</p>
                 {item.selectedResumeTitle && <p className="hh-vacancy-row__resume"><FileText size={12} />{compactHhResumeTitle(item.selectedResumeTitle)}</p>}
               </div>
-              <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs ${status.tone}`}>{status.label}</span>
+              <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs ${presentation.tone}`}>{presentation.statusLabel}</span>
               <div className="flex flex-wrap items-start justify-end gap-2">
                 <button type="button" className="btn-ghost btn-sm shrink-0" onClick={() => openVacancyInBrowser(item)}><ExternalLink size={14} />Открыть</button>
                 {item.status === 'needs_input' && (
                   <button type="button" className="btn-primary btn-sm shrink-0" onClick={() => answerQueueItem(item)}><ArrowRight size={14} />Ответить на вопросы</button>
                 )}
-                {actionable && (
+                {presentation.showApplyButton && (
                   <button type="button" className="btn-primary btn-sm shrink-0" disabled={busy !== ''} onClick={() => setQueueItemToApply(item)}>{busy === `apply:${item.key}` ? <Loader2 className="animate-spin" size={14} /> : <Send size={14} />}Отклик</button>
                 )}
                 <details className="hh-row-more">
@@ -1473,7 +1556,7 @@ export default function HhApplicationsPage() {
             <p className="text-xs font-semibold text-ink">{decision.vacancyTitle} · {decision.companyName}</p>
             <p className="mt-2 rounded-lg bg-surface-light p-3 text-sm text-ink-muted">HR: {decision.recruiterMessage}</p>
             <label className="mt-3 block"><span className="label">{decision.question}</span><textarea className="field min-h-20 resize-y" value={chatDecisionDrafts[decision.id] ?? chatDecisionSuggestedAnswer(decision.kind)} onChange={(event) => setChatDecisionDrafts((current) => ({ ...current, [decision.id]: event.target.value }))} placeholder="Ваш ответ" /></label>
-            <div className="mt-3 flex flex-wrap gap-2"><button type="button" className="btn-primary" disabled={chatBusy} onClick={() => void answerChatDecision(decision.id, true)}><Send size={14} />Отправить и запомнить</button><button type="button" className="btn-ghost" disabled={chatBusy} onClick={() => void answerChatDecision(decision.id, false)}>Отправить один раз</button></div>
+            <div className="mt-3 flex flex-wrap gap-2"><button type="button" className="btn-primary" disabled={chatBusy} onClick={() => void answerChatDecision(decision.id, true)}><Send size={14} />Отправить и запомнить</button><button type="button" className="btn-ghost" disabled={chatBusy} onClick={() => void answerChatDecision(decision.id, false)}>Отправить один раз</button><button type="button" className="btn-ghost text-red-300 hover:text-red-200" disabled={chatBusy} onClick={() => void declineChatDecision(decision.id)}><Ban size={14} />Не продолжать отклик</button></div>
           </div>)}</div>
         </div>}
         {((chatState?.repliesToday ?? 0) > 0 || chatState?.lastPollAt) && <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-ink-faint">{chatState?.lastPollAt && <span>Проверено {new Date(chatState.lastPollAt).toLocaleTimeString()}</span>}{(chatState?.repliesToday ?? 0) > 0 && <button type="button" className="font-medium text-sky-300 hover:text-sky-200" onClick={revealReplyHistory}>Ответы сегодня: {chatState?.repliesToday}</button>}</div>}

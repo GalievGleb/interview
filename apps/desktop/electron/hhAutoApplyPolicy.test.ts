@@ -4,6 +4,11 @@ import {
   countTodaySent,
   decideNextAction,
   effectiveDailyLimit,
+  hhDiscoveryPageBudget,
+  hhVerificationCooldownUntil,
+  isFullyKnownDiscoveryPage,
+  isUnavailableHhVacancyText,
+  isFutureIsoTimestamp,
   jitterMs,
   nextAutoRunDelayMs,
   nextDiscoveryRunDelayMs,
@@ -79,6 +84,16 @@ describe('hhAutoApplyPolicy', () => {
 
     it('skips on unknown', () => {
       expect(decideNextAction('unknown', ctx).action).toBe('skip');
+    });
+
+    it('skips an inaccessible vacancy instead of asking the user to open HH', () => {
+      expect(isUnavailableHhVacancyText(
+        'Вам недоступна эта вакансия. Войдите как пользователь, у которого есть доступ на просмотр, либо как работодатель, создавший эту вакансию.',
+      )).toBe(true);
+      expect(decideNextAction('unavailable' as never, ctx)).toEqual({
+        action: 'skip',
+        reason: 'Вакансия больше недоступна на HH.',
+      });
     });
 
     it('clicks through response flow', () => {
@@ -181,6 +196,34 @@ describe('hhAutoApplyPolicy', () => {
       expect(nextDiscoveryRunDelayMs(
         { autoRunHour: 10 }, new Date(2026, 7, 20, 10, 0).toISOString(), now,
       )).toBe(2 * 60 * 60 * 1_000);
+    });
+  });
+
+  describe('safe HH request pacing', () => {
+    it('uses one global page budget while still visiting every search synonym once', () => {
+      expect(hhDiscoveryPageBudget(9, 20)).toBe(20);
+      expect(hhDiscoveryPageBudget(9, 1)).toBe(9);
+      expect(hhDiscoveryPageBudget(1, 20)).toBe(20);
+      expect(hhDiscoveryPageBudget(0, 20)).toBe(0);
+    });
+
+    it('creates a persisted future cooldown after HH verification', () => {
+      const now = new Date('2026-08-25T01:00:00.000Z');
+      const until = hhVerificationCooldownUntil(now);
+
+      expect(until).toBe('2026-08-25T03:00:00.000Z');
+      expect(isFutureIsoTimestamp(until, now)).toBe(true);
+      expect(isFutureIsoTimestamp(until, new Date('2026-08-25T03:00:00.000Z'))).toBe(false);
+      expect(isFutureIsoTimestamp('not-a-date', now)).toBe(false);
+      expect(isFutureIsoTimestamp(undefined, now)).toBe(false);
+    });
+
+    it('stops a newest-first query only after a full page is already known', () => {
+      const known = new Set(['hh:1', 'hh:2']);
+
+      expect(isFullyKnownDiscoveryPage(['hh:1', 'hh:2'], known)).toBe(true);
+      expect(isFullyKnownDiscoveryPage(['hh:1', 'hh:3'], known)).toBe(false);
+      expect(isFullyKnownDiscoveryPage([], known)).toBe(false);
     });
   });
 

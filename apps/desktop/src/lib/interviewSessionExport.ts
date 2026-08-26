@@ -28,6 +28,17 @@ export interface ExchangeLatency {
   };
 }
 
+/** Immutable server-authored STT evidence captured for the exact answered utterance. */
+export interface AnswerSttDiagnostics {
+  utteranceId?: string;
+  source?: 'mic' | 'system';
+  capturedAtMs?: number;
+  queueWaitMs?: number;
+  queueDepth?: number;
+  speechEndToFinalMs?: number;
+  openaiInferenceMs?: number;
+}
+
 export interface CopilotAnswerPipeline {
   model?: string;
   modelSource?: string;
@@ -72,6 +83,7 @@ export interface CopilotAnswerEntry {
   source?: 'live' | 'manual';
   pipeline?: CopilotAnswerPipeline;
   latency?: ExchangeLatency;
+  stt?: AnswerSttDiagnostics;
 }
 
 export interface InterviewSessionExport {
@@ -108,6 +120,7 @@ export interface InterviewSessionExport {
       risk?: string | null;
     };
     latency?: ExchangeLatency;
+    stt?: AnswerSttDiagnostics;
     pipeline?: CopilotAnswerPipeline;
   }>;
 }
@@ -151,6 +164,7 @@ function exchangeFromEntry(entry: CopilotAnswerEntry): InterviewSessionExport['e
     },
     answer: { spoken: entry.spoken },
     latency: entry.latency,
+    stt: entry.stt ? { ...entry.stt } : undefined,
     pipeline,
   };
 }

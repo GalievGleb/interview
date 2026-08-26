@@ -1,5 +1,10 @@
 import { api, getApiToken } from './api';
-import { startCapture, AudioCapture, AudioSource } from './audioCapture';
+import {
+  startCapture,
+  AudioCapture,
+  AudioSource,
+  type AudioFrameSignal,
+} from './audioCapture';
 import {
   AudioSampleRateMode,
   probeOutputSampleRate,
@@ -19,8 +24,19 @@ export function captureIsStale(
   currentWs: WebSocket | null,
   myWs: WebSocket | null,
   paused = false,
+  currentCaptureEpoch?: number,
+  myCaptureEpoch?: number,
 ): boolean {
-  return paused || stopped || !myWs || currentWs !== myWs || myWs.readyState !== WEBSOCKET_OPEN;
+  return (
+    paused ||
+    stopped ||
+    !myWs ||
+    currentWs !== myWs ||
+    myWs.readyState !== WEBSOCKET_OPEN ||
+    (currentCaptureEpoch != null &&
+      myCaptureEpoch != null &&
+      currentCaptureEpoch !== myCaptureEpoch)
+  );
 }
 
 export function sendFinalizeControl(ws: WebSocket | null, requestId: string): boolean {
@@ -52,8 +68,43 @@ export interface SttTimings {
   speechMs?: number;
   firstPartialMs?: number | null;
   speechEndToFinalMs?: number;
+  openaiInferenceMs?: number;
+  /** @deprecated compatibility with older diagnostic payloads. */
   finalInferenceMs?: number;
+  queueWaitMs?: number;
+  queueDepth?: number;
   partialCount?: number;
+}
+
+export interface SttTranscriptMetadata {
+  forceRequestId?: string;
+  utteranceId?: string;
+  capturedAtMs?: number;
+  queueWaitMs?: number;
+  queueDepth?: number;
+  speechEndToFinalMs?: number;
+  openaiInferenceMs?: number;
+}
+
+const finiteNumber = (value: unknown): number | undefined =>
+  typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+
+export function parseSttTranscriptMetadata(event: Record<string, unknown>): SttTranscriptMetadata {
+  return {
+    forceRequestId:
+      typeof event.force_request_id === 'string' && event.force_request_id
+        ? event.force_request_id
+        : undefined,
+    utteranceId:
+      typeof event.utterance_id === 'string' && event.utterance_id
+        ? event.utterance_id
+        : undefined,
+    capturedAtMs: finiteNumber(event.captured_at_ms),
+    queueWaitMs: finiteNumber(event.queueWaitMs),
+    queueDepth: finiteNumber(event.queueDepth),
+    speechEndToFinalMs: finiteNumber(event.speechEndToFinalMs),
+    openaiInferenceMs: finiteNumber(event.openaiInferenceMs),
+  };
 }
 
 export interface LiveHandlers {
@@ -61,17 +112,22 @@ export interface LiveHandlers {
     text: string,
     isFinal: boolean,
     speechFinal: boolean,
-    forceRequestId?: string,
+    metadata?: SttTranscriptMetadata,
   ) => void;
   onUtteranceEnd?: (timings?: SttTimings, forceRequestId?: string) => void;
   onTurnResumed?: () => void;
-  onSpeechStarted?: () => void;
+  onSpeechStarted?: (captureEpoch: number) => void;
   /** Connection dropped — reconnect attempt N of M is scheduled. */
   onReconnecting?: (attempt: number, maxAttempts: number) => void;
   /** Connection restored after a reconnect (server sent `ready` again). */
   onReconnected?: () => void;
   /** Final transcript rejected by the server quality gate (no LLM call). */
-  onLowQuality?: (text: string, reason: string, forceRequestId?: string) => void;
+  onLowQuality?: (
+    text: string,
+    reason: string,
+    forceRequestId?: string,
+    metadata?: SttTranscriptMetadata,
+  ) => void;
   /** Manual finalize reached the server, but there was no buffered audio. */
   onForceEmpty?: (forceRequestId?: string) => void;
   onReady?: (info: {
@@ -79,12 +135,18 @@ export interface LiveHandlers {
     model: string;
     sampleRate: number;
   }) => void;
+  /** OS capture permission resolved and this capture epoch is producing frames. */
+  onCaptureReady?: (info: { capturedAtMs: number; captureEpoch: number }) => void;
   onError: (message: string) => void;
   /** One utterance failed upstream, but capture and the socket remain active. */
   onRecoverableError?: (message: string) => void;
   onClose?: () => void;
   /** Tee of each raw PCM16 frame sent to the server (for the debug recorder). */
-  onAudioFrame?: (buffer: ArrayBuffer) => void;
+  onAudioFrame?: (
+    buffer: ArrayBuffer,
+    signal: AudioFrameSignal | undefined,
+    captureEpoch: number,
+  ) => void;
 }
 
 export interface LiveSession {
@@ -129,9 +191,11 @@ export async function startLiveSession(
   let paused = false;
   let attempts = 0;
   let reconnectTimer: number | null = null;
+  let captureEpoch = 0;
   const MAX_RECONNECT = 5;
 
   const stopCapture = () => {
+    captureEpoch += 1;
     capture?.stop();
     capture = null;
   };
@@ -146,25 +210,33 @@ export async function startLiveSession(
     ) {
       return captureStarting ?? Promise.resolve();
     }
-    if (captureStarting) return captureStarting;
+    if (captureStarting) {
+      const existingStart = captureStarting;
+      return existingStart.then(() => startAudioCapture(myWs));
+    }
+    const myCaptureEpoch = captureEpoch + 1;
+    captureEpoch = myCaptureEpoch;
 
     const pending = (async () => {
       try {
         const cap = await startCapture(
           source,
-          (buffer) => {
-            if (paused) return;
+          (buffer, signal) => {
+            if (captureIsStale(stopped, ws, myWs, paused, captureEpoch, myCaptureEpoch)) {
+              return;
+            }
             if (myWs.readyState === WEBSOCKET_OPEN) myWs.send(buffer);
-            handlers.onAudioFrame?.(buffer);
+            handlers.onAudioFrame?.(buffer, signal, myCaptureEpoch);
           },
           { sampleRateMode: audioMode },
         );
-        if (captureIsStale(stopped, ws, myWs, paused)) {
+        if (captureIsStale(stopped, ws, myWs, paused, captureEpoch, myCaptureEpoch)) {
           // Pause/stop/reconnect could happen while the OS permission dialog was open.
           cap.stop();
           return;
         }
         capture = cap;
+        handlers.onCaptureReady?.({ capturedAtMs: Date.now(), captureEpoch: myCaptureEpoch });
       } catch (err) {
         if (stopped || paused) return;
         handlers.onError(err instanceof Error ? err.message : 'Нет доступа к источнику звука');
@@ -197,7 +269,7 @@ export async function startLiveSession(
   };
 
   const scheduleReconnect = () => {
-    if (stopped) return;
+    if (stopped || paused) return;
     if (attempts >= MAX_RECONNECT) {
       handlers.onError('Соединение со звуком потеряно — переподключение не удалось.');
       handlers.onClose?.();
@@ -210,19 +282,21 @@ export async function startLiveSession(
   };
 
   function connect() {
-    if (stopped) return;
-    ws = new WebSocket(wsUrl);
-    ws.binaryType = 'arraybuffer';
+    if (stopped || paused) return;
+    const socket = new WebSocket(wsUrl);
+    ws = socket;
+    socket.binaryType = 'arraybuffer';
 
-    ws.onopen = async () => {
+    socket.onopen = async () => {
+      if (stopped || paused || ws !== socket) return;
       // startCapture асинхронный (getUserMedia/getDisplayMedia — до нескольких
       // секунд). Пока идёт await, соединение могло закрыться и пересоздаться;
       // фиксируем «своё» ws, чтобы не осиротить только что открытый захват.
-      const myWs = ws;
-      await startAudioCapture(myWs);
+      await startAudioCapture(socket);
     };
 
-    ws.onmessage = (event) => {
+    socket.onmessage = (event) => {
+      if (stopped || paused || ws !== socket) return;
       try {
         const evt = JSON.parse(event.data as string);
         if (evt.type === 'transcript') {
@@ -230,7 +304,7 @@ export async function startLiveSession(
             evt.text,
             Boolean(evt.is_final),
             Boolean(evt.speech_final),
-            evt.force_request_id,
+            parseSttTranscriptMetadata(evt),
           );
         } else if (evt.type === 'utterance_end') {
           handlers.onUtteranceEnd?.(
@@ -242,11 +316,12 @@ export async function startLiveSession(
             evt.text ?? '',
             evt.reason ?? 'low_quality',
             evt.force_request_id,
+            parseSttTranscriptMetadata(evt),
           );
         } else if (evt.type === 'force_empty') {
           handlers.onForceEmpty?.(evt.force_request_id);
         } else if (evt.type === 'speech_started') {
-          handlers.onSpeechStarted?.();
+          handlers.onSpeechStarted?.(captureEpoch);
         } else if (evt.type === 'turn_resumed') {
           handlers.onTurnResumed?.();
         } else if (evt.type === 'ready') {
@@ -274,11 +349,14 @@ export async function startLiveSession(
     };
 
     // Stay quiet on transient errors — onclose drives the bounded reconnect.
-    ws.onerror = () => {};
+    socket.onerror = () => {
+      if (stopped || paused || ws !== socket) return;
+    };
 
-    ws.onclose = () => {
+    socket.onclose = () => {
+      if (stopped || paused || ws !== socket) return;
+      ws = null;
       stopCapture();
-      if (stopped) return;
       scheduleReconnect();
     };
   }
@@ -291,16 +369,25 @@ export async function startLiveSession(
     pause: () => {
       if (stopped) return;
       paused = true;
+      if (reconnectTimer != null) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
       stopCapture();
+      const socket = ws;
+      ws = null;
+      if (
+        socket &&
+        (socket.readyState === WEBSOCKET_OPEN ||
+          socket.readyState === WEBSOCKET_CONNECTING)
+      ) {
+        socket.close();
+      }
     },
     resume: async () => {
       if (stopped) return;
       paused = false;
-      if (ws?.readyState === WEBSOCKET_OPEN) {
-        await startAudioCapture(ws);
-      } else if (ws?.readyState !== WEBSOCKET_CONNECTING && reconnectTimer == null) {
-        connect();
-      }
+      if (!ws && reconnectTimer == null) connect();
     },
     stop: cleanup,
   };

@@ -21,6 +21,17 @@ describe('HH login navigation recovery', () => {
     expect(openVacancy).toContain("vacancy.status === 'already_applied'");
   });
 
+  it('does not bring an inaccessible vacancy page to the user for manual confirmation', () => {
+    const source = fs.readFileSync(path.resolve(__dirname, 'hhBrowserAssistant.ts'), 'utf8');
+    const openVacancy = source.slice(source.indexOf('async openVacancy('), source.indexOf('async fillCoverLetter('));
+    expect(openVacancy).toContain('isUnavailableHhVacancyText');
+    expect(openVacancy.indexOf('isUnavailableHhVacancyText')).toBeLessThan(
+      openVacancy.indexOf('await page.bringToFront()'),
+    );
+    expect(openVacancy).toContain("status: 'skipped'");
+    expect(openVacancy).toContain('Вакансия больше недоступна на HH.');
+  });
+
   it('launches background automation headlessly without an extra blank target', () => {
     const args = browserLaunchArguments('C:\\tmp\\skillcue-browser', 43210, 'background');
     expect(args).toContain('--headless=new');

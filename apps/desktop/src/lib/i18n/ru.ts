@@ -378,7 +378,7 @@ export const ru = {
   'live.reconnectFailed':
     'Соединение прервано. Проверьте backend и доступность OpenAI Mini.',
   'live.startNoSource': 'Не удалось запустить ни один источник звука',
-  'live.forceNoAudio': 'Не нашёл записанной реплики — продолжайте говорить и нажмите Ctrl+Enter ещё раз',
+  'live.forceNoAudio': 'Жду финальную расшифровку реплики…',
   'live.forceTimeout': 'Не удалось отправить реплику — проверьте подключение и повторите Ctrl+Enter',
   'live.startFailed': 'Не удалось запустить сессию',
 
@@ -875,7 +875,7 @@ export const ru = {
   'overlay.rec.startTip': 'Начать запись. Ответ ИИ и транскрипция появятся только после запуска записи',
   'overlay.rec.stopAria': 'Остановить запись',
   'overlay.rec.startAria': 'Начать запись',
-  'overlay.inputPlaceholder': 'Спросите о разговоре или экране — Ctrl+Enter для Подсказки',
+  'overlay.inputPlaceholder': 'Спросите о разговоре; для задачи перед глазами — «Экран»',
   'overlay.smartTip': 'Smart: дольше думает перед ответом — глубже и точнее',
   'overlay.menuTip': 'Горячие клавиши, скрытность, источник звука, настройки',
   'overlay.menuAria': 'Меню',
@@ -895,7 +895,7 @@ export const ru = {
   'overlay.src.micOnly': 'Только микрофон',
   'overlay.src.sysOnly': 'Только звук системы',
   'overlay.settings': 'Настройки SkillCue',
-  'overlay.sendTip': 'Отправить: экран + разговор (Enter)',
+  'overlay.sendTip': 'Ответить по разговору (Ctrl+Enter)',
   'overlay.sendAria': 'Отправить',
   'overlay.clearTip': 'Очистить чат (Ctrl+R)',
   'overlay.clearAria': 'Очистить чат',
@@ -903,6 +903,8 @@ export const ru = {
   'overlay.liveAnswer': 'Live-ответ по разговору',
   'overlay.thinking': 'Думаю…',
   'overlay.transcriptEmpty': 'Запустите запись (● в пилле) — реплики появятся здесь.',
+  'overlay.sourceHealth.systemSilent':
+    'Не слышу звук собеседника. Проверьте, что при выборе экрана включён системный звук.',
 
   // Общее
   'common.error': 'Ошибка',
@@ -982,9 +984,9 @@ export const ru = {
   'settings.stealth.title': 'Скрытность (Undetectability)',
   'settings.stealth.desc': 'Оверлей не виден на скриншотах, записи экрана и демонстрации в Zoom/Meet',
   'settings.stealth.aria': 'Скрытность',
-  'settings.useScreen.title': 'Смотреть экран при нехватке контекста',
+  'settings.useScreen.title': 'Распознавать экранные вопросы в поле ввода',
   'settings.useScreen.desc':
-    'Если разговора нет, Подсказка сама делает скриншот и отвечает по нему (чуть медленнее)',
+    'Обычная Подсказка не делает скриншот. Экран подключается только по прямой фразе вроде «что на экране?»',
   'settings.useScreen.aria': 'Анализ экрана',
   'settings.hideWidget.title': '«Скрыть» прячет весь виджет',
   'settings.hideWidget.desc':

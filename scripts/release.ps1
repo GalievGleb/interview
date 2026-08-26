@@ -9,7 +9,7 @@
        and publish to GalievGleb/SkillCue (the Download button gets the new build).
 
   Usage:
-    powershell -ExecutionPolicy Bypass -File scripts\release.ps1            # patch: 0.0.40 -> 0.0.41
+    powershell -ExecutionPolicy Bypass -File scripts\release.ps1            # patch: 0.1.0 -> 0.1.1
     powershell -ExecutionPolicy Bypass -File scripts\release.ps1 -Bump minor
     powershell -ExecutionPolicy Bypass -File scripts\release.ps1 -Watch     # also wait for CI
 

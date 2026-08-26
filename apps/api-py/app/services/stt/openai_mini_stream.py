@@ -7,6 +7,7 @@ import json
 import logging
 import re
 import time
+import uuid
 from dataclasses import dataclass
 
 from .openai_transcribe import OpenAiMiniTranscribeProvider
@@ -24,6 +25,7 @@ PREROLL_MS = 180
 RECEIVE_POLL_S = 0.08
 MIN_FINAL_WORDS = 3
 MANUAL_SIGNAL_FRAME_MS = 50
+COALESCE_SILENCE_MS = 100
 
 
 def _rms_int16(pcm: bytes) -> float:
@@ -132,12 +134,15 @@ class Endpointer:
 
 @dataclass
 class _FinalizationJob:
-    pcm: bytes
+    pcm: bytearray
     speech_started_at: float
     speech_ended_at: float
+    utterance_id: str
+    captured_at_ms: int
+    queued_at: float
+    queue_depth: int = 0
     forced: bool = False
     force_request_id: str | None = None
-    done: bool = False
 
 
 def _meaningful_word_count(text: str) -> int:
@@ -188,96 +193,187 @@ async def run_openai_mini_stream(
     endpointer = Endpointer(sample_rate=sample_rate)
     speech_started_at = 0.0
     last_final = ""
-    transcription_lock = asyncio.Lock()
-    active_jobs: list[_FinalizationJob] = []
-    finalization_tasks: set[asyncio.Task[None]] = set()
+    closed = False
+    active_job: _FinalizationJob | None = None
+    pending_job: _FinalizationJob | None = None
+    pending_ready = asyncio.Event()
+    max_pending_pcm_bytes = sample_rate * 2 * MAX_UTTERANCE_MS // 1000
+    coalesce_separator = b"\0\0" * int(sample_rate * COALESCE_SILENCE_MS / 1000)
+
+    async def send_event(payload: dict) -> None:
+        if not closed:
+            await client_ws.send_json(payload)
 
     async def transcribe_job(job: _FinalizationJob) -> None:
         nonlocal last_final
+        request_started = time.monotonic()
         try:
-            async with transcription_lock:
-                request_started = time.monotonic()
-                try:
-                    result = await provider.transcribe_audio_file(
-                        pcm16_mono_wav(job.pcm, sample_rate),
-                        language=language,
-                        sample_rate=sample_rate,
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning("OpenAI Mini transcription failed: %s", exc)
-                    await client_ws.send_json(
-                        {
-                            "type": "transcription_error",
-                            "message": (
-                                "Не удалось распознать этот фрагмент. "
-                                "Продолжаю слушать — повторите фразу."
-                            ),
-                            "force_request_id": job.force_request_id,
-                        }
-                    )
-                    if job.force_request_id:
-                        await client_ws.send_json(
-                            {
-                                "type": "force_empty",
-                                "force_request_id": job.force_request_id,
-                            }
-                        )
-                    return
-
-                final_done_at = time.monotonic()
-                timings = {
-                    "speechMs": int(
-                        (job.speech_ended_at - (job.speech_started_at or job.speech_ended_at))
-                        * 1000
+            result = await provider.transcribe_audio_file(
+                pcm16_mono_wav(bytes(job.pcm), sample_rate),
+                language=language,
+                sample_rate=sample_rate,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("OpenAI Mini transcription failed: %s", exc)
+            await send_event(
+                {
+                    "type": "transcription_error",
+                    "message": (
+                        "Не удалось распознать этот фрагмент. Продолжаю слушать — повторите фразу."
                     ),
-                    "firstPartialMs": None,
-                    "speechEndToFinalMs": int((final_done_at - job.speech_ended_at) * 1000),
-                    "openaiInferenceMs": int((final_done_at - request_started) * 1000),
-                    "partialCount": 0,
+                    "force_request_id": job.force_request_id,
                 }
-                text = result.text.strip()
-                accepted, reason = quality_gate(text, last_final)
-                # Ctrl+Enter is an explicit user action. Short questions such as
-                # "Какие виды?" are valid here even though the automatic stream
-                # keeps rejecting tiny fragments to avoid accidental answers.
-                if job.forced and text and reason in {"duplicate", "too_few_words"}:
-                    accepted, reason = True, "forced"
-                if not accepted:
-                    await client_ws.send_json(
-                        {
-                            "type": "low_quality",
-                            "text": text,
-                            "reason": reason,
-                            "timings": timings,
-                            "force_request_id": job.force_request_id,
-                        }
-                    )
-                    return
-
-                last_final = text
-                await client_ws.send_json(
+            )
+            if job.force_request_id:
+                await send_event(
                     {
-                        "type": "transcript",
-                        "text": text,
-                        "is_final": True,
-                        "speech_final": True,
-                        "final_ms": result.latency_ms,
+                        "type": "force_empty",
                         "force_request_id": job.force_request_id,
                     }
                 )
-                await client_ws.send_json(
-                    {
-                        "type": "utterance_end",
-                        "timings": timings,
-                        "force_request_id": job.force_request_id,
-                    }
-                )
-        finally:
-            job.done = True
-            if job in active_jobs:
-                active_jobs.remove(job)
+            return
 
-    def start_finalize(
+        final_done_at = time.monotonic()
+        queue_wait_ms = max(0, int((request_started - job.queued_at) * 1000))
+        speech_end_to_final_ms = max(0, int((final_done_at - job.speech_ended_at) * 1000))
+        openai_inference_ms = max(0, int((final_done_at - request_started) * 1000))
+        timings = {
+            "speechMs": int(
+                (job.speech_ended_at - (job.speech_started_at or job.speech_ended_at)) * 1000
+            ),
+            "firstPartialMs": None,
+            "queueWaitMs": queue_wait_ms,
+            "queueDepth": job.queue_depth,
+            "speechEndToFinalMs": speech_end_to_final_ms,
+            "openaiInferenceMs": openai_inference_ms,
+            "partialCount": 0,
+        }
+        metadata = {
+            "utterance_id": job.utterance_id,
+            "captured_at_ms": job.captured_at_ms,
+            "queueWaitMs": queue_wait_ms,
+            "queueDepth": job.queue_depth,
+            "speechEndToFinalMs": speech_end_to_final_ms,
+            "openaiInferenceMs": openai_inference_ms,
+        }
+        text = result.text.strip()
+        accepted, reason = quality_gate(text, last_final)
+        # Ctrl+Enter is an explicit user action. Short questions such as
+        # "Какие виды?" are valid here even though the automatic stream
+        # keeps rejecting tiny fragments to avoid accidental answers.
+        if job.forced and text and reason in {"duplicate", "too_few_words"}:
+            accepted, reason = True, "forced"
+        if not accepted:
+            await send_event(
+                {
+                    "type": "low_quality",
+                    "text": text,
+                    "reason": reason,
+                    "timings": timings,
+                    "force_request_id": job.force_request_id,
+                    **metadata,
+                }
+            )
+            return
+
+        last_final = text
+        await send_event(
+            {
+                "type": "transcript",
+                "text": text,
+                "is_final": True,
+                "speech_final": True,
+                "final_ms": result.latency_ms,
+                "timings": timings,
+                "force_request_id": job.force_request_id,
+                **metadata,
+            }
+        )
+        await send_event(
+            {
+                "type": "utterance_end",
+                "timings": timings,
+                "force_request_id": job.force_request_id,
+                **metadata,
+            }
+        )
+
+    async def transcription_worker() -> None:
+        nonlocal active_job, pending_job
+        while True:
+            await pending_ready.wait()
+            if closed:
+                return
+            job = pending_job
+            pending_job = None
+            pending_ready.clear()
+            if job is None:
+                continue
+            active_job = job
+            try:
+                await transcribe_job(job)
+            finally:
+                active_job = None
+
+    def merge_job(target: _FinalizationJob, incoming: _FinalizationJob) -> None:
+        target.pcm.extend(coalesce_separator)
+        target.pcm.extend(incoming.pcm)
+        overflow = len(target.pcm) - max_pending_pcm_bytes
+        if overflow > 0:
+            del target.pcm[:overflow]
+        if incoming.speech_started_at:
+            target.speech_started_at = min(
+                started
+                for started in (target.speech_started_at, incoming.speech_started_at)
+                if started
+            )
+        target.speech_ended_at = incoming.speech_ended_at
+        target.utterance_id = incoming.utterance_id
+        target.captured_at_ms = min(target.captured_at_ms, incoming.captured_at_ms)
+
+    def enqueue_job(job: _FinalizationJob) -> list[str]:
+        nonlocal pending_job
+        if closed:
+            return []
+        superseded_force_ids: list[str] = []
+        if not job.forced:
+            if pending_job is None:
+                job.queue_depth = int(active_job is not None)
+                pending_job = job
+            elif pending_job.forced:
+                if pending_job.force_request_id:
+                    superseded_force_ids.append(pending_job.force_request_id)
+                job.queue_depth = int(active_job is not None)
+                pending_job = job
+            else:
+                merge_job(pending_job, job)
+                pending_job.queue_depth = int(active_job is not None)
+            return superseded_force_ids
+
+        if pending_job is None:
+            target = job
+        else:
+            target = pending_job
+            if target.forced and target.force_request_id:
+                if target.force_request_id != job.force_request_id:
+                    superseded_force_ids.append(target.force_request_id)
+            merge_job(target, job)
+        target.forced = True
+        target.force_request_id = job.force_request_id
+        target.queue_depth = int(active_job is not None)
+        pending_job = target
+        return superseded_force_ids
+
+    async def complete_superseded(force_request_ids: list[str]) -> None:
+        for force_request_id in force_request_ids:
+            await send_event(
+                {
+                    "type": "force_empty",
+                    "force_request_id": force_request_id,
+                }
+            )
+
+    async def start_finalize(
         *,
         forced: bool = False,
         force_request_id: str | None = None,
@@ -288,27 +384,36 @@ async def run_openai_mini_stream(
         if not pcm:
             return False
         job = _FinalizationJob(
-            pcm=pcm,
+            pcm=bytearray(pcm[-max_pending_pcm_bytes:]),
             speech_started_at=speech_started_at,
             speech_ended_at=speech_ended_at,
+            utterance_id=uuid.uuid4().hex,
+            captured_at_ms=int(time.time() * 1000),
+            queued_at=speech_ended_at,
             forced=forced,
             force_request_id=force_request_id,
         )
         speech_started_at = 0.0
-        active_jobs.append(job)
-        task = asyncio.create_task(transcribe_job(job))
-        finalization_tasks.add(task)
-        task.add_done_callback(finalization_tasks.discard)
+        superseded_force_ids = enqueue_job(job)
+        await complete_superseded(superseded_force_ids)
+        pending_ready.set()
         return True
 
-    def bind_force_to_inflight(force_request_id: str) -> bool:
-        for job in reversed(active_jobs):
-            if not job.done and not job.force_request_id:
-                job.forced = True
-                job.force_request_id = force_request_id
-                return True
-        return False
+    async def bind_force_to_pending(force_request_id: str) -> bool:
+        if pending_job is None:
+            return False
+        superseded_force_ids: list[str] = []
+        if pending_job.forced and pending_job.force_request_id:
+            if pending_job.force_request_id != force_request_id:
+                superseded_force_ids.append(pending_job.force_request_id)
+        pending_job.forced = True
+        pending_job.force_request_id = force_request_id
+        pending_job.queue_depth = int(active_job is not None)
+        await complete_superseded(superseded_force_ids)
+        pending_ready.set()
+        return True
 
+    worker_task = asyncio.create_task(transcription_worker())
     try:
         while True:
             try:
@@ -319,6 +424,7 @@ async def run_openai_mini_stream(
             except TimeoutError:
                 continue
             if message.get("type") == "websocket.disconnect":
+                closed = True
                 break
             control = message.get("text")
             if control:
@@ -329,11 +435,11 @@ async def run_openai_mini_stream(
                 if event.get("type") == "finalize":
                     force_request_id = str(event.get("request_id") or "")
                     if endpointer.has_pending_audio():
-                        start_finalize(
+                        await start_finalize(
                             forced=True,
                             force_request_id=force_request_id,
                         )
-                    elif not bind_force_to_inflight(force_request_id):
+                    elif not await bind_force_to_pending(force_request_id):
                         await client_ws.send_json(
                             {
                                 "type": "force_empty",
@@ -346,20 +452,19 @@ async def run_openai_mini_stream(
                 continue
             before = endpointer.in_speech
             if endpointer.feed(data):
-                start_finalize()
+                await start_finalize()
             elif endpointer.in_speech and not before:
                 speech_started_at = time.monotonic()
                 await client_ws.send_json({"type": "speech_started"})
     except Exception:  # disconnect ends the stream
         pass
     finally:
-        if endpointer.has_pending_speech():
-            try:
-                start_finalize()
-            except Exception:  # noqa: BLE001
-                pass
-        if finalization_tasks:
-            await asyncio.gather(*list(finalization_tasks), return_exceptions=True)
+        closed = True
+        pending_job = None
+        pending_ready.set()
+        endpointer.take_utterance(forced=True)
+        worker_task.cancel()
+        await asyncio.gather(worker_task, return_exceptions=True)
 
 
 __all__ = ["Endpointer", "quality_gate", "run_openai_mini_stream"]

@@ -13,6 +13,7 @@ function fakeWindow(destroyed = false) {
     setContentProtection: vi.fn((enable: boolean) => calls.push(`capture:${enable}`)),
     show: vi.fn(() => calls.push('show')),
     showInactive: vi.fn(() => calls.push('showInactive')),
+    moveTop: vi.fn(() => calls.push('moveTop')),
   };
 }
 
@@ -25,8 +26,24 @@ describe('overlay window privacy', () => {
       'taskbar:true',
       'capture:true',
       'show',
+      'moveTop',
       'taskbar:true',
       'capture:true',
+    ]);
+  });
+
+  it('raises a non-focusable overlay above the active main window without taking focus', () => {
+    const window = fakeWindow();
+
+    expect(showOverlayWindowPrivately(window, false, 'inactive')).toBe(true);
+    expect(window.show).not.toHaveBeenCalled();
+    expect(window.calls).toEqual([
+      'taskbar:true',
+      'capture:false',
+      'showInactive',
+      'moveTop',
+      'taskbar:true',
+      'capture:false',
     ]);
   });
 

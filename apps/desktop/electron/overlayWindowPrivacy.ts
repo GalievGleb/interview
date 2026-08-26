@@ -4,6 +4,7 @@ export interface OverlayPrivacyWindow {
   setContentProtection(enable: boolean): void;
   show(): void;
   showInactive(): void;
+  moveTop(): void;
 }
 
 export type OverlayShowMode = 'active' | 'inactive';
@@ -33,5 +34,10 @@ export function showOverlayWindowPrivately(
   if (!enforceOverlayWindowPrivacy(window, contentProtected)) return false;
   if (mode === 'inactive') window.showInactive();
   else window.show();
+  // A saved “do not take focus” preference makes the native window
+  // non-focusable. On Windows, show()/showInactive() can then leave it behind
+  // the currently active main window even though it is always-on-top.
+  // Raising the z-order explicitly keeps the preference without stealing focus.
+  window.moveTop();
   return enforceOverlayWindowPrivacy(window, contentProtected);
 }

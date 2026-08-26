@@ -799,7 +799,7 @@ export default function InterviewCalendarPage() {
           <div className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-emerald-300">
             <CalendarDays size={15} /> Собеседования
           </div>
-          <h1 className="page-title">Календарь созвонов</h1>
+          <h1 className="page-title">Календарь собеседований</h1>
         </div>
         <button type="button" className="btn-secondary" onClick={() => { setFormError(''); setForm(emptyEventForm()); }}>
           <CirclePlus size={16} /> Добавить вручную

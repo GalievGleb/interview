@@ -3,6 +3,7 @@ import { api, KeysStatus } from '../lib/api';
 import { refreshSessionKnowledge } from '../lib/sessionKnowledge';
 import { syncMockSessionsFromBackend } from '../lib/vacancyReview/vacancyReviewStore';
 import type { BackendStatus } from '../types/electron';
+import { liveStartupWarmup } from '../lib/liveStartupWarmup';
 
 export type LicenseInfo = import('../lib/api').LicenseStatusDto;
 
@@ -43,6 +44,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       await api.health();
       setBackendOnline(true);
+      void liveStartupWarmup.warm();
       if (!knowledgeRefreshStartedRef.current) {
         knowledgeRefreshStartedRef.current = true;
         void refreshSessionKnowledge().catch(() => {

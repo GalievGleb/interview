@@ -119,7 +119,7 @@ export default function HistoryPage() {
           <div className="prep-section-head interview-history-heading">
             <div>
               <p className="prep-eyebrow">ИСТОРИЯ</p>
-              <h2 id="interview-history-title" className="prep-h2 prep-section-title">Прошлые интервью</h2>
+              <h2 id="interview-history-title" className="prep-h2 prep-section-title">История интервью</h2>
             </div>
             {sessions.length > 0 && (
               <div className="interview-history-heading__actions">

@@ -119,7 +119,7 @@ export default function PracticePage() {
           <div className="prep-section-head">
             <div>
               <p className="prep-eyebrow">РЕЗУЛЬТАТЫ</p>
-              <h2 id="practice-history-title" className="prep-h2 prep-section-title">Последние попытки</h2>
+              <h2 id="practice-history-title" className="prep-h2 prep-section-title">Последние сессии</h2>
             </div>
             {completed.length > 0 && <span className="prep-faint">Завершено: {completed.length}</span>}
           </div>

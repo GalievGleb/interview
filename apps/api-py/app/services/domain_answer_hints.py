@@ -62,6 +62,11 @@ _STATIC_DYNAMIC_RE = re.compile(
     r"статическ\w*.{0,30}динамическ\w*|динамическ\w*.{0,30}статическ\w*|static.{0,20}dynamic",
     re.IGNORECASE | re.UNICODE,
 )
+_SORTED_LIST_SORT_RE = re.compile(
+    r"\bsorted\s*\([^)]*\).{0,100}\blist\s*\.\s*sort\s*\(|"
+    r"\blist\s*\.\s*sort\s*\([^)]*\).{0,100}\bsorted\s*\(",
+    re.IGNORECASE | re.UNICODE,
+)
 
 _POM_HINT = """TOPIC HINT — Page Object / POM (weave naturally into bullets, do NOT dump as a keyword list):
 Name typical mistakes when relevant: god object; business logic inside page object; assertions inside page object;
@@ -121,22 +126,30 @@ _AUTOMATION_TYPES_HINT = """TOPIC HINT — виды/типы автоматиз�
 Talk about WHAT gets automated, not «ручная автоматизация» (that is wrong/contradictory).
 Cover by meaning: UI-автотесты (пользовательские сценарии через интерфейс), API (backend-контракты),
 интеграционные (взаимодействие компонентов), regression/smoke (запуск в CI/CD).
-Optional one personal line: «В моём опыте фокус был на UI и API — Playwright, HTTPX/pytest, Allure».
 Never say automation is done «вручную»."""
+_AUTOMATION_TYPES_PERSONAL_HINT = (
+    "Optional one personal line: «В моём опыте фокус был на UI и API — "
+    "Playwright, HTTPX/pytest, Allure»."
+)
 
 _TESTING_TYPES_HINT = """TOPIC HINT — виды/типы тестирования (concise say-aloud, list OK):
 Group by axes: по уровню (модульное, интеграционное, системное, приёмочное);
 по цели (функциональное / нефункциональное — производительность, безопасность, удобство, совместимость);
-по способу (ручное и автоматизированное). Optional one personal line on what you actually did."""
+по способу (ручное и автоматизированное)."""
+_TESTING_TYPES_PERSONAL_HINT = "Optional one personal line on what you actually did."
 
 _CICD_HINT = """TOPIC HINT — CI/CD (concise say-aloud, ~50–90 words, weave naturally):
 Cover by meaning, not as a keyword dump: stages/jobs; Docker / одинаковое окружение; запуск тестов (pytest);
-artifacts/reports; Allure; logs; variables/secrets (carefully); GitLab CI or Jenkins by context.
-Personal framing if experience question: smoke и regression раздельными pipeline-запусками, артефакты для разбора падений."""
+artifacts/reports; Allure; logs; variables/secrets (carefully); GitLab CI or Jenkins by context."""
+_CICD_PERSONAL_HINT = (
+    "Personal framing if experience question: smoke и regression раздельными "
+    "pipeline-запусками, артефакты для разбора падений."
+)
 
 _DOCKER_HINT = """TOPIC HINT — Docker (concise say-aloud, ~50–80 words):
 Docker = контейнеризация: одинаковое окружение локально и в CI/CD, изоляция зависимостей, воспроизводимые прогоны тестов.
-Mention when relevant: образ/Dockerfile, контейнер, запуск автотестов внутри, в связке с CI/CD. Optional one personal line."""
+Mention when relevant: образ/Dockerfile, контейнер, запуск автотестов внутри, в связке с CI/CD."""
+_DOCKER_PERSONAL_HINT = "Optional one personal line."
 
 _SMOKE_REGRESSION_HINT = """TOPIC HINT — smoke vs regression (thesis + «Отличие:» + 2 points):
 smoke = быстрый прогон ключевых/критичных сценариев после сборки, рано даёт сигнал «жив ли билд».
@@ -146,11 +159,13 @@ _STATIC_DYNAMIC_HINT = """TOPIC HINT — static vs dynamic testing (thesis + «�
 static = проверка без запуска кода (review, линтеры, анализ требований/документации).
 dynamic = проверка с запуском приложения (функциональные, API, UI-тесты). Both complement each other."""
 
+_SORTED_LIST_SORT_HINT = """VERIFIED PYTHON SORTING FACTS (use exactly; do not describe this as full vs partial/local sorting):
+sorted(iterable) returns a new list; list.sort() mutates that list in place and returns None."""
+
 _NONE_HINT = "(none — answer naturally; do not force unrelated QA terms or stack keywords)"
 
 
-def resolve_domain_answer_hints(question: str) -> str:
-    """Return prompt block with domain hints matched from the resolved question."""
+def _resolve_domain_answer_hints(question: str, *, include_personal_templates: bool) -> str:
     q = (question or "").strip()
     if not q:
         return _NONE_HINT
@@ -168,6 +183,8 @@ def resolve_domain_answer_hints(question: str) -> str:
         blocks.append(_CHECKLIST_HINT)
     if _BUG_REPORT_RE.search(q):
         blocks.append(_BUG_REPORT_HINT)
+    if _SORTED_LIST_SORT_RE.search(q):
+        blocks.append(_SORTED_LIST_SORT_HINT)
     if _PYTEST_FIXTURES_RE.search(q):
         blocks.append(_PYTEST_HINT)
         if "fixture_1" in q.lower() and "session_fixture" in q.lower():
@@ -176,20 +193,38 @@ def resolve_domain_answer_hints(question: str) -> str:
         blocks.append(_FLAKY_HINT)
     if _AUTOMATION_TYPES_RE.search(q):
         blocks.append(_AUTOMATION_TYPES_HINT)
+        if include_personal_templates:
+            blocks.append(_AUTOMATION_TYPES_PERSONAL_HINT)
     if _TESTING_TYPES_RE.search(q):
         blocks.append(_TESTING_TYPES_HINT)
+        if include_personal_templates:
+            blocks.append(_TESTING_TYPES_PERSONAL_HINT)
     if _SMOKE_REGRESSION_RE.search(q):
         blocks.append(_SMOKE_REGRESSION_HINT)
     elif _STATIC_DYNAMIC_RE.search(q):
         blocks.append(_STATIC_DYNAMIC_HINT)
     elif _DOCKER_RE.search(q):
         blocks.append(_DOCKER_HINT)
+        if include_personal_templates:
+            blocks.append(_DOCKER_PERSONAL_HINT)
     elif _CICD_RE.search(q):
         blocks.append(_CICD_HINT)
+        if include_personal_templates:
+            blocks.append(_CICD_PERSONAL_HINT)
 
     if not blocks:
         return _NONE_HINT
     return "\n\n".join(blocks)
+
+
+def resolve_domain_answer_hints(question: str) -> str:
+    """Return full domain hints for the context-grounded interview path."""
+    return _resolve_domain_answer_hints(question, include_personal_templates=True)
+
+
+def resolve_fast_domain_answer_hints(question: str) -> str:
+    """Return objective local facts only; never prompt fast mode to invent experience."""
+    return _resolve_domain_answer_hints(question, include_personal_templates=False)
 
 
 def resolve_required_output_contract(question: str) -> str:

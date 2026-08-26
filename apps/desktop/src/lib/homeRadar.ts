@@ -31,6 +31,44 @@ export interface HomeHhCommand {
   actionLabel: string;
 }
 
+export type HomeJourneyStepStatus = 'done' | 'current' | 'upcoming';
+
+export interface HomeQuickAction {
+  id: 'vacancies' | 'resume' | 'interview';
+  label: string;
+  detail: string;
+  to: string;
+}
+
+export function getHomeJourneyProgress(steps: readonly HomeJourneyStepStatus[]): number {
+  if (steps.length === 0) return 0;
+  const done = steps.filter((status) => status === 'done').length;
+  return Math.round((done / steps.length) * 100);
+}
+
+export function getHomeQuickActions(): HomeQuickAction[] {
+  return [
+    {
+      id: 'vacancies',
+      label: 'Найти вакансии',
+      detail: 'Подобрать новые предложения',
+      to: '/applications?mode=settings',
+    },
+    {
+      id: 'resume',
+      label: 'Анализ резюме',
+      detail: 'Улучшить резюме под вакансию',
+      to: '/documents',
+    },
+    {
+      id: 'interview',
+      label: 'Подготовиться к интервью',
+      detail: 'Практика и ответы на вопросы',
+      to: '/practice',
+    },
+  ];
+}
+
 function employerQuestionLabel(count: number): string {
   const mod100 = count % 100;
   const mod10 = count % 10;
@@ -70,7 +108,7 @@ export function getHomeHhCommand(input: HomeHhCommandInput): HomeHhCommand {
       eyebrow: 'ГОТОВО К ОТПРАВКЕ',
       title: `${input.queued} вакансий ждут обработки`,
       action: 'queue',
-      actionLabel: 'Продолжить отклики',
+      actionLabel: 'Открыть автоочередь',
     };
   }
   return {

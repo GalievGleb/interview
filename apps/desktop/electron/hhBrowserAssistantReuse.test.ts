@@ -336,7 +336,7 @@ describe('HH remembered screening answers', () => {
       path.join(directory, 'hh-browser-assistant.json'),
       'utf8',
     )) as { version?: number; resumeSelectionConfirmed?: boolean };
-    expect(migrated).toMatchObject({ version: 8, resumeSelectionConfirmed: false });
+    expect(migrated).toMatchObject({ version: 10, resumeSelectionConfirmed: false });
   });
 
   it('keeps salary pending when only another configured resume has a salary', () => {

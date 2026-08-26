@@ -32,4 +32,21 @@ describe('theme isolation', () => {
 
     expect(documentElement.dataset.theme).toBe('dark');
   });
+
+  it('opens a fresh desktop install in the canonical light workspace', async () => {
+    const documentElement = { dataset: {} as Record<string, string> };
+    vi.stubGlobal('document', { documentElement });
+    vi.stubGlobal('localStorage', {
+      getItem: () => null,
+      setItem: vi.fn(),
+    });
+    vi.stubGlobal('window', {
+      matchMedia: () => ({ matches: false, addEventListener: vi.fn() }),
+      addEventListener: vi.fn(),
+    });
+
+    const theme = await import('./theme');
+    theme.initTheme();
+    expect(documentElement.dataset.theme).toBe('light');
+  });
 });

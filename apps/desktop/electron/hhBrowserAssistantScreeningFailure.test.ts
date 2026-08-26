@@ -94,6 +94,7 @@ type TestableAssistant = {
   restoreSchedule: () => void;
   resumePendingQueue: () => Promise<void>;
   scheduleQueueResume: (delayMs?: number) => void;
+  waitBetweenQueueAttempts: () => Promise<void>;
   queueResumeTimer: NodeJS.Timeout | null;
 };
 
@@ -620,6 +621,7 @@ describe('HH rejected screening batches', () => {
       currentUrl.includes(firstVacancy.id) ? 'employer_questions' : 'already_applied'
     ));
     assistant.detectApplySituation = detect;
+    assistant.waitBetweenQueueAttempts = vi.fn(async () => undefined);
 
     await assistant.resumePendingQueue();
 

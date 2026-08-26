@@ -54,6 +54,7 @@ const api = {
     mark: (vacancyId: string, status: 'sent' | 'skipped') =>
       ipcRenderer.invoke('hh-assistant:mark', vacancyId, status),
     closeBrowser: () => ipcRenderer.invoke('hh-assistant:close-browser'),
+    logout: () => ipcRenderer.invoke('hh-assistant:logout'),
     login: (login: string, password: string) =>
       ipcRenderer.invoke('hh-assistant:login', login, password),
     requestLoginCode: (email: string) =>
@@ -94,6 +95,8 @@ const api = {
     pollNow: () => ipcRenderer.invoke('hh-chat:poll-now'),
     answerDecision: (decisionId: string, answer: string, remember = true) =>
       ipcRenderer.invoke('hh-chat:answer-decision', decisionId, answer, remember),
+    declineDecision: (decisionId: string) =>
+      ipcRenderer.invoke('hh-chat:decline-decision', decisionId),
     forgetFact: (factId: string) => ipcRenderer.invoke('hh-chat:forget-fact', factId),
   },
   interviewCalendar: {

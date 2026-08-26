@@ -27,6 +27,17 @@ export function hideOverlayAndShowMain(
   main.focus();
 }
 
+export function openOverlayOverWorkspace(
+  _main: WindowLifecycleHandle | null | undefined,
+  showOverlay: () => void,
+): void {
+  // Keep the active workspace stable until the non-focusable overlay is raised.
+  // Hiding the foreground window first lets Windows activate another app and can
+  // leave the overlay behind it, which is why the global hotkey appeared reliable
+  // while the in-app launch button did not.
+  showOverlay();
+}
+
 export function hideWindowOnClose(
   event: { preventDefault(): void },
   window: WindowLifecycleHandle | null | undefined,

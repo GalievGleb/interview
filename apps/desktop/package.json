@@ -1,6 +1,6 @@
 {
   "name": "@interview/desktop",
-  "version": "0.0.40",
+  "version": "0.1.0",
   "private": true,
   "main": "dist-electron/main.js",
   "scripts": {
@@ -15,6 +15,8 @@
     "dist:dev": "pnpm build:backend && pnpm dist:dev:app",
     "build:backend": "cd ../api-py && .venv\\Scripts\\pyinstaller.exe -y skillcue-backend.spec",
     "verify:dev:overlay": "python ../../tools/verify_dev_overlay.py",
+    "verify:dev:voice": "python ../../tools/verify_dev_voice_overlay.py",
+    "verify:dev:screen": "python ../../tools/verify_screen_code_task.py --fixture-order",
     "release:dev:verified": "powershell -NoProfile -ExecutionPolicy Bypass -File ../../tools/install_and_verify_dev.ps1",
     "dist:full": "pnpm build:backend && pnpm build && electron-builder",
     "preview": "vite preview",
@@ -40,7 +42,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
     "concurrently": "^9.1.2",
-    "electron": "^33.2.1",
+    "electron": "39.8.10",
     "electron-builder": "^25.1.8",
     "eslint": "^10.6.0",
     "eslint-plugin-react-hooks": "^7.1.1",
@@ -57,7 +59,7 @@
   "build": {
     "appId": "com.interview.assistant",
     "productName": "SkillCue",
-    "electronVersion": "33.4.11",
+    "electronVersion": "39.8.10",
     "afterPack": "build/applyWindowsDpiManifest.cjs",
     "directories": {
       "output": "release"
@@ -92,7 +94,8 @@
       "minimumSystemVersion": "12.0",
       "hardenedRuntime": true,
       "extendInfo": {
-        "NSMicrophoneUsageDescription": "SkillCue uses the microphone only when you start voice practice or a live interview session."
+        "NSMicrophoneUsageDescription": "SkillCue uses the microphone only when you start voice practice or a live interview session.",
+        "NSAudioCaptureUsageDescription": "SkillCue captures system audio only while you run the live interview overlay."
       }
     },
     "dmg": {

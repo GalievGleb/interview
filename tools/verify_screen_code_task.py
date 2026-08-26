@@ -8,9 +8,11 @@ import base64
 import binascii
 import json
 import os
+import re
 import socket
 import struct
 import subprocess
+import sys
 import tempfile
 import time
 import urllib.error
@@ -18,6 +20,11 @@ import urllib.request
 import uuid
 import zlib
 from pathlib import Path
+
+from dev_e2e_identity import seed_installed_gateway_identity
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
 
 FONT = {
     "0": ("01110", "10001", "10011", "10101", "11001", "10001", "01110"),
@@ -47,6 +54,18 @@ FONT = {
 }
 
 LINES = ('s = "1234567890"', "print(s[6] == 7)", 's[0] = "H"', "print(s)")
+
+FIXTURE_TRACE = [
+    "session_fixture",
+    "module_fixture",
+    "autouse_fixture",
+    "fixture_3",
+    "fixture_4",
+    "fixture_1",
+    "fixture_2",
+    "test_order",
+    "fixture_4",
+]
 
 
 def _free_port() -> int:
@@ -92,6 +111,79 @@ def render_code_png() -> bytes:
     )
 
 
+def render_fixture_order_png() -> bytes:
+    """Render the real pytest-order regression without adding GUI dependencies."""
+    output = Path(tempfile.gettempdir()) / f"skillcue-fixture-{uuid.uuid4().hex}.png"
+    escaped_output = str(output).replace("'", "''")
+    script = rf"""
+Add-Type -AssemblyName System.Drawing
+$bitmap = New-Object System.Drawing.Bitmap 1600, 1200
+$graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+$graphics.Clear([System.Drawing.Color]::FromArgb(24, 24, 27))
+$graphics.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::ClearTypeGridFit
+$title = New-Object System.Drawing.Font('Segoe UI', 30, [System.Drawing.FontStyle]::Bold)
+$body = New-Object System.Drawing.Font('Segoe UI', 20)
+$codeFont = New-Object System.Drawing.Font('Consolas', 18)
+$white = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::White)
+$cyan = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(103, 232, 249))
+$graphics.DrawString('14. Порядок выполнения фикстур', $title, $white, 58, 38)
+$graphics.DrawString('Определите точную последовательность setup фикстур, выполнения теста и teardown после yield.', $body, $white, 58, 100)
+$code = @'
+order = []
+
+@pytest.fixture(scope="session")
+def session_fixture(): order.append("session_fixture")
+
+@pytest.fixture(scope="module")
+def module_fixture(): order.append("module_fixture")
+
+@pytest.fixture
+def fixture_1(fixture_3, fixture_4): order.append("fixture_1")
+
+@pytest.fixture(scope="function")
+def fixture_3(): order.append("fixture_3")
+
+@pytest.fixture(autouse=True)
+def autouse_fixture(): order.append("autouse_fixture")
+
+@pytest.fixture
+def fixture_2(): order.append("fixture_2")
+
+@pytest.fixture
+def fixture_4():
+    yield
+    order.append("fixture_4")
+
+def test_order(fixture_1, module_fixture, fixture_2, session_fixture):
+    pass
+'@
+$y = 150
+foreach ($line in ($code -split "`n")) {{
+  $graphics.DrawString($line.TrimEnd("`r"), $codeFont, $cyan, 70, $y)
+  $y += 33
+}}
+$bitmap.Save('{escaped_output}', [System.Drawing.Imaging.ImageFormat]::Png)
+$cyan.Dispose(); $white.Dispose(); $codeFont.Dispose(); $body.Dispose(); $title.Dispose()
+$graphics.Dispose(); $bitmap.Dispose()
+"""
+    encoded = base64.b64encode(script.encode("utf-16le")).decode("ascii")
+    subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+    )
+    try:
+        return output.read_bytes()
+    finally:
+        output.unlink(missing_ok=True)
+
+
+def fixture_trace(answer: str) -> list[str]:
+    names = "|".join(re.escape(name) for name in dict.fromkeys(FIXTURE_TRACE))
+    return re.findall(names, answer.lower())[: len(FIXTURE_TRACE)]
+
+
 def _wait_for_health(port: int) -> None:
     deadline = time.monotonic() + 15
     while time.monotonic() < deadline:
@@ -106,6 +198,11 @@ def _wait_for_health(port: int) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--source-backend", action="store_true")
+    parser.add_argument(
+        "--fixture-order",
+        action="store_true",
+        help="verify the real visible pytest fixture setup/test/teardown task",
+    )
     args = parser.parse_args()
 
     root = Path(__file__).resolve().parent.parent
@@ -124,6 +221,7 @@ def main() -> int:
     port = _free_port()
     token = uuid.uuid4().hex
     db_path = Path(tempfile.gettempdir()) / f"skillcue-screen-{token}.sqlite"
+    seed_installed_gateway_identity(db_path)
     env = {
         **os.environ,
         "SKILLCUE_PORT": str(port),
@@ -156,13 +254,24 @@ def main() -> int:
     )
     try:
         _wait_for_health(port)
-        image = base64.b64encode(render_code_png()).decode("ascii")
+        image_bytes = render_fixture_order_png() if args.fixture_order else render_code_png()
+        image = base64.b64encode(image_bytes).decode("ascii")
+        question = "Что выведет этот код?"
+        context = "Интервьюер просит решить видимый Python-код."
+        mode = "fast"
+        if args.fixture_order:
+            question = (
+                "Реши задание на экране. Перечисли точный порядок setup всех фикстур, "
+                "выполнения test_order и teardown после yield."
+            )
+            context = "Интервьюер просит определить порядок выполнения pytest-фикстур."
+            mode = "deep"
         body = json.dumps(
             {
                 "image": f"data:image/png;base64,{image}",
-                "question": "Что выведет этот код?",
-                "context": "Интервьюер просит решить видимый Python-код.",
-                "mode": "fast",
+                "question": question,
+                "context": context,
+                "mode": mode,
                 "answer_language": "ru",
             },
             ensure_ascii=False,
@@ -174,7 +283,7 @@ def main() -> int:
             method="POST",
         )
         chunks: list[str] = []
-        done = False
+        done: dict | None = None
         with urllib.request.urlopen(request, timeout=120) as response:
             for raw_line in response:
                 line = raw_line.decode("utf-8").strip()
@@ -184,10 +293,23 @@ def main() -> int:
                 if event.get("type") == "chunk":
                     chunks.append(str(event.get("text") or ""))
                 elif event.get("type") == "done":
-                    done = True
+                    done = event
                 elif event.get("type") == "error":
                     raise RuntimeError(str(event))
         answer = "".join(chunks)
+        if args.fixture_order:
+            trace = fixture_trace(answer)
+            rewrote_source = "@pytest.fixture" in answer or "def session_fixture" in answer
+            if not done or trace != FIXTURE_TRACE or rewrote_source:
+                raise RuntimeError(
+                    "fixture-order vision assertions failed: "
+                    f"done={done}, trace={trace}, expected={FIXTURE_TRACE}, "
+                    f"rewrote_source={rewrote_source}\n{answer}"
+                )
+            print(answer)
+            print(f"VISION FIXTURE PASS: model={done.get('model')} trace={trace}")
+            return 0
+
         lowered = answer.lower()
         required = {
             "False": "false" in lowered or "лож" in lowered,
@@ -197,7 +319,7 @@ def main() -> int:
         if not done or not all(required.values()):
             raise RuntimeError(f"vision assertions failed: done={done}, required={required}\n{answer}")
         print(answer)
-        print(f"VISION PASS: {required}")
+        print(f"VISION PASS: model={done.get('model')} required={required}")
         return 0
     finally:
         process.terminate()

@@ -45,14 +45,21 @@ import {
   hideOverlayOnly,
   hideWindowOnClose,
   isLiveWindow,
+  openOverlayOverWorkspace,
 } from './windowLifecycle';
+import { setAppHiddenFromSwitcher } from './appVisibility';
 import { bindOverlayShortcutLifecycle } from './overlayShortcutLifecycle';
 import { PersistentGlobalShortcut } from './persistentGlobalShortcut';
 import { bindOverlayPointerRecovery } from './overlayPointerRecovery';
 import { getTitleBarOverlayTheme } from './titleBarTheme';
 import { preparePersistentBackendData, sqliteDatabaseUrl } from './backendData';
 import { getAppIdentity, resolveBuildChannel } from './buildChannel';
-import { screenCaptureDataUrl, SCREEN_CAPTURE_THUMBNAIL_SIZE } from './screenCapture';
+import {
+  captureScreenWithoutOverlay,
+  ScreenCaptureCoordinator,
+  screenCaptureDataUrl,
+  SCREEN_CAPTURE_THUMBNAIL_SIZE,
+} from './screenCapture';
 import { readinessFailureCopy } from './liveReadinessNotification';
 import { OperationalTelemetryStore } from './operationalTelemetry';
 import { shareSessionReport } from './sessionReportShare';
@@ -139,6 +146,7 @@ if (process.platform === 'win32') {
 
 let mainWindow: BrowserWindow | null = null;
 let overlayWindow: BrowserWindow | null = null;
+const screenCaptureCoordinator = new ScreenCaptureCoordinator();
 let overlayContentProtectionEnabled = false;
 let tray: Tray | null = null;
 let backendProcess: ChildProcess | null = null;
@@ -534,6 +542,8 @@ function createOverlayWindow(): BrowserWindow {
     height: 780,
     frame: false,
     transparent: true,
+    backgroundColor: '#00000000',
+    hasShadow: false,
     icon: BRAND_ICON,
     alwaysOnTop: true,
     skipTaskbar: true,
@@ -628,11 +638,12 @@ function registerIpc(): void {
     'hh-assistant:answer-screening-questions', 'hh-assistant:suggest-screening-answer', 'hh-assistant:forget-screening-fact',
     'hh-assistant:skip-screening-vacancy', 'hh-assistant:restore-skipped-screening-vacancy', 'hh-assistant:stop-apply',
     'hh-assistant:set-daily-schedule', 'hh-assistant:open-vacancy', 'hh-assistant:fill-letter', 'hh-assistant:mark',
-    'hh-assistant:close-browser', 'hh-assistant:login', 'hh-assistant:request-login-code', 'hh-assistant:confirm-login-code',
+    'hh-assistant:close-browser', 'hh-assistant:logout', 'hh-assistant:login', 'hh-assistant:request-login-code', 'hh-assistant:confirm-login-code',
     'hh-assistant:get-resumes', 'hh-assistant:get-resume-content', 'hh-assistant:inspect-vacancy-url',
     'hh-oauth:get-state', 'hh-oauth:get-config', 'hh-oauth:save-config', 'hh-oauth:start-auth', 'hh-oauth:exchange-code',
     'hh-oauth:logout', 'hh-oauth:get-resumes', 'hh-oauth:get-me', 'hh-chat:get-state', 'hh-chat:get-config',
-    'hh-chat:save-config', 'hh-chat:set-enabled', 'hh-chat:poll-now', 'hh-chat:answer-decision', 'hh-chat:forget-fact',
+    'hh-chat:save-config', 'hh-chat:set-enabled', 'hh-chat:poll-now', 'hh-chat:answer-decision', 'hh-chat:decline-decision',
+    'hh-chat:forget-fact',
     'interview-calendar:get-state', 'interview-calendar:save-settings', 'interview-calendar:upsert-event',
     'interview-calendar:remove-event', 'interview-calendar:attach-session', 'interview-calendar:save-outcome',
     'interview-calendar:dismiss-thread', 'overlay:move', 'overlay:resize', 'app:getAutoLaunch', 'app:setAutoLaunch',
@@ -735,6 +746,11 @@ function registerIpc(): void {
     await hhBrowserAssistant?.close();
     return hhBrowserAssistant?.getState();
   });
+  handle('hh-assistant:logout', async () => {
+    hhChatBrowser?.resetAccountSession();
+    await hhOAuthService?.logout();
+    return hhBrowserAssistant?.logout();
+  });
   handle(
     'hh-assistant:login',
     async (_e, login: string, password: string) =>
@@ -809,6 +825,8 @@ function registerIpc(): void {
     (_e, decisionId: string, answer: string, remember: boolean) =>
       hhChatBrowser?.answerDecision(decisionId, answer, remember),
   );
+  handle('hh-chat:decline-decision', (_e, decisionId: string) =>
+    hhChatBrowser?.declineDecision(decisionId));
   handle('hh-chat:forget-fact', (_e, factId: string) =>
     hhChatBrowser?.forgetFact(factId));
 
@@ -1040,13 +1058,13 @@ function registerIpc(): void {
     attachNearestInterviewContext();
     const win = getOrCreateOverlayWindow();
     prepareOverlayForOpen(win);
-    showOverlayWindow(win);
+    openOverlayOverWorkspace(mainWindow, () => showOverlayWindow(win));
   });
   handle('overlay:showForInterviewEvent', (_event, eventId: string) => {
     if (!setActiveInterviewEvent(eventId)) return false;
     const win = getOrCreateOverlayWindow();
     prepareOverlayForOpen(win);
-    showOverlayWindow(win);
+    openOverlayOverWorkspace(mainWindow, () => showOverlayWindow(win));
     publishInterviewContext();
     return true;
   });
@@ -1057,16 +1075,26 @@ function registerIpc(): void {
   handle('overlay:hide', () => hideOverlay());
 
   handle('overlay:captureScreen', async () => {
-    // Скриншот основного экрана для vision-подсказки («Экран» в оверлее).
-    // JPEG 70% на ~1600px — читаемо для модели и в разы легче PNG.
+    // Capture the interview task, not the floating assistant that may cover it.
+    // The overlay is restored inactive so the editor/call keeps keyboard focus.
     try {
-      const sources = await desktopCapturer.getSources({
-        types: ['screen'],
-        thumbnailSize: SCREEN_CAPTURE_THUMBNAIL_SIZE,
-      });
-      const primary = sources[0];
-      if (!primary) return '';
-      return screenCaptureDataUrl(primary.thumbnail);
+      const currentOverlay = isLiveWindow(overlayWindow) ? overlayWindow : null;
+      return await screenCaptureCoordinator.run(() =>
+        captureScreenWithoutOverlay(
+          currentOverlay,
+          async () => {
+            const sources = await desktopCapturer.getSources({
+              types: ['screen'],
+              thumbnailSize: SCREEN_CAPTURE_THUMBNAIL_SIZE,
+            });
+            const primary = sources[0];
+            return primary ? screenCaptureDataUrl(primary.thumbnail) : '';
+          },
+          () => {
+            if (isLiveWindow(currentOverlay)) showOverlayWindow(currentOverlay, 'inactive');
+          },
+        ),
+      );
     } catch (err) {
       console.warn('[overlay] screen capture failed:', err);
       return '';
@@ -1138,7 +1166,7 @@ function registerIpc(): void {
   });
 
   handle('window:setSkipTaskbar', (_e, skip: boolean) => {
-    mainWindow?.setSkipTaskbar(skip);
+    setAppHiddenFromSwitcher(process.platform, skip, mainWindow, app.dock);
   });
 
   handle('window:setTitleBarTheme', (event, theme: unknown) => {

@@ -58,6 +58,7 @@ type TestableAssistant = {
     events: Array<{ kind: string; source: string; reason: string; scheduledFor?: string }>;
   };
   beginRun: (trigger: 'schedule') => { id: string };
+  waitBetweenQueueAttempts: () => Promise<void>;
   runQueue: (runId?: string) => Promise<{
     attempted: number;
     alreadyApplied: number;
@@ -182,6 +183,22 @@ describe('HH cover-letter retry policy', () => {
     expect(assistant.pendingQueueCount()).toBe(0);
   });
 
+  it('finishes an inaccessible HH vacancy without manual confirmation', async () => {
+    const assistant = createAssistant(async () => ({
+      coverLetter: '', matches: [], canAutoFill: false, failureKind: 'manual',
+    }));
+    assistant.detectApplySituation = vi.fn(async () => 'unavailable' as HhApplySituation);
+
+    const state = await assistant.applyOne('hh:123456789', { explicitUserSelection: true });
+
+    expect(state.phase).toBe('ready');
+    expect(state.queue[0]).toMatchObject({
+      status: 'skipped',
+      reason: 'Вакансия больше недоступна на HH.',
+    });
+    expect(state.queue[0]?.autoRetryBlockedUntil).toBeUndefined();
+  });
+
   it('does not invoke the provider again 31 minutes after a quota, timeout, or transport failure', async () => {
     vi.useFakeTimers();
     const attempts = [
@@ -285,6 +302,7 @@ describe('HH cover-letter retry policy', () => {
       return { sent: false, alreadyApplied: true, blocked: false, reason: 'Отклик уже был отправлен.' };
     });
     assistant.applyToVacancy = apply;
+    assistant.waitBetweenQueueAttempts = vi.fn(async () => undefined);
 
     const run = assistant.beginRun('schedule');
     const stats = await assistant.runQueue(run.id);
@@ -487,6 +505,31 @@ describe('HH cover-letter retry policy', () => {
       autoRetryBlockedUntil: undefined,
     });
     expect(migrated?.reason).toContain('автоматически выберу');
+  });
+
+  it('rechecks legacy profile-mismatch skips once after the classifier upgrade', () => {
+    const stored = vacancy();
+    stored.status = 'skipped';
+    stored.reason = 'Пропущено перед откликом: вакансия не соответствует выбранному резюме и направлению поиска.';
+    stored.selectedResumeTitle = 'Qa Fullstack engineer python 240 000 ₽';
+
+    expect(normalizePersistedQueue([stored], true)[0]).toMatchObject({
+      status: 'new',
+      autoRetryBlockedUntil: undefined,
+    });
+    expect(normalizePersistedQueue([stored], false)[0]).toMatchObject({ status: 'skipped' });
+  });
+
+  it('moves legacy persistent-verification gates to the next scheduled run', () => {
+    const stored = vacancy();
+    stored.status = 'opened';
+    stored.reason = 'HH трижды показал проверку для этой вакансии. Она отложена; остальные вакансии продолжаю обрабатывать.';
+    stored.autoRetryBlockedUntil = 'manual';
+
+    expect(normalizePersistedQueue([stored])[0]).toMatchObject({
+      status: 'opened',
+      autoRetryBlockedUntil: 'daily',
+    });
   });
 
   it('turns a grounded legacy skill mismatch into an automatic terminal skip', () => {

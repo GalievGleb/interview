@@ -25,6 +25,7 @@ import {
   isHhScreeningDraftReady,
   readHhScreeningDrafts,
   reconcileHhScreeningLocalDraft,
+  shouldAutomaticallyPrepareHhScreeningDraft,
   summarizePendingHhScreening,
   uniqueHhScreeningQuestions,
 } from '../lib/hhScreening';
@@ -235,6 +236,49 @@ export default function HhHrProfilePage() {
       }
     }
   }, [assistant, pendingVacancies]);
+
+  useEffect(() => {
+    if (
+      !assistant
+      || !activeVacancy
+      || !currentQuestion
+      || !currentDraftKey
+      || !shouldAutomaticallyPrepareHhScreeningDraft(currentQuestion, currentDraft)
+    ) return;
+    const promptKey = hhScreeningPromptKey(currentQuestion.prompt);
+    const requestKey = `visible-ai::${currentDraftKey}::${hhScreeningPromptKey(currentQuestion.prompt)}`;
+    if (automaticallyPreparedDrafts.current.has(requestKey)) return;
+    automaticallyPreparedDrafts.current.add(requestKey);
+
+    const requestId = suggestionRequestId.current + 1;
+    suggestionRequestId.current = requestId;
+    setSuggestingDraftKey(currentDraftKey);
+    void assistant.suggestScreeningAnswer(
+      activeVacancy.key,
+      currentQuestion.id,
+      currentDraft.answer,
+    ).then((suggestion) => {
+      if (suggestionRequestId.current !== requestId) return;
+      setDrafts((current) => {
+        const existing = current[currentDraftKey];
+        if (!shouldAutomaticallyPrepareHhScreeningDraft(currentQuestion, existing)) return current;
+        return {
+          ...current,
+          [currentDraftKey]: {
+            answer: suggestion.answer,
+            selectedOptions: suggestion.selectedOptions,
+            confirmedByUser: false,
+            promptKey,
+          },
+        };
+      });
+    }).catch(() => {
+      // Keep the usable local draft and the manual retry button. Opening the
+      // review page must not become a dead end during a transient AI failure.
+    }).finally(() => {
+      if (suggestionRequestId.current === requestId) setSuggestingDraftKey('');
+    });
+  }, [assistant, activeVacancy, currentQuestion, currentDraftKey, currentDraft]);
 
   useEffect(() => {
     localStorage.setItem(HH_SCREENING_DRAFTS_STORAGE_KEY, JSON.stringify(drafts));

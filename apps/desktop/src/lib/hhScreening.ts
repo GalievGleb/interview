@@ -10,6 +10,25 @@ export interface HhScreeningLocalDraft {
   promptKey?: string;
 }
 
+const GENERIC_LOCAL_EXPERIENCE_DRAFT_RE =
+  /^Подтверждённый релевантный опыт и инструменты перечислены в моём резюме;/i;
+
+/**
+ * The queue may contain a last-resort local sentence after a batched provider
+ * call failed or omitted one item. It is safe to replace that sentence with a
+ * single-question review draft as soon as the question becomes visible. A
+ * useful model/user answer and every closed or sensitive factual fallback stay
+ * untouched.
+ */
+export function shouldAutomaticallyPrepareHhScreeningDraft(
+  question: HhScreeningQuestion,
+  draft: HhScreeningLocalDraft | undefined,
+): draft is HhScreeningLocalDraft {
+  if (question.kind !== 'text' || !draft || draft.confirmedByUser) return false;
+  if (draft.promptKey !== hhScreeningPromptKey(question.prompt)) return false;
+  return GENERIC_LOCAL_EXPERIENCE_DRAFT_RE.test(draft.answer.trim());
+}
+
 export function isSensitiveHhScreeningChoice(prompt: string): boolean {
   return /гражданств|право\s+на\s+работ|разрешен\w*\s+на\s+работ|судим|военн|арм(?:ия|ии)|трудоустр|официальн|тк\s*рф|трудов\w*\s+(?:договор|опыт)|самозанят|\bип\b|\bгпх\b|зарплат|заработн\w*\s+плат|зарабатывать|получать|сумм|вознагражден|оклад|доход|компенсац|финансов\w*\s+ожидан|город|где.{0,25}жив|жив(?:е|ё)(?:те|шь)|место\s+(?:жительства|проживания)|прожива|локац|местонахожд|релокац|переезд|удален\w*\s+формат|график|смен|дата\s+выхода|за\s+последн|полгода|возраст|сколько\s+лет|дата\s+рожд|образован|диплом|сертифик|английск|уровень\s+язык|виз\w*|здоров|диагноз|инвалид|семейн|женат|замужем|дети|беремен|командиров|ночн\w*\s+(?:смен|работ)|\bnda\b|неразглаш|опыт|работал|использовал|пользовал|пользу(?:е|ё)т|знаком|применял|игр(?:а|ы|ал|али)|мессенджер|расскажите\s+о\s+себе|почему.*(?:ваканси|позици)|чем.*(?:ваканси|позици).*интерес|мотивац|experience|worked\s+with|used|current|currently|city|location|residen|work\s+(?:permit|authorization|status)|military|criminal|visa|health|education|certificate|english\s+level|travel|remote\s+(?:work|only)/i.test(prompt);
 }

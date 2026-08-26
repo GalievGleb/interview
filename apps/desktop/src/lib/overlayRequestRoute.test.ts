@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { resolveOverlayRequestRoute } from './overlayRequestRoute';
 
 describe('resolveOverlayRequestRoute', () => {
-  it('keeps a typed instruction attached to the screen when there is no conversation', () => {
+  it('answers a typed instruction as chat when there is no conversation', () => {
     expect(
       resolveOverlayRequestRoute({
         action: 'assist',
@@ -12,14 +12,27 @@ describe('resolveOverlayRequestRoute', () => {
         useScreenFallback: true,
         smart: false,
       }),
-    ).toEqual({ kind: 'screen', mode: 'general' });
+    ).toEqual({ kind: 'chat', mode: 'fast' });
   });
 
-  it('keeps Smart typed screen instructions on the deep vision route', () => {
+  it('keeps a non-visual Smart instruction on the deep text route', () => {
     expect(
       resolveOverlayRequestRoute({
         action: 'assist',
         customText: 'Сравни контрактные и интеграционные тесты',
+        hasTranscript: false,
+        canCaptureScreen: true,
+        useScreenFallback: true,
+        smart: true,
+      }),
+    ).toEqual({ kind: 'chat', mode: 'deep' });
+  });
+
+  it('uses vision for a typed question that explicitly refers to the visible screen', () => {
+    expect(
+      resolveOverlayRequestRoute({
+        action: 'assist',
+        customText: 'Что выведет этот код на экране?',
         hasTranscript: false,
         canCaptureScreen: true,
         useScreenFallback: true,
@@ -54,7 +67,7 @@ describe('resolveOverlayRequestRoute', () => {
     ).toEqual({ kind: 'screen', mode: 'general' });
   });
 
-  it('keeps the configured empty Assist screen fallback', () => {
+  it('does not turn an empty Assist request into a screenshot', () => {
     expect(
       resolveOverlayRequestRoute({
         action: 'assist',
@@ -64,7 +77,7 @@ describe('resolveOverlayRequestRoute', () => {
         useScreenFallback: true,
         smart: false,
       }),
-    ).toEqual({ kind: 'screen', mode: 'general' });
+    ).toEqual({ kind: 'notice' });
   });
 
   it('uses general text chat for transcript-backed actions', () => {

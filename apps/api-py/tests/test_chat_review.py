@@ -4,6 +4,7 @@ No real API key is needed — `provider_adapter.complete` / `.stream_chat` are
 monkeypatched, so we test the routing, prompt wiring, and SSE framing only.
 """
 
+import asyncio
 import json
 
 from app.prompts.meeting import (
@@ -215,6 +216,7 @@ def test_screen_assist_stream_builds_multimodal_message(client, monkeypatch):
     system_prompt = captured["messages"][0]["content"]
     assert "Декоратор с args и kwargs" in system_prompt
     assert "полный рабочий" in system_prompt
+    assert "не означает автоматически" in system_prompt
     assert "ответ без полного исполняемого блока кода неправильный" in system_prompt
     assert "НЕ переписывай и НЕ исправляй код" in system_prompt
     assert "s[0] = 'H' вызывает TypeError" in system_prompt
@@ -223,11 +225,45 @@ def test_screen_assist_stream_builds_multimodal_message(client, monkeypatch):
     )
 
 
-def test_screen_assist_default_question_demands_executable_code(client, monkeypatch):
+def test_screen_assist_done_reports_actual_model_source_and_creates_no_answer(
+    client, db_session, monkeypatch
+):
+    from app.db import models
+    from app.routers import chat as chat_router
+
+    async def fake_stream(messages, provider=None, model=None, **kwargs):
+        yield "screen answer"
+
+    monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
+    monkeypatch.setattr(
+        chat_router,
+        "_resolve_chat",
+        lambda *args, **kwargs: ("test-provider", "actual-screen-model", "configured"),
+    )
+    before = db_session.query(models.Answer).count()
+    response = client.post(
+        "/chat/screen/stream",
+        json={"image": "data:image/jpeg;base64,QUJD", "question": "Q"},
+    )
+    assert response.status_code == 200, response.text
+    done = next(
+        json.loads(line[6:])
+        for line in response.text.splitlines()
+        if line.startswith("data: ") and '"type": "done"' in line
+    )
+    assert done["model"] == "actual-screen-model"
+    assert done["model_source"] == "configured"
+    assert db_session.query(models.Answer).count() == before
+
+
+def test_screen_assist_default_question_follows_visible_task_instead_of_forcing_code(
+    client, monkeypatch
+):
     captured: dict = {}
 
     async def fake_stream(messages, provider=None, model=None, **kwargs):
         captured["messages"] = messages
+        captured["model"] = model
         yield "```python\nprint('ok')\n```"
 
     monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
@@ -239,7 +275,56 @@ def test_screen_assist_default_question_demands_executable_code(client, monkeypa
     text_part = next(
         part for part in captured["messages"][-1]["content"] if part["type"] == "text"
     )["text"]
-    assert "обязательно дай полный рабочий код" in text_part
+    assert "точную формулировку задания" in text_part
+    assert "порядок" in text_part
+    assert "только если" in text_part
+    assert "обязательно дай полный рабочий код" not in text_part
+    # Exact visual dependency/order tasks need the full 4.1 model: the mini
+    # variant reads the screenshot but can swap independent fixture setup.
+    assert captured["model"] == "openai/gpt-4.1"
+
+
+def test_screen_assist_mode_instruction_cannot_replace_visible_task(client, monkeypatch):
+    captured: dict = {}
+
+    async def fake_stream(messages, provider=None, model=None, **kwargs):
+        captured["messages"] = messages
+        yield "session → module → function"
+
+    monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
+    res = client.post(
+        "/chat/screen/stream",
+        json={
+            "image": "data:image/jpeg;base64,QUJD",
+            "question": "Инструкция режима: отвечай кратко от первого лица.",
+        },
+    )
+    assert res.status_code == 200, res.text
+    text_part = next(
+        part for part in captured["messages"][-1]["content"] if part["type"] == "text"
+    )["text"]
+    assert "точную формулировку задания" in text_part
+    assert "Дополнительная просьба пользователя" in text_part
+    assert "не заменяет видимое условие" in text_part
+
+
+def test_screen_assist_preserves_explicit_model_choice(client, monkeypatch):
+    captured: dict = {}
+
+    async def fake_stream(messages, provider=None, model=None, **kwargs):
+        captured["model"] = model
+        yield "ok"
+
+    monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
+    res = client.post(
+        "/chat/screen/stream",
+        json={
+            "image": "data:image/jpeg;base64,QUJD",
+            "modelOverride": "openai/gpt-4o",
+        },
+    )
+    assert res.status_code == 200, res.text
+    assert captured["model"] == "openai/gpt-4o"
 
 
 def test_screen_assist_rejects_empty_and_huge_images(client, monkeypatch):
@@ -331,35 +416,37 @@ def test_interview_stream_injects_answer_language_block(client, monkeypatch):
     assert "English" in user_msg
 
 
-def test_interview_fast_core_skips_every_enrichment_stage(client, monkeypatch):
-    captured: dict = {}
+def test_interview_fast_core_uses_one_grounded_provider_call(client, monkeypatch):
+    captured: dict = {"stream_calls": 0}
 
     async def fake_stream(messages, provider=None, model=None, **kwargs):
+        captured["stream_calls"] += 1
         captured["messages"] = messages
         captured["model"] = model
         captured["kwargs"] = kwargs
         yield "Короткий ответ."
 
-    def forbidden(*args, **kwargs):
-        raise AssertionError("fast core must not call enrichment")
+    def forbidden_read(*args, **kwargs):
+        raise AssertionError("fast core must not read resume/RAG/profile context")
 
-    async def forbidden_async(*args, **kwargs):
-        raise AssertionError("fast core must not call correction")
+    async def forbidden_correction(*args, **kwargs):
+        raise AssertionError("fast core must not call transcript correction")
+
+    async def forbidden_complete(*args, **kwargs):
+        raise AssertionError("fast core must not make a serial provider call")
 
     from conftest import TestingSessionLocal
 
     from app.routers import chat as chat_router
 
     monkeypatch.setattr(chat_router, "SessionLocal", TestingSessionLocal)
-    monkeypatch.setattr(chat_router, "_finalize_question", forbidden_async)
-    monkeypatch.setattr(chat_router.rag_service, "get_context_text", forbidden)
-    monkeypatch.setattr(chat_router, "get_profile_block", forbidden)
-    monkeypatch.setattr(chat_router, "resolve_domain_answer_hints", forbidden)
-    monkeypatch.setattr(chat_router, "resolve_required_output_contract", forbidden)
-    monkeypatch.setattr(chat_router, "detect_pack", forbidden)
+    monkeypatch.setattr(chat_router, "_finalize_question", forbidden_correction)
+    monkeypatch.setattr(chat_router.rag_service, "get_context_text", forbidden_read)
+    monkeypatch.setattr(chat_router, "get_profile_block", forbidden_read)
+    monkeypatch.setattr(provider_adapter, "complete", forbidden_complete)
     monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
 
-    question = "Что такое генератор в Python?"
+    question = "В чем разница, чем отличается list.sort() от sorted()?"
     response = client.post(
         "/chat/interview/stream",
         json={
@@ -374,17 +461,21 @@ def test_interview_fast_core_skips_every_enrichment_stage(client, monkeypatch):
     )
     assert response.status_code == 200, response.text
     assert len(captured["messages"]) == 2
+    assert captured["stream_calls"] == 1
     system_prompt = captured["messages"][0]["content"]
     user_prompt = captured["messages"][1]["content"]
     assert question in user_prompt
     assert "подменённый follow-up" not in user_prompt
     assert "другой текст" not in user_prompt
-    assert "DOMAIN-SPECIFIC" not in user_prompt
-    assert "KNOWLEDGE PACK" not in user_prompt
     assert "RESUME" not in system_prompt + user_prompt
-    assert len(system_prompt) + len(user_prompt) < 1800
+    assert (
+        "sorted(iterable) returns a new list; list.sort() mutates that list in place "
+        "and returns None."
+    ) in user_prompt
+    assert "Чем список отличается от кортежа?" not in user_prompt
+    assert "Главное отличие — изменяемость" not in user_prompt
     assert captured["kwargs"]["route_fast"] is True
-    assert captured["model"] == "openai/gpt-4.1-mini"
+    assert captured["model"] == "openai/gpt-4.1-nano"
 
     done = next(
         json.loads(line[6:])
@@ -393,10 +484,308 @@ def test_interview_fast_core_skips_every_enrichment_stage(client, monkeypatch):
     )
     meta = done["correction"]
     assert meta["prompt_mode"] == "fast_core"
-    assert meta["enrichment_used"] is False
+    assert meta["enrichment_used"] is True
     assert meta["knowledgePackUsed"] is False
     assert meta["resume_context_used"] is False
-    assert meta["prompt_chars"] < 1800
+    assert meta["resume_context_level"] == "none"
+    assert meta["resume_context_reason"] == "fast_core_local_enrichment"
+
+
+def test_interview_fast_core_hedges_slow_theory_with_quality_model(client, monkeypatch):
+    from conftest import TestingSessionLocal
+
+    from app.routers import chat as chat_router
+
+    calls: list[str] = []
+
+    async def fake_stream(messages, provider=None, model=None, **kwargs):
+        calls.append(model)
+        if model == "openai/gpt-4.1-nano":
+            await asyncio.sleep(0.04)
+            yield "Медленный быстрый ответ."
+            return
+        assert model == "openai/gpt-4.1-mini"
+        yield "Качественный резервный ответ."
+
+    monkeypatch.setattr(chat_router, "SessionLocal", TestingSessionLocal)
+    monkeypatch.setattr(chat_router, "LIVE_THEORY_HEDGE_AFTER_SECONDS", 0.001)
+    monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
+
+    response = client.post(
+        "/chat/interview/stream",
+        json={
+            "question": "Какие техники тест-дизайна ты знаешь?",
+            "fast_answer": True,
+            "answer_language": "ru",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert calls == ["openai/gpt-4.1-nano", "openai/gpt-4.1-mini"]
+    assert "Качественный резервный ответ." in response.text
+    assert "Медленный быстрый ответ." not in response.text
+    done = next(
+        json.loads(line[6:])
+        for line in response.text.splitlines()
+        if line.startswith("data: ") and '"type": "done"' in line
+    )
+    assert done["model"] == "openai/gpt-4.1-mini"
+    assert done["model_source"] == "fast_core_default"
+    assert done["correction"]["hedgeStarted"] is True
+    assert done["correction"]["hedgeWinner"] == "fallback"
+
+
+def test_interview_fast_core_uses_fast_theory_model_without_waiting_for_hedge(
+    client, monkeypatch
+):
+    from conftest import TestingSessionLocal
+
+    from app.routers import chat as chat_router
+
+    calls: list[str] = []
+
+    async def fake_stream(messages, provider=None, model=None, **kwargs):
+        calls.append(model)
+        yield "Быстрый точный ответ."
+
+    monkeypatch.setattr(chat_router, "SessionLocal", TestingSessionLocal)
+    monkeypatch.setattr(chat_router, "LIVE_THEORY_HEDGE_AFTER_SECONDS", 0.02)
+    monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
+
+    response = client.post(
+        "/chat/interview/stream",
+        json={
+            "question": "Какие техники тест-дизайна ты знаешь?",
+            "fast_answer": True,
+            "answer_language": "ru",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert calls == ["openai/gpt-4.1-nano"]
+    done = next(
+        json.loads(line[6:])
+        for line in response.text.splitlines()
+        if line.startswith("data: ") and '"type": "done"' in line
+    )
+    assert done["model"] == "openai/gpt-4.1-nano"
+    assert done["model_source"] == "fast_core_latency_hedge"
+    assert done["correction"]["hedgeStarted"] is False
+    assert done["correction"]["hedgeWinner"] == "primary"
+
+
+def test_interview_fast_core_hedges_wav_theory_with_practical_wording(client, monkeypatch):
+    from conftest import TestingSessionLocal
+
+    from app.routers import chat as chat_router
+
+    calls: list[str] = []
+
+    async def fake_stream(messages, provider=None, model=None, **kwargs):
+        calls.append(model)
+        if model == "openai/gpt-4.1-nano":
+            await asyncio.sleep(0.04)
+            yield "Медленный быстрый ответ."
+            return
+        yield "Качественный резервный ответ."
+
+    monkeypatch.setattr(chat_router, "SessionLocal", TestingSessionLocal)
+    monkeypatch.setattr(chat_router, "LIVE_THEORY_HEDGE_AFTER_SECONDS", 0.001)
+    monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
+
+    response = client.post(
+        "/chat/interview/stream",
+        json={
+            "question": (
+                "Расскажи, пожалуйста, про техники тест-дизайна. "
+                "Какие ты знаешь и какие применяешь в работе?"
+            ),
+            "fast_answer": True,
+            "answer_language": "ru",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert calls == ["openai/gpt-4.1-nano", "openai/gpt-4.1-mini"]
+    done = next(
+        json.loads(line[6:])
+        for line in response.text.splitlines()
+        if line.startswith("data: ") and '"type": "done"' in line
+    )
+    assert done["correction"]["question_intent"] == "practical_usage"
+    assert done["correction"]["hedgeStarted"] is True
+    assert done["correction"]["hedgeWinner"] == "fallback"
+
+
+def test_interview_fast_core_never_hedges_personal_experience(client, monkeypatch):
+    from conftest import TestingSessionLocal
+
+    from app.routers import chat as chat_router
+
+    calls: list[str] = []
+
+    async def fake_stream(messages, provider=None, model=None, **kwargs):
+        calls.append(model)
+        await asyncio.sleep(0.01)
+        yield "Точный ответ по резюме."
+
+    monkeypatch.setattr(chat_router, "SessionLocal", TestingSessionLocal)
+    monkeypatch.setattr(chat_router, "LIVE_THEORY_HEDGE_AFTER_SECONDS", 0.001)
+    monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
+
+    response = client.post(
+        "/chat/interview/stream",
+        json={
+            "question": "Расскажи о своём опыте автоматизации тестирования.",
+            "fast_answer": True,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert calls == ["openai/gpt-4.1-mini"]
+    done = next(
+        json.loads(line[6:])
+        for line in response.text.splitlines()
+        if line.startswith("data: ") and '"type": "done"' in line
+    )
+    assert done["model"] == "openai/gpt-4.1-mini"
+    assert done["correction"]["hedgeStarted"] is False
+
+
+def test_interview_fast_core_preserves_explicit_model_without_hedging(client, monkeypatch):
+    from conftest import TestingSessionLocal
+
+    from app.routers import chat as chat_router
+
+    calls: list[str] = []
+
+    async def fake_stream(messages, provider=None, model=None, **kwargs):
+        calls.append(model)
+        await asyncio.sleep(0.01)
+        yield "Явно выбранная модель."
+
+    monkeypatch.setattr(chat_router, "SessionLocal", TestingSessionLocal)
+    monkeypatch.setattr(chat_router, "LIVE_THEORY_HEDGE_AFTER_SECONDS", 0.001)
+    monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
+
+    response = client.post(
+        "/chat/interview/stream",
+        json={
+            "question": "Какие техники тест-дизайна ты знаешь?",
+            "fast_answer": True,
+            "modelOverride": "openai/gpt-4o-mini",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert calls == ["openai/gpt-4o-mini"]
+    done = next(
+        json.loads(line[6:])
+        for line in response.text.splitlines()
+        if line.startswith("data: ") and '"type": "done"' in line
+    )
+    assert done["model"] == "openai/gpt-4o-mini"
+    assert done["correction"]["hedgeStarted"] is False
+
+
+def test_interview_fast_core_injects_only_verified_curated_pack(client, monkeypatch):
+    captured: dict = {"stream_calls": 0}
+
+    async def fake_stream(messages, provider=None, model=None, **kwargs):
+        captured["stream_calls"] += 1
+        captured["messages"] = messages
+        yield "yield приостанавливает выполнение."
+
+    from conftest import TestingSessionLocal
+
+    from app.routers import chat as chat_router
+
+    monkeypatch.setattr(chat_router, "SessionLocal", TestingSessionLocal)
+    monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
+
+    response = client.post(
+        "/chat/interview/stream",
+        json={
+            "question": "Что делает yield в Python?",
+            "fast_answer": True,
+            "answer_language": "ru",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert captured["stream_calls"] == 1
+    prompt = captured["messages"][-1]["content"]
+    assert "PYTHON VERIFIED FACTUAL CONTRACT" in prompt
+    assert "yield превращает функцию в генератор" in prompt
+    assert "community reference" not in prompt
+
+    done = next(
+        json.loads(line[6:])
+        for line in response.text.splitlines()
+        if line.startswith("data: ") and '"type": "done"' in line
+    )
+    assert done["correction"]["knowledgeSource"] == "curated"
+    assert done["correction"]["enrichment_used"] is True
+    assert done["correction"]["resume_context_used"] is False
+
+
+def test_interview_fast_core_keeps_required_output_contract(client, monkeypatch):
+    captured: dict = {}
+
+    async def fake_stream(messages, provider=None, model=None, **kwargs):
+        captured["messages"] = messages
+        yield "Набор проверок."
+
+    from conftest import TestingSessionLocal
+
+    from app.routers import chat as chat_router
+
+    monkeypatch.setattr(chat_router, "SessionLocal", TestingSessionLocal)
+    monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
+
+    response = client.post(
+        "/chat/interview/stream",
+        json={
+            "question": "Какие проверки нужны для endpoint last_order?",
+            "fast_answer": True,
+            "answer_language": "ru",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    prompt = captured["messages"][-1]["content"]
+    assert "FINAL REQUIRED OUTPUT CONTRACT — last_order" in prompt
+
+
+def test_interview_fast_core_excludes_personal_domain_templates(client, monkeypatch):
+    captured: dict = {}
+
+    async def fake_stream(messages, provider=None, model=None, **kwargs):
+        captured["messages"] = messages
+        yield "UI, API и интеграционные тесты."
+
+    from conftest import TestingSessionLocal
+
+    from app.routers import chat as chat_router
+
+    monkeypatch.setattr(chat_router, "SessionLocal", TestingSessionLocal)
+    monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
+
+    response = client.post(
+        "/chat/interview/stream",
+        json={
+            "question": "Какие виды автоматизации бывают?",
+            "fast_answer": True,
+            "answer_language": "ru",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    prompt = captured["messages"][-1]["content"]
+    assert "UI-автотесты" in prompt
+    assert "интеграционные" in prompt
+    assert "В моём опыте" not in prompt
+    assert "Optional one personal line" not in prompt
 
 
 def test_interview_stream_failure_after_partial_tokens_is_not_success(client, monkeypatch):

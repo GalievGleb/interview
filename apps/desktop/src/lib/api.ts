@@ -152,10 +152,19 @@ export interface UsageRow {
   stt_seconds: number;
 }
 
+export interface SseDoneMetadata {
+  model?: string;
+  modelSource?: string;
+}
+
 interface SseHandlers {
   onChunk: (text: string) => void;
   onDone: () => void;
   onError: (msg: string) => void;
+}
+
+interface MetadataSseHandlers extends Omit<SseHandlers, 'onDone'> {
+  onDone: (meta?: SseDoneMetadata) => void;
 }
 
 /**
@@ -191,9 +200,27 @@ export function createIdleWatchdog(controller: AbortController): {
 }
 
 /** Generic SSE POST stream for chat endpoints. Returns a cancel function. */
-function sseChatStream(path: string, body: unknown, handlers: SseHandlers): () => void {
+function sseChatStream(
+  path: string,
+  body: unknown,
+  handlers: SseHandlers | MetadataSseHandlers,
+): () => void {
   const controller = new AbortController();
   const watchdog = createIdleWatchdog(controller);
+  let settled = false;
+  let cancelled = false;
+  const settleDone = (meta?: SseDoneMetadata): boolean => {
+    if (settled || cancelled) return false;
+    settled = true;
+    (handlers.onDone as (value?: SseDoneMetadata) => void)(meta);
+    return true;
+  };
+  const settleError = (message: string): boolean => {
+    if (settled || cancelled) return false;
+    settled = true;
+    handlers.onError(message);
+    return true;
+  };
   void (async () => {
     try {
       watchdog.arm();
@@ -204,12 +231,34 @@ function sseChatStream(path: string, body: unknown, handlers: SseHandlers): () =
         signal: controller.signal,
       });
       if (!resp.ok || !resp.body) {
-        handlers.onError(`Ошибка ${resp.status}`);
+        settleError(`Ошибка ${resp.status}`);
         return;
       }
       const reader = resp.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
+      const processLine = (line: string): boolean => {
+        if (!line.startsWith('data: ')) return false;
+        try {
+          const evt = JSON.parse(line.slice(6));
+          if (evt.type === 'chunk' && !settled && !cancelled) handlers.onChunk(evt.text);
+          else if (evt.type === 'done') {
+            settleDone({
+              ...(typeof evt.model === 'string' ? { model: evt.model } : {}),
+              ...(typeof (evt.model_source ?? evt.modelSource) === 'string'
+                ? { modelSource: evt.model_source ?? evt.modelSource }
+                : {}),
+            });
+            return true;
+          } else if (evt.type === 'error') {
+            settleError(evt.message ?? 'Ошибка');
+            return true;
+          }
+        } catch {
+          // ignore malformed SSE lines
+        }
+        return false;
+      };
       for (;;) {
         const { done, value } = await reader.read();
         watchdog.arm();
@@ -218,29 +267,28 @@ function sseChatStream(path: string, body: unknown, handlers: SseHandlers): () =
         const lines = buffer.split('\n');
         buffer = lines.pop() ?? '';
         for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-          try {
-            const evt = JSON.parse(line.slice(6));
-            if (evt.type === 'chunk') handlers.onChunk(evt.text);
-            else if (evt.type === 'done') handlers.onDone();
-            else if (evt.type === 'error') handlers.onError(evt.message);
-          } catch {
-            // ignore
-          }
+          if (processLine(line)) return;
         }
       }
-      handlers.onDone();
+      buffer += decoder.decode();
+      for (const line of buffer.split('\n')) {
+        if (processLine(line)) return;
+      }
+      settleDone();
     } catch (err) {
       if (watchdog.state.timedOut) {
-        handlers.onError('Ответ не пришёл вовремя — соединение зависло. Повторите.');
-      } else if ((err as Error).name !== 'AbortError') {
-        handlers.onError(err instanceof Error ? err.message : 'Ошибка запроса');
+        settleError('Ответ не пришёл вовремя — соединение зависло. Повторите.');
+      } else if ((err as Error).name !== 'AbortError' && !cancelled) {
+        settleError(err instanceof Error ? err.message : 'Ошибка запроса');
       }
     } finally {
       watchdog.disarm();
     }
   })();
-  return () => controller.abort();
+  return () => {
+    cancelled = true;
+    controller.abort();
+  };
 }
 
 type RequestOptions = RequestInit & { timeoutMs?: number };
@@ -1079,7 +1127,7 @@ export const api = {
   streamScreenAssist(
     image: string,
     question: string,
-    handlers: SseHandlers,
+    handlers: MetadataSseHandlers,
     opts: { context?: string; mode?: string } = {},
   ): () => void {
     return sseChatStream(

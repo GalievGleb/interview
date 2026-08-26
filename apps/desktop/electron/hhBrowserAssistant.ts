@@ -29,6 +29,11 @@ import {
   countTodaySent,
   decideNextAction,
   effectiveDailyLimit,
+  hhDiscoveryPageBudget,
+  hhVerificationCooldownUntil,
+  isFullyKnownDiscoveryPage,
+  isUnavailableHhVacancyText,
+  isFutureIsoTimestamp,
   jitterMs,
   nextDiscoveryRunDelayMs,
   type HhApplyContext,
@@ -218,6 +223,7 @@ export interface HhAssistantState {
   lastScanSummary: HhScanSummary | null;
   nextRunAt: string | null;
   nextQueueResumeAt: string | null;
+  verificationCooldownUntil: string | null;
   updatedAt: string;
 }
 
@@ -235,6 +241,7 @@ interface PersistedState {
   automationDiagnostics?: unknown;
   queuePaused?: unknown;
   resumeSelectionConfirmed?: unknown;
+  verificationCooldownUntil?: unknown;
 }
 
 interface QueueRunStats {
@@ -246,6 +253,7 @@ interface QueueRunStats {
   needsAttention: number;
   stopped: boolean;
   blocked: boolean;
+  cooldown: boolean;
 }
 
 export type HhCoverLetterRetry = 'never' | 'manual' | 'later';
@@ -262,6 +270,7 @@ interface HhApplyOutcome {
   blocked: boolean;
   reason: string;
   autoRetryBlockedUntil?: HhQueueItem['autoRetryBlockedUntil'];
+  verification?: boolean;
 }
 
 type EmitState = (state: HhAssistantState) => void;
@@ -442,8 +451,12 @@ function isQueueItemEligibleForRun(
 ): boolean {
   if (!isActionableQueueItem(item)) return false;
   if (!item.autoRetryBlockedUntil) return true;
-  if (mode === 'manual') return true;
+  if (mode === 'manual') return item.autoRetryBlockedUntil === 'manual';
   return mode === 'daily' && item.autoRetryBlockedUntil === 'daily';
+}
+
+function isHhVerificationFailure(value: string): boolean {
+  return /captcha|капч|не\s+робот|код\s+с\s+картинк|проверк(?:а|у|и)\s+hh/i.test(value);
 }
 
 function pluralRuCount(count: number, one: string, few: string, many: string): string {
@@ -1437,7 +1450,7 @@ function normalizeScreeningFacts(value: unknown): HhScreeningFact[] {
 
 export function normalizePersistedQueue(
   value: unknown,
-  _restoreLegacyPreSubmissionState = true,
+  restoreLegacyFalseNegatives = true,
 ): HhQueueItem[] {
   if (!Array.isArray(value)) return [];
   const result: HhQueueItem[] = [];
@@ -1480,7 +1493,13 @@ export function normalizePersistedQueue(
     const staleUnconfirmedRemoteState = rawStatus === 'skipped'
       && /(?:не подтвержд[её]н выбранный удал[её]нный формат|отсутств(?:ует|ие) явн(?:ой|ого).{0,80}удал[её]н)/i.test(reason ?? '')
       && !sentAt;
-    const staleFalseNegativeState = stalePreSubmissionCoverLetterState || staleUnconfirmedRemoteState;
+    const staleProfileMismatchState = restoreLegacyFalseNegatives
+      && rawStatus === 'skipped'
+      && /вакансия не соответствует выбранному резюме и направлению поиска/i.test(reason ?? '')
+      && !sentAt;
+    const staleFalseNegativeState = stalePreSubmissionCoverLetterState
+      || staleUnconfirmedRemoteState
+      || staleProfileMismatchState;
     const storedPendingQuestions = Array.isArray(item.pendingQuestions)
       ? item.pendingQuestions.map(normalizeStoredScreeningQuestion).filter((question): question is HhScreeningQuestion => Boolean(question)).slice(0, 60)
       : [];
@@ -1535,6 +1554,9 @@ export function normalizePersistedQueue(
       || /выбранное резюме .+ больше не найдено в hh или не определяется однозначно/i.test(reason ?? '')
       || /не удалось однозначно выбрать одно из резюме hh/i.test(reason ?? '')
     );
+    const staleCaptchaManualGate = rawStatus === 'opened'
+      && storedAutoRetryBlock === 'manual'
+      && /hh трижды показал проверку для этой вакансии/i.test(reason ?? '');
     // A grounded skill mismatch is terminal for this vacancy, not a request
     // for the user to launch it manually. Older builds persisted the model's
     // explanation as a manual cover-letter failure.
@@ -1575,6 +1597,8 @@ export function normalizePersistedQueue(
       || normalizedStatus === 'skipped';
     const autoRetryBlockedUntil = terminalStatus || staleManualResumeGate
       ? undefined
+      : staleCaptchaManualGate
+        ? 'daily' as const
       : onlyLegacyTransientQuestions
         ? 'daily' as const
         : legacyUngatedCoverLetterFailure
@@ -1599,6 +1623,8 @@ export function normalizePersistedQueue(
             ? 'Предыдущая попытка не подтвердила отправку отклика. Вакансия возвращена в очередь для проверки на странице HH.'
         : staleUnconfirmedRemoteState
           ? 'Удалённый формат не был опровергнут. Вакансия возвращена в очередь и будет проверена по фактическим условиям на странице HH.'
+        : staleProfileMismatchState
+          ? 'Критерии совместимости обновлены. Вакансия возвращена для повторной проверки по выбранному резюме.'
         : recentUnconfirmedLetter
           ? 'Отклик отправлен без подтверждённого письма. Добавлю и проверю сопроводительное письмо в чате HH.'
         : onlyLegacyTransientQuestions
@@ -1733,6 +1759,7 @@ export class HhBrowserAssistant {
   private queueResumeTimer: NodeJS.Timeout | null = null;
   private queueResumeTimerReason = '';
   private queueResumeRunning = false;
+  private verificationResumeTimer: NodeJS.Timeout | null = null;
   private lastScanFoundCount = 0;
   private applicantResumes: HhApplicantResume[] = [];
   private resumeSelectionConfirmed = false;
@@ -1786,7 +1813,7 @@ export class HhBrowserAssistant {
       : { ...expandedDiscoveryConfig, resumeTitles: [], resumeTitleContains: '' };
     this.resumeSelectionConfirmed = persistedVersion >= 8
       && persisted?.resumeSelectionConfirmed === true;
-    const normalizedQueue = normalizePersistedQueue(persisted?.queue);
+    const normalizedQueue = normalizePersistedQueue(persisted?.queue, persistedVersion < 9);
     this.state = {
       phase: 'idle',
       browserOpen: false,
@@ -1817,10 +1844,17 @@ export class HhBrowserAssistant {
       lastScanSummary: null,
       nextRunAt: null,
       nextQueueResumeAt: null,
+      verificationCooldownUntil: isFutureIsoTimestamp(
+        typeof persisted?.verificationCooldownUntil === 'string'
+          ? persisted.verificationCooldownUntil
+          : undefined,
+      )
+        ? String(persisted?.verificationCooldownUntil)
+        : null,
       updatedAt: nowIso(),
     };
     const reconciledQuestions = this.reconcileKnownPendingScreeningQuestions();
-    if (persistedVersion < 8 || reconciledQuestions > 0) this.persist();
+    if (persistedVersion < 10 || reconciledQuestions > 0) this.persist();
   }
 
   /**
@@ -2061,9 +2095,15 @@ export class HhBrowserAssistant {
       this.stopDailySchedule();
     }
     if (this.state.config.autoSend) {
-      this.scheduleQueueResume(2_000);
+      if (this.activeVerificationCooldown()) {
+        this.clearQueueResumeTimer();
+        this.scheduleVerificationResume();
+      } else {
+        this.scheduleQueueResume(2_000);
+      }
     } else {
       this.clearQueueResumeTimer();
+      this.clearVerificationResumeTimer();
     }
     this.update({ message: 'Настройки сохранены.' });
     return this.getState();
@@ -2076,7 +2116,11 @@ export class HhBrowserAssistant {
     if (this.state.config.autoRunDaily) {
       this.startDailySchedule();
     }
-    this.scheduleQueueResume(10_000, 'startup_restore');
+    if (this.activeVerificationCooldown()) {
+      this.scheduleVerificationResume();
+    } else {
+      this.scheduleQueueResume(10_000, 'startup_restore');
+    }
   }
 
   /**
@@ -2250,7 +2294,7 @@ export class HhBrowserAssistant {
         this.statePath,
         JSON.stringify(
           {
-            version: 8,
+            version: 10,
             config: this.state.config,
             queue: this.state.queue,
             screeningFacts: this.state.screeningFacts,
@@ -2258,6 +2302,7 @@ export class HhBrowserAssistant {
             automationDiagnostics: this.automationDiagnostics,
             queuePaused: this.state.queuePaused,
             resumeSelectionConfirmed: this.resumeSelectionConfirmed,
+            verificationCooldownUntil: this.state.verificationCooldownUntil,
           } satisfies PersistedState,
           null,
           2,
@@ -3332,6 +3377,17 @@ export class HhBrowserAssistant {
     return null;
   }
 
+  private applyDetectedVerificationCooldown(blocker: string): boolean {
+    if (!isHhVerificationFailure(blocker)) return false;
+    const until = this.activateVerificationCooldown();
+    this.update({
+      phase: 'ready',
+      browserOpen: false,
+      message: this.verificationCooldownMessage(until),
+    });
+    return true;
+  }
+
   private async scrapeCurrentPage(page: Page): Promise<Array<HhVacancy & { alreadyApplied: boolean }>> {
     const cards = parseHhSearchResults(await page.content(), 100);
     const result: Array<HhVacancy & { alreadyApplied: boolean }> = [];
@@ -3385,11 +3441,11 @@ export class HhBrowserAssistant {
       const excludedKeys = new Set<string>();
       const exhaustedQueries = new Set<string>();
       const nextPageByQuery = new Map(queries.map((query) => [query, 0]));
-      // Each synonym is an independent HH result set. A shared 100-page
-      // budget silently starved later queries and missed vacancies. Exhaust
-      // every query up to HH's configured per-query page limit.
+      // Visit every synonym in round-robin order, but spend one global request
+      // budget. Multiplying nine synonyms by twenty pages caused 180 rapid HH
+      // navigations and provoked account-wide verification.
       const pagesToScan = platform === 'hh'
-        ? queries.length * this.state.config.maxPages
+        ? hhDiscoveryPageBudget(queries.length, this.state.config.maxPages)
         : this.state.config.maxPages;
       const queueLimit = this.state.config.maxQueueSize;
       let pagesScanned = 0;
@@ -3406,6 +3462,7 @@ export class HhBrowserAssistant {
         await page.goto('https://hh.ru/', { waitUntil: 'domcontentloaded', timeout: 30_000 });
         const blocker = await this.detectManualBlocker(page);
         if (blocker) {
+          if (this.applyDetectedVerificationCooldown(blocker)) return this.getState();
           this.update({ phase: 'manual_required', browserOpen: true, message: blocker });
           return this.getState();
         }
@@ -3505,6 +3562,7 @@ export class HhBrowserAssistant {
           if (this.stopApplyRequested) break scanLoop;
           const blocker = await this.detectManualBlocker(page);
           if (blocker) {
+            if (this.applyDetectedVerificationCooldown(blocker)) return this.getState();
             this.update({
               phase: 'manual_required',
               browserOpen: true,
@@ -3531,6 +3589,10 @@ export class HhBrowserAssistant {
             exhaustedQueries.add(searchQuery);
             continue;
           }
+          const fullyKnownPage = platform === 'hh' && isFullyKnownDiscoveryPage(
+            pageVacancies.map((vacancy) => jobKey(platform, vacancy.id)),
+            new Set(previous.keys()),
+          );
           for (const rawVacancy of pageVacancies) {
             let vacancy = rawVacancy;
             const key = jobKey(platform, vacancy.id);
@@ -3573,6 +3635,18 @@ export class HhBrowserAssistant {
           const foundMessage = `Найдено ${collected.size} · проверено страниц ${pagesScanned}`;
           this.update({ message: foundMessage });
           this.progressRun(runId, { found: collected.size, message: foundMessage });
+          if (fullyKnownPage) exhaustedQueries.add(searchQuery);
+          if (
+            pagesScanned < pagesToScan
+            && exhaustedQueries.size < queries.length
+            && !this.stopApplyRequested
+          ) {
+            const discoveryDelaySec = Math.max(
+              2,
+              Math.min(5, this.state.config.delayBetweenSec / 5),
+            );
+            await page.waitForTimeout(jitterMs(discoveryDelaySec));
+          }
         }
         if (!requestedInRound) break;
       }
@@ -3698,6 +3772,14 @@ export class HhBrowserAssistant {
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
       const blocker = await this.detectManualBlocker(page);
       if (blocker) {
+        if (this.applyDetectedVerificationCooldown(blocker)) {
+          this.finishRun(run.id, {
+            status: 'completed',
+            found: 1,
+            message: this.state.message,
+          });
+          return this.getState();
+        }
         this.update({ phase: 'manual_required', browserOpen: true, message: blocker });
         this.finishRun(run.id, { status: 'attention', found: 1, needsAttention: 1, message: blocker });
         return this.getState();
@@ -3807,11 +3889,37 @@ export class HhBrowserAssistant {
         await this.chatPage.close().catch(() => undefined);
         this.chatPage = null;
       }
+      await this.ensureBrowser('background');
+      const preflight = await this.context?.request.get(vacancy.url, {
+        failOnStatusCode: false,
+        timeout: 20_000,
+        headers: { accept: 'text/html,application/xhtml+xml' },
+      }).catch(() => null);
+      const preflightText = preflight
+        ? await preflight.text().catch(() => '')
+        : '';
+      if (preflight?.status() === 404 || isUnavailableHhVacancyText(preflightText)) {
+        this.patchQueue(vacancy.key, {
+          status: 'skipped',
+          reason: 'Вакансия больше недоступна на HH.',
+          autoRetryBlockedUntil: undefined,
+        });
+        this.update({
+          phase: 'ready',
+          currentVacancyId: null,
+          browserOpen: true,
+          message: 'Вакансия больше недоступна на HH. Она убрана из очереди без ручного перехода.',
+        });
+        return this.getState();
+      }
       const page = await this.ensureBrowser('interactive');
       await page.goto(vacancy.url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
       await page.bringToFront();
       await this.captureVacancyDescription(page, vacancy);
       const blocker = await this.detectManualBlocker(page);
+      if (blocker && this.applyDetectedVerificationCooldown(blocker)) {
+        return this.getState();
+      }
       const terminalStatus = vacancy.status === 'sent'
         || vacancy.status === 'already_applied'
         || vacancy.status === 'skipped';
@@ -3853,6 +3961,7 @@ export class HhBrowserAssistant {
       }
       const blocker = await this.detectManualBlocker(page);
       if (blocker) {
+        if (this.applyDetectedVerificationCooldown(blocker)) return this.getState();
         this.update({ phase: 'manual_required', message: blocker });
         return this.getState();
       }
@@ -3922,6 +4031,10 @@ export class HhBrowserAssistant {
     const applicantMenu = page.locator(
       '[data-qa="mainmenu_applicantProfile"], [data-qa="mainmenu_applicantProfileAndResumes"]',
     );
+    const text = await body();
+    if (isUnavailableHhVacancyText(text)) {
+      return 'unavailable';
+    }
     if (
       (await applicantMenu.count()) === 0 &&
       (await loginLink.count()) > 0 &&
@@ -3934,7 +4047,6 @@ export class HhBrowserAssistant {
       return 'captcha';
     }
     // A transient challenge reloads the document, so re-read the live page.
-    const text = await body();
     const alreadyAppliedVisible =
       isAlreadyAppliedHhText(text) ||
       (await hasVisible(page, ALREADY_APPLIED_SELECTOR));
@@ -5237,25 +5349,26 @@ export class HhBrowserAssistant {
           this.patchQueue(vacancy.id, {
             status: 'opened',
             reason: verification
-              ? 'HH трижды показал проверку для этой вакансии. Она отложена; остальные вакансии продолжаю обрабатывать.'
+              ? 'HH трижды показал проверку. Вакансия отложена, вся автоочередь поставлена на безопасную паузу.'
               : decided.reason,
-            autoRetryBlockedUntil: 'manual',
+            autoRetryBlockedUntil: verification ? 'daily' : 'manual',
           });
           this.update({
             phase: 'manual_required',
             browserOpen: !verification,
             currentVacancyId: vacancy.id,
             message: verification
-              ? 'Одна вакансия отложена после повторной проверки HH. Остальная очередь продолжает работу.'
+              ? 'HH повторно показал проверку. Автоочередь поставлена на паузу и продолжится сама позже.'
               : decided.reason,
           });
           return {
             sent: false,
-            blocked: !verification,
+            blocked: true,
             reason: verification
-              ? 'Проверка HH сохранилась после трёх попыток; отложил только эту вакансию.'
+              ? 'Проверка HH сохранилась после трёх попыток; вся автоочередь поставлена на безопасную паузу.'
               : decided.reason,
-            autoRetryBlockedUntil: 'manual',
+            autoRetryBlockedUntil: verification ? 'daily' : 'manual',
+            verification,
           };
           }
         case 'click_response': {
@@ -5452,9 +5565,26 @@ export class HhBrowserAssistant {
     };
   }
 
+  private async waitBetweenQueueAttempts(): Promise<void> {
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, jitterMs(this.state.config.delayBetweenSec));
+    });
+  }
+
   private async runQueue(runId?: string, scopedKeys?: ReadonlySet<string>): Promise<QueueRunStats> {
+    const activeCooldown = this.activeVerificationCooldown();
+    if (activeCooldown) {
+      this.update({
+        phase: 'ready',
+        applying: false,
+        applyProgress: null,
+        message: this.verificationCooldownMessage(activeCooldown),
+      });
+      this.scheduleVerificationResume(activeCooldown);
+      return { total: 0, attempted: 0, sent: 0, alreadyApplied: 0, skipped: 0, needsAttention: 0, stopped: false, blocked: true, cooldown: true };
+    }
     if (this.applyInFlight) {
-      return { total: 0, attempted: 0, sent: 0, alreadyApplied: 0, skipped: 0, needsAttention: 0, stopped: false, blocked: false };
+      return { total: 0, attempted: 0, sent: 0, alreadyApplied: 0, skipped: 0, needsAttention: 0, stopped: false, blocked: false, cooldown: false };
     }
     this.applyInFlight = true;
     let sentNow = 0;
@@ -5487,7 +5617,7 @@ export class HhBrowserAssistant {
           ? scanSummaryMessage(this.state.lastScanSummary)
           : 'Очередь проверена: новых вакансий для автоотклика нет.',
       });
-      return { total: 0, attempted: 0, sent: 0, alreadyApplied: 0, skipped: 0, needsAttention: 0, stopped: false, blocked: false };
+      return { total: 0, attempted: 0, sent: 0, alreadyApplied: 0, skipped: 0, needsAttention: 0, stopped: false, blocked: false, cooldown: false };
     }
 
     let done = 0;
@@ -5496,6 +5626,7 @@ export class HhBrowserAssistant {
     let needsAttention = 0;
     let dailyLimitReached = false;
     let hardBlocked = false;
+    let automaticCooldown = false;
     let blockerReason = '';
     this.update({
       phase: 'applying', browserOpen: true, applying: true,
@@ -5556,29 +5687,30 @@ export class HhBrowserAssistant {
         const detail = error instanceof Error ? error.message : String(error);
         const reason = `Неожиданная ошибка при обработке вакансии: ${detail}`;
         const fatal = isFatalHhQueueError(error, this.state.loginRequired);
-        const verification = /captcha|капч|не\s+робот|код\s+с\s+картинк/i.test(detail);
+        const verification = isHhVerificationFailure(detail);
         this.patchQueue(item.key, {
           status: 'opened',
           reason,
-          autoRetryBlockedUntil: fatal || verification ? 'manual' : 'daily',
+          autoRetryBlockedUntil: fatal && !verification ? 'manual' : 'daily',
         });
         outcome = {
           sent: false,
           alreadyApplied: false,
-          blocked: fatal,
+          blocked: fatal || verification,
           reason,
-          autoRetryBlockedUntil: fatal || verification ? 'manual' : 'daily',
+          autoRetryBlockedUntil: fatal && !verification ? 'manual' : 'daily',
+          verification,
         };
       }
       if (outcome.sent) sentNow += 1;
       if (outcome.alreadyApplied) alreadyAppliedNow += 1;
       const updatedItem = this.state.queue.find((candidate) => candidate.key === item.key);
       if (!outcome.sent && updatedItem?.status === 'skipped') skippedNow += 1;
-      if (
+      if (!outcome.verification && (
         updatedItem?.status === 'needs_input'
         || updatedItem?.autoRetryBlockedUntil
         || outcome.blocked
-      ) needsAttention += 1;
+      )) needsAttention += 1;
       if (outcome.blocked && !updatedItem?.autoRetryBlockedUntil) {
         this.patchQueue(item.key, {
           autoRetryBlockedUntil: outcome.autoRetryBlockedUntil ?? 'manual',
@@ -5607,10 +5739,17 @@ export class HhBrowserAssistant {
       });
       if (outcome.blocked) {
         hardBlocked = true;
-        blockerReason = outcome.reason;
+        if (outcome.verification) {
+          automaticCooldown = true;
+          const until = this.activateVerificationCooldown();
+          blockerReason = this.verificationCooldownMessage(until);
+        } else {
+          blockerReason = outcome.reason;
+        }
         break;
       }
       if (this.stopApplyRequested) break;
+      if (done < total) await this.waitBetweenQueueAttempts();
     }
 
     const stopped = this.stopApplyRequested;
@@ -5622,7 +5761,7 @@ export class HhBrowserAssistant {
         && (!scopedKeys || scopedKeys.has(item.key)),
     ).length;
     this.update({
-      phase: hardBlocked && !stopped ? 'manual_required' : 'ready',
+      phase: hardBlocked && !stopped && !automaticCooldown ? 'manual_required' : 'ready',
       applying: false,
       stopRequested: false,
       queuePaused: stopped || this.state.queuePaused,
@@ -5653,6 +5792,7 @@ export class HhBrowserAssistant {
       needsAttention,
       stopped,
       blocked: hardBlocked && !stopped,
+      cooldown: automaticCooldown && !stopped,
     };
   }
 
@@ -6139,6 +6279,23 @@ export class HhBrowserAssistant {
       this.update({ message: 'Предыдущий прогон ещё выполняется.' });
       return this.getState();
     }
+    const activeCooldown = this.activeVerificationCooldown();
+    if (activeCooldown && trigger !== 'manual') {
+      this.update({
+        phase: 'ready',
+        applying: false,
+        message: this.verificationCooldownMessage(activeCooldown),
+      });
+      this.scheduleVerificationResume(activeCooldown);
+      return this.getState();
+    }
+    if (activeCooldown) {
+      this.clearVerificationResumeTimer();
+      this.update({
+        verificationCooldownUntil: null,
+        message: 'Повторно проверяю HH по вашему запросу…',
+      });
+    }
     this.automationRunInFlight = true;
     const run = this.beginRun(trigger);
     try {
@@ -6188,9 +6345,9 @@ export class HhBrowserAssistant {
       }
       const stats = this.state.config.platform === 'hh'
         ? await this.runQueue(run.id)
-        : { total: 0, attempted: 0, sent: 0, alreadyApplied: 0, skipped: 0, needsAttention: 0, stopped: false, blocked: false };
+        : { total: 0, attempted: 0, sent: 0, alreadyApplied: 0, skipped: 0, needsAttention: 0, stopped: false, blocked: false, cooldown: false };
       this.finishRun(run.id, {
-        status: stats.stopped ? 'stopped' : stats.needsAttention > 0 ? 'attention' : 'completed',
+        status: stats.stopped ? 'stopped' : stats.cooldown ? 'completed' : stats.needsAttention > 0 ? 'attention' : 'completed',
         found: this.lastScanFoundCount,
         attempted: stats.attempted,
         sent: stats.sent,
@@ -6235,6 +6392,15 @@ export class HhBrowserAssistant {
     if (vacancy.platform !== 'hh') {
       return this.openVacancy(vacancy.key);
     }
+    const activeCooldown = this.activeVerificationCooldown();
+    if (activeCooldown) {
+      this.update({
+        phase: 'ready',
+        message: this.verificationCooldownMessage(activeCooldown),
+      });
+      this.scheduleVerificationResume(activeCooldown);
+      return this.getState();
+    }
     if (this.applyInFlight) return this.getState();
     if (this.stopApplyRequested) {
       this.stopApplyRequested = false;
@@ -6265,21 +6431,26 @@ export class HhBrowserAssistant {
       const detail = error instanceof Error ? error.message : String(error);
       const reason = `Неожиданная ошибка при обработке вакансии: ${detail}`;
       const fatal = isFatalHhQueueError(error, this.state.loginRequired);
+      const verification = isHhVerificationFailure(detail);
       this.patchQueue(vacancy.key, {
         status: 'opened',
         reason,
-        autoRetryBlockedUntil: fatal ? 'manual' : 'daily',
+        autoRetryBlockedUntil: fatal && !verification ? 'manual' : 'daily',
       });
       outcome = {
         sent: false,
-        blocked: fatal,
+        blocked: fatal || verification,
         reason,
-        autoRetryBlockedUntil: fatal ? 'manual' : 'daily',
+        autoRetryBlockedUntil: fatal && !verification ? 'manual' : 'daily',
+        verification,
       };
     }
     const stopped = this.stopApplyRequested;
     this.stopApplyRequested = false;
     this.applyInFlight = false;
+    const verificationCooldown = outcome.verification
+      ? this.activateVerificationCooldown()
+      : null;
     if (outcome.blocked) {
       const current = this.state.queue.find((item) => item.key === vacancy.key);
       if (!current?.autoRetryBlockedUntil) {
@@ -6290,13 +6461,15 @@ export class HhBrowserAssistant {
       this.clearQueueResumeTimer();
     }
     this.update({
-      phase: outcome.blocked && !stopped ? 'manual_required' : 'ready',
+      phase: outcome.blocked && !stopped && !outcome.verification ? 'manual_required' : 'ready',
       applying: false,
       stopRequested: false,
       queuePaused: stopped || this.state.queuePaused,
       message: stopped
         ? 'Автоотклики остановлены вами. Текущая вакансия завершена, следующие не обрабатываются.'
-        : outcome.reason,
+        : verificationCooldown
+          ? this.verificationCooldownMessage(verificationCooldown)
+          : outcome.reason,
     });
     if (this.queueResumePendingCount() === 0) this.clearQueueResumeTimer();
     return this.getState();
@@ -6331,6 +6504,59 @@ export class HhBrowserAssistant {
     return this.state.queue.filter(
       (item) => item.platform === 'hh' && isQueueItemEligibleForRun(item, 'queue'),
     ).length;
+  }
+
+  private activeVerificationCooldown(now: Date = new Date()): string | null {
+    const until = this.state.verificationCooldownUntil;
+    if (isFutureIsoTimestamp(until, now)) return until;
+    if (until) {
+      this.state.verificationCooldownUntil = null;
+      this.persist();
+    }
+    return null;
+  }
+
+  private verificationCooldownMessage(until: string): string {
+    return `HH временно включил проверку. Автоотклики безопасно приостановлены до ${new Date(until).toLocaleString('ru-RU')} и продолжатся сами.`;
+  }
+
+  private clearVerificationResumeTimer(): void {
+    if (!this.verificationResumeTimer) return;
+    clearTimeout(this.verificationResumeTimer);
+    this.verificationResumeTimer = null;
+  }
+
+  private scheduleVerificationResume(until = this.state.verificationCooldownUntil): void {
+    this.clearVerificationResumeTimer();
+    if (!until || !this.state.config.autoSend || this.state.queuePaused) return;
+    const delayMs = Math.max(1_000, Date.parse(until) - Date.now());
+    this.verificationResumeTimer = setTimeout(() => {
+      this.verificationResumeTimer = null;
+      if (this.state.verificationCooldownUntil !== until) return;
+      if (this.applyInFlight || this.automationRunInFlight || this.queueResumeRunning) {
+        this.verificationResumeTimer = setTimeout(
+          () => this.scheduleVerificationResume(until),
+          30_000,
+        );
+        this.verificationResumeTimer.unref?.();
+        return;
+      }
+      this.state.verificationCooldownUntil = null;
+      this.update({
+        phase: 'ready',
+        message: 'Пауза HH закончилась. Автоматически проверяю свежие вакансии и продолжаю очередь…',
+      });
+      void this.runNow('schedule');
+    }, delayMs);
+    this.verificationResumeTimer.unref?.();
+  }
+
+  private activateVerificationCooldown(): string {
+    const until = hhVerificationCooldownUntil();
+    this.clearQueueResumeTimer();
+    this.update({ verificationCooldownUntil: until });
+    this.scheduleVerificationResume(until);
+    return until;
   }
 
   private clearQueueResumeTimer(): void {
@@ -6547,6 +6773,7 @@ export class HhBrowserAssistant {
     this.automationRunInFlight = false;
     this.clearScheduleTimer();
     this.clearQueueResumeTimer();
+    this.clearVerificationResumeTimer();
     const context = this.context;
     const browser = this.browser;
     const browserProcess = this.browserProcess;
@@ -6571,6 +6798,108 @@ export class HhBrowserAssistant {
       applyProgress: null,
       message: 'Окно HH закрыто.',
     });
+  }
+
+  /**
+   * Explicitly forget the authenticated HH session so another account can be
+   * connected. Search settings and queue history stay on the device, but all
+   * automatic work is paused and the old account's résumé selection is dropped.
+   */
+  async logout(): Promise<HhAssistantState> {
+    this.stopApplyRequested = true;
+    this.clearScheduleTimer();
+    this.clearQueueResumeTimer();
+    this.clearVerificationResumeTimer();
+
+    try {
+      if (!this.context) await this.ensureBrowser('background');
+      const context = this.context;
+      if (!context) throw new Error('Не удалось открыть локальную сессию HH.');
+
+      const hhDomain = /(?:^|\.)hh\.ru$/i;
+      const hhPages = context.pages().filter((page) => isHhPage(page.url()));
+      await Promise.all(hhPages.map(async (page) => {
+        await page.evaluate(async () => {
+          window.localStorage.clear();
+          window.sessionStorage.clear();
+          if ('caches' in window) {
+            const names = await window.caches.keys();
+            await Promise.all(names.map((name) => window.caches.delete(name)));
+          }
+          if ('databases' in window.indexedDB) {
+            const databases = await window.indexedDB.databases();
+            await Promise.all(databases
+              .map((database) => database.name)
+              .filter((name): name is string => Boolean(name))
+              .map((name) => new Promise<void>((resolve) => {
+                const request = window.indexedDB.deleteDatabase(name);
+                request.onsuccess = () => resolve();
+                request.onerror = () => resolve();
+                request.onblocked = () => resolve();
+              })));
+          }
+        }).catch(() => undefined);
+      }));
+      await context.clearCookies({ domain: hhDomain });
+      const remainingAuthCookie = (await context.cookies().catch(() => []))
+        .some((cookie) => hhDomain.test(cookie.domain) && cookie.name === HH_AUTH_COOKIE_NAME);
+      if (remainingAuthCookie) throw new Error('HH не удалил данные старой сессии. Повторите выход.');
+
+      await this.resetBrowserConnection();
+      this.applicantResumes = [];
+      this.resumeTextCache.clear();
+      this.preparedCoverLetters.clear();
+      this.resumeSelectionConfirmed = false;
+      this.applyInFlight = false;
+      this.automationRunInFlight = false;
+      this.queueResumeRunning = false;
+      this.stopApplyRequested = false;
+      const finishedAt = nowIso();
+      this.state.config = normalizeHhAssistantConfig({
+        ...this.state.config,
+        resumeTitles: [],
+        resumeTitleContains: '',
+        autoRunDaily: false,
+      });
+      this.update({
+        phase: 'idle',
+        browserOpen: false,
+        loginRequired: true,
+        currentVacancyId: null,
+        applying: false,
+        stopRequested: false,
+        queuePaused: true,
+        applyProgress: null,
+        nextRunAt: null,
+        nextQueueResumeAt: null,
+        runHistory: this.state.runHistory.map((run) => run.status === 'running'
+          ? {
+              ...run,
+              status: 'stopped' as const,
+              finishedAt,
+              message: 'Остановлен при выходе из аккаунта HH.',
+            }
+          : run),
+        message: 'Вы вышли из HH. Войдите в другой аккаунт.',
+      });
+      return this.getState();
+    } catch (error) {
+      await this.resetBrowserConnection().catch(() => undefined);
+      this.applyInFlight = false;
+      this.automationRunInFlight = false;
+      this.queueResumeRunning = false;
+      this.stopApplyRequested = false;
+      this.update({
+        phase: 'error',
+        browserOpen: false,
+        applying: false,
+        stopRequested: false,
+        queuePaused: true,
+        applyProgress: null,
+        message: error instanceof Error ? error.message : 'Не удалось выйти из HH.',
+      });
+      throw error;
+    }
   }
 
   private fail(error: unknown): void {
