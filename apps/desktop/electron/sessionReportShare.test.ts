@@ -4,32 +4,38 @@ import { shareSessionReport } from './sessionReportShare';
 
 describe('sessionReportShare', () => {
   it('writes a safe Markdown filename and opens the SkillCue support chat with a prepared message', async () => {
+    const platformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform');
+    Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' });
     const writeFile = vi.fn();
     const launch = vi.fn();
     const reveal = vi.fn();
     const openExternal = vi.fn();
-    const result = await shareSessionReport(
-      { filename: '..\\unsafe report.md', content: '# report', message: 'Оверлей отвечал пять минут.' },
-      {
-        reportsDir: 'C:\\Users\\student\\Documents\\SkillCue Reports',
-        mkdir: vi.fn(),
-        writeFile,
-        reveal,
-        openExternal,
-      },
-    );
+    try {
+      const result = await shareSessionReport(
+        { filename: '..\\unsafe report.md', content: '# report', message: 'Оверлей отвечал пять минут.' },
+        {
+          reportsDir: 'C:\\Users\\student\\Documents\\SkillCue Reports',
+          mkdir: vi.fn(),
+          writeFile,
+          reveal,
+          openExternal,
+        },
+      );
 
-    const expected = path.win32.join(
-      'C:\\Users\\student\\Documents\\SkillCue Reports',
-      'unsafe-report.md',
-    );
-    expect(writeFile).toHaveBeenCalledWith(expected, '# report');
-    expect(launch).not.toHaveBeenCalled();
-    expect(reveal).toHaveBeenCalledWith(expected);
-    expect(openExternal).toHaveBeenCalledWith(
-      `tg://resolve?domain=SkillCue&text=${encodeURIComponent('Здравствуйте! Отправляю отчёт SkillCue по проблеме с интервью.\n\nОверлей отвечал пять минут.\n\nФайл отчёта подготовлен — прикрепляю его к сообщению.')}`,
-    );
-    expect(result).toEqual({ path: expected, telegramOpened: true, fallback: false });
+      const expected = path.win32.join(
+        'C:\\Users\\student\\Documents\\SkillCue Reports',
+        'unsafe-report.md',
+      );
+      expect(writeFile).toHaveBeenCalledWith(expected, '# report');
+      expect(launch).not.toHaveBeenCalled();
+      expect(reveal).toHaveBeenCalledWith(expected);
+      expect(openExternal).toHaveBeenCalledWith(
+        `tg://resolve?domain=SkillCue&text=${encodeURIComponent('Здравствуйте! Отправляю отчёт SkillCue по проблеме с интервью.\n\nОверлей отвечал пять минут.\n\nФайл отчёта подготовлен — прикрепляю его к сообщению.')}`,
+      );
+      expect(result).toEqual({ path: expected, telegramOpened: true, fallback: false });
+    } finally {
+      if (platformDescriptor) Object.defineProperty(process, 'platform', platformDescriptor);
+    }
   });
 
   it('keeps the report reachable when the Telegram link cannot be opened', async () => {
