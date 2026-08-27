@@ -179,6 +179,17 @@ describe('overlay request behavior', () => {
     );
   });
 
+  it('keeps a long visual question from squeezing the streamed answer out of view', () => {
+    const rules = Array.from(cssSource.matchAll(/\.ovl-(?:bubble|answer-body)\s*\{[\s\S]*?\}/g))
+      .map((match) => match[0]);
+    const bubbleRule = rules.find((rule) => rule.startsWith('.ovl-bubble') && rule.includes('@apply')) ?? '';
+    const answerRule = rules.find((rule) => rule.startsWith('.ovl-answer-body') && rule.includes('@apply')) ?? '';
+
+    expect(bubbleRule).toContain('max-height:');
+    expect(bubbleRule).toContain('overflow-y: auto');
+    expect(answerRule).toContain('min-height:');
+  });
+
   it('revalidates every forced-screen chunk instead of trusting a prior commit', () => {
     const chunkAt = overlaySource.indexOf('onChunk: (t) => {', overlaySource.indexOf('streamScreenAssist'));
     const chunkSource = overlaySource.slice(chunkAt, chunkAt + 900);

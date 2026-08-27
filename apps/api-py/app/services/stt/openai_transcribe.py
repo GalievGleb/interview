@@ -18,9 +18,24 @@ from .pcm_audio import pcm16_mono_wav
 
 MINI_MODEL = "gpt-4o-mini-transcribe"
 ANSWER_MODEL = "gpt-transcribe"
+LIVE_RU_PROMPT = (
+    "Русское техническое собеседование. Распознавай русскую речь по-русски и "
+    "сохраняй технические термины: Python, pytest, fixture, autouse, scope, yield, "
+    "Docker, REST API, HTTP, JSON, SQL, Playwright, CI/CD, Kafka, Kubernetes, lambda."
+)
 STT_RETRY_DELAYS_S = (0.2, 0.6)
-STT_RETRY_STATUS_CODES = {429, 500, 502, 503, 504}
+STT_RETRY_STATUS_CODES = {429, 500, 502, 503, 504, 520, 521, 522, 523, 524, 525, 526, 527, 530}
 STT_TEMPORARY_ERROR = "Сервис распознавания временно недоступен. Повторите фразу."
+
+
+def strip_live_prompt_echo(text: str) -> str:
+    """Remove the private live-STT priming phrase if the model echoes it as speech."""
+    cleaned = str(text or "").strip()
+    if not cleaned:
+        return ""
+    while LIVE_RU_PROMPT in cleaned:
+        cleaned = cleaned.replace(LIVE_RU_PROMPT, " ")
+    return " ".join(cleaned.split()).strip(" ,;:-")
 
 
 async def _post_stt_with_retry(
@@ -73,7 +88,10 @@ def build_request_data(*, language: str | None) -> dict[str, str]:
         "response_format": "json",
     }
     if language and language.lower() not in {"auto", "multi"}:
-        data["language"] = "ru" if language.lower().startswith("ru") else "en"
+        is_russian = language.lower().startswith("ru")
+        data["language"] = "ru" if is_russian else "en"
+        if is_russian:
+            data["prompt"] = LIVE_RU_PROMPT
     return data
 
 
@@ -220,7 +238,7 @@ class OpenAiMiniTranscribeProvider(BaseTranscriptionProvider):
             if response.status_code in STT_RETRY_STATUS_CODES:
                 raise RuntimeError(STT_TEMPORARY_ERROR)
             raise RuntimeError(f"OpenAI Mini STT {response.status_code}: {response.text[:240]}")
-        return str(response.json().get("text") or "").strip()
+        return strip_live_prompt_echo(str(response.json().get("text") or ""))
 
 
 class OpenAiAnswerTranscriber:
@@ -338,4 +356,5 @@ __all__ = [
     "build_answer_request_data",
     "build_request_data",
     "get_answer_transcriber",
+    "strip_live_prompt_echo",
 ]

@@ -32,7 +32,7 @@ settings = get_settings()
 setup_logging(settings.log_level)
 logger = logging.getLogger("main")
 
-app = FastAPI(title="SkillCue API", version="0.1.8")
+app = FastAPI(title="SkillCue API", version="0.1.9")
 
 app.add_middleware(
     CORSMiddleware,
@@ -114,4 +114,4 @@ async def on_shutdown() -> None:
 
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok", "version": "0.1.8"}
+    return {"status": "ok", "version": "0.1.9"}

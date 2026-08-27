@@ -7,8 +7,10 @@ import {
   STT_MODEL,
   answerWavDurationSeconds,
   buildAnswerTranscriptionForm,
+  buildLiveTranscriptionOptions,
   parseAnswerTranscriptionGuidance,
   resolveManagedSttCredentials,
+  stripLiveSttPromptEcho,
 } from './gateway-stt.service';
 import { GatewaySttUploadGuard } from './gateway-stt-upload.guard';
 import { GatewayController } from './gateway.controller';
@@ -67,6 +69,29 @@ test('answer form uses gpt-transcribe while live keeps Mini', () => {
     parts: 5,
     fieldSize: 8 * 1024,
   });
+});
+
+test('live Russian STT is anchored to Russian technical interview terms', () => {
+  const options = buildLiveTranscriptionOptions('ru');
+
+  assert.equal(options.model, STT_MODEL);
+  assert.equal(options.response_format, 'json');
+  assert.equal(options.language, 'ru');
+  assert.match(options.prompt ?? '', /русск/i);
+  assert.match(options.prompt ?? '', /pytest/i);
+  assert.match(options.prompt ?? '', /Docker/i);
+});
+
+test('live STT strips an echoed service prompt but preserves real technical speech', () => {
+  const prompt = buildLiveTranscriptionOptions('ru').prompt ?? '';
+  const question = 'Какие проверки вы предложите для строки поиска?';
+
+  assert.equal(stripLiveSttPromptEcho(`${question} ${prompt}`), question);
+  assert.equal(stripLiveSttPromptEcho(prompt), '');
+  assert.equal(
+    stripLiveSttPromptEcho('Как вы используете pytest и Docker?'),
+    'Как вы используете pytest и Docker?',
+  );
 });
 
 test('managed STT pairs a shared ProxyAPI base with its shared key', () => {

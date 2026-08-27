@@ -34,6 +34,7 @@ tests/voice/results/voice-regression-*.json
 
 # STT benchmark reports (generated locally)
 tests/stt-benchmark/results/stt-benchmark-*.json
+output/interview-replay/
 .license_signing_key
 
 # Lead bot (секреты и данные лидов)

@@ -521,6 +521,33 @@ class _StreamRetry(Exception):
     """Internal: the stream failed before any content arrived — safe to retry."""
 
 
+def _stream_content_text(value: object) -> str:
+    """Normalize OpenAI/OpenRouter streaming content to visible text.
+
+    Most providers send ``delta.content`` as a string. Some compatible
+    endpoints use typed content blocks instead; silently forwarding a list to
+    the SSE layer leaves the overlay with an empty answer. Keep only visible
+    text and ignore reasoning-only blocks.
+    """
+    if isinstance(value, str):
+        return value
+    if not isinstance(value, list):
+        return ""
+    parts: list[str] = []
+    for block in value:
+        if isinstance(block, str):
+            parts.append(block)
+            continue
+        if not isinstance(block, dict):
+            continue
+        text = block.get("text")
+        if isinstance(text, str):
+            parts.append(text)
+        elif isinstance(text, dict) and isinstance(text.get("value"), str):
+            parts.append(text["value"])
+    return "".join(parts)
+
+
 async def _one_stream_attempt(
     client: httpx.AsyncClient,
     url: str,
@@ -562,17 +589,21 @@ async def _one_stream_attempt(
                     continue
                 choice = choices[0]
                 delta = choice.get("delta") or {}
-                if delta.get("reasoning"):
-                    continue
-                content = delta.get("content") or delta.get("text")
-                if not content and choice.get("message"):
-                    content = choice.get("message", {}).get("content")
+                raw_content = delta.get("content") or delta.get("text")
+                if not raw_content and choice.get("message"):
+                    raw_content = choice.get("message", {}).get("content")
+                content = _stream_content_text(raw_content)
                 if content:
                     produced = True
                     yield content
+                elif delta.get("reasoning"):
+                    continue
                 finish = choice.get("finish_reason")
                 if finish == "length":
                     logger.warning("Stream stopped: max_tokens reached for model %s", model)
+            if not produced:
+                logger.warning("Provider returned a successful stream without visible content: %s", model)
+                raise _StreamRetry()
     except (httpx.TimeoutException, httpx.TransportError) as exc:
         if produced:
             raise AppError("Соединение с провайдером прервалось.", 504, "provider_timeout") from exc

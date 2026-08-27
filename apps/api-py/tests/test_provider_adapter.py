@@ -4,6 +4,7 @@ No real LLM endpoint is hit — get_client / _resolve are monkeypatched.
 """
 
 import asyncio
+import json
 
 import httpx
 
@@ -33,6 +34,41 @@ class _Client:
         if isinstance(item, Exception):
             raise item
         return item
+
+
+class _StreamResp:
+    def __init__(self, lines: list[str], status_code: int = 200):
+        self.lines = lines
+        self.status_code = status_code
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_args):
+        return None
+
+    async def aread(self) -> bytes:
+        return b""
+
+    async def aiter_lines(self):
+        for line in self.lines:
+            yield line
+
+
+class _StreamingClient:
+    def __init__(self, attempts: list[list[str]]):
+        self.attempts = attempts
+        self.calls = 0
+
+    def stream(self, *_args, **_kwargs):
+        lines = self.attempts[min(self.calls, len(self.attempts) - 1)]
+        self.calls += 1
+        return _StreamResp(lines)
+
+
+def _sse_chunk(delta: dict, *, finish_reason=None) -> str:
+    payload = {"choices": [{"delta": delta, "finish_reason": finish_reason}]}
+    return f"data: {json.dumps(payload)}"
 
 
 # --- prompt caching -------------------------------------------------------
@@ -96,6 +132,48 @@ def test_complete_retries_on_transport_error(monkeypatch):
     )
     assert out == "ok"
     assert client.calls == 2
+
+
+def test_stream_retries_successful_response_with_no_visible_content(monkeypatch):
+    client = _StreamingClient(
+        [
+            [_sse_chunk({"reasoning": "hidden"}), "data: [DONE]"],
+            [_sse_chunk({"content": "Готовый ответ"}), "data: [DONE]"],
+        ]
+    )
+    _patch_common(monkeypatch, client)
+
+    async def collect() -> str:
+        chunks = [
+            chunk
+            async for chunk in provider_adapter.stream_chat(
+                [{"role": "user", "content": "q"}], model="openai/gpt-4.1"
+            )
+        ]
+        return "".join(chunks)
+
+    assert asyncio.run(collect()) == "Готовый ответ"
+    assert client.calls == 2
+
+
+def test_stream_keeps_content_when_reasoning_is_in_the_same_delta(monkeypatch):
+    client = _StreamingClient(
+        [[_sse_chunk({"reasoning": "hidden", "content": "Видимый ответ"}), "data: [DONE]"]]
+    )
+    _patch_common(monkeypatch, client)
+
+    async def collect() -> str:
+        return "".join(
+            [
+                chunk
+                async for chunk in provider_adapter.stream_chat(
+                    [{"role": "user", "content": "q"}], model="openai/gpt-4.1"
+                )
+            ]
+        )
+
+    assert asyncio.run(collect()) == "Видимый ответ"
+    assert client.calls == 1
 
 
 def test_direct_openai_gpt5_uses_native_reasoning_and_completion_fields(monkeypatch):

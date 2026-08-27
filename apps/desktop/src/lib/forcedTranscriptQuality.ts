@@ -23,6 +23,8 @@ const LATIN_LETTER_RE = /\p{Script=Latin}/gu;
 const ASCII_TECH_IDENTIFIER_RE = /^[A-Za-z0-9.+#/-]+$/u;
 const MAX_TEXT_CAPTURE_AGE_MS = 20_000;
 const MAX_UNKNOWN_LATIN_TO_CYRILLIC_RATIO = 1.3;
+const MIN_STRONG_RUSSIAN_CONTEXT_WORDS = 8;
+const MAX_STRONG_UNKNOWN_LATIN_TO_CYRILLIC_RATIO = 0.2;
 
 const FOREIGN_NOISE_COMPONENTS = new Set(['no', 'dobrze']);
 
@@ -109,7 +111,14 @@ export function evaluateForcedTranscript(
     const hasGroundingRussianContext =
       cyrillicWords >= 2 &&
       unknownLatinLetters <= cyrillicLetters * MAX_UNKNOWN_LATIN_TO_CYRILLIC_RATIO;
-    if (containsForeignNoise || containsNonAsciiIdentifier || !hasGroundingRussianContext) {
+    const hasStrongRussianContext =
+      cyrillicWords >= MIN_STRONG_RUSSIAN_CONTEXT_WORDS &&
+      unknownLatinLetters <=
+        cyrillicLetters * MAX_STRONG_UNKNOWN_LATIN_TO_CYRILLIC_RATIO;
+    if (
+      !hasGroundingRussianContext ||
+      ((containsForeignNoise || containsNonAsciiIdentifier) && !hasStrongRussianContext)
+    ) {
       return { eligible: false, reason: 'forced_text_language_mismatch' };
     }
     return { eligible: true };

@@ -69,6 +69,20 @@ describe('evaluateForcedTranscript', () => {
     expect(evaluateForcedTranscript(transcript, 'ru')).toEqual({ eligible: true });
   });
 
+  it('keeps a long Russian interview question when one STT fragment switches language', () => {
+    const transcript = [
+      'У нас есть POST-запрос, который оформляет заказ на сайте.',
+      'На входе тело запроса с отправлениями, адресом и способом оплаты.',
+      'Было бы интересно накидать тест-план проверок для такого метода.',
+      'Jediné našli na',
+      'Платежный метод может быть банковской картой или бонусами на балансе.',
+      'Можно начать с чек-листа, а потом расширить его до конкретных кейсов.',
+      'Как бы ты подходил к тестированию этой задачи?',
+    ].join(' ');
+
+    expect(evaluateForcedTranscript(transcript, 'ru')).toEqual({ eligible: true });
+  });
+
   it.each([
     'Почему Flibbertigibbet?',
     'Flibbertigibbet расскажи',

@@ -207,6 +207,38 @@ describe('LatestForcedAnswerCoordinator', () => {
     expect(coordinator.routeQuestionToScreen(0)).toBe(false);
   });
 
+  it('keeps interviewer finals that arrive after an explicit screen answer for the next Ctrl+Enter', () => {
+    const coordinator = new LatestForcedAnswerCoordinator(() => 'unused');
+    const first = {
+      sequence: 1,
+      text: 'Что выведет этот код?',
+      source: 'system' as const,
+    };
+    const second = {
+      sequence: 2,
+      text: 'Теперь составь тест-план для этого POST endpoint.',
+      source: 'system' as const,
+    };
+
+    expect(coordinator.press([first], 'system')).toMatchObject({
+      action: 'submit',
+      generation: 1,
+      sequence: 1,
+    });
+    expect(coordinator.routeQuestionToScreen(1)).toBe(true);
+
+    // The screen request has no pending STT request owner. A later id-less
+    // interviewer final belongs to the next question and must stay unconsumed.
+    expect(coordinator.acceptFinal(second)).toEqual({ action: 'store-only' });
+    expect(coordinator.snapshot().consumedSequence).toBe(1);
+    expect(coordinator.press([first, second], 'system')).toMatchObject({
+      action: 'submit',
+      generation: 2,
+      sequence: 2,
+      question: second.text,
+    });
+  });
+
   it('keeps accepting the real transcript after screen fallback has started', () => {
     const coordinator = new LatestForcedAnswerCoordinator(() => 'force-1', () => 10_000);
     coordinator.press([], 'system');
@@ -568,20 +600,60 @@ describe('LatestForcedAnswerCoordinator', () => {
     });
   });
 
-  it('accepts capture age 20,000 ms and permanently consumes 20,001 ms', () => {
+  it('keeps a contiguous system-audio question for up to two minutes', () => {
+    const coordinator = new LatestForcedAnswerCoordinator(() => 'unused', () => 200_000);
+
+    expect(
+      coordinator.press(
+        [
+          {
+            sequence: 1,
+            text: 'У нас есть POST endpoint, который оформляет заказ.',
+            source: 'system',
+            capturedAtMs: 110_000,
+          },
+          {
+            sequence: 2,
+            text: 'В теле есть отправления, адрес и способ оплаты.',
+            source: 'system',
+            capturedAtMs: 128_000,
+          },
+          {
+            sequence: 3,
+            text: 'Способ оплаты — банковская карта или бонусы.',
+            source: 'system',
+            capturedAtMs: 146_000,
+          },
+          {
+            sequence: 4,
+            text: 'Составь чек-лист проверок для этого метода.',
+            source: 'system',
+            capturedAtMs: 164_000,
+          },
+        ],
+        'system',
+      ),
+    ).toMatchObject({
+      action: 'submit',
+      question:
+        'У нас есть POST endpoint, который оформляет заказ. В теле есть отправления, адрес и способ оплаты. Способ оплаты — банковская карта или бонусы. Составь чек-лист проверок для этого метода.',
+    });
+  });
+
+  it('keeps the mic freshness boundary at 20,000 ms', () => {
     const fresh = new LatestForcedAnswerCoordinator(() => 'unused', () => 100_000);
     expect(
       fresh.press(
-        [{ sequence: 1, text: 'Boundary question', source: 'system', capturedAtMs: 80_000 }],
-        'system',
+        [{ sequence: 1, text: 'Boundary question', source: 'mic', capturedAtMs: 80_000 }],
+        'mic',
       ),
     ).toMatchObject({ action: 'submit', question: 'Boundary question' });
 
     const stale = new LatestForcedAnswerCoordinator(() => 'next-force', () => 100_000);
     expect(
       stale.press(
-        [{ sequence: 1, text: 'Stale question', source: 'system', capturedAtMs: 79_999 }],
-        'system',
+        [{ sequence: 1, text: 'Stale question', source: 'mic', capturedAtMs: 79_999 }],
+        'mic',
       ),
     ).toMatchObject({ action: 'flush', requestId: 'next-force' });
     expect(stale.snapshot().consumedSequence).toBe(1);

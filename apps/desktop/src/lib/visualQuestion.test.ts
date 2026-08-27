@@ -21,6 +21,9 @@ describe('requiresScreenContext', () => {
     'На экране код: «в каком порядке выполняются pytest-фикстуры?»',
     'What will this code print?',
     'Explain the snippet on the screen',
+    'Исследуем эту верхнюю строку поиска: потыкай её и составь чек-лист проверок.',
+    'Так, вот это строка поиска, да? С ней нужно потыкаться, понять, как она работает. Какие проверки могли бы быть связаны со строкой поиска?',
+    'У нас POST endpoint. Вот наше тело запроса, оно тут представлено. Как бы ты тестировал этот метод?',
   ])('routes deictic task to vision: %s', (question) => {
     expect(requiresScreenContext(question)).toBe(true);
   });
@@ -36,6 +39,9 @@ describe('requiresScreenContext', () => {
     'Расскажите (в каком порядке фикстуры должны выполняться)?',
     'Объясните: «в каком порядке выполняются pytest-фикстуры?»',
     'What is a context manager?',
+    'Как в целом тестировать строку поиска?',
+    'Как тестировать POST /order без документации?',
+    'Что такое форма в HTML?',
   ])('keeps self-contained question on text route: %s', (question) => {
     expect(requiresScreenContext(question)).toBe(false);
   });

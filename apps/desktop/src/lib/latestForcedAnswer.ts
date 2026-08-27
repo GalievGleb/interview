@@ -52,7 +52,8 @@ interface PendingFinalization {
 }
 
 const MAX_SAME_QUESTION_FINAL_GAP_MS = 20_000;
-const MAX_TEXT_CAPTURE_AGE_MS = 20_000;
+const MAX_MIC_TEXT_CAPTURE_AGE_MS = 20_000;
+const MAX_SYSTEM_TEXT_CAPTURE_AGE_MS = 120_000;
 const MAX_SCREEN_REPLACEMENT_MS = 1_500;
 
 export function shouldCancelScreenFallbackOwner(
@@ -140,7 +141,12 @@ function hasCaptureTime(line: ForcedTranscriptLine): boolean {
 }
 
 function isFreshCapture(line: ForcedTranscriptLine, now: number): boolean {
-  return !hasCaptureTime(line) || now - line.capturedAtMs! <= MAX_TEXT_CAPTURE_AGE_MS;
+  if (!hasCaptureTime(line)) return true;
+  const maxAgeMs =
+    line.source === 'system'
+      ? MAX_SYSTEM_TEXT_CAPTURE_AGE_MS
+      : MAX_MIC_TEXT_CAPTURE_AGE_MS;
+  return now - line.capturedAtMs! <= maxAgeMs;
 }
 
 function lineOrder(left: ForcedTranscriptLine, right: ForcedTranscriptLine): number {
@@ -397,8 +403,15 @@ export class LatestForcedAnswerCoordinator {
       ? this.pendingFinalizations.get(resolvedRequestId)
       : undefined;
     if (!pending || pending.generation !== this.state.generation) {
-      this.consume(line);
-      if (resolvedRequestId) this.pendingFinalizations.delete(resolvedRequestId);
+      // A tagged final from a superseded request must never be reused. An
+      // id-less final with no pending STT owner is different: it can arrive
+      // while an explicit screen answer is still visible and belongs to the
+      // interviewer's next question. Keep that line in the ledger for the
+      // next Ctrl+Enter instead of advancing the shared consumed cursor.
+      if (resolvedRequestId) {
+        this.consume(line);
+        this.pendingFinalizations.delete(resolvedRequestId);
+      }
       return { action: 'store-only' };
     }
     if (line.sequence <= this.state.consumedSequence || (line.source && line.source !== pending.source)) {

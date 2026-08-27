@@ -16,6 +16,9 @@ const RUSSIAN_CONCEPTUAL_FIXTURE_ORDER =
 const RUSSIAN_SCREEN_DEICTIC =
   /(?:(?:в\s+)?(?:эт(?:от|а|о|и|ого|ом|ой|их)|данн(?:ом|ой))\s+(?:код[а-яё]*|задани[а-яё]*|задач[а-яё]*|фрагмент[а-яё]*|пример[а-яё]*)|на\s+(?:этом\s+)?(?:экране|скриншоте)|в\s+(?:этом\s+)?редакторе|перед\s+(?:тобой|вами))/iu;
 
+const RUSSIAN_DEICTIC_UI_REFERENCE =
+  /(?:эт(?:а|о|ой|у|от|ом|и|их)\s+(?:сам[а-яё]*\s+)?(?:верхн[а-яё]*\s+)?(?:строк[а-яё]*(?:\s+поиск[а-яё]*)?|пол[а-яё]*|форм[а-яё]*|кнопк[а-яё]*|интерфейс[а-яё]*|страниц[а-яё]*)|(?:вот|тут|здесь)[^?!.\n]{0,100}(?:тел[а-яё]*\s+запрос[а-яё]*|эндпоинт[а-яё]*|endpoint|метод[а-яё]*|форм[а-яё]*|страниц[а-яё]*|интерфейс[а-яё]*)[^?!.\n]{0,100}(?:тут|здесь|представлен[а-яё]*|показан[а-яё]*|виден|видно))/iu;
+
 /**
  * True when the spoken transcript explicitly points to information that only
  * exists on screen. Ctrl+Enter must then use the vision route even though STT
@@ -33,6 +36,7 @@ export function requiresScreenContext(question: string): boolean {
   }
   return (
     RUSSIAN_VISUAL_REFERENCE.test(normalized) ||
+    RUSSIAN_DEICTIC_UI_REFERENCE.test(normalized) ||
     ENGLISH_VISUAL_REFERENCE.test(normalized) ||
     (RUSSIAN_EXPLICIT_VISIBLE_TASK.test(normalized) &&
       RUSSIAN_VISIBLE_TASK_OUTPUT.test(normalized))

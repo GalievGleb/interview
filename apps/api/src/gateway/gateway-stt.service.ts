@@ -4,6 +4,32 @@ import OpenAI, { toFile } from 'openai';
 export const STT_MODEL = 'gpt-4o-mini-transcribe';
 export const ANSWER_STT_MODEL = 'gpt-transcribe';
 export const LIVE_STT_REQUEST_OPTIONS = { maxRetries: 3, timeout: 30_000 } as const;
+export const LIVE_RU_STT_PROMPT =
+  'Русское техническое собеседование. Распознавай русскую речь по-русски и сохраняй технические термины: Python, pytest, fixture, autouse, scope, yield, Docker, REST API, HTTP, JSON, SQL, Playwright, CI/CD, Kafka, Kubernetes, lambda.';
+
+export function stripLiveSttPromptEcho(text: string): string {
+  let cleaned = String(text ?? '').trim();
+  if (!cleaned) return '';
+  while (cleaned.includes(LIVE_RU_STT_PROMPT)) {
+    cleaned = cleaned.replace(LIVE_RU_STT_PROMPT, ' ');
+  }
+  return cleaned.replace(/\s+/g, ' ').replace(/^[\s,;:\-]+|[\s,;:\-]+$/g, '');
+}
+
+export function buildLiveTranscriptionOptions(language = 'ru') {
+  const normalizedLanguage =
+    language.toLowerCase().startsWith('ru')
+      ? 'ru'
+      : language.toLowerCase().startsWith('en')
+        ? 'en'
+        : undefined;
+  return {
+    model: STT_MODEL,
+    response_format: 'json' as const,
+    ...(normalizedLanguage ? { language: normalizedLanguage } : {}),
+    ...(normalizedLanguage === 'ru' ? { prompt: LIVE_RU_STT_PROMPT } : {}),
+  };
+}
 
 export interface ManagedSttCredentials {
   apiKey: string;
@@ -222,19 +248,11 @@ export class GatewaySttService {
       ...LIVE_STT_REQUEST_OPTIONS,
     });
     const file = await toFile(audio, 'utterance.wav', { type: 'audio/wav' });
-    const normalizedLanguage =
-      language.toLowerCase().startsWith('ru')
-        ? 'ru'
-        : language.toLowerCase().startsWith('en')
-          ? 'en'
-          : undefined;
     const result = await client.audio.transcriptions.create({
       file,
-      model: STT_MODEL,
-      response_format: 'json',
-      ...(normalizedLanguage ? { language: normalizedLanguage } : {}),
+      ...buildLiveTranscriptionOptions(language),
     });
-    return { text: String(result.text ?? '').trim(), model: STT_MODEL };
+    return { text: stripLiveSttPromptEcho(String(result.text ?? '')), model: STT_MODEL };
   }
 
   async transcribeAnswer(

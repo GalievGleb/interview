@@ -15,9 +15,11 @@ from app.services.stt.openai_mini_stream import (
     run_openai_mini_stream,
 )
 from app.services.stt.openai_transcribe import (
+    LIVE_RU_PROMPT,
     MINI_MODEL,
     OpenAiMiniTranscribeProvider,
     build_request_data,
+    strip_live_prompt_echo,
 )
 from app.services.stt.pcm_audio import pcm16_mono_wav
 from app.services.stt.registry import all_providers, diagnostics, resolve_default_provider
@@ -126,15 +128,15 @@ def test_registry_exposes_only_openai_mini():
     assert diagnostics()["engine"] == "openai-mini"
 
 
-def test_openai_mini_request_has_no_prompt_or_glossary():
+def test_openai_mini_request_anchors_russian_technical_interview():
     payload = build_request_data(language="ru")
 
-    assert payload == {
-        "model": MINI_MODEL,
-        "response_format": "json",
-        "language": "ru",
-    }
-    assert "prompt" not in payload
+    assert payload["model"] == MINI_MODEL
+    assert payload["response_format"] == "json"
+    assert payload["language"] == "ru"
+    assert "русск" in payload["prompt"].lower()
+    assert "pytest" in payload["prompt"].lower()
+    assert "docker" in payload["prompt"].lower()
 
 
 def test_openai_mini_accepts_successful_2xx_gateway_response():
@@ -145,6 +147,27 @@ def test_openai_mini_accepts_successful_2xx_gateway_response():
     )
 
     assert OpenAiMiniTranscribeProvider._response_text(response) == "Как вы тестировали API?"
+
+
+def test_live_stt_removes_prompt_echo_without_touching_the_question():
+    question = "Какие проверки вы предложите для строки поиска?"
+
+    assert strip_live_prompt_echo(f"{question} {LIVE_RU_PROMPT}") == question
+    assert strip_live_prompt_echo(LIVE_RU_PROMPT) == ""
+    assert strip_live_prompt_echo("Как вы используете pytest и Docker?") == (
+        "Как вы используете pytest и Docker?"
+    )
+
+
+def test_gateway_response_cannot_forward_live_prompt_echo():
+    question = "Что проверите в форме поиска?"
+    response = httpx.Response(
+        200,
+        json={"text": f"{question} {LIVE_RU_PROMPT}"},
+        request=httpx.Request("POST", "https://skill-cue.ru/gateway/stt/transcribe"),
+    )
+
+    assert OpenAiMiniTranscribeProvider._response_text(response) == question
 
 
 async def test_openai_mini_retries_transient_500_before_returning(monkeypatch):
@@ -174,6 +197,35 @@ async def test_openai_mini_retries_transient_500_before_returning(monkeypatch):
 
     assert attempts == 3
     assert text == "API transcript"
+
+
+async def test_openai_mini_retries_cloudflare_530_before_returning(monkeypatch):
+    attempts = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            return httpx.Response(530, text="temporary Cloudflare origin error")
+        return httpx.Response(200, json={"text": "Вопрос про pytest"})
+
+    async def no_wait(_delay: float) -> None:
+        return None
+
+    monkeypatch.setattr(openai_transcribe.asyncio, "sleep", no_wait)
+    provider = OpenAiMiniTranscribeProvider()
+    provider._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    try:
+        text = await provider._transcribe_direct(
+            b"RIFF mock WAVE audio",
+            language="ru",
+            key="openai-test-key",
+        )
+    finally:
+        await provider.aclose()
+
+    assert attempts == 2
+    assert text == "Вопрос про pytest"
 
 
 async def test_managed_live_utterances_have_no_obsolete_client_side_spacing(monkeypatch):
