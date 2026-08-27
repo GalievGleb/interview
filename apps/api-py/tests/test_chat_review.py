@@ -650,6 +650,89 @@ def test_interview_fast_core_never_hedges_personal_experience(client, monkeypatc
     assert done["correction"]["hedgeStarted"] is False
 
 
+def test_interview_fast_core_rescues_empty_primary_with_reliability_model(client, monkeypatch):
+    from conftest import TestingSessionLocal
+
+    from app.routers import chat as chat_router
+
+    calls: list[str] = []
+
+    async def fake_stream(messages, provider=None, model=None, **kwargs):
+        calls.append(model)
+        if model == "openai/gpt-4.1-mini":
+            return
+        assert model == "openai/gpt-4o-mini"
+        yield "Резервный ответ по опыту автоматизации."
+
+    monkeypatch.setattr(chat_router, "SessionLocal", TestingSessionLocal)
+    monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
+
+    response = client.post(
+        "/chat/interview/stream",
+        json={
+            "question": "Расскажи о своём опыте автоматизации тестирования.",
+            "fast_answer": True,
+            "answer_language": "ru",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert calls == ["openai/gpt-4.1-mini", "openai/gpt-4o-mini"]
+    done = next(
+        json.loads(line[6:])
+        for line in response.text.splitlines()
+        if line.startswith("data: ") and '"type": "done"' in line
+    )
+    assert done["spoken"] == "Резервный ответ по опыту автоматизации."
+    assert done["model"] == "openai/gpt-4o-mini"
+    assert done["model_source"] == "fast_core_reliability_fallback"
+    assert done["correction"]["reliabilityFallbackStarted"] is True
+
+
+def test_interview_fast_core_rescues_when_both_theory_hedges_fail(client, monkeypatch):
+    from conftest import TestingSessionLocal
+
+    from app.routers import chat as chat_router
+
+    calls: list[str] = []
+
+    async def fake_stream(messages, provider=None, model=None, **kwargs):
+        calls.append(model)
+        if model in {"openai/gpt-4.1-nano", "openai/gpt-4.1-mini"}:
+            raise RuntimeError("temporary upstream failure")
+            yield "unreachable"
+        assert model == "openai/gpt-4o-mini"
+        yield "Эквивалентное разбиение, граничные значения и таблицы решений."
+
+    monkeypatch.setattr(chat_router, "SessionLocal", TestingSessionLocal)
+    monkeypatch.setattr(chat_router, "LIVE_THEORY_HEDGE_AFTER_SECONDS", 0.001)
+    monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
+
+    response = client.post(
+        "/chat/interview/stream",
+        json={
+            "question": "Какие техники тест-дизайна ты знаешь?",
+            "fast_answer": True,
+            "answer_language": "ru",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert calls == [
+        "openai/gpt-4.1-nano",
+        "openai/gpt-4.1-mini",
+        "openai/gpt-4o-mini",
+    ]
+    done = next(
+        json.loads(line[6:])
+        for line in response.text.splitlines()
+        if line.startswith("data: ") and '"type": "done"' in line
+    )
+    assert done["model"] == "openai/gpt-4o-mini"
+    assert done["model_source"] == "fast_core_reliability_fallback"
+    assert done["correction"]["reliabilityFallbackStarted"] is True
+
+
 def test_interview_fast_core_preserves_explicit_model_without_hedging(client, monkeypatch):
     from conftest import TestingSessionLocal
 
@@ -821,6 +904,16 @@ def test_interview_stream_failure_before_tokens_is_generic(client, monkeypatch):
     assert '"type": "stream_failed"' in res.text
     assert '"type": "done"' not in res.text
     assert "secret upstream details" not in res.text
+    terminal = next(
+        json.loads(line[6:])
+        for line in res.text.splitlines()
+        if line.startswith("data: ") and '"type": "stream_failed"' in line
+    )
+    assert terminal == {
+        "type": "stream_failed",
+        "reason": "provider_error",
+        "message": "Модели временно недоступны. Повторите вопрос.",
+    }
 
 
 def test_screen_assist_injects_answer_language_block(client, monkeypatch):

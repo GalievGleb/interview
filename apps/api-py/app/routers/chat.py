@@ -35,7 +35,7 @@ from app.services.domain_answer_hints import (
     resolve_fast_domain_answer_hints,
     resolve_required_output_contract,
 )
-from app.services.hedged_stream import select_hedged_stream
+from app.services.hedged_stream import select_first_stream, select_hedged_stream
 from app.services.knowledge_pack import build_injection as build_python_pack_injection
 from app.services.knowledge_pack import detect_pack
 from app.services.preferences import load_preferences
@@ -52,6 +52,7 @@ logger = logging.getLogger("chat")
 FAST_CONTEXT_LIMIT = 350
 LIVE_THEORY_HEDGE_AFTER_SECONDS = 0.85
 LIVE_THEORY_FAST_MODEL = "openai/gpt-4.1-nano"
+LIVE_RELIABILITY_BACKUP_MODEL = "openai/gpt-4o-mini"
 LIVE_THEORY_HEDGE_INTENTS = frozenset(
     {"technical_definition", "technical_list", "technical_comparison", "practical_usage"}
 )
@@ -328,6 +329,7 @@ async def _interview_event_stream(
 ):
     parts: list[str] = []
     err_msg: str | None = None
+    err_reason = "provider_error"
     correction_meta: dict = {}
     final_question = (payload.question or "").strip()
     answer_model = model
@@ -462,39 +464,65 @@ async def _interview_event_stream(
             and model == model_router.FAST_CORE_DEFAULT_MODEL
             and intent in LIVE_THEORY_HEDGE_INTENTS
         )
-        if use_latency_hedge:
-            # Theory and concrete "how I use it" answers are grounded by the
-            # local factual packs above, so start the low-latency model first.
-            # If it stalls, race the quality-first global default instead.
-            hedge_primary_model = LIVE_THEORY_FAST_MODEL
-            hedge_fallback_model = model
-            selected = await select_hedged_stream(
-                primary_model=hedge_primary_model,
-                fallback_model=hedge_fallback_model,
-                stream_factory=stream_for,
-                hedge_after_seconds=LIVE_THEORY_HEDGE_AFTER_SECONDS,
+        hedge_primary_model = LIVE_THEORY_FAST_MODEL
+        selected = None
+        reliability_fallback = False
+        try:
+            if use_latency_hedge:
+                # Theory and concrete "how I use it" answers are grounded by the
+                # local factual packs above, so start the low-latency model first.
+                # If it stalls, race the quality-first global default instead.
+                selected = await select_hedged_stream(
+                    primary_model=hedge_primary_model,
+                    fallback_model=model,
+                    stream_factory=stream_for,
+                    hedge_after_seconds=LIVE_THEORY_HEDGE_AFTER_SECONDS,
+                )
+            else:
+                selected = await select_first_stream(model=model, stream_factory=stream_for)
+        except Exception:
+            can_rescue = (
+                payload.fast_answer
+                and not payload.model
+                and not payload.model_override
+                and model != LIVE_RELIABILITY_BACKUP_MODEL
             )
-            answer_model = selected.model
-            if selected.model != model:
-                answer_source = "fast_core_latency_hedge"
-            correction_meta["hedgeStarted"] = selected.hedge_started
+            if not can_rescue:
+                raise
+            reliability_fallback = True
+            correction_meta["reliabilityFallbackStarted"] = True
+            selected = await select_first_stream(
+                model=LIVE_RELIABILITY_BACKUP_MODEL,
+                stream_factory=stream_for,
+            )
+
+        answer_model = selected.model
+        if reliability_fallback:
+            answer_source = "fast_core_reliability_fallback"
+        elif use_latency_hedge and selected.model != model:
+            answer_source = "fast_core_latency_hedge"
+        correction_meta["hedgeStarted"] = (
+            selected.hedge_started if use_latency_hedge and not reliability_fallback else False
+        )
+        if use_latency_hedge and not reliability_fallback:
             correction_meta["hedgeWinner"] = (
                 "primary" if selected.model == hedge_primary_model else "fallback"
             )
-            parts.append(selected.first_chunk)
-            yield f"data: {json.dumps({'type': 'chunk', 'text': selected.first_chunk}, ensure_ascii=False)}\n\n"
-            async for delta in selected.remainder:
-                parts.append(delta)
-                yield f"data: {json.dumps({'type': 'chunk', 'text': delta}, ensure_ascii=False)}\n\n"
-        else:
-            correction_meta["hedgeStarted"] = False
-            async for delta in stream_for(model):
-                parts.append(delta)
-                yield f"data: {json.dumps({'type': 'chunk', 'text': delta}, ensure_ascii=False)}\n\n"
+
+        parts.append(selected.first_chunk)
+        yield f"data: {json.dumps({'type': 'chunk', 'text': selected.first_chunk}, ensure_ascii=False)}\n\n"
+        async for delta in selected.remainder:
+            parts.append(delta)
+            yield f"data: {json.dumps({'type': 'chunk', 'text': delta}, ensure_ascii=False)}\n\n"
         correction_meta["answerModel"] = answer_model
         correction_meta["answerLatencyMs"] = int((time.perf_counter() - answer_started_at) * 1000)
     except Exception as exc:  # noqa: BLE001
-        err_msg = getattr(exc, "message", str(exc))
+        if isinstance(exc, AppError):
+            err_msg = exc.message
+            err_reason = exc.code
+        else:
+            err_msg = "Модели временно недоступны. Повторите вопрос."
+        logger.warning("Live answer stream failed after fallbacks: %s", type(exc).__name__)
 
     spoken = "".join(parts).strip()
     final_spoken = spoken
@@ -508,7 +536,7 @@ async def _interview_event_stream(
     if err_msg:
         # Never persist or publish a partial answer as successful. Keep provider
         # details server-side and expose only a stable client-facing reason.
-        yield f"data: {json.dumps({'type': 'stream_failed', 'reason': 'provider_error'}, ensure_ascii=False)}\n\n"
+        yield f"data: {json.dumps({'type': 'stream_failed', 'reason': err_reason, 'message': err_msg}, ensure_ascii=False)}\n\n"
     else:
         answer_id = None
         if db and final_spoken:

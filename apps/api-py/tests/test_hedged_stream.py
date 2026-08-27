@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from app.services.hedged_stream import select_hedged_stream
+from app.services.hedged_stream import select_first_stream, select_hedged_stream
 
 
 def _stream(chunks: list[str], *, first_delay: float = 0.0, closed: list[bool] | None = None):
@@ -116,4 +116,12 @@ async def test_raises_when_both_streams_fail_before_first_chunk():
             fallback_model="nano",
             stream_factory=failing_stream,
             hedge_after_seconds=0.001,
+        )
+
+
+async def test_select_first_stream_rejects_an_empty_provider_completion():
+    with pytest.raises(RuntimeError, match="ended before the first chunk"):
+        await select_first_stream(
+            model="mini",
+            stream_factory=lambda _model: _stream([]),
         )

@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { api, type SessionItem } from '../lib/api';
 import { launchLive } from '../lib/launchLive';
 import { clearSessionKnowledge, refreshSessionKnowledge } from '../lib/sessionKnowledge';
+import { subscribeToSessionHistoryRefresh } from '../lib/sessionHistoryRefresh';
 import Modal from '../components/Modal';
 import { useApp } from '../context/AppContext';
 import SessionReportModal from '../components/interview/SessionReportModal';
@@ -56,6 +57,11 @@ export default function HistoryPage() {
       void load();
     }
   }, [backendOnline, load]);
+
+  useEffect(
+    () => subscribeToSessionHistoryRefresh(window, () => void load()),
+    [load],
+  );
 
   const filtered = useMemo(() => {
     const normalized = query.trim().toLowerCase();

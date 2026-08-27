@@ -21,6 +21,15 @@ export function parseInterviewStreamEvent(raw: string): StreamInterviewEvent | n
     if (value.type === 'error' && typeof value.message === 'string') {
       return { type: 'error', message: value.message };
     }
+    if (value.type === 'stream_failed') {
+      return {
+        type: 'error',
+        message:
+          typeof value.message === 'string' && value.message.trim()
+            ? value.message
+            : 'Модели временно недоступны. Повторите вопрос.',
+      };
+    }
     if (value.type !== 'done') return null;
     return {
       type: 'done',

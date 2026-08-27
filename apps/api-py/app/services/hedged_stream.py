@@ -45,6 +45,25 @@ async def _stop_loser(task: asyncio.Task[str], stream: AsyncIterator[str]) -> No
     await _close_stream(stream)
 
 
+async def select_first_stream(
+    *,
+    model: str,
+    stream_factory: StreamFactory,
+) -> HedgedStreamSelection:
+    stream = stream_factory(model)
+    try:
+        first = await _first_nonempty(stream)
+    except Exception:
+        await _close_stream(stream)
+        raise
+    return HedgedStreamSelection(
+        model=model,
+        first_chunk=first,
+        remainder=stream,
+        hedge_started=False,
+    )
+
+
 async def select_hedged_stream(
     *,
     primary_model: str,
