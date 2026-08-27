@@ -1,10 +1,10 @@
 name: Release
 
 # Build the frozen backend (PyInstaller) + the desktop installer (electron-builder)
-# and publish to a GitHub Release. Only a deliberate stable version tag may publish.
+# and publish to a GitHub Release. Hosted runners are manual-only; the normal
+# release path builds locally and uploads directly to avoid Actions billing.
 on:
-  push:
-    tags: ['v*']
+  workflow_dispatch:
 
 permissions:
   contents: write # electron-builder publishes the release artifacts

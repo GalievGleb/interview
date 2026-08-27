@@ -1,9 +1,9 @@
 name: CI
 
+# Hosted runners are intentionally opt-in: the verified release path runs the
+# same checks locally and uploads artifacts directly, without Actions billing.
 on:
-  push:
-    branches: [main]
-  pull_request:
+  workflow_dispatch:
 
 jobs:
   backend:
