@@ -181,8 +181,9 @@ def test_meeting_summary_stream_emits_chunks_then_done(client, monkeypatch):
 def test_screen_assist_stream_builds_multimodal_message(client, monkeypatch):
     captured: dict = {}
 
-    async def fake_stream(messages, provider=None, model=None, max_tokens=800, temperature=0.4):
+    async def fake_stream(messages, provider=None, model=None, max_tokens=800, temperature=0.4, **kwargs):
         captured["messages"] = messages
+        captured["stream_kwargs"] = kwargs
         yield "На экране задача по SQL."
 
     monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
@@ -220,9 +221,39 @@ def test_screen_assist_stream_builds_multimodal_message(client, monkeypatch):
     assert "ответ без полного исполняемого блока кода неправильный" in system_prompt
     assert "НЕ переписывай и НЕ исправляй код" in system_prompt
     assert "s[0] = 'H' вызывает TypeError" in system_prompt
-    assert system_prompt.index("СНАЧАЛА решение одним блоком кода") < system_prompt.index(
-        "Для результата/ошибки"
+    assert "Сохрани точные имена, регистр строковых литералов" in system_prompt
+    assert "комментарий отдельной строкой сразу под строкой кода" in system_prompt
+    assert system_prompt.index("СНАЧАЛА короткая устная сводка") < system_prompt.index(
+        "ЗАТЕМ решение одним блоком кода"
+    ) < system_prompt.index("Для результата/ошибки")
+    assert captured["stream_kwargs"]["reasoning"] == {"effort": "medium", "exclude": True}
+
+
+def test_screen_code_contract_requires_spoken_summary_before_code(client, monkeypatch):
+    captured: dict = {}
+
+    async def fake_stream(messages, provider=None, model=None, **kwargs):
+        captured["messages"] = messages
+        yield "Короткий план.\n\n```sql\nSELECT 1\n-- Возвращаем единицу.\n```"
+
+    monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
+    response = client.post(
+        "/chat/screen/stream",
+        json={
+            "image": "data:image/jpeg;base64,QUJD",
+            "question": "Объясни подход и реши задачу",
+        },
     )
+
+    assert response.status_code == 200, response.text
+    system_prompt = captured["messages"][0]["content"]
+    summary_contract = "СНАЧАЛА короткая устная сводка"
+    code_contract = "ЗАТЕМ решение одним блоком кода"
+    assert summary_contract in system_prompt
+    assert "что сказать интервьюеру перед написанием кода" in system_prompt
+    assert "1–3 коротких предложения" in system_prompt
+    assert code_contract in system_prompt
+    assert system_prompt.index(summary_contract) < system_prompt.index(code_contract)
 
 
 def test_screen_assist_done_reports_actual_model_source_and_creates_no_answer(
@@ -279,9 +310,45 @@ def test_screen_assist_default_question_follows_visible_task_instead_of_forcing_
     assert "порядок" in text_part
     assert "только если" in text_part
     assert "обязательно дай полный рабочий код" not in text_part
-    # Exact visual dependency/order tasks need the full 4.1 model: the mini
-    # variant reads the screenshot but can swap independent fixture setup.
-    assert captured["model"] == "openai/gpt-4.1"
+    # Exact visual tasks use the quality-first multimodal model: the previous
+    # model read the screenshot but changed case-sensitive SQL literals.
+    assert captured["model"] == "openai/gpt-5.6-sol"
+
+
+def test_screen_assist_keeps_spoken_api_testing_task_as_testing_not_implementation(
+    client, monkeypatch
+):
+    captured: dict = {}
+
+    async def fake_stream(messages, provider=None, model=None, **kwargs):
+        captured["messages"] = messages
+        captured["model"] = model
+        yield "Уточняющие вопросы и проверки"
+
+    monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
+    response = client.post(
+        "/chat/screen/stream",
+        json={
+            "image": "data:image/jpeg;base64,QUJD",
+            "question": (
+                "Здесь у нас новый endpoint. Нужно составить кейсы для тестирования "
+                "функционала. Здесь представлен пример запроса и пример ответа."
+            ),
+            "context": "Интервьюер показывает JSON-RPC и таблицы PostgreSQL.",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    text_part = next(
+        part for part in captured["messages"][-1]["content"] if part["type"] == "text"
+    )["text"]
+    assert "ЭТО ЗАДАНИЕ НА ТЕСТИРОВАНИЕ" in text_part
+    assert "не реализуй endpoint" in text_part
+    assert "не пиши SQL или код" in text_part
+    assert "проверки, негативные сценарии" in text_part
+    # Testing briefs still depend on visual details and must use the same
+    # quality-first model as code tasks; only ordinary voice stays on Qwen.
+    assert captured["model"] == "openai/gpt-5.6-sol"
 
 
 def test_screen_assist_mode_instruction_cannot_replace_visible_task(client, monkeypatch):
@@ -475,7 +542,7 @@ def test_interview_fast_core_uses_one_grounded_provider_call(client, monkeypatch
     assert "Чем список отличается от кортежа?" not in user_prompt
     assert "Главное отличие — изменяемость" not in user_prompt
     assert captured["kwargs"]["route_fast"] is True
-    assert captured["model"] == "openai/gpt-4.1-nano"
+    assert captured["model"] == "qwen/qwen3.5-flash-02-23"
 
     done = next(
         json.loads(line[6:])
@@ -491,6 +558,123 @@ def test_interview_fast_core_uses_one_grounded_provider_call(client, monkeypatch
     assert meta["resume_context_reason"] == "fast_core_local_enrichment"
 
 
+def test_interview_fast_core_uses_preloaded_resume_only_for_personal_answer(
+    client, monkeypatch
+):
+    captured: dict = {"stream_calls": 0}
+
+    async def fake_stream(messages, provider=None, model=None, **kwargs):
+        captured["stream_calls"] += 1
+        captured["messages"] = messages
+        captured["model"] = model
+        yield "Я автоматизирую UI и API на Python с pytest."
+
+    from conftest import TestingSessionLocal
+
+    from app.routers import chat as chat_router
+
+    monkeypatch.setattr(chat_router, "SessionLocal", TestingSessionLocal)
+    monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
+
+    candidate_context = (
+        "QA Automation Engineer. Основной стек: Python, pytest, Playwright, "
+        "REST API, Allure и CI/CD. Поддерживал UI- и API-автотесты."
+    )
+    response = client.post(
+        "/chat/interview/stream",
+        json={
+            "question": "Расскажи про свой опыт автоматизации тестирования.",
+            "candidate_context": candidate_context,
+            "fast_answer": True,
+            "answer_language": "ru",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert captured["stream_calls"] == 1
+    assert captured["model"] == "qwen/qwen3.5-flash-02-23"
+    user_prompt = captured["messages"][-1]["content"]
+    assert candidate_context in user_prompt
+    assert "CONFIRMED CANDIDATE CONTEXT" in user_prompt
+
+    done = next(
+        json.loads(line[6:])
+        for line in response.text.splitlines()
+        if line.startswith("data: ") and '"type": "done"' in line
+    )
+    meta = done["correction"]
+    assert meta["resume_context_used"] is True
+    assert meta["resume_context_level"] == "limited"
+    assert meta["resume_context_reason"] == "fast_core_preloaded_candidate_context"
+
+
+def test_interview_fast_core_does_not_send_resume_to_theory_model(client, monkeypatch):
+    captured: dict = {}
+
+    async def fake_stream(messages, provider=None, model=None, **kwargs):
+        captured["messages"] = messages
+        captured["model"] = model
+        yield "REST — архитектурный стиль для взаимодействия по HTTP."
+
+    from conftest import TestingSessionLocal
+
+    from app.routers import chat as chat_router
+
+    monkeypatch.setattr(chat_router, "SessionLocal", TestingSessionLocal)
+    monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
+
+    private_marker = "PRIVATE_RESUME_MARKER_83A7"
+    response = client.post(
+        "/chat/interview/stream",
+        json={
+            "question": "Что такое REST?",
+            "candidate_context": private_marker,
+            "fast_answer": True,
+            "answer_language": "ru",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert captured["model"] == "qwen/qwen3.5-flash-02-23"
+    assert private_marker not in captured["messages"][-1]["content"]
+
+
+def test_interview_fast_core_resolves_known_report_asr_alias_before_prompt(
+    client, monkeypatch
+):
+    captured: dict = {}
+
+    async def fake_stream(messages, provider=None, model=None, **kwargs):
+        captured["messages"] = messages
+        yield "Основные типы данных в Python — числа, строки, списки и словари."
+
+    from conftest import TestingSessionLocal
+
+    from app.routers import chat as chat_router
+
+    monkeypatch.setattr(chat_router, "SessionLocal", TestingSessionLocal)
+    monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
+
+    response = client.post(
+        "/chat/interview/stream",
+        json={
+            "question": "Каки ти подадна в Питоните знаеш.",
+            "fast_answer": True,
+            "answer_language": "ru",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    user_prompt = captured["messages"][-1]["content"]
+    assert "QUESTION: Какие типы данных в Python ты знаешь?" in user_prompt
+    done = next(
+        json.loads(line[6:])
+        for line in response.text.splitlines()
+        if line.startswith("data: ") and '"type": "done"' in line
+    )
+    assert done["correction"]["fast_alias_used"] is True
+
+
 def test_interview_fast_core_hedges_slow_theory_with_quality_model(client, monkeypatch):
     from conftest import TestingSessionLocal
 
@@ -500,11 +684,11 @@ def test_interview_fast_core_hedges_slow_theory_with_quality_model(client, monke
 
     async def fake_stream(messages, provider=None, model=None, **kwargs):
         calls.append(model)
-        if model == "openai/gpt-4.1-nano":
+        if model == "qwen/qwen3.5-flash-02-23":
             await asyncio.sleep(0.04)
             yield "Медленный быстрый ответ."
             return
-        assert model == "openai/gpt-4.1-mini"
+        assert model == "openai/gpt-4o-mini"
         yield "Качественный резервный ответ."
 
     monkeypatch.setattr(chat_router, "SessionLocal", TestingSessionLocal)
@@ -521,7 +705,7 @@ def test_interview_fast_core_hedges_slow_theory_with_quality_model(client, monke
     )
 
     assert response.status_code == 200, response.text
-    assert calls == ["openai/gpt-4.1-nano", "openai/gpt-4.1-mini"]
+    assert calls == ["qwen/qwen3.5-flash-02-23", "openai/gpt-4o-mini"]
     assert "Качественный резервный ответ." in response.text
     assert "Медленный быстрый ответ." not in response.text
     done = next(
@@ -529,10 +713,82 @@ def test_interview_fast_core_hedges_slow_theory_with_quality_model(client, monke
         for line in response.text.splitlines()
         if line.startswith("data: ") and '"type": "done"' in line
     )
-    assert done["model"] == "openai/gpt-4.1-mini"
-    assert done["model_source"] == "fast_core_default"
+    assert done["model"] == "openai/gpt-4o-mini"
+    assert done["model_source"] == "fast_core_latency_hedge"
     assert done["correction"]["hedgeStarted"] is True
     assert done["correction"]["hedgeWinner"] == "fallback"
+
+
+def test_interview_fast_core_starts_theory_fallback_before_live_budget_expires(
+    client, monkeypatch
+):
+    from conftest import TestingSessionLocal
+
+    from app.routers import chat as chat_router
+
+    calls: list[str] = []
+
+    async def fake_stream(messages, provider=None, model=None, **kwargs):
+        calls.append(model)
+        if model == "qwen/qwen3.5-flash-02-23":
+            await asyncio.sleep(1.1)
+            yield "Слишком поздний Qwen-ответ."
+            return
+        assert model == "openai/gpt-4o-mini"
+        yield "Резерв успел в live-бюджет."
+
+    monkeypatch.setattr(chat_router, "SessionLocal", TestingSessionLocal)
+    monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
+
+    response = client.post(
+        "/chat/interview/stream",
+        json={
+            "question": "Какие техники тест-дизайна ты знаешь?",
+            "fast_answer": True,
+            "answer_language": "ru",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert calls == ["qwen/qwen3.5-flash-02-23", "openai/gpt-4o-mini"]
+    assert "Резерв успел в live-бюджет." in response.text
+    assert "Слишком поздний Qwen-ответ." not in response.text
+
+
+def test_interview_fast_core_gives_benchmarked_qwen_startup_window(
+    client, monkeypatch
+):
+    from conftest import TestingSessionLocal
+
+    from app.routers import chat as chat_router
+
+    calls: list[str] = []
+
+    async def fake_stream(messages, provider=None, model=None, **kwargs):
+        calls.append(model)
+        if model == "qwen/qwen3.5-flash-02-23":
+            await asyncio.sleep(0.65)
+            yield "Qwen успел ответить без лишней гонки."
+            return
+        assert model == "openai/gpt-4o-mini"
+        yield "Слишком ранний резервный ответ."
+
+    monkeypatch.setattr(chat_router, "SessionLocal", TestingSessionLocal)
+    monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
+
+    response = client.post(
+        "/chat/interview/stream",
+        json={
+            "question": "Какие техники тест-дизайна ты знаешь?",
+            "fast_answer": True,
+            "answer_language": "ru",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert calls == ["qwen/qwen3.5-flash-02-23"]
+    assert "Qwen успел ответить без лишней гонки." in response.text
+    assert "Слишком ранний резервный ответ." not in response.text
 
 
 def test_interview_fast_core_uses_fast_theory_model_without_waiting_for_hedge(client, monkeypatch):
@@ -560,19 +816,21 @@ def test_interview_fast_core_uses_fast_theory_model_without_waiting_for_hedge(cl
     )
 
     assert response.status_code == 200, response.text
-    assert calls == ["openai/gpt-4.1-nano"]
+    assert calls == ["qwen/qwen3.5-flash-02-23"]
     done = next(
         json.loads(line[6:])
         for line in response.text.splitlines()
         if line.startswith("data: ") and '"type": "done"' in line
     )
-    assert done["model"] == "openai/gpt-4.1-nano"
-    assert done["model_source"] == "fast_core_latency_hedge"
+    assert done["model"] == "qwen/qwen3.5-flash-02-23"
+    assert done["model_source"] == "fast_core_default"
     assert done["correction"]["hedgeStarted"] is False
     assert done["correction"]["hedgeWinner"] == "primary"
 
 
-def test_interview_fast_core_hedges_wav_theory_with_practical_wording(client, monkeypatch):
+def test_interview_fast_core_starts_qwen_for_practical_work_answers(
+    client, monkeypatch
+):
     from conftest import TestingSessionLocal
 
     from app.routers import chat as chat_router
@@ -581,14 +839,9 @@ def test_interview_fast_core_hedges_wav_theory_with_practical_wording(client, mo
 
     async def fake_stream(messages, provider=None, model=None, **kwargs):
         calls.append(model)
-        if model == "openai/gpt-4.1-nano":
-            await asyncio.sleep(0.04)
-            yield "Медленный быстрый ответ."
-            return
-        yield "Качественный резервный ответ."
+        yield "В работе начинаю с конкретного риска, затем выбираю технику и проверяю границы."
 
     monkeypatch.setattr(chat_router, "SessionLocal", TestingSessionLocal)
-    monkeypatch.setattr(chat_router, "LIVE_THEORY_HEDGE_AFTER_SECONDS", 0.001)
     monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
 
     response = client.post(
@@ -604,18 +857,17 @@ def test_interview_fast_core_hedges_wav_theory_with_practical_wording(client, mo
     )
 
     assert response.status_code == 200, response.text
-    assert calls == ["openai/gpt-4.1-nano", "openai/gpt-4.1-mini"]
+    assert calls == ["qwen/qwen3.5-flash-02-23"]
     done = next(
         json.loads(line[6:])
         for line in response.text.splitlines()
         if line.startswith("data: ") and '"type": "done"' in line
     )
     assert done["correction"]["question_intent"] == "practical_usage"
-    assert done["correction"]["hedgeStarted"] is True
-    assert done["correction"]["hedgeWinner"] == "fallback"
+    assert done["correction"]["hedgeStarted"] is False
 
 
-def test_interview_fast_core_never_hedges_personal_experience(client, monkeypatch):
+def test_interview_fast_core_starts_qwen_for_fast_personal_experience(client, monkeypatch):
     from conftest import TestingSessionLocal
 
     from app.routers import chat as chat_router
@@ -628,7 +880,7 @@ def test_interview_fast_core_never_hedges_personal_experience(client, monkeypatc
         yield "Точный ответ по резюме."
 
     monkeypatch.setattr(chat_router, "SessionLocal", TestingSessionLocal)
-    monkeypatch.setattr(chat_router, "LIVE_THEORY_HEDGE_AFTER_SECONDS", 0.001)
+    monkeypatch.setattr(chat_router, "LIVE_EXPERIENCE_HEDGE_AFTER_SECONDS", 0.02)
     monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
 
     response = client.post(
@@ -640,14 +892,222 @@ def test_interview_fast_core_never_hedges_personal_experience(client, monkeypatc
     )
 
     assert response.status_code == 200, response.text
-    assert calls == ["openai/gpt-4.1-mini"]
+    assert calls == ["qwen/qwen3.5-flash-02-23"]
     done = next(
         json.loads(line[6:])
         for line in response.text.splitlines()
         if line.startswith("data: ") and '"type": "done"' in line
     )
-    assert done["model"] == "openai/gpt-4.1-mini"
+    assert done["model"] == "qwen/qwen3.5-flash-02-23"
     assert done["correction"]["hedgeStarted"] is False
+
+
+def test_interview_fast_core_hedges_stalled_personal_experience(client, monkeypatch):
+    from conftest import TestingSessionLocal
+
+    from app.routers import chat as chat_router
+
+    calls: list[str] = []
+
+    async def fake_stream(messages, provider=None, model=None, **kwargs):
+        calls.append(model)
+        if model == "qwen/qwen3.5-flash-02-23":
+            await asyncio.sleep(0.04)
+            yield "Поздний основной ответ."
+            return
+        assert model == "openai/gpt-4o-mini"
+        yield "Быстрый резервный ответ по опыту."
+
+    monkeypatch.setattr(chat_router, "SessionLocal", TestingSessionLocal)
+    monkeypatch.setattr(chat_router, "LIVE_EXPERIENCE_HEDGE_AFTER_SECONDS", 0.001)
+    monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
+
+    response = client.post(
+        "/chat/interview/stream",
+        json={
+            "question": "Расскажи про свой опыт работы в команде.",
+            "fast_answer": True,
+            "answer_language": "ru",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert calls == ["qwen/qwen3.5-flash-02-23", "openai/gpt-4o-mini"]
+    assert "Быстрый резервный ответ по опыту." in response.text
+    assert "Поздний основной ответ." not in response.text
+    done = next(
+        json.loads(line[6:])
+        for line in response.text.splitlines()
+        if line.startswith("data: ") and '"type": "done"' in line
+    )
+    assert done["model"] == "openai/gpt-4o-mini"
+    assert done["model_source"] == "fast_core_latency_hedge"
+    assert done["correction"]["hedgeStarted"] is True
+    assert done["correction"]["hedgeWinner"] == "fallback"
+
+
+def test_interview_fast_core_does_not_treat_topic_hints_as_personal_grounding(
+    client, monkeypatch
+):
+    from conftest import TestingSessionLocal
+
+    from app.routers import chat as chat_router
+
+    calls: list[str] = []
+
+    async def fake_stream(messages, provider=None, model=None, **kwargs):
+        calls.append(model)
+        yield "Использовал Docker: собирал образы и запускал изолированные контейнеры."
+
+    monkeypatch.setattr(chat_router, "SessionLocal", TestingSessionLocal)
+    monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
+
+    response = client.post(
+        "/chat/interview/stream",
+        json={
+            "question": "Расскажи про свой опыт работы с Docker.",
+            "fast_answer": True,
+            "answer_language": "ru",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert calls == ["qwen/qwen3.5-flash-02-23"]
+    done = next(
+        json.loads(line[6:])
+        for line in response.text.splitlines()
+        if line.startswith("data: ") and '"type": "done"' in line
+    )
+    assert done["model"] == "qwen/qwen3.5-flash-02-23"
+    assert done["model_source"] == "fast_core_default"
+    assert done["correction"]["enrichment_used"] is True
+    assert done["correction"]["hedgeStarted"] is False
+
+
+def test_interview_fast_core_hedges_stalled_unclear_question(client, monkeypatch):
+    from conftest import TestingSessionLocal
+
+    from app.routers import chat as chat_router
+
+    calls: list[str] = []
+
+    async def fake_stream(messages, provider=None, model=None, **kwargs):
+        calls.append(model)
+        if model == "qwen/qwen3.5-flash-02-23":
+            await asyncio.sleep(0.04)
+            yield "Поздний основной ответ."
+            return
+        assert model == "openai/gpt-4o-mini"
+        yield "Быстрый резервный ответ."
+
+    monkeypatch.setattr(chat_router, "SessionLocal", TestingSessionLocal)
+    monkeypatch.setattr(chat_router, "LIVE_UNCLEAR_HEDGE_AFTER_SECONDS", 0.001)
+    monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
+
+    response = client.post(
+        "/chat/interview/stream",
+        json={
+            "question": (
+                "И, в общем-то, что происходит у тебя, да, вот от написания, "
+                "между написанием запроса и вот рендера страницы?"
+            ),
+            "fast_answer": True,
+            "answer_language": "ru",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert calls == ["qwen/qwen3.5-flash-02-23", "openai/gpt-4o-mini"]
+    assert "Быстрый резервный ответ." in response.text
+    done = next(
+        json.loads(line[6:])
+        for line in response.text.splitlines()
+        if line.startswith("data: ") and '"type": "done"' in line
+    )
+    assert done["model"] == "openai/gpt-4o-mini"
+    assert done["model_source"] == "fast_core_latency_hedge"
+    assert done["correction"]["question_intent"] == "unclear"
+    assert done["correction"]["hedgeStarted"] is True
+    assert done["correction"]["hedgeWinner"] == "fallback"
+
+
+def test_interview_fast_core_starts_unclear_fallback_before_live_budget_expires(
+    client, monkeypatch
+):
+    from conftest import TestingSessionLocal
+
+    from app.routers import chat as chat_router
+
+    calls: list[str] = []
+
+    async def fake_stream(messages, provider=None, model=None, **kwargs):
+        calls.append(model)
+        if model == "qwen/qwen3.5-flash-02-23":
+            await asyncio.sleep(0.7)
+            yield "Слишком поздний основной ответ."
+            return
+        assert model == "openai/gpt-4o-mini"
+        yield "Резерв успел в live-бюджет."
+
+    monkeypatch.setattr(chat_router, "SessionLocal", TestingSessionLocal)
+    monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
+
+    response = client.post(
+        "/chat/interview/stream",
+        json={
+            "question": (
+                "И, в общем-то, что происходит у тебя, да, вот от написания, "
+                "между написанием запроса и вот рендера страницы?"
+            ),
+            "fast_answer": True,
+            "answer_language": "ru",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert calls == ["qwen/qwen3.5-flash-02-23", "openai/gpt-4o-mini"]
+    assert "Резерв успел в live-бюджет." in response.text
+    assert "Слишком поздний основной ответ." not in response.text
+
+
+def test_interview_fast_core_keeps_fast_unclear_primary_metadata(client, monkeypatch):
+    from conftest import TestingSessionLocal
+
+    from app.routers import chat as chat_router
+
+    calls: list[str] = []
+
+    async def fake_stream(messages, provider=None, model=None, **kwargs):
+        calls.append(model)
+        yield "Быстрый основной ответ."
+
+    monkeypatch.setattr(chat_router, "SessionLocal", TestingSessionLocal)
+    monkeypatch.setattr(chat_router, "LIVE_UNCLEAR_HEDGE_AFTER_SECONDS", 0.02)
+    monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
+
+    response = client.post(
+        "/chat/interview/stream",
+        json={
+            "question": (
+                "И, в общем-то, что происходит у тебя, да, вот от написания, "
+                "между написанием запроса и вот рендера страницы?"
+            ),
+            "fast_answer": True,
+            "answer_language": "ru",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert calls == ["qwen/qwen3.5-flash-02-23"]
+    done = next(
+        json.loads(line[6:])
+        for line in response.text.splitlines()
+        if line.startswith("data: ") and '"type": "done"' in line
+    )
+    assert done["model"] == "qwen/qwen3.5-flash-02-23"
+    assert done["model_source"] == "fast_core_default"
+    assert done["correction"]["hedgeStarted"] is False
+    assert done["correction"]["hedgeWinner"] == "primary"
 
 
 def test_interview_fast_core_rescues_empty_primary_with_reliability_model(client, monkeypatch):
@@ -659,7 +1119,7 @@ def test_interview_fast_core_rescues_empty_primary_with_reliability_model(client
 
     async def fake_stream(messages, provider=None, model=None, **kwargs):
         calls.append(model)
-        if model == "openai/gpt-4.1-mini":
+        if model == "qwen/qwen3.5-flash-02-23":
             return
         assert model == "openai/gpt-4o-mini"
         yield "Резервный ответ по опыту автоматизации."
@@ -677,7 +1137,7 @@ def test_interview_fast_core_rescues_empty_primary_with_reliability_model(client
     )
 
     assert response.status_code == 200, response.text
-    assert calls == ["openai/gpt-4.1-mini", "openai/gpt-4o-mini"]
+    assert calls == ["qwen/qwen3.5-flash-02-23", "openai/gpt-4o-mini"]
     done = next(
         json.loads(line[6:])
         for line in response.text.splitlines()
@@ -698,10 +1158,13 @@ def test_interview_fast_core_rescues_when_both_theory_hedges_fail(client, monkey
 
     async def fake_stream(messages, provider=None, model=None, **kwargs):
         calls.append(model)
-        if model in {"openai/gpt-4.1-nano", "openai/gpt-4.1-mini"}:
+        if model == "qwen/qwen3.5-flash-02-23":
             raise RuntimeError("temporary upstream failure")
             yield "unreachable"
         assert model == "openai/gpt-4o-mini"
+        if calls.count("openai/gpt-4o-mini") == 1:
+            raise RuntimeError("temporary reliability failure")
+            yield "unreachable"
         yield "Эквивалентное разбиение, граничные значения и таблицы решений."
 
     monkeypatch.setattr(chat_router, "SessionLocal", TestingSessionLocal)
@@ -719,8 +1182,8 @@ def test_interview_fast_core_rescues_when_both_theory_hedges_fail(client, monkey
 
     assert response.status_code == 200, response.text
     assert calls == [
-        "openai/gpt-4.1-nano",
-        "openai/gpt-4.1-mini",
+        "qwen/qwen3.5-flash-02-23",
+        "openai/gpt-4o-mini",
         "openai/gpt-4o-mini",
     ]
     done = next(

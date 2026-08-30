@@ -86,12 +86,24 @@ def test_apply_prompt_cache_noop_for_openai():
     assert provider_adapter.apply_prompt_cache(msgs, "openai/gpt-4o-mini") == msgs
 
 
-def test_fast_routing_option_is_only_sent_to_openrouter_itself():
+def test_fast_routing_option_is_sent_to_openrouter_and_managed_gateway(monkeypatch):
+    monkeypatch.setattr(
+        provider_adapter,
+        "get_settings",
+        lambda: type(
+            "Settings",
+            (),
+            {"skillcue_gateway_url": "https://skill-cue.ru/v1"},
+        )(),
+    )
     assert provider_adapter._supports_openrouter_routing(
         "openrouter", "https://openrouter.ai/api/v1"
     )
-    assert not provider_adapter._supports_openrouter_routing(
+    assert provider_adapter._supports_openrouter_routing(
         "openrouter", "https://skill-cue.ru/v1"
+    )
+    assert not provider_adapter._supports_openrouter_routing(
+        "openrouter", "https://untrusted-compatible.example/v1"
     )
     assert not provider_adapter._supports_openrouter_routing("openai", "https://api.openai.com/v1")
 

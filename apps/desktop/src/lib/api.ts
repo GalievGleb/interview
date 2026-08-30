@@ -353,6 +353,7 @@ export interface StreamInterviewCorrectionMeta {
 export interface StreamInterviewOpts {
   sessionId?: string;
   rawQuestion?: string;
+  candidateContext?: string;
   resolvedQuestion?: string;
   previousTopic?: string;
   isFollowUp?: boolean;
@@ -928,6 +929,7 @@ export const api = {
         const fastPayload = {
           question,
           raw_question: opts.rawQuestion ?? question,
+          candidate_context: opts.candidateContext?.trim() || null,
           session_id: opts.sessionId,
           answer_language: answerLanguageParam(),
           mode: 'fast',

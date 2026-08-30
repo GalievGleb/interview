@@ -21,8 +21,76 @@ function isDashListLine(line: string): boolean {
 
 const FENCED_CODE_REGEX = /```([a-zA-Z0-9+#_-]*)\n?([\s\S]*?)```/g;
 
-function CodeBlock({ language, code }: { language: string; code: string }) {
+function commentMarkerForLanguage(language: string): string | null {
+  const normalized = language.trim().toLowerCase();
+  if (/^(?:py|python|bash|sh|shell|yaml|yml|ruby|r)$/.test(normalized)) return '#';
+  if (/^(?:sql|pgsql|postgres|mysql|lua|haskell)$/.test(normalized)) return '--';
+  if (/^(?:js|javascript|jsx|ts|typescript|tsx|java|c|cpp|c\+\+|c#|cs|go|rust|swift|kotlin)$/.test(normalized)) {
+    return '//';
+  }
+  return null;
+}
+
+function findCommentOutsideString(line: string, marker: string): number {
+  let quote: "'" | '"' | '`' | null = null;
+  let escaped = false;
+  for (let index = 0; index <= line.length - marker.length; index += 1) {
+    const char = line[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (quote) {
+      if (char === '\\') {
+        escaped = true;
+      } else if (char === quote) {
+        // SQL экранирует одинарную кавычку удвоением, строка здесь не заканчивается.
+        if (quote === "'" && line[index + 1] === "'") {
+          index += 1;
+        } else {
+          quote = null;
+        }
+      }
+      continue;
+    }
+    if (char === "'" || char === '"' || char === '`') {
+      quote = char;
+      continue;
+    }
+    if (line.startsWith(marker, index)) return index;
+  }
+  return -1;
+}
+
+/**
+ * Переносит русское пояснение под строку кода. Так длинная строка не удваивается
+ * комментарием по ширине, а копируемый результат остаётся валидным кодом.
+ */
+export function formatCodeForCompactDisplay(language: string, code: string): string {
+  const marker = commentMarkerForLanguage(language);
   const clean = code.replace(/\n+$/, '');
+  if (!marker) return clean;
+
+  return clean.split('\n').flatMap((line) => {
+    const commentIndex = findCommentOutsideString(line, marker);
+    if (commentIndex < 0 || !line.slice(commentIndex + marker.length).match(/[А-Яа-яЁё]/u)) {
+      return [line];
+    }
+    const codePart = line.slice(0, commentIndex).trimEnd();
+    if (!codePart.trim()) return [line];
+    const indent = line.match(/^\s*/u)?.[0] ?? '';
+    const commentPart = line.slice(commentIndex).trimStart();
+    return [codePart, `${indent}${commentPart}`];
+  }).join('\n');
+}
+
+function isStandaloneCodeComment(language: string, line: string): boolean {
+  const marker = commentMarkerForLanguage(language);
+  return Boolean(marker && line.trimStart().startsWith(marker));
+}
+
+function CodeBlock({ language, code }: { language: string; code: string }) {
+  const clean = formatCodeForCompactDisplay(language, code);
   const [copied, setCopied] = useState(false);
   const copy = () => {
     void navigator.clipboard.writeText(clean).then(() => {
@@ -31,7 +99,7 @@ function CodeBlock({ language, code }: { language: string; code: string }) {
     });
   };
   return (
-    <div className="group relative overflow-hidden rounded-xl border border-surface-border bg-surface-elevated">
+    <div className="group relative min-w-0 max-w-full overflow-hidden rounded-xl border border-surface-border bg-surface-elevated">
       <div className="flex items-center justify-between border-b border-surface-border px-3 py-1.5">
         <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
           {language || 'code'}
@@ -66,9 +134,16 @@ function CodeBlock({ language, code }: { language: string; code: string }) {
           {copied ? 'Скопировано' : 'Копировать'}
         </button>
       </div>
-      <pre className="overflow-x-auto px-3.5 py-3">
-        <code className="sc-mono block whitespace-pre text-[13px] leading-relaxed text-emerald-200">
-          {clean}
+      <pre className="max-w-full overflow-x-hidden px-3.5 py-3">
+        <code className="sc-mono block min-w-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-[13px] leading-relaxed">
+          {clean.split('\n').map((line, index) => (
+            <span
+              key={`${index}-${line}`}
+              className={`block ${isStandaloneCodeComment(language, line) ? 'text-ink-muted' : 'text-emerald-200'}`}
+            >
+              {line || '\u00a0'}
+            </span>
+          ))}
         </code>
       </pre>
     </div>

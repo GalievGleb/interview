@@ -32,7 +32,7 @@ settings = get_settings()
 setup_logging(settings.log_level)
 logger = logging.getLogger("main")
 
-app = FastAPI(title="SkillCue API", version="0.1.9")
+app = FastAPI(title="SkillCue API", version="0.1.10")
 
 app.add_middleware(
     CORSMiddleware,
@@ -59,6 +59,7 @@ async def _require_local_token(request, call_next):
 
     if (
         local_auth.enabled()
+        and request.method != "OPTIONS"
         and request.url.path not in local_auth.PUBLIC_PATHS
         and not local_auth.token_ok(request.headers.get(local_auth.HEADER_NAME))
     ):
@@ -114,4 +115,4 @@ async def on_shutdown() -> None:
 
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok", "version": "0.1.9"}
+    return {"status": "ok", "version": "0.1.10"}

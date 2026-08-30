@@ -9,12 +9,14 @@ export interface SessionReportShareDeps {
   mkdir: (directory: string) => void | Promise<void>;
   writeFile: (target: string, content: string) => void | Promise<void>;
   reveal: (target: string) => void | Promise<void>;
+  openPath: (target: string) => string | Promise<string>;
   openExternal: (url: string) => void | Promise<void>;
 }
 
 export interface SessionReportShareResult {
   path: string;
   telegramOpened: boolean;
+  fileOpened?: boolean;
   fallback: boolean;
 }
 
@@ -38,13 +40,27 @@ export function skillCueSupportUrl(message = '', webFallback = false): string {
 }
 
 export async function shareSessionReport(
-  input: { filename: string; content: string; message?: string },
+  input: { filename: string; content: string; message?: string; action?: 'telegram' | 'open' },
   deps: SessionReportShareDeps,
 ): Promise<SessionReportShareResult> {
   await deps.mkdir(deps.reportsDir);
   const pathApi = process.platform === 'win32' ? path.win32 : path;
   const target = pathApi.join(deps.reportsDir, safeFilename(input.filename));
   await deps.writeFile(target, input.content.slice(0, MAX_REPORT_CHARS));
+
+  if (input.action === 'open') {
+    try {
+      const openError = await deps.openPath(target);
+      if (!openError) {
+        return { path: target, telegramOpened: false, fileOpened: true, fallback: false };
+      }
+    } catch {
+      // Если для Markdown не назначено приложение, файл всё равно остаётся доступен.
+    }
+    await deps.reveal(target);
+    return { path: target, telegramOpened: false, fileOpened: false, fallback: true };
+  }
+
   await deps.reveal(target);
   try {
     await deps.openExternal(skillCueSupportUrl(input.message));

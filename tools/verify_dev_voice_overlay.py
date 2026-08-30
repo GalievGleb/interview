@@ -21,17 +21,24 @@ from array import array
 from pathlib import Path
 
 import websockets
-
 from dev_e2e_identity import seed_installed_gateway_identity
 
 CASE_ID = os.environ.get("SKILLCUE_E2E_CASE_ID", "06_ctrl_enter_before_final").strip()
+E2E_CANDIDATE_CONTEXT = os.environ.get(
+    "SKILLCUE_E2E_CANDIDATE_CONTEXT",
+    (
+        "QA Automation Engineer. Основной стек: Python, pytest, Playwright, REST API, "
+        "Allure и CI/CD. Поддерживал UI- и API-автотесты, фикстуры pytest, "
+        "Page Object и диагностику нестабильных тестов в пайплайне."
+    ),
+).strip()
 MAX_STT_MS = 6_000
 MAX_LLM_FIRST_CHUNK_MS = 5_000
 MAX_VOICE_TO_FIRST_CHUNK_MS = 4_000
 MAX_END_TO_END_MS = 10_000
 ACTIVE_JOB_SETTLE_S = 0.1
 LIVE_SAMPLE_RATE = 16_000
-REQUIRE_IDLESS_RACE = CASE_ID == "06_ctrl_enter_before_final"
+REQUIRE_CORRELATED_FORCE = CASE_ID == "06_ctrl_enter_before_final"
 
 
 def _repo_root() -> Path:
@@ -81,7 +88,10 @@ def _tone_pcm(sample_rate: int) -> bytes:
     for index in range(frames):
         value = int(2_000 * math.sin(2 * math.pi * 440 * index / sample_rate))
         tone.extend(struct.pack("<h", value))
-    tone.extend(b"\0\0" * int(sample_rate * 0.65))
+    # Realtime intentionally waits through pauses shorter than 700 ms so a
+    # natural interview question is not split in two. Give this synthetic
+    # rejected turn enough trailing silence to form a real turn boundary.
+    tone.extend(b"\0\0" * int(sample_rate * 0.85))
     return bytes(tone)
 
 
@@ -137,7 +147,16 @@ async def _wait_for_terminal_noise(ws, deadline: float) -> None:
         event = await _next_event(ws, deadline)
         if event.get("type") == "error":
             raise RuntimeError(f"STT startup error: {event.get('message')}")
-        if event.get("type") in {"low_quality", "transcript", "transcription_error"}:
+        if event.get("type") == "transcript":
+            raise RuntimeError(
+                "Synthetic non-speech became a saved transcript: "
+                f"{event.get('text')}"
+            )
+        if event.get("type") == "transcription_error":
+            raise RuntimeError(
+                f"Noise-turn STT failed: {event.get('message', 'unknown error')}"
+            )
+        if event.get("type") == "low_quality":
             return
 
 
@@ -203,13 +222,16 @@ async def _transcribe(port: int, token: str, case: dict) -> tuple[str, int, dict
                     "Voice transcript semantic validation failed: "
                     f"matched={matched}; text={text}"
                 )
-            if REQUIRE_IDLESS_RACE and not saw_force_empty:
+            if REQUIRE_CORRELATED_FORCE and saw_force_empty:
                 raise RuntimeError(
-                    "Voice regression route was not reproduced: missing force_empty before final."
+                    "Ctrl+Enter lost the unresolved automatic turn before the final transcript."
                 )
-            if REQUIRE_IDLESS_RACE and event.get("force_request_id"):
+            if (
+                REQUIRE_CORRELATED_FORCE
+                and event.get("force_request_id") != request_id
+            ):
                 raise RuntimeError(
-                    "Voice regression route was not reproduced: final unexpectedly retained a request id."
+                    "Ctrl+Enter transcript was not correlated with its force request."
                 )
             elapsed_ms = round((time.monotonic() - force_started) * 1000)
             return text, elapsed_ms, event
@@ -219,6 +241,9 @@ def _ask_overlay(port: int, token: str, question: str, case: dict) -> tuple[str,
     payload = {
         "question": question,
         "raw_question": question,
+        # Имитируем выбранное пользователем резюме. Без этого проверка вопроса
+        # про личный опыт тестировала бы выдумывание фактов, а не live-маршрут.
+        "candidate_context": E2E_CANDIDATE_CONTEXT,
         "mode": "fast",
         "fast_answer": True,
         "answer_language": "ru",
@@ -319,7 +344,9 @@ def main() -> int:
             raise RuntimeError(
                 "Voice-to-first-answer was too slow: "
                 f"{voice_to_first_chunk_ms} ms > {MAX_VOICE_TO_FIRST_CHUNK_MS} ms "
-                f"(stt={stt_ms} ms, first_chunk={first_chunk_ms} ms, "
+                f"(stt={stt_ms} ms, upstream={stt_event.get('openaiInferenceMs')} ms, "
+                f"first_partial={stt_event.get('timings', {}).get('firstPartialMs')} ms, "
+                f"first_chunk={first_chunk_ms} ms, "
                 f"model={done.get('model')}, "
                 f"hedge={done.get('correction', {}).get('hedgeStarted')}, "
                 f"winner={done.get('correction', {}).get('hedgeWinner')})"

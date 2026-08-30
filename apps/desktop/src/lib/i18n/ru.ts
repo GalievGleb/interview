@@ -794,6 +794,7 @@ export const ru = {
   'overlay.tip.screen': 'Скриншот экрана → разбор задачи/кода/вопроса и готовая подсказка',
   'overlay.kb.toggle': 'Показать / скрыть',
   'overlay.kb.ask': 'Отправить текущий вопрос',
+  'overlay.kb.screenAsk': 'Ответить по экрану',
   'overlay.kb.clear': 'Очистить чат',
   'overlay.kb.stop': 'Остановить сессию',
   'overlay.kb.move': 'Переместить оверлей',
@@ -904,7 +905,7 @@ export const ru = {
   'overlay.thinking': 'Думаю…',
   'overlay.transcriptEmpty': 'Запустите запись (● в пилле) — реплики появятся здесь.',
   'overlay.sourceHealth.systemSilent':
-    'Не слышу звук собеседника. Проверьте, что при выборе экрана включён системный звук.',
+    'Системный звук не поступает. Включите звук звонка или выберите в меню «Микрофон + система».',
 
   // Общее
   'common.error': 'Ошибка',
@@ -1001,6 +1002,7 @@ export const ru = {
   'settings.kb.group.scroll': 'Прокрутка ответа',
   'settings.kb.toggleOverlay': 'Показать / скрыть оверлей',
   'settings.kb.ask': 'Спросить (Подсказка)',
+  'settings.kb.screenAsk': 'Ответить по экрану',
   'settings.kb.clearChat': 'Очистить чат оверлея',
   'settings.kb.stopSession': 'Остановить сессию записи',
   'settings.kb.liveTranscript': 'Живой транскрипт',
@@ -1065,6 +1067,17 @@ export const ru = {
   'mic.permissionHint': 'Названия устройств скрыты — нужен доступ к микрофону.',
   'mic.grant': 'Разрешить доступ',
   'mic.level': 'Уровень сигнала — говорите в микрофон',
+  'mic.sample.title': 'Проверка голоса',
+  'mic.sample.idle': 'Запишите короткую фразу и послушайте результат.',
+  'mic.sample.recording': 'Идёт запись',
+  'mic.sample.ready': 'Запись готова',
+  'mic.sample.start': 'Записать голос',
+  'mic.sample.stop': 'Стоп',
+  'mic.sample.play': 'Прослушать',
+  'mic.sample.pause': 'Пауза',
+  'mic.sample.retry': 'Перезаписать',
+  'mic.sample.level': 'Уровень микрофона',
+  'mic.sample.playError': 'Не удалось воспроизвести запись',
 
   // Настройки — Модели ИИ
   'aimodels.loadError': 'Не удалось загрузить настройки моделей',

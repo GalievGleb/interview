@@ -5,6 +5,8 @@ import { api, type SessionItem } from '../lib/api';
 import { launchLive } from '../lib/launchLive';
 import { clearSessionKnowledge, refreshSessionKnowledge } from '../lib/sessionKnowledge';
 import { subscribeToSessionHistoryRefresh } from '../lib/sessionHistoryRefresh';
+import { pluralRu } from '../lib/pluralRu';
+import { formatSessionInterval } from '../lib/sessionAnalysisPresentation';
 import Modal from '../components/Modal';
 import { useApp } from '../context/AppContext';
 import SessionReportModal from '../components/interview/SessionReportModal';
@@ -199,7 +201,8 @@ export default function HistoryPage() {
                     <span className="min-w-0 flex-1">
                       <strong>{sessionLabel(session)}</strong>
                       <small>
-                        {new Date(session.started_at).toLocaleString('ru-RU')} · {session.answer_count ?? 0} ответов
+                        {formatSessionInterval(session.started_at, session.ended_at)} · {session.answer_count ?? 0}{' '}
+                        {pluralRu(session.answer_count ?? 0, 'ответ', 'ответа', 'ответов')}
                       </small>
                     </span>
                     <ChevronRight size={16} aria-hidden="true" />

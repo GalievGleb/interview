@@ -431,6 +431,19 @@ describe('HH applications redesign', () => {
     expect(calendarPageSource).toContain('formatAvailabilitySummary(state.settings)');
   });
 
+  it('prefills pending HR decisions with review-only drafts without overwriting edits', () => {
+    expect(pageSource).toContain("from '../lib/hhChatDecisionDrafts'");
+    expect(pageSource).toContain('chat.prepareDecisionDrafts()');
+    expect(pageSource).toContain('mergeHhChatDecisionDrafts(current, decisions)');
+    expect(pageSource).toContain('decision.suggestedAnswer');
+    expect(pageSource).toContain('Готовлю ответ по вашему резюме');
+    expect(pageSource).toContain('Проверьте факты перед отправкой');
+    expect(pageSource).not.toContain('const chatDecisionSuggestedAnswer');
+    expect(mainSource).toContain("handle('hh-chat:prepare-decision-drafts'");
+    expect(preloadSource).toContain("ipcRenderer.invoke('hh-chat:prepare-decision-drafts')");
+    expect(electronTypesSource).toContain('prepareDecisionDrafts: () => Promise<HhChatState>');
+  });
+
   it('creates a calendar event from the exact free time the user clicks', () => {
     expect(calendarPageSource).toContain('const CALENDAR_SLOT_MINUTES = 30');
     expect(calendarPageSource).toContain('calendarGridBounds(');

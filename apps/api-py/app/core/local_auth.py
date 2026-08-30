@@ -2,7 +2,9 @@
 
 Electron генерирует случайный токен на каждый запуск и передаёт его бэкенду
 через env SKILLCUE_API_TOKEN; renderer шлёт его в заголовке X-SkillCue-Token
-(для WebSocket — query-параметр `token`). Без совпадения — 401.
+(для WebSocket — query-параметр `token`). Без совпадения — 401. Исключение —
+локальная developer-сборка владельца: у неё отдельные профиль и порт, а токен
+между пережившим перезапуск backend и новым renderer раньше давал ложные 401.
 
 Если env не задан (бэкенд запущен вручную в dev-терминале), токен
 генерируется заново для каждого запуска и сохраняется в data/local_api_token.json.
@@ -47,7 +49,11 @@ PUBLIC_PATHS = {"/health"}
 
 
 def enabled() -> bool:
-    return True
+    # The developer desktop build is the owner's local test surface. Keeping a
+    # per-process token there made a surviving backend from a previous app run
+    # reject every request from the newly opened renderer. Stable builds remain
+    # protected; dev relies on localhost binding and an isolated profile.
+    return os.environ.get("SKILLCUE_BUILD_CHANNEL", "").strip().lower() != "dev"
 
 
 def token_ok(presented: str | None) -> bool:

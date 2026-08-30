@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   LiveSourceHealth,
   SYSTEM_AUDIO_NO_SIGNAL_MS,
+  SYSTEM_ONLY_AUDIO_NO_SIGNAL_MS,
   SYSTEM_NO_SIGNAL_WARNING,
   withAudioSource,
 } from './liveSourceHealth';
@@ -55,6 +56,40 @@ describe('LiveSourceHealth', () => {
       warning: SYSTEM_NO_SIGNAL_WARNING,
       transition: null,
     });
+  });
+
+  it('warns quickly when system audio is the only requested source and has no signal', () => {
+    const clock = fakeClock();
+    const health = new LiveSourceHealth({ mic: false, system: true }, clock.now);
+
+    health.markCaptureReady('system', 1);
+    expect(health.nextEvaluationAtMs()).toBe(1_000 + SYSTEM_ONLY_AUDIO_NO_SIGNAL_MS);
+
+    clock.set(1_000 + SYSTEM_ONLY_AUDIO_NO_SIGNAL_MS - 1);
+    expect(health.evaluate()).toEqual({ warning: null, transition: null });
+
+    clock.set(1_000 + SYSTEM_ONLY_AUDIO_NO_SIGNAL_MS);
+    expect(health.evaluate()).toEqual({
+      warning: SYSTEM_NO_SIGNAL_WARNING,
+      transition: 'warning',
+    });
+  });
+
+  it('does not warn in system-only mode once system signal is observed', () => {
+    const clock = fakeClock();
+    const health = new LiveSourceHealth({ mic: false, system: true }, clock.now);
+
+    health.markCaptureReady('system', 1);
+    health.observeAudioFrame('system', 1, {
+      capturedAtMs: 1_500,
+      rms: 0.2,
+      peak: 0.4,
+      hasSignal: true,
+    });
+    clock.set(1_000 + SYSTEM_ONLY_AUDIO_NO_SIGNAL_MS);
+
+    expect(health.evaluate()).toEqual({ warning: null, transition: null });
+    expect(health.nextEvaluationAtMs()).toBeNull();
   });
 
   it('recovers immediately and only once when system signal appears', () => {

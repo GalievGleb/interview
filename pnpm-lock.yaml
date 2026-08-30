@@ -34,6 +34,12 @@ importers:
       '@nestjs/platform-express':
         specifier: ^11.0.7
         version: 11.1.27(@nestjs/common@11.1.27(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@8.1.1))(@nestjs/core@11.1.27)(supports-color@8.1.1)
+      '@nestjs/platform-ws':
+        specifier: ^11.0.7
+        version: 11.2.3(@nestjs/common@11.1.27(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@8.1.1))(@nestjs/websockets@11.1.27)(rxjs@7.8.2)
+      '@nestjs/websockets':
+        specifier: ^11.0.7
+        version: 11.1.27(@nestjs/common@11.1.27(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@8.1.1))(@nestjs/core@11.1.27)(reflect-metadata@0.2.2)(rxjs@7.8.2)
       '@prisma/client':
         specifier: ^6.3.1
         version: 6.19.3(prisma@6.19.3(typescript@5.9.3))(typescript@5.9.3)
@@ -76,6 +82,9 @@ importers:
       uuid:
         specifier: ^11.0.5
         version: 11.1.1
+      ws:
+        specifier: ^8.18.0
+        version: 8.21.0
     devDependencies:
       '@nestjs/cli':
         specifier: ^11.0.2
@@ -98,6 +107,9 @@ importers:
       '@types/uuid':
         specifier: ^10.0.0
         version: 10.0.0
+      '@types/ws':
+        specifier: ^8.5.14
+        version: 8.18.1
       prisma:
         specifier: ^6.3.1
         version: 6.19.3(typescript@5.9.3)
@@ -847,6 +859,13 @@ packages:
       '@nestjs/common': ^11.0.0
       '@nestjs/core': ^11.0.0
 
+  '@nestjs/platform-ws@11.2.3':
+    resolution: {integrity: sha512-MkpuengHDE6q5TRs2oe5wSmxXTmg4JSqmTEAE9drNTPz97WKMrGrP8ulKH7ACTv9lyaul5khsg/NB8Z4SniRvQ==}
+    peerDependencies:
+      '@nestjs/common': ^11.0.0
+      '@nestjs/websockets': ^11.0.0
+      rxjs: ^7.1.0
+
   '@nestjs/schematics@11.1.0':
     resolution: {integrity: sha512-lVxGZ46tcdItFMoXr6vyKWlnOsm1SZm/GUqAEDvy2RL4Q4O+3bkziAhrO7Y8JLssFUUvNFEGqAizI52WAxhjDw==}
     peerDependencies:
@@ -1210,6 +1229,9 @@ packages:
 
   '@types/verror@1.10.11':
     resolution: {integrity: sha512-RlDm9K7+o5stv0Co8i8ZRGxDbrTxhJtgjqjFyVh/tXQyl/rYtTKlnTvZ88oSTeYREWurwx20Js4kTuKCsFkUtg==}
+
+  '@types/ws@8.18.1':
+    resolution: {integrity: sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg==}
 
   '@types/yauzl@2.10.3':
     resolution: {integrity: sha512-oJoftv0LSuaDZE3Le4DbKX+KS9G36NzOeSap90UIK0yMA/NhKJhqlSGtNDORNRaIbQfzjXDrQa0ytJ6mNRGz/Q==}
@@ -4247,6 +4269,18 @@ packages:
       utf-8-validate:
         optional: true
 
+  ws@8.21.2:
+    resolution: {integrity: sha512-54dMVAo4WIe6SKy3vBgN+9bJZqqQ8IMRevAkOLQALhi49qkkQDQfWdAZ8KQlXiEabw88ARXXdUrlvtbKQX+aKw==}
+    engines: {node: '>=10.0.0'}
+    peerDependencies:
+      bufferutil: ^4.0.1
+      utf-8-validate: '>=5.0.2'
+    peerDependenciesMeta:
+      bufferutil:
+        optional: true
+      utf-8-validate:
+        optional: true
+
   xmlbuilder@15.1.1:
     resolution: {integrity: sha512-yMqGBqtXyeN1e3TGYvgNgDVZ3j84W4cwkOXQswghol6APgZWaff9lnbvN7MHYJOiXsvGPXtjTYJEiC9J2wv9Eg==}
     engines: {node: '>=8.0'}
@@ -4997,6 +5031,17 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+  '@nestjs/platform-ws@11.2.3(@nestjs/common@11.1.27(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@8.1.1))(@nestjs/websockets@11.1.27)(rxjs@7.8.2)':
+    dependencies:
+      '@nestjs/common': 11.1.27(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@8.1.1)
+      '@nestjs/websockets': 11.1.27(@nestjs/common@11.1.27(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@8.1.1))(@nestjs/core@11.1.27)(reflect-metadata@0.2.2)(rxjs@7.8.2)
+      rxjs: 7.8.2
+      tslib: 2.8.1
+      ws: 8.21.2
+    transitivePeerDependencies:
+      - bufferutil
+      - utf-8-validate
+
   '@nestjs/schematics@11.1.0(chokidar@4.0.3)(typescript@5.9.3)':
     dependencies:
       '@angular-devkit/core': 19.2.24(chokidar@4.0.3)
@@ -5017,7 +5062,6 @@ snapshots:
       reflect-metadata: 0.2.2
       rxjs: 7.8.2
       tslib: 2.8.1
-    optional: true
 
   '@nodelib/fs.scandir@2.1.5':
     dependencies:
@@ -5339,6 +5383,10 @@ snapshots:
 
   '@types/verror@1.10.11':
     optional: true
+
+  '@types/ws@8.18.1':
+    dependencies:
+      '@types/node': 22.20.0
 
   '@types/yauzl@2.10.3':
     dependencies:
@@ -8702,8 +8750,9 @@ snapshots:
 
   wrappy@1.0.2: {}
 
-  ws@8.21.0:
-    optional: true
+  ws@8.21.0: {}
+
+  ws@8.21.2: {}
 
   xmlbuilder@15.1.1: {}
 

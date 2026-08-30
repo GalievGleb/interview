@@ -18,8 +18,10 @@ const home = fs.readFileSync(path.resolve(__dirname, '../pages/HomePage.tsx'), '
 const modal = fs.readFileSync(path.resolve(__dirname, '../components/Modal.tsx'), 'utf8');
 const palette = fs.readFileSync(path.resolve(__dirname, '../components/CommandPalette.tsx'), 'utf8');
 const tokens = fs.readFileSync(path.resolve(__dirname, 'tokens.css'), 'utf8');
+const workspaceCss = fs.readFileSync(path.resolve(__dirname, 'workspace.css'), 'utf8');
 const calendar = fs.readFileSync(path.resolve(__dirname, '../pages/InterviewCalendarPage.tsx'), 'utf8');
 const ru = fs.readFileSync(path.resolve(__dirname, '../lib/i18n/ru.ts'), 'utf8');
+const markdownText = fs.readFileSync(path.resolve(__dirname, '../components/MarkdownText.tsx'), 'utf8');
 
 describe('desktop polish contracts', () => {
   it('keeps native and CSS title bars at 44px so title-bar hover stays bounded', () => {
@@ -71,15 +73,23 @@ describe('desktop polish contracts', () => {
     expect(overlayCss).toContain('outline: 2px solid var(--sc-brand, #34c77b)');
   });
 
+  it('fits code inside the fixed overlay width without horizontal scrolling', () => {
+    expect(markdownText).toContain('formatCodeForCompactDisplay(language, code)');
+    expect(markdownText).toContain('overflow-x-hidden');
+    expect(markdownText).toContain('whitespace-pre-wrap');
+    expect(markdownText).toContain('[overflow-wrap:anywhere]');
+    expect(markdownText).not.toContain('<pre className="overflow-x-auto');
+  });
+
   it('uses a calm HH command center without the decorative journey rail', () => {
     expect(prepareCss).toContain('.home-command-center');
     expect(vitrineCss).toContain(
-      'grid-template-columns: minmax(0, 1.72fr) minmax(330px, 0.9fr)',
+      'grid-template-columns: minmax(0, 1fr) minmax(250px, 0.46fr)',
     );
     expect(home).toContain('home-command-hero');
     expect(home).toContain('home-command-attention');
     expect(vitrineCss).toContain('.home-application-illustration');
-    expect(vitrineCss).toContain('.home-command-quick-actions');
+    expect(vitrineCss).not.toContain('.home-command-quick-actions');
     expect(home).not.toContain('<CandidateJourneyStrip');
     expect(home).not.toContain('home-radar-flow');
     expect(home).not.toContain('applicationFlow.reached[index]');
@@ -108,6 +118,15 @@ describe('desktop polish contracts', () => {
     expect(home).toContain('visibleAttentionItems.length > 0');
     expect(home).toContain('home-command-clear');
     expect(home).toContain('formatHomeInterviewBadge');
+    expect(home).toContain('prep h-full overflow-hidden');
+    expect(home).toContain('Открыть помощника');
+    expect(home).not.toContain('home-command-quick-actions');
+    const homeWrapRule = vitrineCss.slice(
+      vitrineCss.indexOf('.prep-wrap.home-radar {'),
+      vitrineCss.indexOf('.home-dashboard-heading'),
+    );
+    expect(homeWrapRule).toContain('height: 100%');
+    expect(homeWrapRule).toContain('overflow: hidden');
   });
 
   it('turns interview readiness into an actionable checklist instead of a blind redirect', () => {
@@ -141,6 +160,46 @@ describe('desktop polish contracts', () => {
     expect(indexCss).toContain('@media (prefers-reduced-motion: reduce)');
     expect(indexCss).toContain('animation-duration: 0.01ms !important');
     expect(indexCss).toContain('scroll-behavior: auto !important');
+  });
+
+  it('keeps compact light-theme accent text readable on pale and white surfaces', () => {
+    expect(tokens).toContain('--sc-brand: #057a44');
+    expect(tokens).toContain('--twc-accent: 5 122 68');
+    expect(workspaceCss).toContain('--accent: #057a44');
+    expect(workspaceCss).toContain('--accent-text: #057a44');
+    expect(workspaceCss).toContain('--text-faint: #5b6b84');
+    expect(workspaceCss).toContain('--graphite-600: #5b6b84');
+    expect(vitrineCss).toContain('--prep-ink-faint: #5b6b84');
+    expect(vitrineCss).toContain('--prep-green: #057a44');
+  });
+
+  it('keeps text visible on every bright green primary action', () => {
+    const sidebarActionRule = indexCss.slice(
+      indexCss.indexOf('.skillcue-sidebar__assistant-action {'),
+      indexCss.indexOf('.skillcue-sidebar--collapsed .skillcue-sidebar__assistant-card'),
+    );
+    const homeActionRule = vitrineCss.slice(
+      vitrineCss.indexOf('.home-command-cta,'),
+      vitrineCss.indexOf('.home-command-cta:hover,'),
+    );
+    const lightPrimaryRule = vitrineCss.slice(
+      vitrineCss.indexOf(":root[data-theme='light'] .btn-primary,"),
+      vitrineCss.indexOf(":root[data-theme='light'] .field,"),
+    );
+
+    expect(sidebarActionRule).toContain('color: #04240f');
+    expect(sidebarActionRule).not.toContain('color: white');
+    expect(homeActionRule).toContain('color: #04240f');
+    expect(homeActionRule).not.toContain('color: white');
+    expect(lightPrimaryRule).toContain('color: #04240f');
+    expect(lightPrimaryRule).not.toContain('color: #ffffff');
+  });
+
+  it('does not leak the primary green hover glow into secondary or disabled preparation buttons', () => {
+    expect(prepareCss).toContain(
+      '.prep-btn:not(.prep-btn-secondary):not(.prep-btn-ghost):hover:not(:disabled)',
+    );
+    expect(prepareCss).not.toMatch(/\.prep-btn:hover\s*\{/);
   });
 
   it('exposes the weekly calendar as one roving keyboard grid', () => {

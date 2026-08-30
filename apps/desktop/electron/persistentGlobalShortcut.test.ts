@@ -79,6 +79,7 @@ describe('PersistentGlobalShortcut', () => {
     const createTrayAt = mainSource.indexOf('function createTray', registerShortcutsAt);
     const startupSource = mainSource.slice(registerShortcutsAt, createTrayAt);
     expect(startupSource).toContain('registerForceAnswerShortcut();');
+    expect(startupSource).toContain('registerForceScreenAnswerShortcut();');
     expect(mainSource).toContain('scheduleToggleOverlayShortcutRetry');
     expect(mainSource).toContain('toggleOverlayShortcutBinding?.ensureRegistered()');
     expect(mainSource).toContain(
@@ -86,5 +87,6 @@ describe('PersistentGlobalShortcut', () => {
     );
     expect(mainSource).toContain("if (!win.isVisible()) showOverlayWindow(win, 'inactive');");
     expect(mainSource).toContain("win.webContents.send('overlay:force-answer')");
+    expect(mainSource).toContain("win.webContents.send('overlay:force-screen-answer')");
   });
 });

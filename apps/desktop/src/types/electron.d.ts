@@ -235,9 +235,11 @@ export interface HhChatPendingDecision {
   messageId: string;
   vacancyTitle: string;
   companyName: string;
+  vacancyUrl?: string;
   recruiterMessage: string;
   question: string;
   kind: 'contract' | 'salary' | 'experience' | 'relocation' | 'start_date' | 'schedule' | 'work_format' | 'travel' | 'work_authorization' | 'candidate_fact';
+  suggestedAnswer?: string;
   createdAt: string;
 }
 
@@ -360,9 +362,15 @@ export interface ElectronAPI {
   quit?: () => Promise<void>;
   /** Собирает zip с логами и системной информацией, показывает его в проводнике. */
   collectDiagnostics?: (extra: Array<{ name: string; content: string }>) => Promise<string>;
-  shareSessionReport?: (input: { filename: string; content: string; message?: string }) => Promise<{
+  shareSessionReport?: (input: {
+    filename: string;
+    content: string;
+    message?: string;
+    action?: 'telegram' | 'open';
+  }) => Promise<{
     path: string;
     telegramOpened: boolean;
+    fileOpened?: boolean;
     fallback: boolean;
   }>;
   keybinds?: {
@@ -424,6 +432,7 @@ export interface ElectronAPI {
     saveConfig: (config: Partial<HhChatConfig>) => Promise<HhChatConfig>;
     setEnabled: (enabled: boolean) => Promise<HhChatState>;
     pollNow: () => Promise<HhChatState>;
+    prepareDecisionDrafts: () => Promise<HhChatState>;
     answerDecision: (decisionId: string, answer: string, remember?: boolean) => Promise<HhChatState>;
     declineDecision: (decisionId: string) => Promise<HhChatState>;
     forgetFact: (factId: string) => Promise<HhChatState>;
@@ -460,6 +469,7 @@ export interface ElectronAPI {
     resize?: (dw: number, dh: number) => Promise<void>;
     setLiveState?: (active: boolean) => Promise<void>;
     onForceAnswer?: (cb: () => void) => () => void;
+    onForceScreenAnswer?: (cb: () => void) => () => void;
     onScroll?: (cb: (direction: -1 | 1) => void) => () => void;
   };
   window: {

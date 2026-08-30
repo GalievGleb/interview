@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from collections.abc import Awaitable, Callable
 from typing import TypedDict
 
@@ -23,6 +24,31 @@ LIVE_RU_PROMPT = (
     "сохраняй технические термины: Python, pytest, fixture, autouse, scope, yield, "
     "Docker, REST API, HTTP, JSON, SQL, Playwright, CI/CD, Kafka, Kubernetes, lambda."
 )
+REALTIME_RU_PROMPT = (
+    "тест-дизайн, тест-дизайна, классы эквивалентности, граничные значения, "
+    "Python, pytest, Docker, REST API, HTTP, JSON, SQL, Playwright, CI/CD, Kafka, "
+    "Kubernetes"
+)
+LEGACY_REALTIME_RU_PROMPT = (
+    "Русское техническое собеседование по разработке и тестированию. "
+    "Термины: тест-дизайн, классы эквивалентности, граничные значения, "
+    "Python, pytest, Docker, REST API, HTTP, JSON, SQL, Playwright, CI/CD, "
+    "Kafka, Kubernetes."
+)
+_LIVE_RU_PROMPT_WITHOUT_LOCALE = LIVE_RU_PROMPT.removeprefix("Русское ")
+_LEGACY_REALTIME_RU_PROMPT_WITHOUT_LOCALE = LEGACY_REALTIME_RU_PROMPT.removeprefix(
+    "Русское "
+)
+LIVE_RU_PROMPT_VARIANTS = (
+    LIVE_RU_PROMPT,
+    _LIVE_RU_PROMPT_WITHOUT_LOCALE,
+    _LIVE_RU_PROMPT_WITHOUT_LOCALE[:1].upper() + _LIVE_RU_PROMPT_WITHOUT_LOCALE[1:],
+    REALTIME_RU_PROMPT,
+    LEGACY_REALTIME_RU_PROMPT,
+    _LEGACY_REALTIME_RU_PROMPT_WITHOUT_LOCALE,
+    _LEGACY_REALTIME_RU_PROMPT_WITHOUT_LOCALE[:1].upper()
+    + _LEGACY_REALTIME_RU_PROMPT_WITHOUT_LOCALE[1:],
+)
 STT_RETRY_DELAYS_S = (0.2, 0.6)
 STT_RETRY_STATUS_CODES = {429, 500, 502, 503, 504, 520, 521, 522, 523, 524, 525, 526, 527, 530}
 STT_TEMPORARY_ERROR = "Сервис распознавания временно недоступен. Повторите фразу."
@@ -33,9 +59,12 @@ def strip_live_prompt_echo(text: str) -> str:
     cleaned = str(text or "").strip()
     if not cleaned:
         return ""
-    while LIVE_RU_PROMPT in cleaned:
-        cleaned = cleaned.replace(LIVE_RU_PROMPT, " ")
-    return " ".join(cleaned.split()).strip(" ,;:-")
+    for prompt in LIVE_RU_PROMPT_VARIANTS:
+        cleaned = re.sub(re.escape(prompt), " ", cleaned, flags=re.IGNORECASE)
+    cleaned = " ".join(cleaned.split()).strip(" ,;:-")
+    cleaned = re.sub(r"^(?:[.,;:!?—-]+\s+)+", "", cleaned)
+    cleaned = re.sub(r"(?:\s+[.,;:!?—-]+)+$", "", cleaned).strip()
+    return "" if re.fullmatch(r"[.,;:!?—-]+", cleaned) else cleaned
 
 
 async def _post_stt_with_retry(

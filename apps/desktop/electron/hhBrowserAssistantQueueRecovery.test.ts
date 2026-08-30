@@ -164,7 +164,7 @@ describe('HH persisted queue recovery', () => {
     expect(item?.autoRetryBlockedUntil).toBeUndefined();
   });
 
-  it('preserves screening data when a legacy skipped item is recovered to opened', () => {
+  it('preserves screening data and daily-gates a legacy unreadable item recovered to opened', () => {
     const storedAnswer = {
       questionId: 'q-1-1',
       question: 'Когда готовы выйти?',
@@ -177,7 +177,10 @@ describe('HH persisted queue recovery', () => {
       screeningAnswers: [storedAnswer],
     })]);
 
-    expect(item).toMatchObject({ status: 'opened' });
+    expect(item).toMatchObject({
+      status: 'opened',
+      autoRetryBlockedUntil: 'daily',
+    });
     expect(item?.pendingQuestions).toHaveLength(2);
     expect(item?.screeningAnswers).toEqual([storedAnswer]);
   });

@@ -8,6 +8,7 @@ import {
 } from './latestForcedAnswer';
 import {
   selectForceTargetSource,
+  SpeechActivityTracker,
   shouldFinalizeCurrentSpeech,
 } from './forceLiveAnswer';
 import { sanitizeDebugBundle, type DebugEvent } from './liveDebugRecorder';
@@ -120,6 +121,54 @@ describe('live session reliability integration', () => {
     });
   });
 
+  it('waits for the active phrase even when an older final is already visible', () => {
+    let now = 125_358;
+    const coordinator = new LatestForcedAnswerCoordinator(
+      () => 'force-active-continuation',
+      () => now,
+    );
+    const activity = new SpeechActivityTracker();
+    const prefix = {
+      sequence: 1,
+      text: 'Платёж может быть банковской картой или бонусами.',
+      source: 'system' as const,
+      receivedAt: 110_625,
+    };
+
+    activity.started('system', 125_281);
+    const mustFlush = shouldFinalizeCurrentSpeech(
+      'system',
+      activity.snapshot(),
+      { mic: 0, system: 1 },
+      prefix.receivedAt,
+      now,
+      activity.latestStartedAt('system'),
+    );
+
+    expect(mustFlush).toBe(true);
+    const force = coordinator.press([prefix], 'system', mustFlush);
+    if (force.action !== 'flush') throw new Error(`Expected forced flush, got ${force.action}`);
+
+    now = 126_148;
+    expect(
+      coordinator.acceptFinal(
+        {
+          sequence: 2,
+          text: 'Как бы ты подходил к тестированию этой задачи?',
+          source: 'system',
+          receivedAt: now,
+        },
+        force.requestId,
+      ),
+    ).toMatchObject({
+      action: 'submit',
+      generation: 1,
+      sequence: 2,
+      question:
+        'Платёж может быть банковской картой или бонусами. Как бы ты подходил к тестированию этой задачи?',
+    });
+  });
+
   it('waits through delayed STT and submits Ctrl+Enter through text without a screen request', () => {
     let now = 200_000;
     const coordinator = new LatestForcedAnswerCoordinator(
@@ -158,6 +207,42 @@ describe('live session reliability integration', () => {
     });
     expect(textSseStarts).toBe(1);
     expect(screen.snapshot().entries).toEqual([]);
+  });
+
+  it('submits the microphone question instead of hanging when system capture has no signal', () => {
+    const now = 40_000;
+    const clock = () => now;
+    const sourceHealth = new LiveSourceHealth({ mic: true, system: true }, clock);
+    const coordinator = new LatestForcedAnswerCoordinator(() => 'must-not-flush', clock);
+
+    sourceHealth.markCaptureReady('system', 1, 1_000);
+    sourceHealth.markCaptureReady('mic', 1, 1_000);
+    sourceHealth.markSpeechStarted('mic', 1, 2_000);
+    sourceHealth.markSpeechStarted('mic', 1, 4_000);
+    sourceHealth.markSpeechStarted('mic', 1, 6_000);
+    expect(sourceHealth.evaluate(now).warning).toBe(SYSTEM_NO_SIGNAL_WARNING);
+
+    const finals = [{
+      sequence: 1,
+      text: 'Какие техники тест-дизайна вы знаете?',
+      source: 'mic' as const,
+      capturedAtMs: 39_000,
+      receivedAt: 39_500,
+    }];
+    const target = selectForceTargetSource(
+      { mic: true, system: true },
+      { mic: false, system: false },
+      { mic: 1, system: 0 },
+      { systemSilent: sourceHealth.snapshot().warning === SYSTEM_NO_SIGNAL_WARNING },
+    );
+    const decision = coordinator.press(finals, target);
+
+    expect(target).toBe('mic');
+    expect(decision).toMatchObject({
+      action: 'submit',
+      question: 'Какие техники тест-дизайна вы знаете?',
+    });
+    expect(coordinator.snapshot().phase).toBe('waiting-first-token');
   });
 
   it('keeps committed screen output authoritative and exports bounded adversarial evidence', () => {

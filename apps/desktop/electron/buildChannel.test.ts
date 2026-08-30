@@ -23,7 +23,9 @@ describe('desktop build channel', () => {
     expect(stable.userDataDirectoryName).toBeNull();
     expect(dev.defaultToggleShortcut).toBe('CommandOrControl+Shift+H');
     expect(dev.forceAnswerShortcut).toBe('CommandOrControl+Enter');
+    expect(dev.forceScreenAnswerShortcut).toBe('CommandOrControl+Shift+Enter');
     expect(dev.defaultToggleShortcut).toBe(stable.defaultToggleShortcut);
     expect(dev.forceAnswerShortcut).toBe(stable.forceAnswerShortcut);
+    expect(dev.forceScreenAnswerShortcut).toBe(stable.forceScreenAnswerShortcut);
   });
 });

@@ -42,6 +42,7 @@ class FakeWebSocket {
   onmessage: ((event: MessageEvent) => void) | null = null;
   onerror: ((event: Event) => void) | null = null;
   onclose: ((event: CloseEvent) => void) | null = null;
+  sent: unknown[] = [];
 
   constructor(readonly url: string) {
     FakeWebSocket.instances.push(this);
@@ -56,7 +57,9 @@ class FakeWebSocket {
     this.onmessage?.({ data: JSON.stringify(payload) } as MessageEvent);
   }
 
-  send(): void {}
+  send(payload: unknown): void {
+    this.sent.push(payload);
+  }
 
   close(): void {
     this.readyState = 3;
@@ -75,6 +78,7 @@ describe('live-session transport epochs', () => {
     dependencies.captureStops.length = 0;
     dependencies.startCapture.mockClear();
     vi.stubGlobal('WebSocket', FakeWebSocket);
+    vi.stubGlobal('window', globalThis);
   });
 
   afterEach(() => {
@@ -123,6 +127,77 @@ describe('live-session transport epochs', () => {
     expect(health.snapshot().sources.mic.speechStartCount).toBe(1);
     expect(health.evaluate()).toEqual({ warning: null, transition: null });
     session.stop();
+  });
+
+  it('still transcribes and flushes after the 60-minute provider boundary', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-30T00:00:00.000Z'));
+    const reconnecting = vi.fn();
+    const reconnected = vi.fn();
+    const transcripts: string[] = [];
+    let session: Awaited<ReturnType<typeof startLiveSession>> | null = null;
+
+    try {
+      session = await startLiveSession(
+        {
+          onTranscript: (text, isFinal) => {
+            if (isFinal) transcripts.push(text);
+          },
+          onReconnecting: reconnecting,
+          onReconnected: reconnected,
+          onError: (message) => {
+            throw new Error(message);
+          },
+        },
+        { source: 'mic' },
+      );
+
+      const firstSocket = FakeWebSocket.instances[0];
+      firstSocket.open();
+      await flushPromises();
+      firstSocket.message({
+        type: 'ready',
+        engine: 'openai-realtime',
+        model: 'gpt-4o-mini-transcribe',
+        sample_rate: 16_000,
+      });
+
+      vi.setSystemTime(new Date('2026-08-30T01:00:00.000Z'));
+      firstSocket.close();
+      expect(reconnecting).toHaveBeenCalledWith(1, 5);
+      await vi.advanceTimersByTimeAsync(500);
+
+      expect(FakeWebSocket.instances).toHaveLength(2);
+      const replacement = FakeWebSocket.instances[1];
+      replacement.open();
+      await flushPromises();
+      replacement.message({
+        type: 'ready',
+        engine: 'openai-realtime',
+        model: 'gpt-4o-mini-transcribe',
+        sample_rate: 16_000,
+      });
+      expect(reconnected).toHaveBeenCalledOnce();
+
+      vi.setSystemTime(new Date('2026-08-30T01:31:00.000Z'));
+      replacement.message({
+        type: 'transcript',
+        text: 'Как вы применяете фикстуры pytest на проекте?',
+        is_final: true,
+        speech_final: true,
+        utterance_id: 'after-ninety-minutes',
+        captured_at_ms: Date.now() - 500,
+      });
+
+      expect(transcripts).toEqual(['Как вы применяете фикстуры pytest на проекте?']);
+      expect(session.flush('force-after-ninety-minutes')).toBe(true);
+      expect(replacement.sent).toContain(
+        JSON.stringify({ type: 'finalize', request_id: 'force-after-ninety-minutes' }),
+      );
+    } finally {
+      session?.stop();
+      vi.useRealTimers();
+    }
   });
 
   it('turns force-empty followed by the current id-less final into one text answer', async () => {

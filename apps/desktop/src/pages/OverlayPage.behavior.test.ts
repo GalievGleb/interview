@@ -49,6 +49,14 @@ describe('overlay request behavior', () => {
     expect(warningUi).not.toContain('forceAnswer');
   });
 
+  it('clears a stale source warning as soon as recording stops', () => {
+    const stopAt = hookSource.indexOf('const stop = useCallback');
+    const stopBody = hookSource.slice(stopAt, stopAt + 1_200);
+
+    expect(stopAt).toBeGreaterThan(-1);
+    expect(stopBody).toContain('setSourceHealthWarning(null)');
+  });
+
   it('tags source-handler diagnostics independently from the displayed speaker', () => {
     expect(hookSource).toContain("withAudioSource(source, { speaker })");
     const lowQualityAt = hookSource.indexOf('onLowQuality:');
@@ -277,6 +285,16 @@ describe('overlay request behavior', () => {
     expect(overlaySource).toContain("submitForcedAnswer('global')");
   });
 
+  it('handles the screen-only shortcut before the normal Ctrl+Enter branch', () => {
+    const screenBranch = overlaySource.indexOf("mod && e.shiftKey && e.key === 'Enter'");
+    const answerBranch = overlaySource.indexOf("mod && !e.shiftKey && e.key === 'Enter'");
+    expect(screenBranch).toBeGreaterThan(-1);
+    expect(answerBranch).toBeGreaterThan(screenBranch);
+    expect(overlaySource).toContain("submitForcedScreenAnswer('renderer')");
+    expect(overlaySource).toContain("submitForcedScreenAnswer('global')");
+    expect(preloadSource).toContain("ipcRenderer.on('overlay:force-screen-answer'");
+  });
+
   it('never starts an answer from speech recognition without Ctrl+Enter', () => {
     expect(hookSource).not.toContain('scheduleSpeechFinal(trimmed, speaker');
     expect(hookSource).not.toContain('scheduleFinalFallback(trimmed, speaker');
@@ -296,13 +314,21 @@ describe('overlay request behavior', () => {
     const fastPayloadBlock = apiSource.match(/const fastPayload = \{([\s\S]*?)\n\s{8}\};/)?.[1] ?? '';
     expect(fastPayloadBlock).toContain('question,');
     expect(fastPayloadBlock).toContain('fast_answer: true');
+    expect(fastPayloadBlock).toContain('candidate_context: opts.candidateContext?.trim() || null');
     expect(fastPayloadBlock).not.toContain('question_intent');
     expect(fastPayloadBlock).not.toContain('weak_topics');
     expect(fastPayloadBlock).not.toContain('resolved_follow_up_question');
   });
 
+  it('preloads the selected resume before live questions without adding another model call', () => {
+    expect(hookSource).toContain("import { resolvePreferredResume } from '../lib/resumeContext'");
+    expect(hookSource).toContain('const candidateContextRef = useRef');
+    expect(hookSource).toContain('resolvePreferredResume()');
+    expect(hookSource).toContain('candidateContext: candidateContextRef.current');
+  });
+
   it('routes deictic code-on-screen questions to vision after Ctrl+Enter', () => {
-    expect(hookSource).toContain('requiresScreenContext(question)');
+    expect(hookSource).toContain('requiresScreenContext(question, screenTaskAvailableRef.current)');
     expect(hookSource).toContain('routeQuestionToScreen(generation)');
     expect(hookSource).toContain(
       'routeVisualQuestionToScreen(decision.question, decision.generation)',
@@ -310,9 +336,15 @@ describe('overlay request behavior', () => {
     expect(hookSource).toContain('routeVisualToScreen: (question, generation) =>');
     expect(hookSource).toContain('routeVisualQuestionToScreen(question, generation)');
     expect(hookSource).toContain(
-      'setForceScreenFallback({ generation, screenRevision, question: question.trim() })',
+      'setForceScreenFallback({ generation, screenRevision, question: screenQuestion })',
     );
     expect(overlaySource).toContain('runScreenAssist(forceScreenFallback.question');
+  });
+
+  it('keeps bounded previous screen context for explicit task modifications', () => {
+    expect(overlaySource).toContain('lastScreenTaskRef');
+    expect(overlaySource).toContain('buildScreenTaskContinuityContext(');
+    expect(overlaySource).toContain('markScreenTaskAvailable()');
   });
 
   it('restarts the same-generation screen fallback when a late exact question arrives', () => {
@@ -466,6 +498,7 @@ describe('overlay request behavior', () => {
   it('keeps a dismissible quick guide available after first launch', () => {
     expect(overlaySource).toContain('skillcue.overlayQuickGuideSeen.v1');
     expect(overlaySource).toContain('Ctrl+Enter');
+    expect(overlaySource).toContain('Ctrl+Shift+Enter');
     expect(overlaySource).toContain('Ctrl+Shift+H');
     expect(overlaySource).toContain('setShowQuickGuide(true)');
     expect(overlaySource).toContain('localStorage.setItem(QUICK_GUIDE_KEY');

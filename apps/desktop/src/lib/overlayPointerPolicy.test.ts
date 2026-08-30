@@ -27,6 +27,21 @@ describe('overlay pointer policy', () => {
     expect(clickThrough).toEqual([true, false, true]);
   });
 
+  it('captures the whole overlay while a floating menu is open, then restores click-through', () => {
+    const clickThrough: boolean[] = [];
+    const controller = new OverlayPointerController(
+      (enabled) => clickThrough.push(enabled),
+      () => ({ closest: () => null } as never),
+    );
+
+    controller.initialize();
+    controller.move(40, 60);
+    controller.setModalCapture(true);
+    controller.setModalCapture(false);
+
+    expect(clickThrough).toEqual([true, false, true]);
+  });
+
   it('clamps a tooltip at the left and top edges', () => {
     expect(
       clampFloatingPanel(

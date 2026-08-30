@@ -1,0 +1,64 @@
+import { describe, expect, it } from 'vitest';
+import {
+  buildScreenTaskContinuityContext,
+  findLatestUnconsumedScreenCaptureCue,
+  isScreenTaskFollowUp,
+  isSpokenScreenCaptureCue,
+  screenCaptureRequestFromCue,
+} from './screenTaskContinuity';
+
+describe('screen task continuity', () => {
+  it.each([
+    'Сейчас покажу решение.',
+    'Покажу своё решение и объясню ход мыслей.',
+  ])('recognizes the natural spoken screen cue: %s', (text) => {
+    expect(isSpokenScreenCaptureCue(text)).toBe(true);
+    expect(screenCaptureRequestFromCue(text)).toContain('текущее задание на экране');
+  });
+
+  it('finds a candidate microphone cue even when system audio owns Ctrl+Enter', () => {
+    const cue = findLatestUnconsumedScreenCaptureCue(
+      [
+        { sequence: 11, source: 'system', text: 'Теперь добавь обработку None.' },
+        { sequence: 12, source: 'mic', text: 'Сейчас покажу решение.' },
+        { sequence: 13, source: 'system', text: 'Хорошо.' },
+      ],
+      10,
+    );
+    expect(cue).toMatchObject({ sequence: 12, source: 'mic' });
+    expect(findLatestUnconsumedScreenCaptureCue([cue!], 12)).toBeNull();
+  });
+
+  it.each([
+    'Я применяю Page Object в UI-автотестах.',
+    'Покажу на примере из своего опыта, как работал с API.',
+    'Как можно улучшить процесс тестирования в команде?',
+  ])('does not treat ordinary candidate speech as a screen command: %s', (text) => {
+    expect(isSpokenScreenCaptureCue(text)).toBe(false);
+  });
+
+  it.each([
+    'Не удаляй текущую проверку, а добавь обработку None.',
+    'А как это решение можно улучшить?',
+    'Теперь поменяй запрос: нужна группировка по городу.',
+  ])('recognizes an explicit previous-task modification: %s', (text) => {
+    expect(isScreenTaskFollowUp(text)).toBe(true);
+  });
+
+  it('passes bounded prior task and answer only to an explicit continuation', () => {
+    const previous = {
+      question: `Напиши SQL-запрос ${'Q'.repeat(900)}`,
+      answer: `SELECT * FROM users; ${'A'.repeat(5000)}`,
+    };
+
+    expect(buildScreenTaskContinuityContext('Что такое JOIN?', previous)).toBe('');
+
+    const context = buildScreenTaskContinuityContext(
+      'Теперь улучши предыдущее решение и не удаляй фильтр.',
+      previous,
+    );
+    expect(context).toContain('ПРЕДЫДУЩЕЕ ЗАДАНИЕ С ЭКРАНА');
+    expect(context).toContain('ПРЕДЫДУЩИЙ ОТВЕТ SKILLCUE');
+    expect(context.length).toBeLessThanOrEqual(3900);
+  });
+});

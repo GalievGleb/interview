@@ -68,6 +68,14 @@ export function hhAutomationAllowed(
   return Boolean(license && license.status === 'active' && license.plan === 'max');
 }
 
+/** Не меняем сохранённое расписание, пока статус лицензии ещё неизвестен. */
+export function shouldDisableHhDailySchedule(
+  licenseLoading: boolean,
+  license: { status?: string | null; plan?: string | null } | null | undefined,
+): boolean {
+  return !licenseLoading && Boolean(license) && !hhAutomationAllowed(license);
+}
+
 // Страница оплаты на лендинге (ведёт на ЮKassa). Переопределяется на сборке
 // через VITE_PAY_BASE, если домен другой.
 const PAY_BASE = import.meta.env?.VITE_PAY_BASE ?? 'https://skill-cue.ru/pay';

@@ -3,12 +3,14 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { configureHttpBodyParsing } from './gateway/http-body-parser';
+import { WsAdapter } from '@nestjs/platform-ws';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bodyParser: false,
   });
   configureHttpBodyParsing(app);
+  app.useWebSocketAdapter(new WsAdapter(app));
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

@@ -21,6 +21,10 @@ from pydantic import BaseModel
 from app.config import get_settings
 from app.services.stt import registry as stt_registry
 from app.services.stt.openai_mini_stream import run_openai_mini_stream
+from app.services.stt.openai_realtime_stream import (
+    RealtimeUnavailable,
+    run_openai_realtime_stream,
+)
 from app.services.stt.openai_transcribe import ANSWER_MODEL, get_answer_transcriber
 from app.services.stt.settings_store import load_stt_settings
 
@@ -36,6 +40,48 @@ MAX_ANSWER_CONTEXT_CHARS = 1_000
 MAX_ANSWER_HINTS = 32
 MAX_ANSWER_HINT_CHARS = 64
 _active_live_streams = 0
+# A Realtime provider lease has a finite lifetime. Re-open the upstream inside
+# the same local WebSocket so the desktop keeps its capture and transcript.
+# Two short retries stay below the gateway's new-session rate limit; the proven
+# upload stream remains the final fallback for a real outage.
+REALTIME_RECONNECT_DELAYS_S = (0.2, 0.8)
+
+
+async def run_configured_live_stream(
+    ws,
+    *,
+    settings,
+    language: str,
+    sample_rate: int,
+) -> None:
+    """Run experimental Realtime STT with the proven upload path as fallback."""
+    if settings.skillcue_realtime_stt:
+        for reconnect_delay in (*REALTIME_RECONNECT_DELAYS_S, None):
+            try:
+                await run_openai_realtime_stream(
+                    ws,
+                    language=language,
+                    sample_rate=sample_rate,
+                )
+                return
+            except RealtimeUnavailable as exc:
+                if reconnect_delay is None:
+                    logger.warning(
+                        "Realtime STT unavailable after reconnects; falling back to Mini upload: %s",
+                        exc,
+                    )
+                    break
+                logger.warning(
+                    "Realtime STT connection ended; reconnecting in %.1f s: %s",
+                    reconnect_delay,
+                    exc,
+                )
+                await asyncio.sleep(reconnect_delay)
+    await run_openai_mini_stream(
+        ws,
+        language=language,
+        sample_rate=sample_rate,
+    )
 
 
 def _validate_answer_wav(audio: bytes) -> float:
@@ -285,8 +331,9 @@ async def stt_stream(ws: WebSocket) -> None:
         watchdog = asyncio.create_task(cut_off_trial())
 
     try:
-        await run_openai_mini_stream(
+        await run_configured_live_stream(
             ws,
+            settings=settings,
             language=language,
             sample_rate=sample_rate,
         )

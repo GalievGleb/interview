@@ -67,6 +67,48 @@ _SORTED_LIST_SORT_RE = re.compile(
     r"\blist\s*\.\s*sort\s*\([^)]*\).{0,100}\bsorted\s*\(",
     re.IGNORECASE | re.UNICODE,
 )
+_PYTHON_DATA_TYPES_ASR_RE = re.compile(
+    r"\bкаки\w*.{0,35}(?:подад\w*|данн\w*|тип\w*).{0,45}"
+    r"(?:питон\w*|python).{0,35}зна\w*",
+    re.IGNORECASE | re.UNICODE,
+)
+_SPOKEN_SORTED_LIST_SORT_RE = re.compile(
+    r"\b(?:сорт(?:ед)?|sorted)\b[\s,.;:—-]{0,12}\bточк\w*\s+(?:сорт|sort)\b",
+    re.IGNORECASE | re.UNICODE,
+)
+_SORT_AND_SORTED_ASR_RE = re.compile(
+    r"\b(?:sort|сорт)\b.{0,45}\b(?:sorted|сортед)\b|"
+    r"\b(?:sorted|сортед)\b.{0,45}\b(?:sort|сорт)\b",
+    re.IGNORECASE | re.UNICODE,
+)
+_OOP_ASR_NEAR_MISS_RE = re.compile(
+    r"\b(?:опо|по[оo]|[оo]п[oо]|oп[оo])\b",
+    re.IGNORECASE | re.UNICODE,
+)
+_OOP_SOFTWARE_CONTEXT_RE = re.compile(
+    r"использ\w*|примен\w*|принцип\w*|автотест\w*|ui|python|питон\w*|"
+    r"(?:на|в)\s+(?:сво\w+\s+)?работ\w*",
+    re.IGNORECASE | re.UNICODE,
+)
+_OOP_INDUSTRIAL_CONTEXT_RE = re.compile(
+    r"опасн\w*|производствен\w*|промышлен\w*|объект\w*",
+    re.IGNORECASE | re.UNICODE,
+)
+_TEST_DESIGN_RE = re.compile(
+    r"тест[\s-]*дизайн|test[\s-]*design|класс\w*\s+эквивалент|граничн\w*\s+значен",
+    re.IGNORECASE | re.UNICODE,
+)
+_TIMING_DECORATOR_ASR_RE = re.compile(
+    r"\bдекоратор\w*.{0,180}(?:\bargs\b|аргс\w*).{0,90}"
+    r"(?:\bkwargs\b|кваркс\w*).{0,120}\bврем\w*",
+    re.IGNORECASE | re.UNICODE,
+)
+_OOP_PRACTICAL_RE = re.compile(
+    r"(?:(?:\boop\b|ооп|объектно[\s-]*ориентирован\w*).{0,90}"
+    r"(?:использ\w*|примен\w*|в\s+работ\w*|на\s+(?:сво\w+\s+)?работ\w*)|"
+    r"(?:использ\w*|примен\w*).{0,90}(?:\boop\b|ооп|объектно[\s-]*ориентирован\w*))",
+    re.IGNORECASE | re.UNICODE,
+)
 
 _POM_HINT = """TOPIC HINT — Page Object / POM (weave naturally into bullets, do NOT dump as a keyword list):
 Name typical mistakes when relevant: god object; business logic inside page object; assertions inside page object;
@@ -140,7 +182,7 @@ _TESTING_TYPES_PERSONAL_HINT = "Optional one personal line on what you actually 
 
 _CICD_HINT = """TOPIC HINT — CI/CD (concise say-aloud, ~50–90 words, weave naturally):
 Cover by meaning, not as a keyword dump: stages/jobs; Docker / одинаковое окружение; запуск тестов (pytest);
-artifacts/reports; Allure; logs; variables/secrets (carefully); GitLab CI or Jenkins by context."""
+artifacts/reports; Allure; logs; variables/secrets (carefully). Do not name a CI vendor unless it is present in the question or supplied context."""
 _CICD_PERSONAL_HINT = (
     "Personal framing if experience question: smoke и regression раздельными "
     "pipeline-запусками, артефакты для разбора падений."
@@ -162,7 +204,37 @@ dynamic = проверка с запуском приложения (функц�
 _SORTED_LIST_SORT_HINT = """VERIFIED PYTHON SORTING FACTS (use exactly; do not describe this as full vs partial/local sorting):
 sorted(iterable) returns a new list; list.sort() mutates that list in place and returns None."""
 
+_OOP_PRACTICAL_HINT = """TOPIC HINT — practical OOP in Python UI test automation (answer as a concrete work-use example, without invented company facts or metrics):
+In Python UI autotests, Page Object classes инкапсулируют локаторы and page actions; tests call readable business actions instead of working with selectors directly. Common behavior belongs in a small BasePage or reusable composition, while one shared interface lets page/client implementations be replaced without rewriting the test flow. Не своди ответ к перечислению шаблонов проектирования."""
+
+_TEST_DESIGN_HINT = """TOPIC HINT — test design (answer the exact angle, not an adjacent programming-design topic):
+For a practical question, give one concrete example: equivalence partitioning reduces a large input set to representative valid/invalid classes, then boundary-value analysis checks min/max and just outside the boundary. Explain the action and the defect risk it targets. If asked which techniques the candidate knows or uses, name at least three: add a decision table, state-transition testing or pairwise testing. Never replace test-design techniques with OOP principles or design patterns."""
+
 _NONE_HINT = "(none — answer naturally; do not force unrelated QA terms or stack keywords)"
+
+
+def resolve_fast_question_alias(question: str) -> str:
+    """Точечно восстанавливает подтверждённые ASR-искажения без второго запроса к модели."""
+    normalized = (question or "").strip()
+    if _PYTHON_DATA_TYPES_ASR_RE.search(normalized):
+        return "Какие типы данных в Python ты знаешь?"
+    if _TIMING_DECORATOR_ASR_RE.search(normalized):
+        return (
+            "Напиши декоратор на Python, который принимает функцию с args и kwargs, "
+            "замеряет время выполнения и возвращает результат."
+        )
+    if (
+        _OOP_ASR_NEAR_MISS_RE.search(normalized)
+        and _OOP_SOFTWARE_CONTEXT_RE.search(normalized)
+        and not _OOP_INDUSTRIAL_CONTEXT_RE.search(normalized)
+    ):
+        return _OOP_ASR_NEAR_MISS_RE.sub("ООП", normalized)
+    if (
+        _SPOKEN_SORTED_LIST_SORT_RE.search(normalized)
+        or _SORT_AND_SORTED_ASR_RE.search(normalized)
+    ) and not _SORTED_LIST_SORT_RE.search(normalized):
+        return "В чём разница между sorted() и list.sort()?"
+    return normalized
 
 
 def _resolve_domain_answer_hints(question: str, *, include_personal_templates: bool) -> str:
@@ -185,6 +257,10 @@ def _resolve_domain_answer_hints(question: str, *, include_personal_templates: b
         blocks.append(_BUG_REPORT_HINT)
     if _SORTED_LIST_SORT_RE.search(q):
         blocks.append(_SORTED_LIST_SORT_HINT)
+    if _OOP_PRACTICAL_RE.search(q):
+        blocks.append(_OOP_PRACTICAL_HINT)
+    if _TEST_DESIGN_RE.search(q):
+        blocks.append(_TEST_DESIGN_HINT)
     if _PYTEST_FIXTURES_RE.search(q):
         blocks.append(_PYTEST_HINT)
         if "fixture_1" in q.lower() and "session_fixture" in q.lower():
@@ -224,7 +300,8 @@ def resolve_domain_answer_hints(question: str) -> str:
 
 def resolve_fast_domain_answer_hints(question: str) -> str:
     """Return objective local facts only; never prompt fast mode to invent experience."""
-    return _resolve_domain_answer_hints(question, include_personal_templates=False)
+    resolved_question = resolve_fast_question_alias(question)
+    return _resolve_domain_answer_hints(resolved_question, include_personal_templates=False)
 
 
 def resolve_required_output_contract(question: str) -> str:

@@ -9,6 +9,7 @@ export interface AppIdentity {
   userDataDirectoryName: string | null;
   defaultToggleShortcut: string;
   forceAnswerShortcut: string;
+  forceScreenAnswerShortcut: string;
 }
 
 const STABLE_IDENTITY: AppIdentity = {
@@ -21,6 +22,7 @@ const STABLE_IDENTITY: AppIdentity = {
   userDataDirectoryName: null,
   defaultToggleShortcut: 'CommandOrControl+Shift+H',
   forceAnswerShortcut: 'CommandOrControl+Enter',
+  forceScreenAnswerShortcut: 'CommandOrControl+Shift+Enter',
 };
 
 const DEV_IDENTITY: AppIdentity = {
@@ -35,6 +37,7 @@ const DEV_IDENTITY: AppIdentity = {
   // changing the shortcuts made the labels lie and broke use from other apps.
   defaultToggleShortcut: 'CommandOrControl+Shift+H',
   forceAnswerShortcut: 'CommandOrControl+Enter',
+  forceScreenAnswerShortcut: 'CommandOrControl+Shift+Enter',
 };
 
 export function resolveBuildChannel(

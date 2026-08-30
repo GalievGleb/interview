@@ -13,11 +13,11 @@ VACANCY_DEFAULT_MODEL = "openai/gpt-4o"
 # Per-answer coaching is interactive: keep it on the small low-latency model.
 # The detailed end-of-interview report still has its separate vacancy route.
 FEEDBACK_DEFAULT_MODEL = "openai/gpt-4o-mini"
-FAST_CORE_DEFAULT_MODEL = "openai/gpt-4.1-mini"
-# Vision needs more than OCR: it must accurately trace dependencies, fixture
-# setup/teardown and code execution. The mini model can read the same image yet
-# swap independent steps, so automatic screen assist uses the full 4.1 model.
-SCREEN_DEFAULT_MODEL = "openai/gpt-4.1"
+FAST_CORE_DEFAULT_MODEL = "qwen/qwen3.5-flash-02-23"
+# Vision needs exact literals as well as OCR. The previous model read Female/F
+# correctly but sometimes normalized them to lowercase while writing SQL.
+# GPT-5.6 Sol won the installed exact-literal regression with lower TTFT too.
+SCREEN_DEFAULT_MODEL = "openai/gpt-5.6-sol"
 
 MODE_SETTING: dict[str, str] = {
     "general": "default_copilot_model",
@@ -32,9 +32,9 @@ MODE_SETTING: dict[str, str] = {
 
 # Паттерны id — проверяются по substring в lower(id). Без gemini-2.5/3 — thinking тормозит live.
 LIVE_PATTERNS = [
-    # 4.1-mini is still low-latency but materially more reliable on exact
-    # technical definitions than 4o-mini when the live prompt has no RAG.
-    "gpt-4.1-mini",
+    # Measured against the real SkillCue voice fixtures: Qwen wins on median
+    # and tail latency while staying honest on missing resume experience.
+    "qwen3.5-flash-02-23",
     "gpt-4o-mini",
     "gemini-2.0-flash-lite",
     "gpt-4.1-nano",

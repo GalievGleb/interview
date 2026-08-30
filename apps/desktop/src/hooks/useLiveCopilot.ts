@@ -11,6 +11,11 @@ import { prepareTranscriptForLlm, PreparedTranscript } from '../lib/prepareTrans
 import { SttSessionOptions } from '../lib/sttOptions';
 import { requiresScreenContext } from '../lib/visualQuestion';
 import {
+  findLatestUnconsumedScreenCaptureCue,
+  isSpokenScreenCaptureCue,
+  screenCaptureRequestFromCue,
+} from '../lib/screenTaskContinuity';
+import {
   evaluateForcedFinalTranscript,
   evaluateForcedTranscript,
 } from '../lib/forcedTranscriptQuality';
@@ -81,6 +86,7 @@ import {
   type Speaker,
   type TranscriptLine,
 } from '../lib/interviewSessionExport';
+import { resolvePreferredResume } from '../lib/resumeContext';
 
 export type { Speaker, TranscriptLine, CopilotAnswerEntry, CopilotAnswerPipeline };
 export type { SttDebugInfo };
@@ -289,6 +295,8 @@ export function useLiveCopilot() {
   }, [sttDebug]);
 
   const sessionRef = useRef<string | null>(null);
+  const candidateContextRef = useRef('');
+  const candidateContextLoadRef = useRef<Promise<void> | null>(null);
   const reusedSessionRef = useRef(false);
   const liveRef = useRef<LiveEntry[]>([]);
   const cancelStreamRef = useRef<(() => void) | null>(null);
@@ -338,6 +346,27 @@ export function useLiveCopilot() {
   const diagnosticsBaseRef = useRef<DebugBundle | null>(null);
   const activeScreenCancellationRef = useRef(new ActiveScreenAssistCancellation());
   const timeoutScreenPartialRef = useRef(new TimeoutScreenPartialState());
+  const screenTaskAvailableRef = useRef(false);
+
+  const preloadCandidateContext = useCallback(() => {
+    if (!candidateContextLoadRef.current) {
+      candidateContextLoadRef.current = resolvePreferredResume()
+        .then(({ text }) => {
+          candidateContextRef.current = text.trim().slice(0, 3200);
+        })
+        .catch(() => {
+          // Live остаётся доступным без резюме; модель не должна выдумывать факты.
+        })
+        .finally(() => {
+          candidateContextLoadRef.current = null;
+        });
+    }
+    return candidateContextLoadRef.current;
+  }, []);
+
+  useEffect(() => {
+    void preloadCandidateContext();
+  }, [preloadCandidateContext]);
   const endingSessionRef = useRef<Promise<void> | null>(null);
 
   const buildDiagnosticsSnapshot = useCallback((): DebugBundle => {
@@ -452,18 +481,28 @@ export function useLiveCopilot() {
   );
 
   const routeVisualQuestionToScreen = useCallback(
-    (question: string, generation: number): boolean => {
-      if (!requiresScreenContext(question)) return false;
+    (question: string, generation: number, forceScreen = false): boolean => {
+      if (
+        !forceScreen &&
+        !requiresScreenContext(question, screenTaskAvailableRef.current)
+      ) return false;
+      const screenQuestion = isSpokenScreenCaptureCue(question)
+        ? screenCaptureRequestFromCue(question)
+        : question.trim();
       timeoutScreenPartialRef.current.clearGeneration(generation);
       clearForceTimeout(generation);
       if (!forceCoordinatorRef.current.routeQuestionToScreen(generation)) return false;
       const { screenRevision } = forceCoordinatorRef.current.snapshot();
       syncForceSnapshot();
-      setForceScreenFallback({ generation, screenRevision, question: question.trim() });
+      setForceScreenFallback({ generation, screenRevision, question: screenQuestion });
       return true;
     },
     [clearForceTimeout, syncForceSnapshot],
   );
+
+  const markScreenTaskAvailable = useCallback(() => {
+    screenTaskAvailableRef.current = true;
+  }, []);
 
   const resetForceCoordinator = useCallback(() => {
     clearForceTimeout();
@@ -968,6 +1007,7 @@ export function useLiveCopilot() {
       {
         sessionId: sessionRef.current ?? undefined,
         rawQuestion: q,
+        candidateContext: candidateContextRef.current,
         fastAnswer: true,
         onMeta: (correctionMeta) => {
           if (gen !== streamGenRef.current) return;
@@ -1361,11 +1401,31 @@ export function useLiveCopilot() {
         ? 1
         : 0,
     };
+    const spokenScreenCue = typedQuestion
+      ? null
+      : findLatestUnconsumedScreenCaptureCue(
+          forcedFinals,
+          forceSnapshot.consumedSequence,
+        );
+    if (spokenScreenCue) {
+      forceCoordinatorRef.current.markHandled(spokenScreenCue.sequence);
+    }
+    const explicitQuestion = typedQuestion
+      ? isSpokenScreenCaptureCue(typedQuestion)
+        ? screenCaptureRequestFromCue(typedQuestion)
+        : typedQuestion
+      : spokenScreenCue
+        ? screenCaptureRequestFromCue(spokenScreenCue.text)
+        : '';
     const speechActivity = speechActivityRef.current.snapshot();
     const targetSource = selectForceTargetSource(
       liveSourcesRef.current,
       speechActivity,
       unconsumedForcedFinals,
+      {
+        systemSilent:
+          sourceHealthRef.current.snapshot().warning === SYSTEM_NO_SIGNAL_WARNING,
+      },
     );
     const latestUnconsumedFinal = forcedFinals
       .filter(
@@ -1374,8 +1434,8 @@ export function useLiveCopilot() {
           (!targetSource || !line.source || line.source === targetSource),
       )
       .at(-1);
-    const decision = typedQuestion
-      ? forceCoordinatorRef.current.submitQuestion(typedQuestion)
+    const decision = explicitQuestion
+      ? forceCoordinatorRef.current.submitQuestion(explicitQuestion)
       : forceCoordinatorRef.current.press(
           forcedFinals.filter(
             (line) => !targetSource || !line.source || line.source === targetSource,
@@ -1387,9 +1447,12 @@ export function useLiveCopilot() {
             unconsumedForcedFinals,
             latestUnconsumedFinal?.receivedAt,
             pressedAtMs,
+            targetSource
+              ? speechActivityRef.current.latestStartedAt(targetSource)
+              : null,
           ),
         );
-    if (typedQuestion) timeoutScreenPartialRef.current.clearGeneration(decision.generation);
+    if (explicitQuestion) timeoutScreenPartialRef.current.clearGeneration(decision.generation);
     else {
       timeoutScreenPartialRef.current.freezeGeneration(
         decision.generation,
@@ -1402,7 +1465,7 @@ export function useLiveCopilot() {
 
     if (decision.action === 'submit') {
       utteranceBufferRef.current = [];
-      if (!typedQuestion) {
+      if (!explicitQuestion) {
         const quality = evaluateForcedTranscript(decision.question, sttLanguageRef.current);
         if (!quality.eligible) {
           rejectForcedTranscript(
@@ -1458,6 +1521,39 @@ export function useLiveCopilot() {
     syncForceSnapshot,
   ]);
 
+  const forceScreenAnswer = useCallback((questionOverride?: string): ForceAnswerStatus => {
+    if (!active || paused) return 'unavailable';
+    const request = questionOverride?.trim() || screenCaptureRequestFromCue('Покажу решение');
+    clearForcePrefixStabilization();
+    streamGenRef.current += 1;
+    cancelStreamRef.current?.();
+    cancelStreamRef.current = null;
+    streamLockRef.current = false;
+    queuedAnswerRef.current = null;
+    setStreaming(false);
+    setSuggestLoading(false);
+    setStreamText('');
+    setCurrentQuestion('');
+    cancelPendingQuestion();
+    setError('');
+
+    const decision = forceCoordinatorRef.current.submitQuestion(request);
+    timeoutScreenPartialRef.current.clearGeneration(decision.generation);
+    clearForceTimeout(decision.generation);
+    syncForceSnapshot();
+    return routeVisualQuestionToScreen(request, decision.generation, true)
+      ? 'finalizing'
+      : 'unavailable';
+  }, [
+    active,
+    cancelPendingQuestion,
+    clearForcePrefixStabilization,
+    clearForceTimeout,
+    paused,
+    routeVisualQuestionToScreen,
+    syncForceSnapshot,
+  ]);
+
   const appendLine = useCallback((rawText: string, isFinal: boolean, speaker: Speaker) => {
     const text = rawText.trim();
     const normalized = normalizeTranscript(text);
@@ -1499,6 +1595,8 @@ export function useLiveCopilot() {
       stt: SttSessionOptions = {},
       link: LiveSessionLink = {},
     ): Promise<string | null> => {
+      // Обновляем выбранное резюме в фоне заранее; захват звука из-за этого не ждёт сеть.
+      void preloadCandidateContext();
       try {
         if (endingSessionRef.current) await endingSessionRef.current;
         if (sessionRef.current) await endInterviewSession();
@@ -1914,7 +2012,7 @@ export function useLiveCopilot() {
     // The two speech-final helpers deliberately remain disconnected from STT callbacks:
     // keeping them in this closure makes accidental reactivation visible to the behavior test.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [appendForcedFinal, appendLine, askQuestion, cancelPendingQuestion, clearForceTimeout, clearSourceHealthTimer, dispatchAcceptedForceDecision, endInterviewSession, patchSttDebug, persistTranscriptLine, recordUtterance, removeStream, resetForceCoordinator, routeVisualQuestionToScreen, scheduleFinalFallback, scheduleFinalizedPrefixCommit, scheduleForceTranscriptNotice, scheduleSpeechFinal, syncForceSnapshot, updateSourceHealth],
+    [appendForcedFinal, appendLine, askQuestion, cancelPendingQuestion, clearForceTimeout, clearSourceHealthTimer, dispatchAcceptedForceDecision, endInterviewSession, patchSttDebug, persistTranscriptLine, preloadCandidateContext, recordUtterance, removeStream, resetForceCoordinator, routeVisualQuestionToScreen, scheduleFinalFallback, scheduleFinalizedPrefixCommit, scheduleForceTranscriptNotice, scheduleSpeechFinal, syncForceSnapshot, updateSourceHealth],
   );
 
   const pause = useCallback(() => {
@@ -1957,6 +2055,8 @@ export function useLiveCopilot() {
     setActive(false);
     setPaused(false);
     setReconnecting(null);
+    setSourceHealthWarning(null);
+    screenTaskAvailableRef.current = false;
     sessionContextRef.current = createEmptySessionContext();
     if (hadStreams || sessionRef.current) {
       try {
@@ -2087,6 +2187,7 @@ export function useLiveCopilot() {
     forcePhase,
     forceScreenFallback,
     commitScreenFirstOutput,
+    markScreenTaskAvailable,
     screenAssistDiagnostics,
     suggestLoading,
     error,
@@ -2100,6 +2201,7 @@ export function useLiveCopilot() {
     downloadDebug,
     askQuestion,
     forceAnswer,
+    forceScreenAnswer,
     start,
     pause,
     resume,

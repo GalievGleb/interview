@@ -47,9 +47,9 @@ const UPSTREAM_STYLE =
 // OpenAI с голыми ID. Сохраняем только явный quality-first GPT-5.6 Sol route;
 // остальные кросс-провайдерные ID по-прежнему сводим к gpt-4o/mini, чтобы не
 // расширять дорогую модельную поверхность лицензионного шлюза.
-function mapModelForUpstream(model: string): string {
+function mapModelForUpstream(model: string, style = UPSTREAM_STYLE): string {
   const raw = (model || '').trim();
-  if (UPSTREAM_STYLE === 'openrouter') return raw || 'openai/gpt-4o-mini';
+  if (style === 'openrouter') return raw || 'openai/gpt-4o-mini';
   const low = raw.toLowerCase().replace(/^openai\//, '');
   if (low === 'gpt-5.6-sol' || low === 'gpt-5.6') return low;
   const FAST = ['mini', 'nano', 'haiku', 'flash', 'small', 'lite'];
@@ -63,6 +63,77 @@ export function sanitizeOpenAiUpstreamBody(
   const sanitized = { ...body };
   delete sanitized.provider;
   return sanitized;
+}
+
+type ChatUpstreamStyle = 'openrouter' | 'openai';
+
+export interface ChatUpstreamRoute {
+  baseURL: string;
+  apiKey: string;
+  style: ChatUpstreamStyle;
+  model: string;
+  directLive: boolean;
+}
+
+const DIRECT_LIVE_MODELS = new Set([
+  'gpt-4.1-mini',
+  'gpt-4.1-nano',
+  'gpt-4o-mini',
+]);
+
+/**
+ * Route only the latency-critical, explicitly throughput-sorted live models
+ * directly to OpenAI. All ordinary, user-selected, and expensive models keep
+ * the configured gateway upstream and its existing policy surface.
+ */
+export function resolveChatUpstreamRoute(
+  body: Record<string, unknown>,
+  environment: NodeJS.ProcessEnv = process.env,
+): ChatUpstreamRoute {
+  const rawModel = String(body.model ?? '').trim();
+  const bareModel = rawModel.replace(/^openai\//i, '');
+  const provider = body.provider as { sort?: unknown } | undefined;
+  const wantsFastLive = body.stream === true && provider?.sort === 'throughput';
+  const directBase = String(
+    environment.OPENAI_STT_BASE_URL || 'https://api.openai.com/v1',
+  )
+    .trim()
+    .replace(/\/+$/, '');
+  const directKey = String(environment.OPENAI_API_KEY ?? '').trim();
+  const directOpenAi = /^https:\/\/api\.openai\.com(?:\/|$)/i.test(directBase);
+
+  if (
+    wantsFastLive &&
+    directOpenAi &&
+    directKey &&
+    DIRECT_LIVE_MODELS.has(bareModel.toLowerCase())
+  ) {
+    return {
+      baseURL: directBase,
+      apiKey: directKey,
+      style: 'openai',
+      model: bareModel,
+      directLive: true,
+    };
+  }
+
+  const baseURL = String(
+    environment.GATEWAY_UPSTREAM_BASE || 'https://openrouter.ai/api/v1',
+  )
+    .trim()
+    .replace(/\/+$/, '');
+  const style: ChatUpstreamStyle =
+    environment.GATEWAY_UPSTREAM_STYLE === 'openai' ||
+    (!environment.GATEWAY_UPSTREAM_STYLE && !baseURL.includes('openrouter'))
+      ? 'openai'
+      : 'openrouter';
+  return {
+    baseURL,
+    apiKey: String(environment.OPENROUTER_API_KEY ?? '').trim(),
+    style,
+    model: mapModelForUpstream(rawModel, style),
+    directLive: false,
+  };
 }
 
 const MODELS_CACHE_KEY = 'gw:models';
@@ -369,10 +440,23 @@ export class GatewayService {
       );
     }
 
+    const route = resolveChatUpstreamRoute(body);
+    if (!route.apiKey) {
+      throw new HttpException(
+        {
+          error: {
+            message: 'Gateway is not configured (no upstream key)',
+            code: 'gateway_unconfigured',
+          },
+        },
+        503,
+      );
+    }
+
     let upstreamBody: Record<string, unknown> = { ...body };
-    // ID модели — под активный апстрим (OpenRouter «openai/…» vs ProxyAPI «…»).
-    upstreamBody.model = mapModelForUpstream(model);
-    if (UPSTREAM_STYLE === 'openai') {
+    // ID модели — под выбранный апстрим (OpenRouter «openai/…» vs OpenAI «…»).
+    upstreamBody.model = route.model;
+    if (route.style === 'openai') {
       upstreamBody = sanitizeOpenAiUpstreamBody(upstreamBody);
       if (String(upstreamBody.model).startsWith('gpt-5')) {
         const reasoning = upstreamBody.reasoning as { effort?: unknown } | undefined;
@@ -388,12 +472,10 @@ export class GatewayService {
       upstreamBody.stream_options = { include_usage: true, ...(body.stream_options as object) };
     }
 
-    const resp = await fetch(
-      `${OPENROUTER_BASE}/chat/completions`,
-      upstreamInit({
+    const requestInit: RequestInit = {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${this.upstreamKey()}`,
+          Authorization: `Bearer ${route.apiKey}`,
           'Content-Type': 'application/json',
           'HTTP-Referer': 'https://skillcue.app',
           'X-Title': 'SkillCue',
@@ -402,7 +484,10 @@ export class GatewayService {
         // Клиент отключился посреди стрима → контроллер абортит апстрим, чтобы
         // не платить OpenRouter за токены, которых покупатель уже не увидит.
         signal,
-      }),
+      };
+    const resp = await fetch(
+      `${route.baseURL}/chat/completions`,
+      route.directLive ? requestInit : upstreamInit(requestInit),
     );
     return resp;
   }

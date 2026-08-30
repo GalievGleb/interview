@@ -6,12 +6,19 @@ export const ANSWER_STT_MODEL = 'gpt-transcribe';
 export const LIVE_STT_REQUEST_OPTIONS = { maxRetries: 3, timeout: 30_000 } as const;
 export const LIVE_RU_STT_PROMPT =
   'Русское техническое собеседование. Распознавай русскую речь по-русски и сохраняй технические термины: Python, pytest, fixture, autouse, scope, yield, Docker, REST API, HTTP, JSON, SQL, Playwright, CI/CD, Kafka, Kubernetes, lambda.';
+const LIVE_RU_STT_PROMPT_WITHOUT_LOCALE = LIVE_RU_STT_PROMPT.replace(/^Русское\s+/u, '');
+const LIVE_RU_STT_PROMPT_VARIANTS = [
+  LIVE_RU_STT_PROMPT,
+  `${LIVE_RU_STT_PROMPT_WITHOUT_LOCALE.charAt(0).toUpperCase()}${LIVE_RU_STT_PROMPT_WITHOUT_LOCALE.slice(1)}`,
+] as const;
 
 export function stripLiveSttPromptEcho(text: string): string {
   let cleaned = String(text ?? '').trim();
   if (!cleaned) return '';
-  while (cleaned.includes(LIVE_RU_STT_PROMPT)) {
-    cleaned = cleaned.replace(LIVE_RU_STT_PROMPT, ' ');
+  for (const prompt of LIVE_RU_STT_PROMPT_VARIANTS) {
+    while (cleaned.includes(prompt)) {
+      cleaned = cleaned.replace(prompt, ' ');
+    }
   }
   return cleaned.replace(/\s+/g, ' ').replace(/^[\s,;:\-]+|[\s,;:\-]+$/g, '');
 }

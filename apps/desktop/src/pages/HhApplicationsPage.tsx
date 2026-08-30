@@ -3,9 +3,10 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AlertTriangle, ArrowRight, Ban, CalendarDays, Check, ChevronDown, Clock3, ExternalLink, FileText, Link2, Loader2, LogOut, Mail, MessageCircle, RefreshCw, Search, Send, Settings2, Square, Trash2 } from 'lucide-react';
 import AvailabilityEditor, { formatAvailabilitySummary } from '../components/interview/AvailabilityEditor';
 import Modal from '../components/Modal';
-import { hhAutomationAllowed } from '../lib/billing';
+import { hhAutomationAllowed, shouldDisableHhDailySchedule } from '../lib/billing';
 import { useApp } from '../context/AppContext';
 import { countUnansweredHhScreeningQuestions, readHhScreeningDrafts, summarizePendingHhScreening } from '../lib/hhScreening';
+import { hasUnresolvedHhChatDraftFact, mergeHhChatDecisionDrafts } from '../lib/hhChatDecisionDrafts';
 import { compactHhResumeTitle } from '../lib/hhResumeTitle';
 import { pluralRu } from '../lib/pluralRu';
 import type { HhAssistantConfig, HhAssistantState, HhChatState, HhQueueItem, InterviewCalendarSettings, InterviewCalendarState } from '../types/electron';
@@ -108,20 +109,13 @@ const chatReplySourceLabel = (source: HhChatState['replyHistory'][number]['sourc
   return 'Автоответ';
 };
 
-const chatDecisionSuggestedAnswer = (kind: HhChatState['pendingDecisions'][number]['kind']) => {
-  if (kind === 'contract') {
-    return 'Да, рассматриваю оформление по ИП или как самозанятый на испытательный срок. Готов обсудить детали договора и порядок оплаты.';
-  }
-  return '';
-};
-
 export default function HhApplicationsPage() {
   const assistant = window.electronAPI?.hhAssistant;
   const chat = window.electronAPI?.hhChat;
   const calendar = window.electronAPI?.interviewCalendar;
   const navigate = useNavigate();
   // Автоотклики HH — фича тарифа «Максимум» (условия на skill-cue.ru).
-  const { license } = useApp();
+  const { license, loading: licenseLoading } = useApp();
   const hhAllowed = hhAutomationAllowed(license);
   const [searchParams, setSearchParams] = useSearchParams();
   const [state, setState] = useState<HhAssistantState | null>(null);
@@ -143,6 +137,8 @@ export default function HhApplicationsPage() {
   const [chatBusy, setChatBusy] = useState(false);
   const [chatError, setChatError] = useState('');
   const [chatDecisionDrafts, setChatDecisionDrafts] = useState<Record<string, string>>({});
+  const [chatDraftPreparing, setChatDraftPreparing] = useState(false);
+  const chatDraftPreparationRef = useRef(false);
   const [selectedConversationKey, setSelectedConversationKey] = useState('');
   const [hhRestoreTimedOut, setHhRestoreTimedOut] = useState(false);
   const [calendarState, setCalendarState] = useState<InterviewCalendarState | null>(null);
@@ -213,6 +209,28 @@ export default function HhApplicationsPage() {
     const timer = window.setInterval(refresh, 10_000);
     return () => { active = false; window.clearInterval(timer); };
   }, [chat]);
+
+  useEffect(() => {
+    const decisions = chatState?.pendingDecisions ?? [];
+    setChatDecisionDrafts((current) => mergeHhChatDecisionDrafts(current, decisions));
+    if (
+      !chat
+      || chatDraftPreparationRef.current
+      || !decisions.some((decision) => !decision.suggestedAnswer?.trim())
+    ) return;
+
+    chatDraftPreparationRef.current = true;
+    setChatDraftPreparing(true);
+    void chat.prepareDecisionDrafts().then((next) => {
+      setChatState(next);
+      setChatDecisionDrafts((current) => mergeHhChatDecisionDrafts(current, next.pendingDecisions));
+    }).catch((error) => {
+      setChatError(errorMessage(error, 'Не удалось подготовить черновик ответа HR.'));
+    }).finally(() => {
+      chatDraftPreparationRef.current = false;
+      setChatDraftPreparing(false);
+    });
+  }, [chat, chatState?.pendingDecisions]);
 
   useEffect(() => {
     if (!calendar) return;
@@ -304,7 +322,7 @@ export default function HhApplicationsPage() {
   // (фича «Максимума» по условиям на skill-cue.ru), иначе он продолжал бы
   // срабатывать по расписанию из прошлой сессии.
   useEffect(() => {
-    if (hhAllowed || !assistant) return;
+    if (!shouldDisableHhDailySchedule(licenseLoading, license) || !assistant) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -324,7 +342,7 @@ export default function HhApplicationsPage() {
     return () => {
       cancelled = true;
     };
-  }, [hhAllowed, assistant]);
+  }, [assistant, license, licenseLoading]);
   const saveAutomation = async () => {
     if (!assistant) return;
     if (!hhAllowed) {
@@ -747,9 +765,13 @@ export default function HhApplicationsPage() {
   const answerChatDecision = async (decisionId: string, remember: boolean) => {
     if (!chat) return;
     const decision = chatState?.pendingDecisions.find((item) => item.id === decisionId);
-    const answer = (chatDecisionDrafts[decisionId] ?? (decision ? chatDecisionSuggestedAnswer(decision.kind) : '')).trim();
+    const answer = (chatDecisionDrafts[decisionId] ?? decision?.suggestedAnswer ?? '').trim();
     if (!answer) {
       setChatError('Напишите, что ответить работодателю.');
+      return;
+    }
+    if (hasUnresolvedHhChatDraftFact(answer)) {
+      setChatError('Замените подсказку в квадратных скобках на точный факт перед отправкой.');
       return;
     }
     setChatBusy(true);
@@ -1555,8 +1577,8 @@ export default function HhApplicationsPage() {
           <div className="divide-y divide-surface-border">{chatState?.pendingDecisions.map((decision) => <div key={decision.id} className="p-4">
             <p className="text-xs font-semibold text-ink">{decision.vacancyTitle} · {decision.companyName}</p>
             <p className="mt-2 rounded-lg bg-surface-light p-3 text-sm text-ink-muted">HR: {decision.recruiterMessage}</p>
-            <label className="mt-3 block"><span className="label">{decision.question}</span><textarea className="field min-h-20 resize-y" value={chatDecisionDrafts[decision.id] ?? chatDecisionSuggestedAnswer(decision.kind)} onChange={(event) => setChatDecisionDrafts((current) => ({ ...current, [decision.id]: event.target.value }))} placeholder="Ваш ответ" /></label>
-            <div className="mt-3 flex flex-wrap gap-2"><button type="button" className="btn-primary" disabled={chatBusy} onClick={() => void answerChatDecision(decision.id, true)}><Send size={14} />Отправить и запомнить</button><button type="button" className="btn-ghost" disabled={chatBusy} onClick={() => void answerChatDecision(decision.id, false)}>Отправить один раз</button><button type="button" className="btn-ghost text-red-300 hover:text-red-200" disabled={chatBusy} onClick={() => void declineChatDecision(decision.id)}><Ban size={14} />Не продолжать отклик</button></div>
+            <label className="mt-3 block"><span className="label">{decision.question}</span><span className="mb-2 block text-xs text-ink-faint">{chatDraftPreparing && !decision.suggestedAnswer ? 'Готовлю ответ по вашему резюме…' : 'Проверьте факты перед отправкой'}</span><textarea className="field min-h-20 resize-y" value={chatDecisionDrafts[decision.id] ?? decision.suggestedAnswer ?? ''} onChange={(event) => setChatDecisionDrafts((current) => ({ ...current, [decision.id]: event.target.value }))} placeholder="Ваш ответ" /></label>
+            <div className="mt-3 flex flex-wrap gap-2"><button type="button" className="btn-primary" disabled={chatBusy || (chatDraftPreparing && !decision.suggestedAnswer)} onClick={() => void answerChatDecision(decision.id, true)}>{chatDraftPreparing && !decision.suggestedAnswer ? <Loader2 className="animate-spin" size={14} /> : <Send size={14} />}Отправить и запомнить</button><button type="button" className="btn-ghost" disabled={chatBusy || (chatDraftPreparing && !decision.suggestedAnswer)} onClick={() => void answerChatDecision(decision.id, false)}>Отправить один раз</button><button type="button" className="btn-ghost text-red-300 hover:text-red-200" disabled={chatBusy} onClick={() => void declineChatDecision(decision.id)}><Ban size={14} />Не продолжать отклик</button></div>
           </div>)}</div>
         </div>}
         {((chatState?.repliesToday ?? 0) > 0 || chatState?.lastPollAt) && <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-ink-faint">{chatState?.lastPollAt && <span>Проверено {new Date(chatState.lastPollAt).toLocaleTimeString()}</span>}{(chatState?.repliesToday ?? 0) > 0 && <button type="button" className="font-medium text-sky-300 hover:text-sky-200" onClick={revealReplyHistory}>Ответы сегодня: {chatState?.repliesToday}</button>}</div>}

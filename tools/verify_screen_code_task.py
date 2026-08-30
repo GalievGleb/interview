@@ -179,9 +179,115 @@ $graphics.Dispose(); $bitmap.Dispose()
         output.unlink(missing_ok=True)
 
 
+def render_sql_solution_png(*, exact_gender_literals: bool = False) -> bytes:
+    """Render a realistic SQL interview task that requires copyable code."""
+    output = Path(tempfile.gettempdir()) / f"skillcue-sql-{uuid.uuid4().hex}.png"
+    escaped_output = str(output).replace("'", "''")
+    gender_rule = (
+        "user_gender хранится только как 'Female' или 'F' — сохрани регистр литералов."
+        if exact_gender_literals
+        else "Сравнение пола должно быть без учёта регистра."
+    ).replace("'", "''")
+    script = rf"""
+Add-Type -AssemblyName System.Drawing
+$bitmap = New-Object System.Drawing.Bitmap 1400, 820
+$graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+$graphics.Clear([System.Drawing.Color]::FromArgb(248, 250, 252))
+$graphics.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::ClearTypeGridFit
+$title = New-Object System.Drawing.Font('Segoe UI', 30, [System.Drawing.FontStyle]::Bold)
+$body = New-Object System.Drawing.Font('Segoe UI', 22)
+$codeFont = New-Object System.Drawing.Font('Consolas', 22)
+$dark = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(15, 23, 42))
+$blue = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(29, 78, 216))
+$graphics.DrawString('SQL: доход от покупок женщин', $title, $dark, 58, 45)
+$graphics.DrawString('Таблица Purchases:', $body, $dark, 58, 125)
+$graphics.DrawString('price DECIMAL, items INT, user_gender TEXT', $codeFont, $blue, 80, 185)
+$graphics.DrawString('Напишите запрос, который считает суммарный доход:', $body, $dark, 58, 285)
+$graphics.DrawString('price * items только для user_gender = female', $codeFont, $blue, 80, 345)
+$graphics.DrawString('{gender_rule}', $body, $dark, 58, 435)
+$graphics.DrawString('Назовите результат income_from_female.', $body, $dark, 58, 500)
+$bitmap.Save('{escaped_output}', [System.Drawing.Imaging.ImageFormat]::Png)
+$blue.Dispose(); $dark.Dispose(); $codeFont.Dispose(); $body.Dispose(); $title.Dispose()
+$graphics.Dispose(); $bitmap.Dispose()
+"""
+    encoded = base64.b64encode(script.encode("utf-16le")).decode("ascii")
+    subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+    )
+    try:
+        return output.read_bytes()
+    finally:
+        output.unlink(missing_ok=True)
+
+
+def sql_code_lines(answer: str) -> list[str]:
+    match = re.search(r"```(?:sql)?\s*\n?(.*?)```", answer, re.IGNORECASE | re.DOTALL)
+    if not match:
+        return []
+    return [line.strip() for line in match.group(1).splitlines() if line.strip()]
+
+
+def has_short_spoken_summary_before_code(answer: str) -> bool:
+    fence_index = answer.find("```")
+    if fence_index <= 0:
+        return False
+    summary = answer[:fence_index].strip()
+    if not summary or len(summary) > 500:
+        return False
+    sentences = [part for part in re.split(r"(?<=[.!?])\s+|\n+", summary) if part.strip()]
+    return 1 <= len(sentences) <= 3
+
+
+def every_code_line_has_following_comment(lines: list[str], marker: str) -> bool:
+    """Require code/comment pairs without accepting wide inline comments."""
+    if not lines:
+        return False
+    code_indexes = [index for index, line in enumerate(lines) if not line.lstrip().startswith(marker)]
+    if not code_indexes:
+        return False
+    for index in code_indexes:
+        if index + 1 >= len(lines):
+            return False
+        comment = lines[index + 1].lstrip()
+        if not comment.startswith(marker) or not re.search(r"[а-яё]", comment, re.IGNORECASE):
+            return False
+    return True
+
+
 def fixture_trace(answer: str) -> list[str]:
-    names = "|".join(re.escape(name) for name in dict.fromkeys(FIXTURE_TRACE))
-    return re.findall(names, answer.lower())[: len(FIXTURE_TRACE)]
+    unique_names = list(dict.fromkeys(FIXTURE_TRACE))
+    numbered_trace: list[str] = []
+    for line in answer.lower().splitlines():
+        if not re.match(r"^\s*\d+[.)]\s+", line):
+            continue
+        matches = [
+            (match.start(), name)
+            for name in unique_names
+            if (match := re.search(rf"\b{re.escape(name)}\b", line))
+        ]
+        if matches:
+            numbered_trace.append(min(matches)[1])
+    if numbered_trace:
+        return numbered_trace
+
+    names = "|".join(re.escape(name) for name in unique_names)
+    raw_trace = re.findall(names, answer.lower())
+    collapsed_trace: list[str] = []
+    for name in raw_trace:
+        if not collapsed_trace or collapsed_trace[-1] != name:
+            collapsed_trace.append(name)
+    return collapsed_trace
+
+
+def fixture_trace_is_valid(trace: list[str]) -> bool:
+    setup_and_test = FIXTURE_TRACE[:-1]
+    return (
+        trace[: len(setup_and_test)] == setup_and_test
+        and FIXTURE_TRACE[-1] in trace[len(setup_and_test) :]
+    )
 
 
 def _wait_for_health(port: int) -> None:
@@ -195,13 +301,58 @@ def _wait_for_health(port: int) -> None:
     raise RuntimeError("backend health timeout")
 
 
+def _request_screen(port: int, token: str, payload: dict) -> tuple[str, dict]:
+    started = time.monotonic()
+    first_chunk_ms: int | None = None
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{port}/chat/screen/stream",
+        data=body,
+        headers={"Content-Type": "application/json", "X-SkillCue-Token": token},
+        method="POST",
+    )
+    chunks: list[str] = []
+    done: dict | None = None
+    with urllib.request.urlopen(request, timeout=120) as response:
+        for raw_line in response:
+            line = raw_line.decode("utf-8").strip()
+            if not line.startswith("data: "):
+                continue
+            event = json.loads(line[6:])
+            if event.get("type") == "chunk":
+                if first_chunk_ms is None:
+                    first_chunk_ms = round((time.monotonic() - started) * 1000)
+                chunks.append(str(event.get("text") or ""))
+            elif event.get("type") == "done":
+                done = event
+            elif event.get("type") == "error":
+                raise RuntimeError(str(event))
+    if done is None:
+        raise RuntimeError("screen stream returned no done event")
+    done["_e2e_first_chunk_ms"] = first_chunk_ms
+    done["_e2e_total_ms"] = round((time.monotonic() - started) * 1000)
+    return "".join(chunks), done
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--source-backend", action="store_true")
-    parser.add_argument(
+    parser.add_argument("--model", help="explicit screen model override for comparison")
+    scenario = parser.add_mutually_exclusive_group()
+    scenario.add_argument(
         "--fixture-order",
         action="store_true",
         help="verify the real visible pytest fixture setup/test/teardown task",
+    )
+    scenario.add_argument(
+        "--sql-format",
+        action="store_true",
+        help="verify fenced SQL with a short Russian explanation on every code line",
+    )
+    scenario.add_argument(
+        "--sql-exact-literals",
+        action="store_true",
+        help="verify exact case-sensitive Female/F literals from a visible SQL task",
     )
     args = parser.parse_args()
 
@@ -254,7 +405,14 @@ def main() -> int:
     )
     try:
         _wait_for_health(port)
-        image_bytes = render_fixture_order_png() if args.fixture_order else render_code_png()
+        if args.fixture_order:
+            image_bytes = render_fixture_order_png()
+        elif args.sql_format:
+            image_bytes = render_sql_solution_png()
+        elif args.sql_exact_literals:
+            image_bytes = render_sql_solution_png(exact_gender_literals=True)
+        else:
+            image_bytes = render_code_png()
         image = base64.b64encode(image_bytes).decode("ascii")
         question = "Что выведет этот код?"
         context = "Интервьюер просит решить видимый Python-код."
@@ -266,41 +424,121 @@ def main() -> int:
             )
             context = "Интервьюер просит определить порядок выполнения pytest-фикстур."
             mode = "deep"
-        body = json.dumps(
-            {
-                "image": f"data:image/png;base64,{image}",
-                "question": question,
-                "context": context,
-                "mode": mode,
-                "answer_language": "ru",
-            },
-            ensure_ascii=False,
-        ).encode("utf-8")
-        request = urllib.request.Request(
-            f"http://127.0.0.1:{port}/chat/screen/stream",
-            data=body,
-            headers={"Content-Type": "application/json", "X-SkillCue-Token": token},
-            method="POST",
-        )
-        chunks: list[str] = []
-        done: dict | None = None
-        with urllib.request.urlopen(request, timeout=120) as response:
-            for raw_line in response:
-                line = raw_line.decode("utf-8").strip()
-                if not line.startswith("data: "):
-                    continue
-                event = json.loads(line[6:])
-                if event.get("type") == "chunk":
-                    chunks.append(str(event.get("text") or ""))
-                elif event.get("type") == "done":
-                    done = event
-                elif event.get("type") == "error":
-                    raise RuntimeError(str(event))
-        answer = "".join(chunks)
+        elif args.sql_format:
+            question = (
+                "Реши SQL-задачу на экране. Дай готовый запрос: один блок кода без пустых строк, "
+                "а напротив каждой строки добавь короткий комментарий на русском, что она делает."
+            )
+            context = "Интервьюер просит написать SQL и вслух объяснить каждую строку."
+            mode = "deep"
+        elif args.sql_exact_literals:
+            question = (
+                "Реши SQL-задачу на экране. Сохрани точные имена, операторы и регистр "
+                "строковых литералов из условия."
+            )
+            context = "Интервьюер проверяет точность SQL-условия по видимым данным."
+            mode = "deep"
+        payload = {
+            "image": f"data:image/png;base64,{image}",
+            "question": question,
+            "context": context,
+            "mode": mode,
+            "answer_language": "ru",
+        }
+        if args.model:
+            payload["modelOverride"] = args.model
+        answer, done = _request_screen(port, token, payload)
+        if args.sql_exact_literals:
+            code_lines = sql_code_lines(answer)
+            code = "\n".join(code_lines)
+            required = {
+                "full_query": all(term in code.lower() for term in ("select", "from purchases", "where")),
+                "exact_female": "'Female'" in code,
+                "exact_short_literal": "'F'" in code,
+                "both_literals": bool(
+                    re.search(r"\bIN\s*\(\s*'Female'\s*,\s*'F'\s*\)", code)
+                    or (
+                        re.search(r"=\s*'Female'", code)
+                        and re.search(r"=\s*'F'", code)
+                        and re.search(r"\bOR\b", code, re.IGNORECASE)
+                    )
+                ),
+                "no_lowercase_substitution": "'female'" not in code and "'f'" not in code,
+            }
+            if not all(required.values()):
+                raise RuntimeError(
+                    f"sql exact-literal assertions failed: done={done}, required={required}\n{answer}"
+                )
+            print(answer)
+            print(
+                "VISION SQL EXACT LITERALS PASS: "
+                f"model={done.get('model')} first={done.get('_e2e_first_chunk_ms')}ms "
+                f"total={done.get('_e2e_total_ms')}ms required={required}"
+            )
+            return 0
+        if args.sql_format:
+            code_lines = sql_code_lines(answer)
+            lowered_code = "\n".join(code_lines).lower()
+            every_line_explained = every_code_line_has_following_comment(code_lines, "--")
+            required = {
+                "spoken_summary_before_code": has_short_spoken_summary_before_code(answer),
+                "fenced_code": len(code_lines) >= 3,
+                "select_sum": "select" in lowered_code and "sum" in lowered_code,
+                "from_purchases": "from purchases" in lowered_code,
+                "case_insensitive_filter": "lower" in lowered_code and "female" in lowered_code,
+                "russian_comment_every_line": every_line_explained,
+            }
+            if not done or not all(required.values()):
+                raise RuntimeError(
+                    f"sql-format vision assertions failed: done={done}, required={required}\n{answer}"
+                )
+            print(answer)
+            print(f"VISION SQL FORMAT PASS: model={done.get('model')} required={required}")
+
+            follow_up_question = (
+                "Теперь доработай предыдущий SQL: не удаляй фильтр по полу и добавь условие "
+                "items > 0. Верни полный обновлённый запрос с русским комментарием на каждой строке."
+            )
+            follow_up_context = (
+                "[ПРЕДЫДУЩАЯ ЗАДАЧА НА ЭКРАНЕ]\n"
+                f"Вопрос: {question}\n"
+                f"Последний ответ SkillCue:\n{answer}\n"
+                "[ТЕКУЩЕЕ УТОЧНЕНИЕ]\n"
+                f"{follow_up_question}"
+            )
+            follow_up_answer, follow_up_done = _request_screen(
+                port,
+                token,
+                {**payload, "question": follow_up_question, "context": follow_up_context},
+            )
+            follow_up_lines = sql_code_lines(follow_up_answer)
+            follow_up_code = "\n".join(follow_up_lines).lower()
+            follow_up_required = {
+                "spoken_summary_before_code": has_short_spoken_summary_before_code(
+                    follow_up_answer
+                ),
+                "full_query": all(term in follow_up_code for term in ("select", "from purchases", "where")),
+                "preserved_gender_filter": "lower" in follow_up_code and "female" in follow_up_code,
+                "added_items_filter": bool(re.search(r"items\s*>\s*0", follow_up_code)),
+                "russian_comment_every_line": every_code_line_has_following_comment(
+                    follow_up_lines, "--"
+                ),
+            }
+            if not follow_up_done or not all(follow_up_required.values()):
+                raise RuntimeError(
+                    "sql follow-up assertions failed: "
+                    f"done={follow_up_done}, required={follow_up_required}\n{follow_up_answer}"
+                )
+            print(follow_up_answer)
+            print(
+                "VISION SQL FOLLOW-UP PASS: "
+                f"model={follow_up_done.get('model')} required={follow_up_required}"
+            )
+            return 0
         if args.fixture_order:
             trace = fixture_trace(answer)
             rewrote_source = "@pytest.fixture" in answer or "def session_fixture" in answer
-            if not done or trace != FIXTURE_TRACE or rewrote_source:
+            if not done or not fixture_trace_is_valid(trace) or rewrote_source:
                 raise RuntimeError(
                     "fixture-order vision assertions failed: "
                     f"done={done}, trace={trace}, expected={FIXTURE_TRACE}, "

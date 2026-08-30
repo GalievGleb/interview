@@ -8,10 +8,7 @@ import {
   EyeOff,
   FileText,
   ListChecks,
-  MessageCircleMore,
   Mic2,
-  RefreshCcw,
-  Send,
   Sparkles,
 } from 'lucide-react';
 import Modal from '../components/Modal';
@@ -25,12 +22,9 @@ import {
   type CandidatePath,
 } from '../lib/candidateJourney';
 import {
-  formatHomeDate,
   formatHomeInterviewBadge,
   formatHomeInterviewStart,
   getHomeHhCommand,
-  getHomeJourneyProgress,
-  getHomeQuickActions,
   isInterviewStartingSoon,
   isSameLocalDay,
 } from '../lib/homeRadar';
@@ -126,7 +120,6 @@ export default function HomePage() {
   const { backendOnline, hasAnyKey, hasStt } = useApp();
   const [store, setStore] = useState(readPreparationStore);
   const [candidatePath, setCandidatePath] = useState<CandidatePath | null>(readCandidatePath);
-  const [showPathChooser, setShowPathChooser] = useState(false);
   const [candidateSources, setCandidateSources] = useState<CandidateSourceState>({
     documents: [],
     hhResumeCount: 0,
@@ -335,18 +328,14 @@ export default function HomePage() {
     activeVacancyUrl: activePreparation?.vacancyAnalysis.vacancyUrl,
     activeResumeTitle: activePreparation?.vacancyAnalysis.resumeSource?.title,
   });
-  const pathChooserVisible = showPathChooser || candidateJourney.path === null;
-  const journeyProgress = getHomeJourneyProgress(candidateJourney.steps.map((step) => step.status));
-  const quickActions = getHomeQuickActions();
+  const pathChooserVisible = candidateJourney.path === null;
   const newVacancies = assistantState?.lastScanSummary?.newVacancies ?? queuedApplications;
-  const repeatedAutomatically = queueGates.daily;
   const resumeReady = candidateSources.documents.length > 0 || candidateSources.hhResumeCount > 0;
   const hhReady = candidateSources.hhResumeCount > 0;
 
   const chooseCandidatePath = (path: CandidatePath, destination?: string) => {
     saveCandidatePath(path);
     setCandidatePath(path);
-    setShowPathChooser(false);
     navigate(destination ?? (path === 'vacancy' ? '/prepare' : '/documents?mode=baseline'));
   };
 
@@ -443,7 +432,7 @@ export default function HomePage() {
       onClick: () => navigate(screeningSummary.quotaLimitedCount > 0 ? '/settings?tab=billing' : '/settings'),
     });
   }
-  const visibleAttentionItems = attentionItems.slice(0, 3);
+  const visibleAttentionItems = attentionItems.slice(0, 2);
   const closeReadinessAndNavigate = (path: string) => {
     setReadinessOpen(false);
     navigate(path);
@@ -514,14 +503,10 @@ export default function HomePage() {
 
   return (
     <>
-      <div className="prep h-full overflow-y-auto">
+      <div className="prep h-full overflow-hidden">
         <div className="prep-wrap home-radar prep-rise">
-        <header className="home-radar__heading home-dashboard-heading">
+        <header className="home-dashboard-heading">
           <h1 className="sr-only">Главная SkillCue</h1>
-          <p className="home-radar-date">
-            <CalendarClock size={16} aria-hidden="true" />
-            <span>{formatHomeDate(now)}</span>
-          </p>
         </header>
 
         {pathChooserVisible ? (
@@ -570,9 +555,9 @@ export default function HomePage() {
                 <h2>{hhCommand.title}</h2>
                 <p>
                   {pendingScreeningQuestions > 0
-                    ? 'SkillCue уже подготовил подходящие ответы. Нужны только неизвестные личные факты.'
+                    ? 'Готовы черновики. Нужны только неизвестные личные факты.'
                     : activeRun
-                      ? 'Новые вакансии проверяются по выбранному резюме; очередь продолжает работу в фоне.'
+                      ? 'Новые вакансии проверяются в фоне.'
                       : 'Все отклики и ответы работодателей — в одном месте.'}
                 </p>
               </div>
@@ -582,29 +567,15 @@ export default function HomePage() {
               <div><strong>{newVacancies}</strong><span>новые вакансии</span></div>
               <div><strong>{sentTodayCount}</strong><span>откликов отправлено</span></div>
               <div><strong>{activeHrDialogs}</strong><span>ответов от HR</span></div>
-              {repeatedAutomatically > 0 && (
-                <p className="home-command-repeat"><RefreshCcw size={14} />{repeatedAutomatically} повторятся автоматически</p>
-              )}
             </div>
-            {(queueGates.daily > 0 || persistentVerificationCount > 0 || unknownManualCount > 0) && (
-              <div className="home-command-barriers">
-                {queueGates.daily > 0 && <span>{queueGates.daily} повторятся автоматически</span>}
-                {persistentVerificationCount > 0 && <span>{persistentVerificationCount} отложены после трёх проверок HH</span>}
-                {unknownManualCount > 0 && <span>{unknownManualCount} остановлены на незнакомом шаге</span>}
-              </div>
-            )}
             <div className="home-command-actions">
               <button type="button" className="home-command-cta" disabled={homeActionBusy} onClick={() => void runHomeHhCommand()}>
                 {homeActionBusy ? 'Запускаю…' : homePrimaryLabel}<ArrowRight size={17} aria-hidden="true" />
               </button>
-              <button type="button" className="home-command-secondary" onClick={() => setShowPathChooser(true)}>Изменить путь</button>
+              <button type="button" className="home-command-secondary" onClick={() => launchLive(() => navigate('/overlay'))}>
+                <Mic2 size={16} aria-hidden="true" />Открыть помощника
+              </button>
             </div>
-            <button type="button" className="home-command-progress" onClick={() => navigate(candidateJourney.action.to)}>
-              <span><i />{journeyProgress > 0 ? 'Вы на пути к цели' : 'Начните путь к цели'}</span>
-              <b><i style={{ width: `${journeyProgress}%` }} /></b>
-              <em>{journeyProgress}%</em>
-              <ChevronRight size={18} />
-            </button>
           </article>
 
           <aside className="home-command-side">
@@ -645,26 +616,6 @@ export default function HomePage() {
             ) : (
               <div className="home-command-clear" role="status"><CheckCircle2 size={16} /><span>Срочных действий нет</span></div>
             )}
-
-            <article className="home-command-quick-actions">
-              <h3>Быстрые действия</h3>
-              <div>
-                {quickActions.map((action) => {
-                  const Icon = action.id === 'vacancies'
-                    ? Send
-                    : action.id === 'resume'
-                      ? FileText
-                      : MessageCircleMore;
-                  return (
-                    <button type="button" key={action.id} onClick={() => navigate(action.to)}>
-                      <span className="home-command-quick-actions__icon"><Icon size={18} /></span>
-                      <span><strong>{action.label}</strong><small>{action.detail}</small></span>
-                      <ChevronRight size={17} />
-                    </button>
-                  );
-                })}
-              </div>
-            </article>
           </aside>
         </section>
         )}

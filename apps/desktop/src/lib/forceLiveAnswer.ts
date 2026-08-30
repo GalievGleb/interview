@@ -5,6 +5,7 @@ const RECENT_FINAL_STABILIZATION_MS = 900;
 interface SpeechActivityState {
   pending: number;
   provisionalPartial: boolean;
+  latestStartedAt: number | null;
 }
 
 /**
@@ -16,12 +17,13 @@ interface SpeechActivityState {
  */
 export class SpeechActivityTracker {
   private readonly state: Record<ForceAudioSource, SpeechActivityState> = {
-    mic: { pending: 0, provisionalPartial: false },
-    system: { pending: 0, provisionalPartial: false },
+    mic: { pending: 0, provisionalPartial: false, latestStartedAt: null },
+    system: { pending: 0, provisionalPartial: false, latestStartedAt: null },
   };
 
-  started(source: ForceAudioSource): void {
+  started(source: ForceAudioSource, startedAt = Date.now()): void {
     const current = this.state[source];
+    current.latestStartedAt = startedAt;
     if (current.provisionalPartial && current.pending === 0) {
       current.provisionalPartial = false;
       current.pending = 1;
@@ -30,19 +32,23 @@ export class SpeechActivityTracker {
     current.pending += 1;
   }
 
-  partial(source: ForceAudioSource): void {
+  partial(source: ForceAudioSource, startedAt = Date.now()): void {
     const current = this.state[source];
-    if (current.pending === 0) current.provisionalPartial = true;
+    if (current.pending === 0 && !current.provisionalPartial) {
+      current.provisionalPartial = true;
+      current.latestStartedAt = startedAt;
+    }
   }
 
   finished(source: ForceAudioSource): void {
     const current = this.state[source];
     if (current.pending > 0) current.pending -= 1;
     else current.provisionalPartial = false;
+    if (current.pending === 0 && !current.provisionalPartial) current.latestStartedAt = null;
   }
 
   resetSource(source: ForceAudioSource): void {
-    this.state[source] = { pending: 0, provisionalPartial: false };
+    this.state[source] = { pending: 0, provisionalPartial: false, latestStartedAt: null };
   }
 
   reset(): void {
@@ -55,6 +61,10 @@ export class SpeechActivityTracker {
       mic: this.state.mic.pending > 0 || this.state.mic.provisionalPartial,
       system: this.state.system.pending > 0 || this.state.system.provisionalPartial,
     };
+  }
+
+  latestStartedAt(source: ForceAudioSource): number | null {
+    return this.state[source].latestStartedAt;
   }
 }
 
@@ -71,11 +81,22 @@ export function selectForceTargetSource(
     mic: number;
     system: number;
   } = { mic: 0, system: 0 },
+  health: {
+    systemSilent?: boolean;
+  } = {},
 ): 'mic' | 'system' | null {
   // With desktop/system capture enabled, that channel owns the interviewer's
   // questions. Candidate speech on mic must never steal Ctrl+Enter merely
   // because it is newer or still active; doing so also advances the shared
   // transcript cursor past the real interviewer question.
+  if (
+    sources.system &&
+    health.systemSilent &&
+    sources.mic &&
+    (speaking.mic || unconsumed.mic > 0)
+  ) {
+    return 'mic';
+  }
   if (sources.system) return 'system';
   if (sources.mic && (speaking.mic || unconsumed.mic > 0)) return 'mic';
   if (sources.mic) return 'mic';
@@ -88,9 +109,18 @@ export function shouldFinalizeCurrentSpeech(
   unconsumed: Record<ForceAudioSource, number>,
   latestUnconsumedFinalReceivedAt?: number,
   pressedAtMs = Date.now(),
+  latestSpeechStartedAt?: number | null,
 ): boolean {
   if (source == null) return false;
   if (speaking[source] && unconsumed[source] === 0) return true;
+  if (
+    speaking[source] &&
+    latestSpeechStartedAt != null &&
+    latestUnconsumedFinalReceivedAt != null &&
+    latestSpeechStartedAt > latestUnconsumedFinalReceivedAt
+  ) {
+    return true;
+  }
   if (
     unconsumed[source] === 0 ||
     latestUnconsumedFinalReceivedAt == null ||

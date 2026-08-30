@@ -1,6 +1,7 @@
 import type { AudioFrameSignal, AudioSource } from './audioCapture';
 
 export const SYSTEM_AUDIO_NO_SIGNAL_MS = 30_000;
+export const SYSTEM_ONLY_AUDIO_NO_SIGNAL_MS = 8_000;
 export const MIN_MIC_SPEECH_STARTS_FOR_SYSTEM_WARNING = 3;
 export const SYSTEM_NO_SIGNAL_WARNING = 'system_no_signal_after_mic_speech' as const;
 
@@ -133,6 +134,14 @@ export class LiveSourceHealth {
     const mic = this.sources.mic;
     const systemEvidenceObserved =
       system.firstSignalAtMs != null || system.firstSpeechAtMs != null;
+    const warningDeadlineMs = system.readyAtMs == null
+      ? null
+      : system.readyAtMs + (
+          mic.requested ? SYSTEM_AUDIO_NO_SIGNAL_MS : SYSTEM_ONLY_AUDIO_NO_SIGNAL_MS
+        );
+    const hasEnoughEvidenceToWarn =
+      !mic.requested ||
+      mic.speechStartCount >= MIN_MIC_SPEECH_STARTS_FOR_SYSTEM_WARNING;
 
     if (this.warning && systemEvidenceObserved) {
       this.warning = null;
@@ -144,9 +153,9 @@ export class LiveSourceHealth {
       !this.warning &&
       system.requested &&
       system.ready &&
-      system.readyAtMs != null &&
-      atMs - system.readyAtMs >= SYSTEM_AUDIO_NO_SIGNAL_MS &&
-      mic.speechStartCount >= MIN_MIC_SPEECH_STARTS_FOR_SYSTEM_WARNING &&
+      warningDeadlineMs != null &&
+      atMs >= warningDeadlineMs &&
+      hasEnoughEvidenceToWarn &&
       !systemEvidenceObserved;
 
     if (shouldWarn) {
@@ -160,6 +169,9 @@ export class LiveSourceHealth {
   nextEvaluationAtMs(): number | null {
     const system = this.sources.system;
     const mic = this.sources.mic;
+    const hasEnoughEvidenceToWarn =
+      !mic.requested ||
+      mic.speechStartCount >= MIN_MIC_SPEECH_STARTS_FOR_SYSTEM_WARNING;
     if (
       this.warning ||
       !system.requested ||
@@ -167,11 +179,13 @@ export class LiveSourceHealth {
       system.readyAtMs == null ||
       system.firstSignalAtMs != null ||
       system.firstSpeechAtMs != null ||
-      mic.speechStartCount < MIN_MIC_SPEECH_STARTS_FOR_SYSTEM_WARNING
+      !hasEnoughEvidenceToWarn
     ) {
       return null;
     }
-    return system.readyAtMs + SYSTEM_AUDIO_NO_SIGNAL_MS;
+    return system.readyAtMs + (
+      mic.requested ? SYSTEM_AUDIO_NO_SIGNAL_MS : SYSTEM_ONLY_AUDIO_NO_SIGNAL_MS
+    );
   }
 
   snapshot(): LiveSourceHealthSnapshot {

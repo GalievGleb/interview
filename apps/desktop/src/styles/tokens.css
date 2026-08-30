@@ -48,10 +48,10 @@
 /* Светлая тема — тот же навы-характер, но на светлых поверхностях.
    Бренд-зелёный темнее ради контраста на белом. */
 :root[data-theme='light'] {
-  --sc-brand: #0aa85c;
-  --sc-brand-hover: #078b4c;
-  --sc-brand-soft: rgba(10, 168, 92, 0.1);
-  --sc-brand-ring: rgba(10, 168, 92, 0.24);
+  --sc-brand: #057a44;
+  --sc-brand-hover: #04633a;
+  --sc-brand-soft: rgba(5, 122, 68, 0.1);
+  --sc-brand-ring: rgba(5, 122, 68, 0.24);
 
   --twc-surface: 247 249 250; /* #f7f9fa */
   --twc-surface-panel: 252 253 253; /* #fcfdfd */
@@ -61,8 +61,8 @@
   --twc-surface-elevated: 255 255 255;
   --twc-surface-border: 222 229 232; /* #dee5e8 */
   --twc-surface-border-strong: 198 210 216; /* #c6d2d8 */
-  --twc-accent: 10 168 92; /* #0aa85c */
-  --twc-accent-hover: 7 139 76; /* #078b4c */
+  --twc-accent: 5 122 68; /* #057a44 — 5.4:1 on white */
+  --twc-accent-hover: 4 99 58; /* #04633a */
   --twc-ink: 14 25 48; /* #0e1930 */
   --twc-ink-muted: 70 88 117; /* #465875 */
   --twc-ink-faint: 91 107 132; /* #5b6b84 */

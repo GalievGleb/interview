@@ -12,6 +12,16 @@ const calendarCss = fs.readFileSync(
 );
 
 describe('interview calendar event layout', () => {
+  it('lets the page consume vertical wheel gestures over the fixed-height week grid', () => {
+    const weekScrollRule = calendarCss.match(/\.interview-week-scroll\s*\{([^}]*)\}/s)?.[1] ?? '';
+
+    expect(weekScrollRule).toContain('overflow-x: auto');
+    expect(weekScrollRule).toContain('overflow-y: hidden');
+    expect(weekScrollRule).toContain('overscroll-behavior-x: contain');
+    expect(weekScrollRule).toContain('overscroll-behavior-y: auto');
+    expect(weekScrollRule).not.toMatch(/(?:^|\n)\s*overscroll-behavior:\s*contain/);
+  });
+
   it('keeps the vacancy visible in short event cards', () => {
     expect(calendarSource).toContain('interview-week-event__headline');
     expect(calendarSource).toContain("span === 1 ? 'is-compact' : ''");

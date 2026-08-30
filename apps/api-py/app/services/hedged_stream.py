@@ -18,6 +18,7 @@ class HedgedStreamSelection:
     first_chunk: str
     remainder: AsyncIterator[str]
     hedge_started: bool
+    primary_failed: bool = False
 
 
 class _EmptyStreamError(RuntimeError):
@@ -140,6 +141,7 @@ async def select_hedged_stream(
                     first_chunk=first,
                     remainder=winner_stream,
                     hedge_started=True,
+                    primary_failed=primary_model in errors,
                 )
 
         if primary_model in errors:

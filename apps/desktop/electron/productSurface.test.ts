@@ -56,7 +56,7 @@ describe('packaged product surface', () => {
     expect(devConfigSource).toContain('publish: null');
   });
 
-  it('publishes stable releases only from tags and never from the dev workflow', () => {
+  it('keeps hosted stable releases manual-only and never publishes from the dev workflow', () => {
     const repoRoot = path.resolve(desktopRoot, '..', '..');
     const releaseWorkflow = fs.readFileSync(
       path.join(repoRoot, '.github', 'workflows', 'release.yml'),
@@ -67,8 +67,8 @@ describe('packaged product surface', () => {
       'utf8',
     );
 
-    expect(releaseWorkflow).toContain("tags: ['v*']");
-    expect(releaseWorkflow).not.toContain('workflow_dispatch:');
+    expect(releaseWorkflow).toContain('workflow_dispatch:');
+    expect(releaseWorkflow).not.toContain("tags: ['v*']");
     expect(releaseWorkflow).toContain('--publish always');
     expect(devWorkflow).toContain('workflow_dispatch:');
     expect(devWorkflow).toContain('--publish never');

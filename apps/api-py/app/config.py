@@ -41,6 +41,9 @@ class Settings(BaseSettings):
 
     stt_enabled: bool = True
     stt_language: str = "multi"
+    # Low-latency path passed the Ozon and user-WAV replay gates. The proven
+    # upload implementation remains an automatic setup/transport fallback.
+    skillcue_realtime_stt: bool = True
 
     log_level: str = "info"
 

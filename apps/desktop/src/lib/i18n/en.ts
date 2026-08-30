@@ -790,6 +790,7 @@ export const en: Record<I18nKey, string> = {
   'overlay.tip.screen': 'Screenshot → analysis of the task/code/question and a ready hint',
   'overlay.kb.toggle': 'Show / hide',
   'overlay.kb.ask': 'Send current question',
+  'overlay.kb.screenAsk': 'Answer from screen',
   'overlay.kb.clear': 'Clear chat',
   'overlay.kb.stop': 'Stop session',
   'overlay.kb.move': 'Move overlay',
@@ -900,7 +901,7 @@ export const en: Record<I18nKey, string> = {
   'overlay.thinking': 'Thinking…',
   'overlay.transcriptEmpty': 'Start recording (● in the pill) — lines will appear here.',
   'overlay.sourceHealth.systemSilent':
-    'No interviewer audio detected. Check that system audio is enabled for the shared screen.',
+    'No system audio detected. Enable call audio or choose “Microphone + system” in the menu.',
 
   'common.error': 'Error',
   'common.open': 'Open',
@@ -997,6 +998,7 @@ export const en: Record<I18nKey, string> = {
   'settings.kb.group.scroll': 'Answer scrolling',
   'settings.kb.toggleOverlay': 'Show / hide overlay',
   'settings.kb.ask': 'Ask (Hint)',
+  'settings.kb.screenAsk': 'Answer from screen',
   'settings.kb.clearChat': 'Clear overlay chat',
   'settings.kb.stopSession': 'Stop the recording session',
   'settings.kb.liveTranscript': 'Live transcript',
@@ -1061,6 +1063,17 @@ export const en: Record<I18nKey, string> = {
   'mic.permissionHint': 'Device names are hidden — microphone access is required.',
   'mic.grant': 'Grant access',
   'mic.level': 'Signal level — speak into the microphone',
+  'mic.sample.title': 'Voice check',
+  'mic.sample.idle': 'Record a short phrase and listen to the result.',
+  'mic.sample.recording': 'Recording',
+  'mic.sample.ready': 'Recording ready',
+  'mic.sample.start': 'Record voice',
+  'mic.sample.stop': 'Stop',
+  'mic.sample.play': 'Listen',
+  'mic.sample.pause': 'Pause',
+  'mic.sample.retry': 'Record again',
+  'mic.sample.level': 'Microphone level',
+  'mic.sample.playError': 'Could not play the recording',
 
   // Settings — AI models
   'aimodels.loadError': 'Could not load model settings',

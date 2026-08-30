@@ -29,10 +29,11 @@ from app.prompts.meeting import (
 )
 from app.prompts.system import SYSTEM_PROMPT
 from app.services import model_router, provider_adapter, rag_service
-from app.services.candidate_profile import get_profile_block
+from app.services.candidate_profile import get_pack_content, get_profile_block
 from app.services.domain_answer_hints import (
     resolve_domain_answer_hints,
     resolve_fast_domain_answer_hints,
+    resolve_fast_question_alias,
     resolve_required_output_contract,
 )
 from app.services.hedged_stream import select_first_stream, select_hedged_stream
@@ -50,11 +51,13 @@ router = APIRouter(tags=["chat"])
 logger = logging.getLogger("chat")
 
 FAST_CONTEXT_LIMIT = 350
-LIVE_THEORY_HEDGE_AFTER_SECONDS = 0.85
-LIVE_THEORY_FAST_MODEL = "openai/gpt-4.1-nano"
+FAST_CANDIDATE_CONTEXT_LIMIT = 3200
+LIVE_THEORY_HEDGE_AFTER_SECONDS = 0.8
+LIVE_UNCLEAR_HEDGE_AFTER_SECONDS = 0.5
+LIVE_EXPERIENCE_HEDGE_AFTER_SECONDS = 1.25
 LIVE_RELIABILITY_BACKUP_MODEL = "openai/gpt-4o-mini"
 LIVE_THEORY_HEDGE_INTENTS = frozenset(
-    {"technical_definition", "technical_list", "technical_comparison", "practical_usage"}
+    {"technical_definition", "technical_list", "technical_comparison"}
 )
 
 
@@ -80,6 +83,9 @@ class ChatPayload(BaseModel):
 
 class InterviewPayload(BaseModel):
     question: str
+    # Предзагруженное выбранное резюме: используется только для ответов про
+    # личный опыт/практику и не попадает в быстрые теоретические запросы.
+    candidate_context: str | None = None
     raw_question: str | None = None
     glossary_corrected: str | None = None
     intent_corrected: str | None = None
@@ -283,7 +289,8 @@ def _answer_language_block(lang: str | None) -> str:
     return (
         f"\n\nOUTPUT LANGUAGE: write the answer in {name}, regardless of the "
         "question's language. Keep established technical terms as commonly "
-        "spoken by engineers (e.g. deploy, pipeline, merge request)."
+        "spoken by engineers (e.g. deploy, pipeline, merge request). All "
+        "natural-language code comments must use the same output language."
     )
 
 
@@ -344,27 +351,51 @@ async def _interview_event_stream(
             # correction, follow-up resolution, resume/RAG reads, weak topics,
             # or personal facts. Deterministic local facts remain in-process.
             raw_question = final_question
-            strategy = classify_interview_question_intent(final_question)
+            prompt_question = resolve_fast_question_alias(final_question)
+            strategy = classify_interview_question_intent(prompt_question)
             intent = str(strategy["question_intent"])
             prompt = build_fast_core_user_prompt(
-                final_question,
+                prompt_question,
                 intent,
                 _answer_language_block(payload.answer_language),
             )
             enrichment_blocks: list[str] = []
-            domain_hints = resolve_fast_domain_answer_hints(final_question)
+            personal_context = ""
+            personal_context_reason = ""
+            if intent in {"experience", "practical_usage"}:
+                personal_context = _clip(
+                    payload.candidate_context or "", FAST_CANDIDATE_CONTEXT_LIMIT
+                )
+                if personal_context:
+                    personal_context_reason = "fast_core_preloaded_candidate_context"
+                elif db is not None:
+                    personal_context = _clip(
+                        get_pack_content(db), FAST_CANDIDATE_CONTEXT_LIMIT
+                    )
+                    if personal_context:
+                        personal_context_reason = "fast_core_cached_candidate_profile"
+                if personal_context:
+                    enrichment_blocks.append(
+                        "CONFIRMED CANDIDATE CONTEXT (authoritative; use only relevant "
+                        "facts and never invent missing experience). Preserve the exact "
+                        "strength of every fact: supported/used is not implemented/owned. "
+                        "If the asked technology is absent, say that it is not confirmed "
+                        "instead of borrowing an adjacent stack:\n"
+                        f"{personal_context}"
+                    )
+            domain_hints = resolve_fast_domain_answer_hints(prompt_question)
             if not domain_hints.startswith("(none"):
                 enrichment_blocks.append(domain_hints)
 
             knowledge_meta = {"knowledgePackUsed": False}
-            if detect_pack(final_question):
+            if detect_pack(prompt_question):
                 kn_block, knowledge_meta = build_python_pack_injection(
-                    final_question, verified_only=True
+                    prompt_question, verified_only=True
                 )
                 if kn_block:
                     enrichment_blocks.append(kn_block)
 
-            required_contract = resolve_required_output_contract(final_question)
+            required_contract = resolve_required_output_contract(prompt_question)
             if required_contract:
                 enrichment_blocks.append(required_contract)
             if enrichment_blocks:
@@ -374,12 +405,16 @@ async def _interview_event_stream(
             correction_meta = {
                 "question_intent": intent,
                 "answer_strategy": "fast_core",
-                "resume_context_used": False,
-                "resume_context_level": "none",
-                "resume_context_reason": (
-                    "fast_core_local_enrichment" if enrichment_blocks else "fast_core_no_enrichment"
+                "resume_context_used": bool(personal_context),
+                "resume_context_level": "limited" if personal_context else "none",
+                "resume_context_reason": personal_context_reason
+                or (
+                    "fast_core_local_enrichment"
+                    if enrichment_blocks
+                    else "fast_core_no_enrichment"
                 ),
                 "prompt_mode": "fast_core",
+                "fast_alias_used": prompt_question != final_question,
                 "enrichment_used": bool(enrichment_blocks),
                 "prompt_chars": len(system_prompt) + len(prompt),
             }
@@ -464,7 +499,26 @@ async def _interview_event_stream(
             and model == model_router.FAST_CORE_DEFAULT_MODEL
             and intent in LIVE_THEORY_HEDGE_INTENTS
         )
-        hedge_primary_model = LIVE_THEORY_FAST_MODEL
+        use_unclear_latency_hedge = (
+            payload.fast_answer
+            and not payload.model
+            and not payload.model_override
+            and model == model_router.FAST_CORE_DEFAULT_MODEL
+            and intent == "unclear"
+        )
+        use_experience_latency_hedge = (
+            payload.fast_answer
+            and not payload.model
+            and not payload.model_override
+            and model == model_router.FAST_CORE_DEFAULT_MODEL
+            and intent in {"experience", "practical_usage"}
+        )
+        uses_latency_hedge = (
+            use_latency_hedge
+            or use_unclear_latency_hedge
+            or use_experience_latency_hedge
+        )
+        hedge_primary_model = model
         selected = None
         reliability_fallback = False
         try:
@@ -474,9 +528,26 @@ async def _interview_event_stream(
                 # If it stalls, race the quality-first global default instead.
                 selected = await select_hedged_stream(
                     primary_model=hedge_primary_model,
-                    fallback_model=model,
+                    fallback_model=LIVE_RELIABILITY_BACKUP_MODEL,
                     stream_factory=stream_for,
                     hedge_after_seconds=LIVE_THEORY_HEDGE_AFTER_SECONDS,
+                )
+            elif use_unclear_latency_hedge:
+                selected = await select_hedged_stream(
+                    primary_model=model,
+                    fallback_model=LIVE_RELIABILITY_BACKUP_MODEL,
+                    stream_factory=stream_for,
+                    hedge_after_seconds=LIVE_UNCLEAR_HEDGE_AFTER_SECONDS,
+                )
+            elif use_experience_latency_hedge:
+                # Personal/practical questions keep the quality-first model.
+                # Only a slow first token opens the reliability model, capping
+                # rare upstream tail latency without racing every request.
+                selected = await select_hedged_stream(
+                    primary_model=model,
+                    fallback_model=LIVE_RELIABILITY_BACKUP_MODEL,
+                    stream_factory=stream_for,
+                    hedge_after_seconds=LIVE_EXPERIENCE_HEDGE_AFTER_SECONDS,
                 )
             else:
                 selected = await select_first_stream(model=model, stream_factory=stream_for)
@@ -496,15 +567,21 @@ async def _interview_event_stream(
                 stream_factory=stream_for,
             )
 
+        if selected.primary_failed:
+            reliability_fallback = True
+            correction_meta["reliabilityFallbackStarted"] = True
+
         answer_model = selected.model
         if reliability_fallback:
             answer_source = "fast_core_reliability_fallback"
-        elif use_latency_hedge and selected.model != model:
+        elif uses_latency_hedge and selected.model != model:
             answer_source = "fast_core_latency_hedge"
         correction_meta["hedgeStarted"] = (
-            selected.hedge_started if use_latency_hedge and not reliability_fallback else False
+            selected.hedge_started
+            if uses_latency_hedge and not reliability_fallback
+            else False
         )
-        if use_latency_hedge and not reliability_fallback:
+        if uses_latency_hedge and not reliability_fallback:
             correction_meta["hedgeWinner"] = (
                 "primary" if selected.model == hedge_primary_model else "fallback"
             )
@@ -1065,6 +1142,14 @@ _SCREEN_OUTPUT_TASK_RE = re.compile(
     re.IGNORECASE | re.UNICODE,
 )
 
+_SCREEN_TESTING_TASK_RE = re.compile(
+    r"состав(?:ить|ьте)\b[^.\n]{0,120}\b(?:кейс|чек[- ]?лист)|"
+    r"(?:протестир\w*|тестиров\w*)[^.\n]{0,100}(?:api|endpoint|эндпоинт|функционал)|"
+    r"(?:write|create|prepare)\s+(?:test\s+cases|a\s+checklist)|"
+    r"test(?:ing)?\s+(?:an?\s+)?(?:api|endpoint|feature)",
+    re.IGNORECASE | re.UNICODE,
+)
+
 SCREEN_TASK_REQUEST = (
     "Сначала прочитай точную формулировку задания на скриншоте, включая текст "
     "над и под кодом. Определи, какое действие от кандидата требуется, и выполни "
@@ -1097,16 +1182,40 @@ SCREEN_ASSIST_PROMPT = (
     "ЖЁСТКОЕ ПРАВИЛО ДЛЯ ЗАДАНИЙ «напиши/реализуй/исправь/дополни»: ответ без полного "
     "исполняемого блока кода неправильный. Не ограничивайся планом или псевдокодом. Даже если "
     "формулировка короткая, сделай разумное допущение и выдай рабочий пример с корректными "
-    "отступами.\n\n"
+    "отступами. После короткой устной сводки код всегда оформляй одним fenced "
+    "Markdown-блоком с указанием языка. "
+    "После КАЖДОЙ непустой содержательной строки кода поставь короткий комментарий на русском "
+    "ОТДЕЛЬНОЙ СТРОКОЙ сразу под ней, с тем же отступом (# Python, -- SQL, // JS/Java). "
+    "Никогда не ставь пояснение справа в конце строки кода. Оформляй код без пустых строк между "
+    "парой «код → комментарий»: он должен читаться сверху вниз как сценарий ответа. "
+    "Для изменения предыдущей задачи верни полное обновлённое решение, а не diff.\n\n"
     "Формат ответа:\n"
-    "1) Для написания/исправления — СНАЧАЛА решение одним блоком кода. К каждой существенной "
-    "строке добавь короткий комментарий на языке кода (# для Python, -- для SQL).\n"
-    "2) Для результата/ошибки — точный результат или исключение сначала, без нового решения.\n"
-    "3) После — 1–3 короткие фразы: логика и важное допущение.\n"
-    "4) Если на экране не код, а текстовый вопрос/задача — дай прямой готовый ответ "
+    "1) Для написания/исправления — СНАЧАЛА короткая устная сводка: дай готовую реплику, "
+    "что сказать интервьюеру перед написанием кода. В 1–3 коротких предложениях по-человечески "
+    "объясни подход, основные шаги и важное условие; без кода, заголовка и лишней теории.\n"
+    "2) ЗАТЕМ решение одним блоком кода. К каждой существенной "
+    "строке добавь короткий комментарий отдельной строкой сразу под строкой кода "
+    "(# для Python, -- для SQL). Никогда не ставь пояснение справа от кода.\n"
+    "3) Для результата/ошибки — точный результат или исключение сначала, без нового решения.\n"
+    "4) После кода — максимум 1–2 короткие фразы только о важном допущении.\n"
+    "5) Если на экране не код, а текстовый вопрос/задача — дай прямой готовый ответ "
     "от первого лица, без вступлений.\n\n"
+    "Перед выдачей решения молча проверь его по скриншоту. Сохрани точные имена, регистр "
+    "строковых литералов, операторы, таблицы, поля и требуемый alias. Не нормализуй 'Female' "
+    "в 'female' и не заменяй точные значения своими вариантами.\n\n"
     "НЕ начинай с «На экране…»/«Задание звучит так…» — сразу к делу. Отвечай на "
     "языке содержимого экрана (обычно русский), кратко и по делу."
+)
+
+SCREEN_CODE_OUTPUT_CONTRACT = (
+    "ЕСЛИ НУЖНО НАПИСАТЬ, ИСПРАВИТЬ ИЛИ ДОПОЛНИТЬ КОД: сначала дай 1–3 коротких "
+    "предложения — готовую человеческую реплику, которую кандидат скажет интервьюеру перед "
+    "написанием кода: подход, основные шаги и важное условие. Без заголовка и кода. Затем "
+    "покажи один fenced Markdown-блок с языком. КАЖДАЯ непустая содержательная строка обязана иметь короткий "
+    "комментарий на русском ОТДЕЛЬНОЙ СТРОКОЙ сразу под строкой кода, объясняющий, что "
+    "делаем и зачем. Сохрани тот же отступ; не ставь комментарий справа от кода. Не делай "
+    "пустых строк внутри пары «код → комментарий». Для продолжения старого задания покажи полное обновлённое "
+    "решение, а не diff. После блока — максимум две короткие фразы."
 )
 
 
@@ -1128,11 +1237,12 @@ async def screen_assist_stream(payload: ScreenAssistPayload, db: Session = Depen
         model=payload.model,
         model_override=payload.model_override,
     )
-    # Screen assist is not just OCR: it must trace dependency/setup/teardown
-    # semantics exactly. In a real fixture-order image 4.1-mini read every
-    # symbol but swapped two independent setup steps; full 4.1 returned the
-    # verified pytest order and was faster in the same installed-backend check.
-    # Preserve every explicit user/configured model; strengthen Auto only.
+    screen_task_context = f"{payload.question}\n{payload.context or ''}"
+    is_screen_testing_task = bool(_SCREEN_TESTING_TASK_RE.search(screen_task_context))
+    # Screen assist is not just OCR: every visual task must preserve exact
+    # literals and reason through the requested solution. Keep the fast Qwen
+    # route for voice only; the user can read the task while screen reasoning
+    # finishes. Preserve every explicit user/configured model; strengthen Auto.
     if model_source == "auto":
         model = model_router.SCREEN_DEFAULT_MODEL
 
@@ -1143,7 +1253,13 @@ async def screen_assist_stream(payload: ScreenAssistPayload, db: Session = Depen
             f"{payload.question.strip()}"
         )
     if payload.context:
-        user_text += f"\n\nТранскрипт разговора (для контекста):\n{_clip(payload.context, 2000)}"
+        user_text += f"\n\nТранскрипт и контекст прошлой экранной задачи:\n{_clip(payload.context, 5000)}"
+    if is_screen_testing_task:
+        user_text += (
+            "\n\nЭТО ЗАДАНИЕ НА ТЕСТИРОВАНИЕ: не реализуй endpoint и не пиши SQL или код, "
+            "если интервьюер прямо этого не просил. Используй скриншот как входные данные "
+            "и дай проверки, негативные сценарии, граничные значения и важные уточняющие вопросы."
+        )
     if _SCREEN_OUTPUT_TASK_RE.search(user_text):
         user_text += (
             "\n\nФИНАЛЬНАЯ ПРОВЕРКА РЕЗУЛЬТАТА: анализируй именно видимый код, не "
@@ -1153,6 +1269,7 @@ async def screen_assist_stream(payload: ScreenAssistPayload, db: Session = Depen
             "даёт TypeError. Символ строки остаётся строкой при сравнении с числом."
         )
     user_text += _answer_language_block(payload.answer_language)
+    user_text += f"\n\n{SCREEN_CODE_OUTPUT_CONTRACT}"
 
     messages: list[dict] = [
         {"role": "system", "content": SCREEN_ASSIST_PROMPT},
@@ -1169,11 +1286,17 @@ async def screen_assist_stream(payload: ScreenAssistPayload, db: Session = Depen
     # Изображение стоит дорого (~1–1.5k токенов) — фиксируем расход заранее.
     db.add(_chat_usage(provider, user_text + " " * 4000))
     db.commit()
+    screen_max_tokens, screen_reasoning = provider_adapter.screen_stream_options(model)
 
     async def event_stream():
         try:
             async for delta in provider_adapter.stream_chat(
-                messages, provider, model, max_tokens=900, temperature=0.0
+                messages,
+                provider,
+                model,
+                max_tokens=screen_max_tokens,
+                temperature=0.0,
+                reasoning=screen_reasoning,
             ):
                 yield f"data: {json.dumps({'type': 'chunk', 'text': delta}, ensure_ascii=False)}\n\n"
             yield f"data: {json.dumps({'type': 'done', 'model': model, 'model_source': model_source})}\n\n"
@@ -1208,10 +1331,29 @@ def _sanitize_live_task_answer(text: str) -> str:
     return "\n\n".join(cleaned).strip()
 
 
+_CYRILLIC_OUTPUT_RE = re.compile(r"[А-Яа-яЁё]")
+_RUSSIAN_PROMPT_LABELS = (
+    (re.compile(r"\bDecisive\s+difference:\s*", re.IGNORECASE), "Главное отличие: "),
+    (re.compile(r"\bEnforced:\s*", re.IGNORECASE), ""),
+    (re.compile(r"\bConvention:\s*", re.IGNORECASE), "Обычно "),
+    (re.compile(r"\bMechanism:\s*", re.IGNORECASE), "Механизм: "),
+)
+
+
+def _localize_leaked_prompt_labels(text: str) -> str:
+    """Убирает английские служебные метки, если основной ответ уже на русском."""
+    if not _CYRILLIC_OUTPUT_RE.search(text):
+        return text
+    localized = text
+    for pattern, replacement in _RUSSIAN_PROMPT_LABELS:
+        localized = pattern.sub(replacement, localized)
+    return localized
+
+
 def _finalize_live_spoken(raw: str, question_intent: str, *, spoken_cap: int = 90) -> str:
     """Sanitize live output and preserve complete concrete-task code blocks."""
     parsed = _parse_fast_response(raw)
-    spoken = parsed.get("spoken") or raw
+    spoken = _localize_leaked_prompt_labels(parsed.get("spoken") or raw)
     if question_intent in {"technical_task", "api_test_task"} or "```" in spoken:
         # Cutting at 90 words can leave code incomplete; normal sanitization also
         # collapses indentation and can remove Python # comments. Preserve every

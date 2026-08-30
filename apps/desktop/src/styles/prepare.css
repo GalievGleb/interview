@@ -2982,7 +2982,7 @@ button.prep-priority-row:hover {
     filter 0.16s ease;
 }
 
-.prep-btn:hover {
+.prep-btn:not(.prep-btn-secondary):not(.prep-btn-ghost):hover:not(:disabled) {
   background: linear-gradient(180deg, #54e397 0%, #29c972 100%);
   box-shadow:
     0 12px 30px -14px rgba(34, 185, 102, 0.65),
@@ -6629,11 +6629,12 @@ button.prep-priority-row:hover {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
+  column-gap: 8px;
+  padding-right: 12px;
   border-bottom: 1px solid var(--prep-border);
 }
 
 .interview-session-row__report {
-  margin-inline: 4px;
   white-space: nowrap;
 }
 

@@ -7,6 +7,7 @@ import { GatewaySttService } from './gateway-stt.service';
 import { GatewaySttQuotaService } from './gateway-stt-quota.util';
 import { GatewaySttUploadGuard } from './gateway-stt-upload.guard';
 import { GatewayTtsService } from './gateway-tts.service';
+import { GatewaySttRealtimeGateway } from './gateway-stt-realtime.gateway';
 
 @Module({
   imports: [RedisModule],
@@ -17,6 +18,7 @@ import { GatewayTtsService } from './gateway-tts.service';
     GatewaySttService,
     GatewaySttQuotaService,
     GatewaySttUploadGuard,
+    GatewaySttRealtimeGateway,
     GatewayTtsService,
   ],
 })

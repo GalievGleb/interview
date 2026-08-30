@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import {
   listMicrophones,
   getSelectedMicId,
@@ -6,93 +6,211 @@ import {
   ensureMicPermission,
 } from '../lib/audioDevices';
 import { useI18n } from '../lib/i18n';
+import {
+  INITIAL_MICROPHONE_SAMPLE_STATE,
+  microphoneSampleReducer,
+  startMicrophoneSampleCapture,
+  type MicrophoneSampleCapture,
+} from '../lib/microphoneSample';
+import MicrophoneSamplePanel from './MicrophoneSamplePanel';
+
+const MICROPHONE_SAMPLE_LIMIT_MS = 10_000;
 
 export default function MicrophoneSettings() {
   const { t } = useI18n();
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [selected, setSelected] = useState(getSelectedMicId());
   const [needsPermission, setNeedsPermission] = useState(false);
-  const [testing, setTesting] = useState(false);
-  const [level, setLevel] = useState(0);
-  const [error, setError] = useState('');
-  const cleanupRef = useRef<(() => void) | null>(null);
+  const [sample, dispatchSample] = useReducer(
+    microphoneSampleReducer,
+    INITIAL_MICROPHONE_SAMPLE_STATE,
+  );
+  const captureRef = useRef<MicrophoneSampleCapture | null>(null);
+  const meterCleanupRef = useRef<(() => void) | null>(null);
+  const stopTimerRef = useRef<number | null>(null);
+  const sampleUrlRef = useRef('');
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const recordingStartedAtRef = useRef(0);
+  const mountedRef = useRef(true);
 
   const refresh = useCallback(async () => {
-    setError('');
     try {
       const mics = await listMicrophones();
       setDevices(mics);
       setNeedsPermission(mics.length > 0 && !mics[0].label);
-      setSelected((cur) => cur || mics[0]?.deviceId || '');
+      setSelected((current) => current || mics[0]?.deviceId || '');
     } catch {
-      setError(t('mic.devicesError'));
+      dispatchSample({ type: 'failed', message: t('mic.devicesError') });
     }
   }, [t]);
 
+  const releaseSampleMedia = useCallback(() => {
+    if (stopTimerRef.current !== null) {
+      window.clearTimeout(stopTimerRef.current);
+      stopTimerRef.current = null;
+    }
+    meterCleanupRef.current?.();
+    meterCleanupRef.current = null;
+    captureRef.current?.cancel();
+    captureRef.current = null;
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.onended = null;
+      audioRef.current.onerror = null;
+      audioRef.current.src = '';
+      audioRef.current = null;
+    }
+    if (sampleUrlRef.current) {
+      URL.revokeObjectURL(sampleUrlRef.current);
+      sampleUrlRef.current = '';
+    }
+  }, []);
+
   useEffect(() => {
+    mountedRef.current = true;
     void refresh();
     navigator.mediaDevices.addEventListener?.('devicechange', refresh);
     return () => {
+      mountedRef.current = false;
       navigator.mediaDevices.removeEventListener?.('devicechange', refresh);
-      cleanupRef.current?.();
+      releaseSampleMedia();
     };
-  }, [refresh]);
+  }, [refresh, releaseSampleMedia]);
 
   const grant = async () => {
     try {
       await ensureMicPermission();
       await refresh();
     } catch {
-      setError(t('mic.permissionDenied'));
+      dispatchSample({ type: 'failed', message: t('mic.permissionDenied') });
     }
   };
 
+  const resetSample = useCallback(() => {
+    releaseSampleMedia();
+    dispatchSample({ type: 'reset' });
+  }, [releaseSampleMedia]);
+
   const onChange = (id: string) => {
+    resetSample();
     setSelected(id);
     setSelectedMicId(id);
   };
 
-  const startTest = async () => {
-    setError('');
+  const stopRecording = useCallback(async () => {
+    const capture = captureRef.current;
+    if (!capture) return;
+    captureRef.current = null;
+    if (stopTimerRef.current !== null) {
+      window.clearTimeout(stopTimerRef.current);
+      stopTimerRef.current = null;
+    }
+    meterCleanupRef.current?.();
+    meterCleanupRef.current = null;
+    const durationMs = Math.min(
+      MICROPHONE_SAMPLE_LIMIT_MS,
+      Math.max(0, Date.now() - recordingStartedAtRef.current),
+    );
+
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: selected ? { deviceId: selected } : true,
-      });
-      const ctx = new AudioContext();
-      const src = ctx.createMediaStreamSource(stream);
-      const analyser = ctx.createAnalyser();
+      const blob = await capture.stop();
+      if (!mountedRef.current) return;
+      if (sampleUrlRef.current) URL.revokeObjectURL(sampleUrlRef.current);
+      const url = URL.createObjectURL(blob);
+      sampleUrlRef.current = url;
+      const audio = new Audio(url);
+      audio.preload = 'auto';
+      audio.onended = () => {
+        if (mountedRef.current) dispatchSample({ type: 'playback-stopped' });
+      };
+      audio.onerror = () => {
+        if (!mountedRef.current) return;
+        releaseSampleMedia();
+        dispatchSample({ type: 'failed', message: t('mic.sample.playError') });
+      };
+      audioRef.current = audio;
+      dispatchSample({ type: 'recording-ready', durationMs });
+    } catch {
+      if (mountedRef.current) dispatchSample({ type: 'failed', message: t('mic.openError') });
+    }
+  }, [releaseSampleMedia, t]);
+
+  const startRecording = useCallback(async () => {
+    releaseSampleMedia();
+    dispatchSample({ type: 'reset' });
+    try {
+      const capture = await startMicrophoneSampleCapture(selected);
+      if (!mountedRef.current) {
+        capture.cancel();
+        return;
+      }
+      captureRef.current = capture;
+
+      const context = new AudioContext();
+      if (context.state === 'suspended') await context.resume();
+      const source = context.createMediaStreamSource(capture.stream);
+      const analyser = context.createAnalyser();
       analyser.fftSize = 512;
-      src.connect(analyser);
+      source.connect(analyser);
       const data = new Uint8Array(analyser.fftSize);
-      let raf = 0;
-      const loop = () => {
+      let animationFrame = 0;
+      let stopped = false;
+      recordingStartedAtRef.current = Date.now();
+      dispatchSample({ type: 'recording-started' });
+
+      const updateMeter = () => {
+        if (stopped) return;
         analyser.getByteTimeDomainData(data);
         let sum = 0;
-        for (let i = 0; i < data.length; i++) {
-          const v = (data[i] - 128) / 128;
-          sum += v * v;
+        for (let index = 0; index < data.length; index += 1) {
+          const sampleValue = (data[index] - 128) / 128;
+          sum += sampleValue * sampleValue;
         }
-        const rms = Math.sqrt(sum / data.length);
-        setLevel(Math.min(100, Math.round(rms * 180)));
-        raf = requestAnimationFrame(loop);
+        const rms = Math.sqrt(sum / Math.max(1, data.length));
+        dispatchSample({
+          type: 'recording-progress',
+          elapsedMs: Math.min(
+            MICROPHONE_SAMPLE_LIMIT_MS,
+            Date.now() - recordingStartedAtRef.current,
+          ),
+          level: Math.min(100, Math.round(rms * 320)),
+        });
+        animationFrame = requestAnimationFrame(updateMeter);
       };
-      loop();
-      setTesting(true);
-      cleanupRef.current = () => {
-        cancelAnimationFrame(raf);
-        src.disconnect();
-        void ctx.close();
-        stream.getTracks().forEach((t) => t.stop());
-        setTesting(false);
-        setLevel(0);
-        cleanupRef.current = null;
+      updateMeter();
+      meterCleanupRef.current = () => {
+        if (stopped) return;
+        stopped = true;
+        cancelAnimationFrame(animationFrame);
+        source.disconnect();
+        void context.close();
       };
+      stopTimerRef.current = window.setTimeout(() => {
+        void stopRecording();
+      }, MICROPHONE_SAMPLE_LIMIT_MS);
     } catch {
-      setError(t('mic.openError'));
+      releaseSampleMedia();
+      if (mountedRef.current) dispatchSample({ type: 'failed', message: t('mic.openError') });
+    }
+  }, [releaseSampleMedia, selected, stopRecording, t]);
+
+  const togglePlayback = async () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (sample.status === 'playing') {
+      audio.pause();
+      dispatchSample({ type: 'playback-stopped' });
+      return;
+    }
+    try {
+      audio.currentTime = 0;
+      await audio.play();
+      dispatchSample({ type: 'playback-started' });
+    } catch {
+      releaseSampleMedia();
+      dispatchSample({ type: 'failed', message: t('mic.sample.playError') });
     }
   };
-
-  const stopTest = () => cleanupRef.current?.();
 
   return (
     <div className="card mb-5 space-y-4 p-5">
@@ -101,53 +219,37 @@ export default function MicrophoneSettings() {
         <p className="mt-0.5 text-sm text-ink-muted">{t('mic.desc')}</p>
       </div>
 
-      <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-        <select
-          value={selected}
-          onChange={(e) => onChange(e.target.value)}
-          className="field min-w-0"
-          aria-label={t('mic.title')}
-        >
-          {devices.length === 0 && <option value="">{t('mic.noDevices')}</option>}
-          {devices.map((d, i) => (
-            <option key={d.deviceId} value={d.deviceId} title={d.label}>
-              {d.label || `${t('mic.fallback')} ${i + 1}`}
-            </option>
-          ))}
-        </select>
-        {testing ? (
-          <button onClick={stopTest} className="btn-danger btn-sm">
-            {t('mic.stop')}
-          </button>
-        ) : (
-          <button onClick={startTest} className="btn-secondary btn-sm">
-            {t('mic.test')}
-          </button>
-        )}
-      </div>
+      <select
+        value={selected}
+        onChange={(event) => onChange(event.target.value)}
+        className="field min-w-0"
+        aria-label={t('mic.title')}
+        disabled={sample.status === 'recording'}
+      >
+        {devices.length === 0 && <option value="">{t('mic.noDevices')}</option>}
+        {devices.map((device, index) => (
+          <option key={device.deviceId} value={device.deviceId} title={device.label}>
+            {device.label || `${t('mic.fallback')} ${index + 1}`}
+          </option>
+        ))}
+      </select>
 
       {needsPermission && (
-        <div className="flex items-center gap-3 text-sm text-ink-muted">
+        <div className="flex flex-wrap items-center gap-3 text-sm text-ink-muted">
           <span>{t('mic.permissionHint')}</span>
-          <button onClick={grant} className="btn-secondary btn-sm">
+          <button type="button" onClick={() => void grant()} className="btn-secondary btn-sm">
             {t('mic.grant')}
           </button>
         </div>
       )}
 
-      {testing && (
-        <div>
-          <p className="mb-1 text-xs text-ink-faint">{t('mic.level')}</p>
-          <div className="h-2 w-full overflow-hidden rounded-full bg-surface">
-            <div
-              className="h-full rounded-full bg-emerald-400 transition-[width] duration-75"
-              style={{ width: `${level}%` }}
-            />
-          </div>
-        </div>
-      )}
-
-      {error && <p className="text-sm text-red-400">{error}</p>}
+      <MicrophoneSamplePanel
+        state={sample}
+        onStart={() => void startRecording()}
+        onStop={() => void stopRecording()}
+        onPlayPause={() => void togglePlayback()}
+        onReset={() => void startRecording()}
+      />
     </div>
   );
 }

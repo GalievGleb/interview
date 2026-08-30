@@ -172,7 +172,8 @@
 .interview-week-scroll {
   overflow-x: auto;
   overflow-y: hidden;
-  overscroll-behavior: contain;
+  overscroll-behavior-x: contain;
+  overscroll-behavior-y: auto;
   border-top: 1px solid rgb(var(--twc-surface-border));
   background: rgb(var(--twc-surface-panel) / 0.28);
 }

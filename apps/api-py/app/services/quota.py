@@ -71,6 +71,23 @@ def add_live_seconds(db: Session, seconds: float) -> None:
 
 def current_entitlements(db: Session) -> dict:
     """Полная картина прав: план, live, токены. Используется статусом и гейтами."""
+    if os.environ.get("SKILLCUE_BUILD_CHANNEL", "").strip().lower() == "dev":
+        # Dev is the owner's acceptance environment: expose the same feature
+        # surface as Max and never let an exhausted commercial counter turn the
+        # live start control red. `check_token_quota` also bypasses the counter.
+        used = month_tokens_used(db)
+        budget = token_budget_for("max")
+        return {
+            "status": "active",
+            "plan": "max",
+            "licensed_to": "developer",
+            "live_allowed": True,
+            "live_seconds_left": None,
+            "tokens_used_month": used,
+            "tokens_budget_month": budget,
+            "tokens_left_month": max(1, budget - used),
+        }
+
     stored_key = _meta(db, _LICENSE_KEY)
     payload = verify_license_key(stored_key) if stored_key else None
 

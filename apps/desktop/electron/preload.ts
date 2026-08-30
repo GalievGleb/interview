@@ -17,7 +17,12 @@ const api = {
   quit: () => ipcRenderer.invoke('app:quit'),
   collectDiagnostics: (extra: Array<{ name: string; content: string }>) =>
     ipcRenderer.invoke('app:collectDiagnostics', extra),
-  shareSessionReport: (input: { filename: string; content: string }) =>
+  shareSessionReport: (input: {
+    filename: string;
+    content: string;
+    message?: string;
+    action?: 'telegram' | 'open';
+  }) =>
     ipcRenderer.invoke('app:shareSessionReport', input),
   keybinds: {
     get: () => ipcRenderer.invoke('keybinds:get'),
@@ -93,6 +98,7 @@ const api = {
     setEnabled: (enabled: boolean) =>
       ipcRenderer.invoke('hh-chat:set-enabled', enabled),
     pollNow: () => ipcRenderer.invoke('hh-chat:poll-now'),
+    prepareDecisionDrafts: () => ipcRenderer.invoke('hh-chat:prepare-decision-drafts'),
     answerDecision: (decisionId: string, answer: string, remember = true) =>
       ipcRenderer.invoke('hh-chat:answer-decision', decisionId, answer, remember),
     declineDecision: (decisionId: string) =>
@@ -164,6 +170,11 @@ const api = {
       const handler = () => cb();
       ipcRenderer.on('overlay:force-answer', handler);
       return () => ipcRenderer.removeListener('overlay:force-answer', handler);
+    },
+    onForceScreenAnswer: (cb: () => void) => {
+      const handler = () => cb();
+      ipcRenderer.on('overlay:force-screen-answer', handler);
+      return () => ipcRenderer.removeListener('overlay:force-screen-answer', handler);
     },
     onScroll: (cb: (direction: -1 | 1) => void) => {
       const handler = (_event: unknown, direction: -1 | 1) => cb(direction);

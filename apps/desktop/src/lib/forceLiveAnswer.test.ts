@@ -71,6 +71,28 @@ describe('selectForceTargetSource', () => {
     ).toBe('system');
   });
 
+  it('falls back to a ready microphone final after system capture is proven silent', () => {
+    expect(
+      selectForceTargetSource(
+        { mic: true, system: true },
+        { mic: false, system: false },
+        { mic: 1, system: 0 },
+        { systemSilent: true },
+      ),
+    ).toBe('mic');
+  });
+
+  it('keeps waiting for system audio when it is silent but no microphone final exists', () => {
+    expect(
+      selectForceTargetSource(
+        { mic: true, system: true },
+        { mic: false, system: false },
+        { mic: 0, system: 0 },
+        { systemSilent: true },
+      ),
+    ).toBe('system');
+  });
+
   it('prefers an unconsumed system final over a microphone final', () => {
     expect(
       selectForceTargetSource(

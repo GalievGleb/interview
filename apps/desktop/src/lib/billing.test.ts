@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PLANS, hhAutomationAllowed } from './billing';
+import { PLANS, hhAutomationAllowed, shouldDisableHhDailySchedule } from './billing';
 
 describe('billing plans (skill-cue.ru terms)', () => {
   it('keeps site prices: 1490/2990 monthly, year = 10 months', () => {
@@ -26,5 +26,12 @@ describe('hhAutomationAllowed', () => {
     expect(hhAutomationAllowed({ status: 'active', plan: 'basic' })).toBe(false);
     expect(hhAutomationAllowed({ status: 'expired', plan: 'max' })).toBe(false);
     expect(hhAutomationAllowed({ status: 'active', plan: 'max' })).toBe(true);
+  });
+
+  it('does not disable a saved daily schedule while the licence is still loading', () => {
+    expect(shouldDisableHhDailySchedule(true, null)).toBe(false);
+    expect(shouldDisableHhDailySchedule(false, null)).toBe(false);
+    expect(shouldDisableHhDailySchedule(false, { status: 'active', plan: 'basic' })).toBe(true);
+    expect(shouldDisableHhDailySchedule(false, { status: 'active', plan: 'max' })).toBe(false);
   });
 });

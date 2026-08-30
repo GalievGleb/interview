@@ -58,8 +58,14 @@ def _has_sustained_signal(pcm: bytes, sample_rate: int) -> bool:
 
 
 class Endpointer:
-    def __init__(self, sample_rate: int = 16000) -> None:
+    def __init__(
+        self,
+        sample_rate: int = 16000,
+        *,
+        silence_hang_ms: int = SILENCE_HANG_MS,
+    ) -> None:
         self.sample_rate = sample_rate
+        self.silence_hang_ms = max(100, int(silence_hang_ms))
         self.bytes_per_ms = max(1, int(sample_rate * 2 / 1000))
         self._speech = bytearray()
         self._preroll = bytearray()
@@ -111,7 +117,10 @@ class Endpointer:
         return (
             self._in_speech
             and self.speech_ms >= MIN_SPEECH_MS
-            and (silence_ms >= SILENCE_HANG_MS or self.speech_ms >= MAX_UTTERANCE_MS)
+            and (
+                silence_ms >= self.silence_hang_ms
+                or self.speech_ms >= MAX_UTTERANCE_MS
+            )
         )
 
     def take_utterance(self, *, forced: bool = False) -> bytes:

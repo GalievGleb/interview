@@ -33,6 +33,10 @@ import { refreshSessionKnowledge } from '../lib/sessionKnowledge';
 import { resolveSessionEvidenceLayout } from '../lib/sessionAnalysisPresentation';
 import { answerLanguageParam } from '../lib/answerLanguage';
 import { liveStartupWarmup } from '../lib/liveStartupWarmup';
+import {
+  buildScreenTaskContinuityContext,
+  type PreviousScreenTask,
+} from '../lib/screenTaskContinuity';
 import type {
   InterviewCalendarEvent,
   InterviewOutcome,
@@ -228,11 +232,13 @@ export default function OverlayPage() {
     forcePhase,
     forceScreenFallback,
     commitScreenFirstOutput,
+    markScreenTaskAvailable,
     screenAssistDiagnostics,
     sourceHealthWarning,
     error,
     sessionId,
     forceAnswer,
+    forceScreenAnswer,
     start,
     pause,
     resume,
@@ -295,6 +301,8 @@ export default function OverlayPage() {
   const transcriptFollowsTailRef = useRef(true);
   const transcriptWasOpenRef = useRef(false);
   const lastForceHotkeyRef = useRef<ForceHotkeyEvent | null>(null);
+  const lastScreenHotkeyRef = useRef<ForceHotkeyEvent | null>(null);
+  const lastScreenTaskRef = useRef<PreviousScreenTask | null>(null);
   const pointerControllerRef = useRef<OverlayPointerController | null>(null);
   const [menuPosition, setMenuPosition] = useState({ left: 8, top: 8 });
   const liveBlocked = license?.live_allowed === false;
@@ -302,14 +310,16 @@ export default function OverlayPage() {
     ? {
         title: 'Как пользоваться',
         record: 'Нажмите красную кнопку — начнутся запись и транскрипция.',
-        answer: 'Ctrl+Enter — ответ по разговору. Экран — по кнопке «Экран» или явному вопросу о видимом.',
+        answer: 'Ctrl+Enter — ответ по разговору.',
+        screen: 'Ctrl+Shift+Enter — снимок экрана. Можно сказать «покажу решение» и нажать Ctrl+Enter.',
         move: 'Ctrl+Shift+H скрывает панель, Ctrl+стрелки перемещают её.',
         done: 'Понятно',
       }
     : {
         title: 'How it works',
         record: 'Press the red button to start recording and transcription.',
-        answer: 'Ctrl+Enter answers from the conversation. Use “Screen” or explicitly refer to what is visible.',
+        answer: 'Ctrl+Enter answers from the conversation.',
+        screen: 'Ctrl+Shift+Enter captures the screen. You can also say “I’ll show my solution” and press Ctrl+Enter.',
         move: 'Ctrl+Shift+H hides the panel; Ctrl+arrows move it.',
         done: 'Got it',
       };
@@ -395,6 +405,15 @@ export default function OverlayPage() {
     pointerControllerRef.current?.refresh();
   });
 
+  // Transparent pixels normally pass clicks to the app underneath. While the
+  // menu is open we temporarily capture the whole overlay window, otherwise an
+  // outside click never reaches `document` and the menu can only be closed by
+  // pressing its three-dot trigger again.
+  useLayoutEffect(() => {
+    pointerControllerRef.current?.setModalCapture(menuOpen);
+    return () => pointerControllerRef.current?.setModalCapture(false);
+  }, [menuOpen]);
+
   const cancelActiveScreenAssist = useCallback(() => {
     const activeScreen = activeScreenDiagnosticRef.current;
     if (!activeScreen) return;
@@ -465,6 +484,12 @@ export default function OverlayPage() {
       const request = customText || t('overlay.whatOnScreen');
       const effectiveTrigger = trigger ?? 'manual';
       const effectiveQuestion = `${modeInstructionPrefix()}${request}`.trim();
+      const conversationContext = transcriptContext();
+      const recentConversation = conversationContext.split('\n').slice(-6).join('\n');
+      const continuityContext = buildScreenTaskContinuityContext(
+        `${request}\n${recentConversation}`,
+        lastScreenTaskRef.current,
+      );
       screenAssistDiagnostics.request({
         id: diagnosticId,
         generation: forceOwner?.generation ?? requestGeneration,
@@ -534,6 +559,10 @@ export default function OverlayPage() {
             }
             cancelRef.current = null;
             manualBusyRef.current = false;
+            if (acc.trim()) {
+              lastScreenTaskRef.current = { question: request, answer: acc.trim() };
+              markScreenTaskAvailable();
+            }
             setExchange((prev) => (prev ? { ...prev, streaming: false } : prev));
             setUsageLog((log) => [...log, { label: t('overlay.action.screen'), request, text: acc, image }]);
           },
@@ -553,7 +582,8 @@ export default function OverlayPage() {
         },
         {
           context: [
-            transcriptContext(),
+            continuityContext,
+            continuityContext ? recentConversation : conversationContext,
             untrustedPartialHint
               ? `UNTRUSTED CURRENT PARTIAL HINT (screen context only; may be incomplete): ${untrustedPartialHint}`
               : '',
@@ -565,6 +595,7 @@ export default function OverlayPage() {
     [
       cancelActiveScreenAssist,
       commitScreenFirstOutput,
+      markScreenTaskAvailable,
       screenAssistDiagnostics,
       sessionId,
       transcriptContext,
@@ -935,6 +966,7 @@ export default function OverlayPage() {
       return;
     }
     void liveStartupWarmup.warm();
+    lastScreenTaskRef.current = null;
     closeRecap();
     setUsageLog([]);
     setNotice('');
@@ -1024,6 +1056,20 @@ export default function OverlayPage() {
     setNotice(t('overlay.forceUnavailable'));
   }, [cancelActiveScreenAssist, forceAnswer, input, runAction, t]);
 
+  const submitForcedScreenAnswer = useCallback((source: ForceHotkeySource = 'button') => {
+    const event = { source, at: Date.now() } satisfies ForceHotkeyEvent;
+    if (!acceptForceHotkey(lastScreenHotkeyRef.current, event)) return;
+    lastScreenHotkeyRef.current = event;
+
+    forceScreenFallbackOwnerRef.current = 0;
+    cancelActiveScreenAssist();
+    screenAssistGenerationRef.current += 1;
+    setNotice('');
+    const status = forceScreenAnswer(input.trim() || undefined);
+    if (status === 'started' || status === 'finalizing') return;
+    setNotice(t('overlay.forceUnavailable'));
+  }, [cancelActiveScreenAssist, forceScreenAnswer, input, t]);
+
   const scrollOverlayContent = useCallback((direction: -1 | 1) => {
     const candidates = [
       answerBodyRef.current,
@@ -1059,7 +1105,13 @@ export default function OverlayPage() {
         scrollOverlayContent(e.key === 'ArrowDown' ? 1 : -1);
         return;
       }
-      if (mod && e.key === 'Enter') {
+      if (mod && e.shiftKey && e.key === 'Enter') {
+        e.preventDefault();
+        if (e.repeat) return;
+        submitForcedScreenAnswer('renderer');
+        return;
+      }
+      if (mod && !e.shiftKey && e.key === 'Enter') {
         e.preventDefault();
         if (e.repeat) return;
         submitForcedAnswer('renderer');
@@ -1091,11 +1143,16 @@ export default function OverlayPage() {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [menuOpen, exchange, recap, submitForcedAnswer, closeExchange, scrollOverlayContent, stopSession]);
+  }, [menuOpen, exchange, recap, submitForcedAnswer, submitForcedScreenAnswer, closeExchange, scrollOverlayContent, stopSession]);
 
   useEffect(
     () => window.electronAPI?.overlay.onForceAnswer?.(() => submitForcedAnswer('global')),
     [submitForcedAnswer],
+  );
+
+  useEffect(
+    () => window.electronAPI?.overlay.onForceScreenAnswer?.(() => submitForcedScreenAnswer('global')),
+    [submitForcedScreenAnswer],
   );
 
   useEffect(
@@ -1139,6 +1196,7 @@ export default function OverlayPage() {
   const KEYBINDS: Array<{ labelKey: I18nKey; keys: string; d: string }> = [
     { labelKey: 'overlay.kb.toggle', keys: 'Ctrl+Shift+H', d: 'M2 4h20v13H2z|M8 20h8' },
     { labelKey: 'overlay.kb.ask', keys: 'Ctrl+↵', d: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z' },
+    { labelKey: 'overlay.kb.screenAsk', keys: 'Ctrl+Shift+↵', d: 'M2 4h20v12H2z|M8 20h8|M12 16v4' },
     { labelKey: 'overlay.kb.clear', keys: 'Ctrl+R', d: 'M3 6h18|M8 6V4h8v2|M6 6l1 14h10l1-14' },
     { labelKey: 'overlay.kb.stop', keys: 'Ctrl+Shift+\\', d: 'M6 6h12v12H6z' },
     { labelKey: 'overlay.kb.move', keys: 'Ctrl+↑↓←→', d: 'M5 9 2 12l3 3|M9 5l3-3 3 3|M15 19l-3 3-3-3|M19 9l3 3-3 3|M2 12h20|M12 2v20' },
@@ -1239,6 +1297,7 @@ export default function OverlayPage() {
           <div className="ovl-quick-guide__steps">
             <p><span className="ovl-quick-guide__record" aria-hidden="true" />{guideCopy.record}</p>
             <p><span className="ovl-kbd">Ctrl+Enter</span>{guideCopy.answer}</p>
+            <p><span className="ovl-kbd">Ctrl+Shift+Enter</span>{guideCopy.screen}</p>
             <p><span className="ovl-kbd">Ctrl+Shift+H</span>{guideCopy.move}</p>
           </div>
           <button type="button" className="ovl-quick-guide__done" onClick={dismissQuickGuide}>{guideCopy.done}</button>

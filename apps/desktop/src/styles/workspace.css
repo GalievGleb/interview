@@ -111,20 +111,20 @@
   --surface-border: #dee5e8;
   --surface-border-strong: #c6d2d8;
 
-  --accent: #0aa85c;
-  --accent-text: #078b4c;
-  --accent-soft: rgba(10, 168, 92, 0.1);
-  --accent-soft-hover: rgba(10, 168, 92, 0.16);
-  --accent-border: rgba(10, 168, 92, 0.4);
-  --accent-ring: rgba(10, 168, 92, 0.24);
-  --tint-accent-border: rgba(10, 168, 92, 0.24);
-  --tint-accent-bg: rgba(10, 168, 92, 0.07);
+  --accent: #057a44;
+  --accent-text: #057a44;
+  --accent-soft: rgba(5, 122, 68, 0.1);
+  --accent-soft-hover: rgba(5, 122, 68, 0.16);
+  --accent-border: rgba(5, 122, 68, 0.4);
+  --accent-ring: rgba(5, 122, 68, 0.24);
+  --tint-accent-border: rgba(5, 122, 68, 0.24);
+  --tint-accent-bg: rgba(5, 122, 68, 0.07);
 
   --text-strong: #0e1930;
   --text-body: #0e1930;
   --text-muted: #465875;
-  --text-faint: #6f7e94;
-  --graphite-600: #6f7e94;
+  --text-faint: #5b6b84;
+  --graphite-600: #5b6b84;
 
   --tint-success-text: #0f7a44;
   /* Предупреждение и ошибка на светлой теме: тёмные тона вместо базовых

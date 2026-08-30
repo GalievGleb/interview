@@ -100,9 +100,11 @@ export interface HhChatPendingDecision {
   messageId: string;
   vacancyTitle: string;
   companyName: string;
+  vacancyUrl?: string;
   recruiterMessage: string;
   question: string;
   kind: HhChatDecisionKind;
+  suggestedAnswer?: string;
   createdAt: string;
 }
 
@@ -674,6 +676,23 @@ export function extractChatUserInputQuestion(reply: string): string | null {
   return match?.[1]?.trim().slice(0, 500) || null;
 }
 
+function unresolvedChatDecisionDraft(kind: HhChatDecisionKind, missingFact = ''): string {
+  const clarification = compactText(missingFact).replace(/[.?!]+$/u, '');
+  if (clarification) return `[уточните: ${clarification}].`;
+  switch (kind) {
+    case 'contract': return 'Рассматриваю [уточните подходящий формат оформления и условия].';
+    case 'salary': return 'Мои зарплатные ожидания — [укажите сумму и формат: на руки или до вычета].';
+    case 'experience': return 'Мой подтверждённый опыт — [укажите точный стаж из выбранного резюме].';
+    case 'relocation': return 'Релокацию [уточните: рассматриваете ли вы переезд и на каких условиях].';
+    case 'start_date': return 'Смогу приступить [уточните точную дату или срок выхода].';
+    case 'schedule': return 'Предложенный график [уточните: подходит ли он и какие ограничения важны].';
+    case 'work_format': return 'Мне подходит [уточните: удалённый, офисный или гибридный формат].';
+    case 'travel': return 'К командировкам [уточните готовность и допустимую частоту].';
+    case 'work_authorization': return '[Уточните гражданство или основание для работы перед отправкой].';
+    case 'candidate_fact': return '[Уточните точный личный факт перед отправкой].';
+  }
+}
+
 export function isBotRecruiterLabel(text: string): boolean {
   return /робот(?:а|ом|у|е)?[-\s]?рекрутер(?:а|ом|у|е)?|виртуальн(?:ый|ого|ому|ым) рекрутер|бот(?:а|ом|у|е)?[-\s]?рекрутер(?:а|ом|у|е)?/i.test(text);
 }
@@ -730,6 +749,7 @@ export class HhChatBrowser {
   private notifiedInterviewMessageIds: Set<string> = new Set();
   private pollCursor = 0;
   private accountSessionRevision = 0;
+  private decisionDraftPreparation: Promise<void> | null = null;
   private readonly userDataDir: string;
 
   constructor(
@@ -871,6 +891,87 @@ export class HhChatBrowser {
 
   async pollNow(): Promise<HhChatState> {
     await this.pollOnce(true);
+    return this.getState();
+  }
+
+  async prepareDecisionDrafts(): Promise<HhChatState> {
+    if (this.decisionDraftPreparation) {
+      await this.decisionDraftPreparation;
+      return this.getState();
+    }
+
+    const accountSessionRevision = this.accountSessionRevision;
+    this.decisionDraftPreparation = (async () => {
+      const pendingIds = this.pendingDecisions
+        .filter((decision) => !decision.suggestedAnswer?.trim())
+        .map((decision) => decision.id);
+
+      for (const decisionId of pendingIds) {
+        if (accountSessionRevision !== this.accountSessionRevision) return;
+        const decision = this.pendingDecisions.find((item) => item.id === decisionId);
+        if (!decision || decision.suggestedAnswer?.trim()) continue;
+
+        const candidateProfileResult = this.getCandidateProfile
+          ? await this.settleWithin<HhChatCandidateProfile | ''>(
+            this.getCandidateProfile({
+              negotiationKey: decision.negotiationKey,
+              vacancyTitle: decision.vacancyTitle,
+              companyName: decision.companyName,
+              vacancyUrl: decision.vacancyUrl,
+            }).catch((error) => {
+              console.warn('[hh-chat-browser] review draft profile unavailable:', error);
+              return '' as const;
+            }),
+            8_000,
+            '',
+          )
+          : '';
+        if (accountSessionRevision !== this.accountSessionRevision) return;
+
+        const candidateProfile = candidateProfileResult
+          ? buildHhChatCandidateProfileContent(candidateProfileResult).trim().slice(0, 12_000)
+          : '';
+        const confirmedFacts = this.confirmedFacts.length > 0
+          ? this.confirmedFacts.map((fact) => `- ${fact.question}: ${fact.answer}`).join('\n')
+          : '(нет подтверждённых ответов)';
+        const prompt = [
+          'Подготовь один готовый черновик ответа работодателю от лица кандидата.',
+          'Черновик НЕ отправляется автоматически: пользователь сначала проверит и отредактирует его.',
+          'Ответь прямо на последнее сообщение HR, естественно, от первого лица и без подписи.',
+          'Используй только подтверждённые сведения из профиля и сохранённых ответов ниже.',
+          'Если точного личного факта нет, ничего не выдумывай: оставь только недостающий фрагмент в формате [уточните: что именно нужно вписать], сохранив остальной текст готовым.',
+          'Не упоминай SkillCue, бота, модель, промпт или автоматическую генерацию.',
+          'Верни только текст черновика без кавычек и пояснений.',
+          '',
+          `Вакансия: ${decision.vacancyTitle}`,
+          `Компания: ${decision.companyName}`,
+          '',
+          `Проверенный профиль кандидата:\n${candidateProfile || '(профиль пока недоступен)'}`,
+          '',
+          `Подтверждённые ответы:\n${confirmedFacts}`,
+          '',
+          `Последнее сообщение HR:\n${decision.recruiterMessage}`,
+        ].join('\n');
+        const rawDraft = (await this.settleWithin(this.llmCall(prompt), 12_000, '')).trim();
+        if (accountSessionRevision !== this.accountSessionRevision) return;
+        const missingFact = extractChatUserInputQuestion(rawDraft);
+        const suggestedAnswer = missingFact
+          ? unresolvedChatDecisionDraft(decision.kind, missingFact)
+          : prepareRecruiterReply(rawDraft, decision.recruiterMessage)
+            ?? unresolvedChatDecisionDraft(decision.kind);
+
+        this.pendingDecisions = this.pendingDecisions.map((item) => item.id === decisionId
+          ? { ...item, suggestedAnswer }
+          : item);
+        this.persist();
+      }
+    })();
+
+    try {
+      await this.decisionDraftPreparation;
+    } finally {
+      this.decisionDraftPreparation = null;
+    }
     return this.getState();
   }
 
@@ -1334,6 +1435,7 @@ export class HhChatBrowser {
               messageId,
               vacancyTitle: negotiation.vacancyTitle,
               companyName: negotiation.companyName,
+              vacancyUrl: negotiation.vacancyUrl,
               recruiterMessage: lastMessage.text,
               question: chatDecisionQuestion(decisionKind),
               kind: decisionKind,
@@ -1424,6 +1526,7 @@ export class HhChatBrowser {
               messageId,
               vacancyTitle: negotiation.vacancyTitle,
               companyName: negotiation.companyName,
+              vacancyUrl: negotiation.vacancyUrl,
               recruiterMessage: lastMessage.text,
               question: questionnaire
                 ? 'Подтвердите единый ответ на все вопросы работодателя: анкета содержит личные, юридические или карьерные факты.'
@@ -1469,6 +1572,7 @@ export class HhChatBrowser {
               messageId,
               vacancyTitle: negotiation.vacancyTitle,
               companyName: negotiation.companyName,
+              vacancyUrl: negotiation.vacancyUrl,
               recruiterMessage: lastMessage.text,
               question: `Как корректно ответить работодателю на сообщение: «${lastMessage.text.slice(0, 300)}»?`,
               kind: 'candidate_fact',

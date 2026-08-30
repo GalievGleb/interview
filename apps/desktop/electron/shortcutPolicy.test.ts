@@ -8,6 +8,11 @@ describe('isReservedOverlayShortcut', () => {
     'Control + Enter',
     'Command+Enter',
     'Cmd+Enter',
+    'CommandOrControl+Shift+Enter',
+    'Ctrl+Shift+Enter',
+    'Control + Shift + Enter',
+    'Command+Shift+Enter',
+    'Cmd+Shift+Enter',
   ])('reserves %s for forced live answers', (shortcut) => {
     expect(isReservedOverlayShortcut(shortcut)).toBe(true);
   });

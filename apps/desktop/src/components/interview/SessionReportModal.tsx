@@ -25,22 +25,25 @@ export default function SessionReportModal({
   onClose: () => void;
 }) {
   const [issue, setIssue] = useState('');
-  const [consent, setConsent] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [busyAction, setBusyAction] = useState<'open' | 'telegram' | null>(null);
   const [error, setError] = useState('');
-  const [result, setResult] = useState<{ path?: string; telegramOpened: boolean } | null>(null);
+  const [result, setResult] = useState<{
+    path?: string;
+    action: 'open' | 'telegram';
+    telegramOpened: boolean;
+    fileOpened?: boolean;
+  } | null>(null);
 
   useEffect(() => {
     setIssue('');
-    setConsent(false);
-    setBusy(false);
+    setBusyAction(null);
     setError('');
     setResult(null);
   }, [session?.id]);
 
-  const send = async () => {
-    if (!session || !issue.trim() || !consent) return;
-    setBusy(true);
+  const prepareReport = async (action: 'open' | 'telegram') => {
+    if (!session || (action === 'telegram' && !issue.trim())) return;
+    setBusyAction(action);
     setError('');
     setResult(null);
     try {
@@ -55,16 +58,25 @@ export default function SessionReportModal({
         app: { version, channel, platform: navigator.userAgent },
       });
       if (window.electronAPI?.shareSessionReport) {
-        const shared = await window.electronAPI.shareSessionReport({ ...report, message: issue.trim() });
-        setResult({ path: shared.path, telegramOpened: shared.telegramOpened });
+        const shared = await window.electronAPI.shareSessionReport({
+          ...report,
+          message: issue.trim(),
+          action,
+        });
+        setResult({
+          path: shared.path,
+          action,
+          telegramOpened: shared.telegramOpened,
+          fileOpened: shared.fileOpened,
+        });
       } else {
         downloadFallback(report.filename, report.content);
-        setResult({ telegramOpened: false });
+        setResult({ action, telegramOpened: false, fileOpened: false });
       }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Не удалось подготовить отчёт.');
     } finally {
-      setBusy(false);
+      setBusyAction(null);
     }
   };
 
@@ -80,12 +92,21 @@ export default function SessionReportModal({
           <button type="button" className="btn-secondary" onClick={onClose}>Закрыть</button>
           <button
             type="button"
-            className="btn-primary"
-            disabled={busy || !issue.trim() || !consent}
-            onClick={() => void send()}
+            className="btn-secondary"
+            disabled={busyAction !== null}
+            onClick={() => void prepareReport('open')}
           >
-            {busy ? <Loader2 size={15} className="animate-spin" aria-hidden="true" /> : <Send size={15} aria-hidden="true" />}
-            {busy ? 'Готовлю…' : 'Прикрепить в Telegram'}
+            {busyAction === 'open' ? <Loader2 size={15} className="animate-spin" aria-hidden="true" /> : <FileText size={15} aria-hidden="true" />}
+            {busyAction === 'open' ? 'Открываю…' : 'Открыть файл'}
+          </button>
+          <button
+            type="button"
+            className="btn-primary"
+            disabled={busyAction !== null || !issue.trim()}
+            onClick={() => void prepareReport('telegram')}
+          >
+            {busyAction === 'telegram' ? <Loader2 size={15} className="animate-spin" aria-hidden="true" /> : <Send size={15} aria-hidden="true" />}
+            {busyAction === 'telegram' ? 'Готовлю…' : 'Прикрепить в Telegram'}
           </button>
         </>
       )}
@@ -109,20 +130,21 @@ export default function SessionReportModal({
           />
         </label>
 
-        <label className="flex items-start gap-3 rounded-xl border border-surface-border p-3 text-sm text-ink-muted">
-          <input type="checkbox" className="mt-0.5" checked={consent} onChange={(event) => setConsent(event.target.checked)} />
-          <span><strong className="text-ink">Я согласен отправить транскрипт и диагностический текст</strong><br />В него входят вопросы и ответы, чтобы сопоставить распознавание, screen-запрос и задержку. Скриншоты и аудио не прикладываются.</span>
-        </label>
-
         {error && <p className="prep-inline-error" role="alert">{error}</p>}
         {result && (
           <div className="rounded-xl border border-emerald-400/30 bg-emerald-400/10 p-3 text-sm text-ink" role="status">
-            <strong>{result.telegramOpened ? 'Открыт чат поддержки SkillCue с готовым сообщением.' : 'Отчёт сохранён, но Telegram не открылся.'}</strong>
-            <p className="mt-1 text-ink-muted">
-              {result.telegramOpened
-                ? 'Перетащите показанный файл отчёта в открытый чат @SkillCue и нажмите «Отправить».'
-                : 'Файл показан в Проводнике — откройте @SkillCue в Telegram и перетащите отчёт в чат.'}
-            </p>
+            <strong>
+              {result.action === 'open'
+                ? (result.fileOpened ? 'Отчёт открыт.' : result.path ? 'Отчёт сохранён. Файл показан в Проводнике.' : 'Отчёт скачан.')
+                : (result.telegramOpened ? 'Открыт чат поддержки SkillCue.' : 'Отчёт сохранён. Telegram не открылся.')}
+            </strong>
+            {result.action === 'telegram' && (
+              <p className="mt-1 text-ink-muted">
+                {result.telegramOpened
+                  ? 'Перетащите файл отчёта в чат @SkillCue и нажмите «Отправить».'
+                  : 'Откройте @SkillCue вручную и прикрепите сохранённый отчёт.'}
+              </p>
+            )}
             {result.path && <code className="mt-2 block break-all text-xs text-ink-faint">{result.path}</code>}
           </div>
         )}

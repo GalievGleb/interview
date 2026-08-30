@@ -1,5 +1,6 @@
 """Тесты model_router."""
 
+from app.services import model_router
 from app.services.model_router import pick_auto_model, resolve_model
 from app.services.preferences import AiPreferencesModel
 
@@ -14,13 +15,22 @@ def test_pick_auto_fast_skips_gemini3():
     assert model == "openai/gpt-4o-mini"
 
 
-def test_pick_auto_fast_prefers_quality_mini_without_reasoning_latency():
+def test_pick_auto_fast_prefers_benchmarked_qwen_over_gpt_41_mini():
     available = {
         "openai/gpt-4o-mini",
         "openai/gpt-4.1-mini",
+        "qwen/qwen3.5-flash-02-23",
         "google/gemini-2.0-flash-001",
     }
-    assert pick_auto_model("fast", available) == "openai/gpt-4.1-mini"
+    assert pick_auto_model("fast", available) == "qwen/qwen3.5-flash-02-23"
+
+
+def test_pick_auto_fast_empty_cache_uses_benchmarked_qwen_default():
+    assert pick_auto_model("fast", set()) == "qwen/qwen3.5-flash-02-23"
+
+
+def test_screen_default_uses_quality_first_vision_model():
+    assert model_router.SCREEN_DEFAULT_MODEL == "openai/gpt-5.6-sol"
 
 
 def test_pick_auto_fast():

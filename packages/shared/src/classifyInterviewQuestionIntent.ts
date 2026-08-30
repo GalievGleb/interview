@@ -40,10 +40,10 @@ const BEHAVIORAL_RE =
   /(?:почему\s+(?:уш\w*|уход|хот\w*\s+(?:работать|сменить|уйти))|конфликт(?:\w*\s+ситуац|\w*\s+(?:в|с)\s+(?:команд|коллег|руковод|работ))|сильн\w+\s+сторон|слаб\w+\s+сторон|мотивац|куда\s+видишь\s+себя|why\s+(?:did\s+you\s+leave|do\s+you\s+want)|conflict\s+(?:with|in\s+(?:a|the)\s+team|at\s+work)|strengths?\s+and\s+weakness|greatest\s+(?:strength|weakness)|where\s+do\s+you\s+see\s+yourself|motivat)/iu;
 
 const EXPERIENCE_RE =
-  /(?:расскаж\w*\s+(?:про|о)\s+(?:сво\w+\s+)?опыт|(?:ваш|твой|свой)\s+опыт|опыт\s+(?:автоматизац|работ|тестир)|на\s+каких\s+проектах|чем\s+занимал\w*\s+на\s+(?:проект|работ)|расскаж\w*\s+о\s+(?:сво\w+\s+)?(?:работ|карьер|проект)|расскаж\w*\s+(?:о\s+себе|про\s+себя)|подработк|tell\s+(?:me|us)\s+about\s+(?:yourself|your\s+(?:experience|background|career|projects?))|walk\s+me\s+through\s+your|your\s+(?:experience|background)\s+with|what\s+projects\s+have\s+you)/iu;
+  /(?:расскаж[а-яё]*[^.?!\n]{0,50}(?:про|о)\s+(?:(?:сво|ваш|тво)[а-яё]*\s+)?опыт|(?:ваш|твой|свой)\s+опыт|опыт\s+(?:автоматизац|работ|тестир)|на\s+каких\s+проектах|чем\s+занимал\w*\s+на\s+(?:проект|работ)|расскаж\w*\s+о\s+(?:сво\w+\s+)?(?:работ|карьер|проект)|расскаж\w*\s+(?:о\s+себе|про\s+себя)|подработк|tell\s+(?:me|us)\s+about\s+(?:yourself|your\s+(?:experience|background|career|projects?))|walk\s+me\s+through\s+your|your\s+(?:experience|background)\s+with|what\s+projects\s+have\s+you)/iu;
 
 const PRACTICAL_RE =
-  /(?:как\s+ты\s+(?:применял\w*|использовал\w*|настраивал\w*|проверял\w*|запускал\w*|работал\w*|делал\w*|писал\w*)|ты\s+сам\w*\s+(?:настраивал\w*|делал\w*|писал\w*|использовал\w*|настраивал\w*)|сам\s+настраивал\w*|как\s+вы\s+(?:применял\w*|использовал\w*|настраивал\w*)|в\s+работ\w*|на\s+проект\w*|how\s+(?:did|do|have)\s+you\s+(?:use|apply|set\s*up|configure|implement|test|work)|have\s+you\s+(?:ever\s+)?(?:used|worked\s+with|built|set\s*up)|in\s+your\s+work|on\s+your\s+project)/iu;
+  /(?:как\s+ты\s+(?:применял\w*|использовал\w*|настраивал\w*|проверял\w*|запускал\w*|работал\w*|делал\w*|писал\w*)|ты\s+сам\w*\s+(?:настраивал\w*|делал\w*|писал\w*|использовал\w*|настраивал\w*)|сам\s+настраивал\w*|как\s+вы\s+(?:применял\w*|использовал\w*|настраивал\w*|проверял\w*|тестировал\w*|запускал\w*|работал\w*|делал\w*|писал\w*)|(?:в|на)\s+(?:(?:сво[а-яё]*|ваш[а-яё]*|тво[а-яё]*)\s+)?работ[а-яё]*|на\s+проект\w*|how\s+(?:did|do|have)\s+you\s+(?:use|apply|set\s*up|configure|implement|test|work)|have\s+you\s+(?:ever\s+)?(?:used|worked\s+with|built|set\s*up)|in\s+your\s+work|on\s+your\s+project)/iu;
 
 const API_TEST_TASK_RE =
   /(?:(?:как\s+)?(?:протестировать|проверить|покрыть\s+тестами|написать\s+тесты)[^\n]{0,80}(?:api|endpoint|эндпоинт|(?:get|post|put|patch|delete)\s+\/)|(?:test|write\s+tests?|test\s+cases?)[^\n]{0,80}(?:api|endpoint|(?:get|post|put|patch|delete)\s+\/))/iu;
@@ -120,7 +120,7 @@ const STRATEGY_BY_INTENT: Record<QuestionIntent, Omit<AnswerStrategyResult, 'que
   },
   technical_task: {
     answerStrategy:
-      'Solve the exact task shown. If code is requested, output complete copyable code first, then 1–2 short explanation sentences. If output/error is requested, state the exact result or exception first and explain why. If asked to design API/tests, give a complete concrete test matrix with every scenario, expected status, schema and business assertion named in the question/hints; never stop at a generic checklist. Preserve punctuation, types and execution order. Do not use resume experience.',
+      'Solve the exact task shown. If code is requested, say one short plan first, then output complete copyable code with a terse inline comment on every meaningful line explaining what or why; finish with at most one short clarification. If output/error is requested, state the exact result or exception first and explain why. If asked to design API/tests, give a complete concrete test matrix with every scenario, expected status, schema and business assertion named in the question/hints; never stop at a generic checklist. Preserve punctuation, types and execution order. Do not use resume experience.',
     resumeContextUsed: false,
     resumeContextLevel: 'none',
     resumeContextReason: 'Concrete code/output task — solve the supplied artifact, no resume context.',

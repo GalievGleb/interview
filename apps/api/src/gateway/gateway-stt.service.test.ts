@@ -85,9 +85,13 @@ test('live Russian STT is anchored to Russian technical interview terms', () => 
 test('live STT strips an echoed service prompt but preserves real technical speech', () => {
   const prompt = buildLiveTranscriptionOptions('ru').prompt ?? '';
   const question = 'Какие проверки вы предложите для строки поиска?';
+  const observedPromptEcho =
+    'Техническое собеседование. Распознавай русскую речь по-русски и сохраняй технические термины: Python, pytest, fixture, autouse, scope, yield, Docker, REST API, HTTP, JSON, SQL, Playwright, CI/CD, Kafka, Kubernetes, lambda.';
 
   assert.equal(stripLiveSttPromptEcho(`${question} ${prompt}`), question);
   assert.equal(stripLiveSttPromptEcho(prompt), '');
+  assert.equal(stripLiveSttPromptEcho(observedPromptEcho), '');
+  assert.equal(stripLiveSttPromptEcho(`${observedPromptEcho} ${question}`), question);
   assert.equal(
     stripLiveSttPromptEcho('Как вы используете pytest и Docker?'),
     'Как вы используете pytest и Docker?',

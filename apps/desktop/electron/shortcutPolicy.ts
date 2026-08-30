@@ -4,6 +4,11 @@ const FORCE_ANSWER_SHORTCUTS = new Set([
   'control+enter',
   'command+enter',
   'cmd+enter',
+  'commandorcontrol+shift+enter',
+  'ctrl+shift+enter',
+  'control+shift+enter',
+  'command+shift+enter',
+  'cmd+shift+enter',
 ]);
 
 export function isReservedOverlayShortcut(shortcut: string): boolean {

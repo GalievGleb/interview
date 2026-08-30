@@ -24,6 +24,10 @@ describe('requiresScreenContext', () => {
     'Исследуем эту верхнюю строку поиска: потыкай её и составь чек-лист проверок.',
     'Так, вот это строка поиска, да? С ней нужно потыкаться, понять, как она работает. Какие проверки могли бы быть связаны со строкой поиска?',
     'У нас POST endpoint. Вот наше тело запроса, оно тут представлено. Как бы ты тестировал этот метод?',
+    'Здесь представлен пример запроса и пример ответа.',
+    'Здесь представлены, например, запросы и пример ответа.',
+    'Сейчас покажу решение.',
+    'Покажу своё решение и объясню.',
   ])('routes deictic task to vision: %s', (question) => {
     expect(requiresScreenContext(question)).toBe(true);
   });
@@ -41,8 +45,21 @@ describe('requiresScreenContext', () => {
     'What is a context manager?',
     'Как в целом тестировать строку поиска?',
     'Как тестировать POST /order без документации?',
+    'В REST API запросы и ответы обычно передаются в JSON.',
     'Что такое форма в HTML?',
   ])('keeps self-contained question on text route: %s', (question) => {
     expect(requiresScreenContext(question)).toBe(false);
+  });
+
+  it.each([
+    'А теперь улучши это решение, но текущую проверку не удаляй.',
+    'Давай поменяем предыдущий код и добавим обработку None.',
+  ])('routes an explicit modification only when a previous screen task exists: %s', (question) => {
+    expect(requiresScreenContext(question)).toBe(false);
+    expect(requiresScreenContext(question, true)).toBe(true);
+  });
+
+  it('keeps an already deictic follow-up on the screen route without extra state', () => {
+    expect(requiresScreenContext('Как можно доработать это задание?')).toBe(true);
   });
 });

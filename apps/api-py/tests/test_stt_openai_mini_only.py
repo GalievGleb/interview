@@ -17,6 +17,7 @@ from app.services.stt.openai_mini_stream import (
 from app.services.stt.openai_transcribe import (
     LIVE_RU_PROMPT,
     MINI_MODEL,
+    REALTIME_RU_PROMPT,
     OpenAiMiniTranscribeProvider,
     build_request_data,
     strip_live_prompt_echo,
@@ -151,12 +152,44 @@ def test_openai_mini_accepts_successful_2xx_gateway_response():
 
 def test_live_stt_removes_prompt_echo_without_touching_the_question():
     question = "Какие проверки вы предложите для строки поиска?"
+    observed_prompt_echo = (
+        "Техническое собеседование. Распознавай русскую речь по-русски и сохраняй "
+        "технические термины: Python, pytest, fixture, autouse, scope, yield, Docker, "
+        "REST API, HTTP, JSON, SQL, Playwright, CI/CD, Kafka, Kubernetes, lambda."
+    )
 
     assert strip_live_prompt_echo(f"{question} {LIVE_RU_PROMPT}") == question
     assert strip_live_prompt_echo(LIVE_RU_PROMPT) == ""
+    assert strip_live_prompt_echo(observed_prompt_echo) == ""
+    assert strip_live_prompt_echo(f"{observed_prompt_echo} {question}") == question
     assert strip_live_prompt_echo("Как вы используете pytest и Docker?") == (
         "Как вы используете pytest и Docker?"
     )
+
+
+def test_live_stt_removes_the_realtime_gateway_prompt_echo():
+    realtime_prompt_echo = (
+        "Русское техническое собеседование по разработке и тестированию. "
+        "Термины: тест-дизайн, классы эквивалентности, граничные значения, "
+        "Python, pytest, Docker, REST API, HTTP, JSON, SQL, Playwright, CI/CD, "
+        "Kafka, Kubernetes."
+    )
+    observed_without_locale = realtime_prompt_echo.removeprefix("Русское ")
+
+    assert strip_live_prompt_echo(realtime_prompt_echo) == ""
+    assert strip_live_prompt_echo(observed_without_locale) == ""
+    assert strip_live_prompt_echo(REALTIME_RU_PROMPT) == ""
+    assert strip_live_prompt_echo(f"{REALTIME_RU_PROMPT}.") == ""
+
+
+def test_live_stt_rejects_capitalized_vocabulary_hallucination_from_silent_mic():
+    observed_silent_mic_hallucination = (
+        "Тест-дизайн, тест-дизайна, классы эквивалентности, граничные значения, "
+        "Python, pytest, Docker, REST API, HTTP, JSON, SQL, Playwright, CI/CD, Kafka, "
+        "Kubernetes"
+    )
+
+    assert strip_live_prompt_echo(observed_silent_mic_hallucination) == ""
 
 
 def test_gateway_response_cannot_forward_live_prompt_echo():

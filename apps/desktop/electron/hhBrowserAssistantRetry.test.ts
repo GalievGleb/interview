@@ -199,6 +199,28 @@ describe('HH cover-letter retry policy', () => {
     expect(state.queue[0]?.autoRetryBlockedUntil).toBeUndefined();
   });
 
+  it('defers an unreadable HH page until the next daily run instead of retrying every 30 minutes', async () => {
+    vi.useFakeTimers();
+    const assistant = createAssistant(async () => ({
+      coverLetter: '', matches: [], canAutoFill: false, failureKind: 'manual',
+    }));
+    assistant.detectApplySituation = vi.fn(async () => 'unknown' as HhApplySituation);
+
+    await assistant.resumePendingQueue();
+
+    expect(assistant.detectApplySituation).toHaveBeenCalledOnce();
+    expect(assistant.getState().queue[0]).toMatchObject({
+      status: 'opened',
+      reason: 'Не удалось распознать состояние страницы HH.',
+      autoRetryBlockedUntil: 'daily',
+    });
+    expect(assistant.queueResumeTimer).toBeNull();
+
+    await vi.advanceTimersByTimeAsync(31 * 60 * 1_000);
+
+    expect(assistant.detectApplySituation).toHaveBeenCalledOnce();
+  });
+
   it('does not invoke the provider again 31 minutes after a quota, timeout, or transport failure', async () => {
     vi.useFakeTimers();
     const attempts = [

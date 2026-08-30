@@ -1,6 +1,6 @@
 {
   "name": "@interview/desktop",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "private": true,
   "main": "dist-electron/main.js",
   "scripts": {
@@ -16,7 +16,9 @@
     "build:backend": "cd ../api-py && .venv\\Scripts\\pyinstaller.exe -y skillcue-backend.spec",
     "verify:dev:overlay": "python ../../tools/verify_dev_overlay.py",
     "verify:dev:voice": "python ../../tools/verify_dev_voice_overlay.py",
+    "verify:dev:ui": "node tools/verify-installed-dev-ui.mjs",
     "verify:dev:screen": "python ../../tools/verify_screen_code_task.py --fixture-order",
+    "verify:dev:interviews": "python ../../tools/real_interview_acceptance.py --manifest ../../output/interview-replay/acceptance-cases.json --report ../../output/interview-replay/acceptance-report.json",
     "release:dev:verified": "powershell -NoProfile -ExecutionPolicy Bypass -File ../../tools/install_and_verify_dev.ps1",
     "dist:full": "pnpm build:backend && pnpm build && electron-builder",
     "preview": "vite preview",

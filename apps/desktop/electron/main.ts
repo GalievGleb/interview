@@ -157,6 +157,8 @@ let toggleOverlayShortcutBinding: PersistentGlobalShortcut | null = null;
 let toggleOverlayShortcutRetryTimer: NodeJS.Timeout | null = null;
 let forceAnswerShortcutBinding: PersistentGlobalShortcut | null = null;
 let forceAnswerShortcutRetryTimer: NodeJS.Timeout | null = null;
+let forceScreenAnswerShortcutBinding: PersistentGlobalShortcut | null = null;
+let forceScreenAnswerShortcutRetryTimer: NodeJS.Timeout | null = null;
 let hhBrowserAssistant: HhBrowserAssistant | null = null;
 let hhOAuthService: HhOAuthService | null = null;
 let hhChatBrowser: HhChatBrowser | null = null;
@@ -820,6 +822,8 @@ function registerIpc(): void {
     hhChatBrowser?.setEnabled(enabled),
   );
   handle('hh-chat:poll-now', async () => hhChatBrowser?.pollNow());
+  handle('hh-chat:prepare-decision-drafts', async () =>
+    hhChatBrowser?.prepareDecisionDrafts());
   handle(
     'hh-chat:answer-decision',
     (_e, decisionId: string, answer: string, remember: boolean) =>
@@ -1023,23 +1027,37 @@ function registerIpc(): void {
 
   handle(
     'app:shareSessionReport',
-    async (_event, input: { filename?: unknown; content?: unknown; message?: unknown }) => {
+    async (_event, input: {
+      filename?: unknown;
+      content?: unknown;
+      message?: unknown;
+      action?: unknown;
+    }) => {
       if (typeof input?.filename !== 'string' || typeof input?.content !== 'string') {
         throw new Error('Некорректный отчёт сессии');
       }
       if (input.message !== undefined && typeof input.message !== 'string') {
         throw new Error('Некорректное описание проблемы');
       }
+      if (input.action !== undefined && input.action !== 'telegram' && input.action !== 'open') {
+        throw new Error('Некорректное действие с отчётом');
+      }
       return shareSessionReport(
-        { filename: input.filename, content: input.content, message: input.message },
+        {
+          filename: input.filename,
+          content: input.content,
+          message: input.message,
+          action: input.action,
+        },
         {
           reportsDir: path.join(app.getPath('documents'), 'SkillCue Reports'),
           mkdir: (directory) => {
             fs.mkdirSync(directory, { recursive: true });
           },
-          writeFile: (target, content) => fs.writeFileSync(target, content, 'utf8'),
-          reveal: (target) => shell.showItemInFolder(target),
-          openExternal: (url) => shell.openExternal(url),
+           writeFile: (target, content) => fs.writeFileSync(target, content, 'utf8'),
+           reveal: (target) => shell.showItemInFolder(target),
+           openPath: (target) => shell.openPath(target),
+           openExternal: (url) => shell.openExternal(url),
         },
       );
     },
@@ -1218,6 +1236,7 @@ function registerIpc(): void {
 
 const DEFAULT_TOGGLE_SHORTCUT = APP_IDENTITY.defaultToggleShortcut;
 const FORCE_ANSWER_SHORTCUT = APP_IDENTITY.forceAnswerShortcut;
+const FORCE_SCREEN_ANSWER_SHORTCUT = APP_IDENTITY.forceScreenAnswerShortcut;
 let toggleOverlayShortcut = DEFAULT_TOGGLE_SHORTCUT;
 
 function mainSettingsPath(): string {
@@ -1323,6 +1342,45 @@ function registerForceAnswerShortcut(): void {
   if (!forceAnswerShortcutBinding.ensureRegistered()) scheduleForceAnswerShortcutRetry();
 }
 
+function deliverForcedScreenAnswerToOverlay(): void {
+  const existingOverlay = isLiveWindow(overlayWindow) ? overlayWindow : null;
+  if (isDeveloperBuild && (!existingOverlay || !existingOverlay.isVisible())) return;
+  const win = existingOverlay ?? getOrCreateOverlayWindow();
+  if (!win.isVisible()) showOverlayWindow(win, 'inactive');
+  const send = () => {
+    if (!isLiveWindow(win) || win.webContents.isDestroyed()) return;
+    win.webContents.send('overlay:force-screen-answer');
+  };
+  if (win.webContents.isLoadingMainFrame()) win.webContents.once('did-finish-load', send);
+  else send();
+}
+
+function scheduleForceScreenAnswerShortcutRetry(): void {
+  if (quitting || forceScreenAnswerShortcutRetryTimer) return;
+  forceScreenAnswerShortcutRetryTimer = setTimeout(() => {
+    forceScreenAnswerShortcutRetryTimer = null;
+    if (!forceScreenAnswerShortcutBinding?.ensureRegistered()) {
+      scheduleForceScreenAnswerShortcutRetry();
+    }
+  }, 2_000);
+}
+
+function registerForceScreenAnswerShortcut(): void {
+  forceScreenAnswerShortcutBinding?.dispose();
+  forceScreenAnswerShortcutBinding = new PersistentGlobalShortcut(
+    globalShortcut,
+    FORCE_SCREEN_ANSWER_SHORTCUT,
+    deliverForcedScreenAnswerToOverlay,
+    (accelerator) => {
+      console.warn(`[overlay] global screen shortcut unavailable, retrying: ${accelerator}`);
+      scheduleForceScreenAnswerShortcutRetry();
+    },
+  );
+  if (!forceScreenAnswerShortcutBinding.ensureRegistered()) {
+    scheduleForceScreenAnswerShortcutRetry();
+  }
+}
+
 function registerShortcuts(): void {
   const stored = loadMainSettings().toggleOverlayShortcut;
   if (typeof stored === 'string' && stored.trim() && registerToggleShortcut(stored.trim(), true)) {
@@ -1332,6 +1390,7 @@ function registerShortcuts(): void {
     toggleOverlayShortcut = DEFAULT_TOGGLE_SHORTCUT;
   }
   registerForceAnswerShortcut();
+  registerForceScreenAnswerShortcut();
 }
 
 function createTray(): void {
@@ -1773,6 +1832,10 @@ if (!hasSingleInstanceLock) {
     forceAnswerShortcutRetryTimer = null;
     forceAnswerShortcutBinding?.dispose();
     forceAnswerShortcutBinding = null;
+    if (forceScreenAnswerShortcutRetryTimer) clearTimeout(forceScreenAnswerShortcutRetryTimer);
+    forceScreenAnswerShortcutRetryTimer = null;
+    forceScreenAnswerShortcutBinding?.dispose();
+    forceScreenAnswerShortcutBinding = null;
     globalShortcut.unregisterAll();
     stopBackend();
     backendLogStream?.end();

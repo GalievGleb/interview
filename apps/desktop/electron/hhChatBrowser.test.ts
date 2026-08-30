@@ -1395,6 +1395,118 @@ describe('HhChatBrowser current HH contract', () => {
     }
   });
 
+  it('backfills a candidate-aware review draft for a legacy pending HR decision without sending it', async () => {
+    const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skillcue-hh-chat-review-draft-'));
+    const recruiterMessage = 'Расскажите, как вы используете ООП в UI-автотестах на Python.';
+    try {
+      fs.writeFileSync(path.join(userDataDir, 'hh-chat-browser.json'), JSON.stringify({
+        config: { ...DEFAULT_CHAT_CONFIG, replyDelaySec: 0 },
+        seenMessageIds: [],
+        repliesToday: 0,
+        replyDate: '2000-01-01',
+        pendingDecisions: [{
+          id: 'decision-review-1',
+          negotiationKey: 'QA Automation Engineer\u0000Example',
+          messageId: 'message-review-1',
+          vacancyTitle: 'QA Automation Engineer',
+          companyName: 'Example',
+          vacancyUrl: 'https://hh.ru/vacancy/501',
+          recruiterMessage,
+          question: 'Какой точный ответ можно отправить работодателю?',
+          kind: 'candidate_fact',
+          createdAt: new Date().toISOString(),
+        }],
+      }), 'utf8');
+      const getPage = vi.fn(async () => {
+        throw new Error('Draft preparation must not open or send through HH.');
+      });
+      const llmCall = vi.fn(async () => (
+        'В UI-автотестах на Python применяю ООП в Page Object: инкапсулирую локаторы и действия, а общую логику выношу в базовые компоненты.'
+      ));
+      const getCandidateProfile = vi.fn(async () => recruiterProfile(
+        'QA Automation Engineer. Python, pytest, Playwright. В UI-автотестах использую Page Object.',
+      ));
+      const chat = new HhChatBrowser(
+        userDataDir,
+        getPage,
+        llmCall,
+        undefined,
+        undefined,
+        getCandidateProfile,
+      );
+
+      const state = await (chat as unknown as {
+        prepareDecisionDrafts: () => Promise<ReturnType<HhChatBrowser['getState']>>;
+      }).prepareDecisionDrafts();
+
+      expect(getCandidateProfile).toHaveBeenCalledWith({
+        negotiationKey: 'QA Automation Engineer\u0000Example',
+        vacancyTitle: 'QA Automation Engineer',
+        companyName: 'Example',
+        vacancyUrl: 'https://hh.ru/vacancy/501',
+      });
+      expect(llmCall).toHaveBeenCalledOnce();
+      expect(llmCall.mock.calls[0][0]).toContain(recruiterMessage);
+      expect(llmCall.mock.calls[0][0]).toContain('Python, pytest, Playwright');
+      expect(getPage).not.toHaveBeenCalled();
+      expect(state.repliesToday).toBe(0);
+      expect(state.replyHistory).toEqual([]);
+      expect(state.pendingDecisions[0].suggestedAnswer).toBe(
+        'В UI-автотестах на Python применяю ООП в Page Object: инкапсулирую локаторы и действия, а общую логику выношу в базовые компоненты.',
+      );
+
+      const restored = new HhChatBrowser(userDataDir, async () => null, async () => '');
+      expect(restored.getState().pendingDecisions[0].suggestedAnswer).toBe(
+        state.pendingDecisions[0].suggestedAnswer,
+      );
+    } finally {
+      fs.rmSync(userDataDir, { recursive: true, force: true });
+    }
+  });
+
+  it('uses an explicit editable placeholder when an HR draft cannot be grounded', async () => {
+    const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skillcue-hh-chat-review-fallback-'));
+    try {
+      fs.writeFileSync(path.join(userDataDir, 'hh-chat-browser.json'), JSON.stringify({
+        config: { ...DEFAULT_CHAT_CONFIG, replyDelaySec: 0 },
+        seenMessageIds: [],
+        repliesToday: 0,
+        replyDate: '2000-01-01',
+        pendingDecisions: [{
+          id: 'decision-review-fallback',
+          negotiationKey: 'QA Automation Engineer\u0000Example',
+          messageId: 'message-review-fallback',
+          vacancyTitle: 'QA Automation Engineer',
+          companyName: 'Example',
+          recruiterMessage: 'Готовы ли вы к релокации в другой город?',
+          question: chatDecisionQuestion('relocation'),
+          kind: 'relocation',
+          createdAt: new Date().toISOString(),
+        }],
+      }), 'utf8');
+      const chat = new HhChatBrowser(
+        userDataDir,
+        async () => null,
+        async () => '',
+        undefined,
+        undefined,
+        async () => '' as const,
+      );
+
+      const state = await (chat as unknown as {
+        prepareDecisionDrafts: () => Promise<ReturnType<HhChatBrowser['getState']>>;
+      }).prepareDecisionDrafts();
+
+      expect(state.pendingDecisions[0].suggestedAnswer).toBe(
+        'Релокацию [уточните: рассматриваете ли вы переезд и на каких условиях].',
+      );
+      expect(state.pendingDecisions[0].suggestedAnswer).not.toContain('NEEDS_USER_INPUT');
+      expect(state.replyHistory).toEqual([]);
+    } finally {
+      fs.rmSync(userDataDir, { recursive: true, force: true });
+    }
+  });
+
   it('stops an application dialogue without sending and ignores future recruiter messages', async () => {
     const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skillcue-hh-chat-decline-'));
     const negotiationKey = 'QA-инженер (ручное тестирование, web + mobile)\u0000ТИС';

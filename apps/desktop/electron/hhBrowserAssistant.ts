@@ -1572,6 +1572,7 @@ export function normalizePersistedQueue(
       && !coverLetterPending
       && !storedAutoRetryBlock
       && /^Отклик не начат:/iu.test(reason ?? '');
+    const unreadablePageState = reason === 'Не удалось распознать состояние страницы HH.';
     const normalizedStatus: HhQueueStatus = staleManualSkillMismatch
       ? 'skipped'
       : needsScreeningInput
@@ -1597,7 +1598,7 @@ export function normalizePersistedQueue(
       || normalizedStatus === 'skipped';
     const autoRetryBlockedUntil = terminalStatus || staleManualResumeGate
       ? undefined
-      : staleCaptchaManualGate
+      : unreadablePageState || staleCaptchaManualGate
         ? 'daily' as const
       : onlyLegacyTransientQuestions
         ? 'daily' as const
@@ -5348,14 +5349,15 @@ export class HhBrowserAssistant {
             reason: `${sentReason}.`,
           };
         }
-        case 'skip':
+        case 'skip': {
+          const unreadablePageState = decided.reason === 'Не удалось распознать состояние страницы HH.';
           this.patchQueue(vacancy.id, {
-            status: decided.reason === 'Не удалось распознать состояние страницы HH.'
-              ? 'opened'
-              : 'skipped',
+            status: unreadablePageState ? 'opened' : 'skipped',
             reason: decided.reason,
+            autoRetryBlockedUntil: unreadablePageState ? 'daily' : undefined,
           });
           return { sent: false, blocked: false, reason: decided.reason };
+          }
         case 'wait_user':
           {
           const verification = situation === 'captcha';

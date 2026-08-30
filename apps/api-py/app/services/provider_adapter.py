@@ -79,8 +79,20 @@ def _base_url(provider: str) -> str:
 
 
 def _supports_openrouter_routing(provider: str, base_url: str) -> bool:
-    """Return whether the endpoint accepts OpenRouter-only routing options."""
-    return provider == "openrouter" and "openrouter.ai" in base_url.lower()
+    """Return whether the endpoint accepts OpenRouter-only routing options.
+
+    The managed SkillCue gateway accepts this option too: its OpenRouter
+    upstream forwards it, while an OpenAI-compatible upstream strips it before
+    forwarding. Unknown compatible endpoints must never receive vendor-only
+    fields.
+    """
+    if provider != "openrouter":
+        return False
+    normalized = base_url.rstrip("/").lower()
+    if "openrouter.ai" in normalized:
+        return True
+    managed_gateway = (get_settings().skillcue_gateway_url or "").rstrip("/").lower()
+    return bool(managed_gateway and normalized == managed_gateway)
 
 
 # Коды ошибок НАШЕГО гейтвея лицензий: у них уже есть готовое русское сообщение
@@ -429,6 +441,11 @@ THINKING_MODEL_MARKERS = (
     "gpt-5",
 )
 
+# Qwen3.5 Flash enables optional thinking by default on OpenRouter. For live
+# interview answers that increases tail latency and can leave only hidden
+# reasoning in the stream. The benchmarked fast route explicitly disables it.
+LIVE_REASONING_DISABLED_MARKERS = ("qwen3.5-flash",)
+
 
 def is_thinking_model(model_id: str) -> bool:
     low = model_id.lower()
@@ -437,6 +454,9 @@ def is_thinking_model(model_id: str) -> bool:
 
 def live_stream_options(model_id: str) -> tuple[int, dict | None]:
     """max_tokens и reasoning для live — thinking-модели жрут лимит на скрытый reasoning."""
+    low = model_id.lower()
+    if any(marker in low for marker in LIVE_REASONING_DISABLED_MARKERS):
+        return 750, {"effort": "none", "exclude": True}
     if is_thinking_model(model_id):
         return 1800, {"effort": "minimal", "exclude": True}
     return 750, None
@@ -455,6 +475,20 @@ def vacancy_eval_options(model_id: str) -> tuple[int, dict | None]:
     if is_thinking_model(model_id):
         return 3600, {"effort": "medium", "exclude": True}
     return 2200, None
+
+
+def screen_stream_options(model_id: str) -> tuple[int, dict | None]:
+    """Quality-first budget for an intentional screenshot request.
+
+    A screen task may contain exact literals, a schema and a follow-up to prior
+    code. Unlike continuous voice answers, the user can tolerate a little
+    reasoning time here while reading the task.
+    """
+    if "gpt-5.6" in model_id.lower():
+        return 1800, {"effort": "medium", "exclude": True}
+    if is_thinking_model(model_id):
+        return 1600, {"effort": "low", "exclude": True}
+    return 1400, None
 
 
 def _apply_reasoning_options(
@@ -619,14 +653,16 @@ async def stream_chat(
     *,
     live_fast: bool = False,
     route_fast: bool = False,
+    reasoning: dict | None = None,
 ) -> AsyncGenerator[str, None]:
     provider, base_url, key = await _resolve(provider)
     settings = get_settings()
     model = model or settings.default_model
     model = _model_for_provider(provider, model)
-    reasoning: dict | None = None
     if live_fast:
-        max_tokens, reasoning = live_stream_options(model)
+        max_tokens, live_reasoning = live_stream_options(model)
+        if reasoning is None:
+            reasoning = live_reasoning
     payload: dict = {
         "model": model,
         "messages": apply_prompt_cache(messages, model),

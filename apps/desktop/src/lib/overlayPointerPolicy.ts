@@ -10,6 +10,7 @@ export function shouldCaptureOverlayPointer(
 
 export class OverlayPointerController {
   private captures = false;
+  private modalCapture = false;
   private point: { x: number; y: number } | null = null;
 
   constructor(
@@ -19,6 +20,7 @@ export class OverlayPointerController {
 
   initialize(): void {
     this.captures = false;
+    this.modalCapture = false;
     this.setClickThrough(true);
   }
 
@@ -27,10 +29,17 @@ export class OverlayPointerController {
     this.refresh();
   }
 
+  setModalCapture(enabled: boolean): void {
+    if (enabled === this.modalCapture) return;
+    this.modalCapture = enabled;
+    this.refresh();
+  }
+
   refresh(): void {
-    const next = this.point
-      ? shouldCaptureOverlayPointer(this.elementFromPoint(this.point.x, this.point.y))
-      : false;
+    const next = this.modalCapture || Boolean(
+      this.point
+      && shouldCaptureOverlayPointer(this.elementFromPoint(this.point.x, this.point.y)),
+    );
     if (next === this.captures) return;
     this.captures = next;
     this.setClickThrough(!next);
@@ -39,6 +48,7 @@ export class OverlayPointerController {
   dispose(): void {
     this.point = null;
     this.captures = false;
+    this.modalCapture = false;
     this.setClickThrough(true);
   }
 }
