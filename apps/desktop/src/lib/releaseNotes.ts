@@ -12,7 +12,7 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
-    version: '0.1.11',
+    version: '0.1.12',
     date: '2026-09-02',
     title: 'Быстрее live-ответы и надёжнее экранные задачи',
     points: [
