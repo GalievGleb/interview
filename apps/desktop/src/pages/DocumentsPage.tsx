@@ -249,13 +249,13 @@ export default function DocumentsPage() {
         label: 'Вернуться к разбору',
         to: '/prepare',
       }
-    : { title: 'Резюме добавлено — теперь задайте направление роста.', label: 'Выбрать профессиональную цель', to: '/documents?mode=baseline&section=goal' };
+    : { title: 'Резюме добавлено — выберите роль для практики.', label: 'Выбрать роль', to: '/documents?mode=baseline&section=role' };
 
   return (
     <div className="prep h-full overflow-y-auto">
       <div className="prep-wrap prep-rise prep-home">
         <section>
-          <p className="prep-eyebrow">{baselineMode ? 'ОТПРАВНАЯ ТОЧКА' : t('docs.eyebrow')}</p>
+          <p className="prep-eyebrow">{baselineMode ? 'ПРОФИЛЬ' : t('docs.eyebrow')}</p>
           <h1 className="prep-h1 mt-1">
             {baselineMode ? 'Резюме и опыт' : t('docs.title')}
           </h1>
@@ -309,7 +309,7 @@ export default function DocumentsPage() {
 
         {!returnToPreparation && (
           <GrowthProfileSetup
-            initialOpen={growthSection === 'goal' || growthSection === 'baseline' || (baselineMode && hasResumeSource && !growthProfile.completed)}
+            initialOpen={growthSection === 'role' || growthSection === 'goal' || growthSection === 'baseline' || (baselineMode && hasResumeSource && !growthProfile.completed)}
             onSaved={(next: GrowthProfileSetupValue) => setGrowthProfile(next)}
           />
         )}
@@ -318,8 +318,8 @@ export default function DocumentsPage() {
           <section className="candidate-next-step" aria-labelledby="profile-next-step-title">
             <CheckCircle2 size={21} aria-hidden="true" />
             <div>
-              <strong id="profile-next-step-title">Профиль готов — можно проверить навыки.</strong>
-              <p>Начните по выбранной роли или добавьте вакансию для более точных вопросов.</p>
+              <strong id="profile-next-step-title">Контекст готов.</strong>
+              <p>Тренируйтесь по роли или разберите конкретную вакансию.</p>
             </div>
             <div className="candidate-journey-actions">
               <button type="button" className="prep-btn" onClick={() => navigate('/practice')}>

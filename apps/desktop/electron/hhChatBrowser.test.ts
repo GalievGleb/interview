@@ -61,6 +61,10 @@ describe('HhChatBrowser current HH contract', () => {
       .toBe('https://hh.ru/vacancy/136064787');
     expect(normalizeHhNegotiationVacancyUrl('https://evil.example/vacancy/136064787')).toBeUndefined();
     expect(stripTrailingChatTimestamp('Буду рад знакомству!\n19:53')).toBe('Буду рад знакомству!');
+    expect(stripTrailingChatTimestamp('Есть ли опыт с BGP и OSPF? 21:42'))
+      .toBe('Есть ли опыт с BGP и OSPF?');
+    expect(stripTrailingChatTimestamp('Напоминаю про мой вопрос. 00:10'))
+      .toBe('Напоминаю про мой вопрос.');
     expect(stripTrailingChatTimestamp('Созвон в 19:53')).toBe('Созвон в 19:53');
   });
 
@@ -1390,6 +1394,183 @@ describe('HhChatBrowser current HH contract', () => {
 
       const restored = new HhChatBrowser(userDataDir, async () => null, async () => '');
       expect(restored.getState().replyHistory[0]).toMatchObject({ messageId, reply: answer });
+    } finally {
+      fs.rmSync(userDataDir, { recursive: true, force: true });
+    }
+  });
+
+  it('removes a pending HR decision when HH no longer exposes a writable chat', async () => {
+    const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skillcue-hh-chat-not-writable-'));
+    const negotiationKey = 'Python-разработчик системы автоматизации тестирования\u0000Департамент персонала';
+    const messageId = `${negotiationKey}:chatik-chat-message-42`;
+    try {
+      fs.writeFileSync(path.join(userDataDir, 'hh-chat-browser.json'), JSON.stringify({
+        config: { ...DEFAULT_CHAT_CONFIG, replyDelaySec: 0 },
+        seenMessageIds: [],
+        repliesToday: 0,
+        replyDate: '2000-01-01',
+        pendingDecisions: [{
+          id: 'decision-not-writable',
+          negotiationKey,
+          messageId,
+          vacancyTitle: 'Python-разработчик системы автоматизации тестирования',
+          companyName: 'Департамент персонала',
+          recruiterMessage: 'Есть ли опыт с сетевыми протоколами BGP и OSPF?',
+          question: 'Подтвердите личный факт для ответа работодателю.',
+          kind: 'candidate_fact',
+          createdAt: new Date().toISOString(),
+        }],
+      }), 'utf8');
+      const page = { isClosed: () => false, url: () => HH_NEGOTIATIONS_URL };
+      const frame = {
+        locator: () => ({
+          first: () => ({
+            waitFor: () => Promise.reject(new Error('input is unavailable')),
+          }),
+        }),
+      };
+      const chat = new HhChatBrowser(userDataDir, async () => page as never, async () => '');
+      const internals = chat as unknown as {
+        scrapeNegotiations: () => Promise<Array<{
+          index: number;
+          key: string;
+          vacancyTitle: string;
+          companyName: string;
+          isDiscussion: boolean;
+          hasUnread: boolean;
+          isRejected: boolean;
+        }>>;
+        openNegotiation: () => Promise<typeof frame>;
+      };
+      vi.spyOn(internals, 'scrapeNegotiations').mockResolvedValue([{
+        index: 0,
+        key: negotiationKey,
+        vacancyTitle: 'Python-разработчик системы автоматизации тестирования',
+        companyName: 'Департамент персонала',
+        isDiscussion: true,
+        hasUnread: true,
+        isRejected: false,
+      }]);
+      vi.spyOn(internals, 'openNegotiation').mockResolvedValue(frame);
+
+      await expect(chat.answerDecision(
+        'decision-not-writable',
+        'Опыта с BGP и OSPF пока нет, но готов быстро изучить их под задачи команды.',
+        true,
+      )).rejects.toThrow('Ответ в этом чате недоступен');
+
+      expect(chat.getState().pendingDecisions).toEqual([]);
+      const persisted = JSON.parse(fs.readFileSync(
+        path.join(userDataDir, 'hh-chat-browser.json'),
+        'utf8',
+      )) as { pendingDecisions?: unknown[] };
+      expect(persisted.pendingDecisions).toEqual([]);
+    } finally {
+      fs.rmSync(userDataDir, { recursive: true, force: true });
+    }
+  });
+
+  it('migrates a reminder decision back to the original unanswered HR question', () => {
+    const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skillcue-hh-chat-reminder-migration-'));
+    const negotiationKey = 'Тестировщик \\ QA Engineer\u0000Т Плюс';
+    const originalQuestion = 'Расскажите, пожалуйста, о вашем опыте написания PL/SQL процедур и триггеров.';
+    try {
+      fs.writeFileSync(path.join(userDataDir, 'hh-chat-browser.json'), JSON.stringify({
+        config: { ...DEFAULT_CHAT_CONFIG, replyDelaySec: 0 },
+        seenMessageIds: [],
+        repliesToday: 0,
+        replyDate: '2000-01-01',
+        pendingDecisions: [{
+          id: 'original-decision',
+          negotiationKey,
+          messageId: `${negotiationKey}:chatik-chat-message-original`,
+          vacancyTitle: 'Тестировщик \\ QA Engineer',
+          companyName: 'Т Плюс',
+          recruiterMessage: `${originalQuestion} 23:37`,
+          question: `Подтвердите личный факт для ответа работодателю: «${originalQuestion} 23:37»`,
+          kind: 'candidate_fact',
+          suggestedAnswer: 'У меня есть опыт с PL/SQL.',
+          createdAt: '2026-08-27T09:26:08.962Z',
+        }, {
+          id: 'reminder-decision',
+          negotiationKey,
+          messageId: `${negotiationKey}:chatik-chat-message-reminder`,
+          vacancyTitle: 'Тестировщик \\ QA Engineer',
+          companyName: 'Т Плюс',
+          recruiterMessage: 'Здравствуйте! Напоминаю про мой вопрос. Если найдёте время для ответа, буду благодарен. 00:10',
+          question: 'Подтвердите личный факт для ответа работодателю: «Напоминаю про мой вопрос»',
+          kind: 'candidate_fact',
+          suggestedAnswer: 'Спасибо за напоминание. Когда вам удобно созвониться?',
+          createdAt: '2026-08-27T17:11:43.868Z',
+        }],
+      }), 'utf8');
+
+      const chat = new HhChatBrowser(userDataDir, async () => null, async () => '');
+
+      expect(chat.getState().pendingDecisions).toEqual([expect.objectContaining({
+        id: 'original-decision',
+        messageId: `${negotiationKey}:chatik-chat-message-reminder`,
+        recruiterMessage: originalQuestion,
+        question: `Подтвердите личный факт для ответа работодателю: «${originalQuestion}»`,
+        suggestedAnswer: 'У меня есть опыт с PL/SQL.',
+      })]);
+    } finally {
+      fs.rmSync(userDataDir, { recursive: true, force: true });
+    }
+  });
+
+  it('uses the unanswered question behind a fresh recruiter reminder', async () => {
+    const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skillcue-hh-chat-reminder-context-'));
+    const negotiationKey = 'Тестировщик \\ QA Engineer\u0000Т Плюс';
+    const originalQuestion = 'Расскажите, пожалуйста, о вашем опыте написания PL/SQL процедур и триггеров.';
+    try {
+      const page = {
+        isClosed: () => false,
+        url: () => HH_NEGOTIATIONS_URL,
+        locator: () => ({ first: () => ({ waitFor: () => Promise.resolve() }) }),
+      };
+      const frame = {
+        locator: (selector: string) => selector === 'body'
+          ? { innerText: () => Promise.resolve('Обычный активный чат') }
+          : { first: () => ({ isVisible: () => Promise.resolve(true) }) },
+      };
+      const negotiation = {
+        index: 0,
+        key: negotiationKey,
+        vacancyTitle: 'Тестировщик \\ QA Engineer',
+        companyName: 'Т Плюс',
+        isDiscussion: true,
+        hasUnread: true,
+        isRejected: false,
+      };
+      const llmCall = vi.fn(async () => 'Не должно вызываться');
+      const chat = new HhChatBrowser(userDataDir, async () => page as never, llmCall);
+      chat.saveConfig({ replyDelaySec: 0 });
+      const internals = chat as unknown as {
+        scrapeNegotiations: () => Promise<typeof negotiation[]>;
+        openNegotiation: () => Promise<typeof frame>;
+        scrapeMessages: () => Promise<Array<{ id: string; text: string; isMine: boolean }>>;
+        pollOnce: () => Promise<void>;
+      };
+      vi.spyOn(internals, 'scrapeNegotiations').mockResolvedValue([negotiation]);
+      vi.spyOn(internals, 'openNegotiation').mockResolvedValue(frame);
+      vi.spyOn(internals, 'scrapeMessages').mockResolvedValue([
+        { id: 'chatik-chat-message-original', text: originalQuestion, isMine: false },
+        {
+          id: 'chatik-chat-message-reminder',
+          text: 'Здравствуйте! Напоминаю про мой вопрос. Если найдёте время для ответа, буду благодарен.',
+          isMine: false,
+        },
+      ]);
+
+      await internals.pollOnce();
+
+      expect(llmCall).not.toHaveBeenCalled();
+      expect(chat.getState().pendingDecisions).toEqual([expect.objectContaining({
+        messageId: `${negotiationKey}:chatik-chat-message-reminder`,
+        recruiterMessage: originalQuestion,
+        question: `Подтвердите личный факт для ответа работодателю: «${originalQuestion}»`,
+      })]);
     } finally {
       fs.rmSync(userDataDir, { recursive: true, force: true });
     }

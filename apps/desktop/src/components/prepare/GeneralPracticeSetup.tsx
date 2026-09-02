@@ -113,9 +113,9 @@ export default function GeneralPracticeSetup({ onAnalyze, analyzing, error }: Pr
   return (
     <div className="prep-rise space-y-5">
       <header className="prep-page-heading">
-        <p className="prep-eyebrow">ПРАКТИКА БЕЗ ВАКАНСИИ</p>
-        <h1 className="prep-h1 mt-1">Выберите роль и начните</h1>
-        <p className="prep-sub mt-2">Вопросы будут по роли; резюме и история опыта подключатся автоматически.</p>
+        <p className="prep-eyebrow">НОВАЯ ПРАКТИКА</p>
+        <h1 className="prep-h1 mt-1">Практика по роли</h1>
+        <p className="prep-sub mt-2">Выберите роль. Резюме и история опыта подключатся автоматически.</p>
       </header>
 
       <section className="practice-start-card" aria-labelledby="general-practice-role">
@@ -154,7 +154,7 @@ export default function GeneralPracticeSetup({ onAnalyze, analyzing, error }: Pr
                 : resumeText
                   ? 'Резюме подключено'
                   : 'Можно начать без резюме'}
-              {savedRole && savedRole !== role ? ` · цель в профиле: ${savedRole}` : ''}
+              {savedRole && savedRole !== role ? ` · роль в профиле: ${savedRole}` : ''}
             </span>
           </div>
           <details className="prep-disclosure">

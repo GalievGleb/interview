@@ -56,6 +56,30 @@ describe('packaged product surface', () => {
     expect(devConfigSource).toContain('publish: null');
   });
 
+  it('defines a private isolated Alpha installer without a public update feed', () => {
+    const alphaConfigPath = path.join(desktopRoot, 'electron-builder.alpha.cjs');
+    expect(fs.existsSync(alphaConfigPath)).toBe(true);
+    if (!fs.existsSync(alphaConfigPath)) return;
+
+    const packageJson = JSON.parse(
+      fs.readFileSync(path.join(desktopRoot, 'package.json'), 'utf8'),
+    ) as { scripts: Record<string, string> };
+    const alphaConfigSource = fs.readFileSync(alphaConfigPath, 'utf8');
+
+    expect(packageJson.scripts['build:alpha']).toContain('--mode alphabuild');
+    expect(packageJson.scripts['dist:alpha']).toContain('dist:alpha:app');
+    expect(packageJson.scripts['dist:alpha:app']).toContain('electron-builder.alpha.cjs');
+    expect(packageJson.scripts['dist:alpha:app']).toContain('--publish never');
+    expect(alphaConfigSource).toContain("appId: 'com.interview.assistant.alpha'");
+    expect(alphaConfigSource).toContain("productName: 'SkillCue Alpha'");
+    expect(alphaConfigSource).toContain("output: 'release-alpha'");
+    expect(alphaConfigSource).toContain("artifactName: 'SkillCue-Alpha-Setup.${ext}'");
+    expect(alphaConfigSource).toContain("name: 'skillcue-alpha'");
+    expect(alphaConfigSource).toContain("buildChannel: 'alpha'");
+    expect(alphaConfigSource).toContain("schemes: ['skillcue-alpha']");
+    expect(alphaConfigSource).toContain('publish: null');
+  });
+
   it('keeps hosted stable releases manual-only and never publishes from the dev workflow', () => {
     const repoRoot = path.resolve(desktopRoot, '..', '..');
     const releaseWorkflow = fs.readFileSync(
@@ -128,6 +152,9 @@ describe('packaged product surface', () => {
     expect(settingsSource.indexOf('<LicenseCard')).toBeLessThan(settingsSource.indexOf('<PlanPicker'));
     expect(preloadSource).toContain("ipcRenderer.invoke('app:getBuildChannel')");
     expect(mainSource).toContain("ipcMain.handle('app:getBuildChannel', () => BUILD_CHANNEL)");
+    expect(mainSource).toContain(
+      "const isDeveloperBuild = BUILD_CHANNEL === 'dev' || BUILD_CHANNEL === 'alpha';",
+    );
     expect(preloadSource).toContain("ipcRenderer.invoke('overlay:get-window-state')");
     expect(mainSource).toContain("ipcMain.handle('overlay:get-window-state'");
   });
@@ -139,11 +166,13 @@ describe('packaged product surface', () => {
       'utf8',
     );
 
-    expect(appSource).toContain("const DEV_SURFACE = import.meta.env.MODE === 'devbuild';");
+    expect(appSource).toContain(
+      "const DEV_SURFACE = ['devbuild', 'alphabuild'].includes(import.meta.env.MODE);",
+    );
     expect(appSource).toContain("DEV_SURFACE ? lazy(() => import('./pages/DiagnosticsPage')) : null");
     expect(appSource).toContain('DEV_SURFACE && DiagnosticsPage');
     expect(appSource).not.toContain('function DeveloperGate');
-    expect(paletteSource).toContain("buildChannel === 'dev'");
+    expect(paletteSource).toContain("buildChannel === 'dev' || buildChannel === 'alpha'");
     expect(paletteSource).not.toContain("startsWith('dev')");
   });
 

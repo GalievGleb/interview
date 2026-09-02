@@ -9,6 +9,8 @@ from dataclasses import dataclass
 
 StreamFactory = Callable[[str], AsyncIterator[str]]
 
+_background_cleanup_tasks: set[asyncio.Task[None]] = set()
+
 
 @dataclass(slots=True)
 class HedgedStreamSelection:
@@ -44,6 +46,21 @@ async def _stop_loser(task: asyncio.Task[str], stream: AsyncIterator[str]) -> No
         task.cancel()
     await asyncio.gather(task, return_exceptions=True)
     await _close_stream(stream)
+
+
+def _forget_cleanup_task(task: asyncio.Task[None]) -> None:
+    _background_cleanup_tasks.discard(task)
+    with suppress(BaseException):
+        task.result()
+
+
+def _stop_loser_in_background(task: asyncio.Task[str], stream: AsyncIterator[str]) -> None:
+    """Cancel immediately, then own transport teardown off the first-token path."""
+    if not task.done():
+        task.cancel()
+    cleanup_task = asyncio.create_task(_stop_loser(task, stream))
+    _background_cleanup_tasks.add(cleanup_task)
+    cleanup_task.add_done_callback(_forget_cleanup_task)
 
 
 async def select_first_stream(
@@ -135,7 +152,7 @@ async def select_hedged_stream(
                     continue
 
                 for loser_task, (_, loser_stream) in list(candidates.items()):
-                    await _stop_loser(loser_task, loser_stream)
+                    _stop_loser_in_background(loser_task, loser_stream)
                 return HedgedStreamSelection(
                     model=winner_model,
                     first_chunk=first,
@@ -147,7 +164,7 @@ async def select_hedged_stream(
         if primary_model in errors:
             raise errors[primary_model]
         raise next(iter(errors.values()))
-    except asyncio.CancelledError:
+    except BaseException:
         await _stop_loser(primary_task, primary_stream)
         if fallback_task is not None and fallback_stream is not None:
             await _stop_loser(fallback_task, fallback_stream)

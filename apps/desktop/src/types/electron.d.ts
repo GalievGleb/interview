@@ -51,6 +51,14 @@ export interface HhScreeningAnswerInput {
   remember?: boolean;
 }
 
+export interface HhStoredScreeningAnswer {
+  questionId: string;
+  question: string;
+  answer: string;
+  selectedOptions: string[];
+  confirmedByUser?: boolean;
+}
+
 export interface HhScreeningDraftSuggestion {
   questionId: string;
   answer: string;
@@ -81,6 +89,7 @@ export interface HhQueueItem {
   addedAt: string;
   sentAt?: string;
   pendingQuestions?: HhScreeningQuestion[];
+  screeningAnswers?: HhStoredScreeningAnswer[];
   preparationNotes?: string[];
   selectedResumeTitle?: string;
   coverLetterPending?: boolean;
@@ -349,7 +358,7 @@ export interface InterviewCalendarState {
 export interface ElectronAPI {
   getApiUrl: () => Promise<string>;
   getApiToken?: () => Promise<string>;
-  getBuildChannel?: () => Promise<'stable' | 'dev'>;
+  getBuildChannel?: () => Promise<'stable' | 'dev' | 'alpha'>;
   getVersion?: () => Promise<string>;
   getAutoLaunch?: () => Promise<boolean>;
   setAutoLaunch?: (enable: boolean) => Promise<void>;
@@ -470,6 +479,7 @@ export interface ElectronAPI {
     setLiveState?: (active: boolean) => Promise<void>;
     onForceAnswer?: (cb: () => void) => () => void;
     onForceScreenAnswer?: (cb: () => void) => () => void;
+    onCandidateFollowUp?: (cb: () => void) => () => void;
     onScroll?: (cb: (direction: -1 | 1) => void) => () => void;
   };
   window: {

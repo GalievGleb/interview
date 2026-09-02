@@ -93,7 +93,7 @@ def test_screening_answers_uses_resume_and_preserves_exact_options(client, monke
     assert "Never invent project counts" in captured["prompt"]
     assert "bare skill-list token is not enough" in captured["prompt"]
     assert "AUTOMATIC MODE" in captured["prompt"]
-    assert captured["model"].endswith("gpt-4o-mini")
+    assert captured["model"].endswith("qwen3.5-flash-02-23")
     assert captured["kwargs"]["max_tokens"] <= 1600
     assert captured["kwargs"]["response_format"] == {"type": "json_object"}
 

@@ -3,6 +3,7 @@ import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.config import get_settings
 from app.core.errors import AppError, app_error_handler, unhandled_error_handler
@@ -31,6 +32,85 @@ from app.routers import (
 settings = get_settings()
 setup_logging(settings.log_level)
 logger = logging.getLogger("main")
+# A structured continuation can legitimately carry the current JPEG, two
+# bounded prior JPEGs and a pixel-free UTF-8 task ledger. Keep this limit local
+# to the screen endpoint; unrelated API routes retain their existing behavior.
+MAX_SCREEN_ASSIST_REQUEST_BYTES = 4_000_000
+
+
+class _ScreenAssistRequestTooLarge(Exception):
+    pass
+
+
+def _screen_request_too_large_response() -> JSONResponse:
+    return JSONResponse(
+        {
+            "error": {
+                "code": "screen_request_too_large",
+                "message": "Screen request is too large.",
+            }
+        },
+        status_code=413,
+    )
+
+
+class ScreenAssistRequestSizeLimitMiddleware:
+    """Count only screen-request ASGI chunks before FastAPI parses them."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        is_screen_request = (
+            scope["type"] == "http"
+            and scope["method"] == "POST"
+            and scope["path"] == "/chat/screen/stream"
+        )
+        if not is_screen_request:
+            await self.app(scope, receive, send)
+            return
+
+        headers = dict(scope.get("headers", []))
+        raw_content_length = headers.get(b"content-length")
+        if raw_content_length is not None:
+            try:
+                declared_size = int(raw_content_length)
+            except ValueError:
+                declared_size = -1
+            if declared_size < 0 or declared_size > MAX_SCREEN_ASSIST_REQUEST_BYTES:
+                await _screen_request_too_large_response()(scope, receive, send)
+                return
+
+        received_size = 0
+        exceeded_limit = False
+        overflow_response_sent = False
+
+        async def limited_receive():
+            nonlocal received_size, exceeded_limit
+            message = await receive()
+            if message["type"] == "http.request":
+                received_size += len(message.get("body", b""))
+                if received_size > MAX_SCREEN_ASSIST_REQUEST_BYTES:
+                    exceeded_limit = True
+                    raise _ScreenAssistRequestTooLarge
+            return message
+
+        async def limited_send(message):
+            nonlocal overflow_response_sent
+            if exceeded_limit:
+                if not overflow_response_sent:
+                    overflow_response_sent = True
+                    await _screen_request_too_large_response()(scope, receive, send)
+                return
+            await send(message)
+
+        try:
+            await self.app(scope, limited_receive, limited_send)
+        except _ScreenAssistRequestTooLarge:
+            if not overflow_response_sent:
+                overflow_response_sent = True
+                await _screen_request_too_large_response()(scope, receive, send)
+
 
 app = FastAPI(title="SkillCue API", version="0.1.10")
 
@@ -43,6 +123,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(ScreenAssistRequestSizeLimitMiddleware)
 
 # Starlette types handlers as taking the base Exception; our typed AppError
 # handler is a known false-positive, hence the targeted ignore.
@@ -53,8 +134,6 @@ app.add_exception_handler(Exception, unhandled_error_handler)
 @app.middleware("http")
 async def _require_local_token(request, call_next):
     """Отсекает чужие локальные процессы/сайты от API (см. core/local_auth)."""
-    from fastapi.responses import JSONResponse
-
     from app.core import local_auth
 
     if (

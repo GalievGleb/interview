@@ -24,6 +24,20 @@ function clipTail(text: string, limit: number): string {
   return `…${normalized.slice(-limit)}`;
 }
 
+/** Keep current corrections and the start of code intact when context is bounded. */
+export function clipPriorSolutionSummary(text: string, limit = MAX_PREVIOUS_ANSWER_CHARS): string {
+  const normalized = text.trim();
+  if (normalized.length <= limit) return normalized;
+  const codeStart = normalized.indexOf('```');
+  if (codeStart < 0) return normalized.slice(-limit);
+
+  const marker = '\n… older prose omitted …\n';
+  const preservedStartLength = Math.max(0, Math.floor((limit - marker.length) * 0.45));
+  const codeStartChunk = normalized.slice(codeStart, codeStart + preservedStartLength);
+  const newestChunk = normalized.slice(-(limit - marker.length - codeStartChunk.length));
+  return `${codeStartChunk}${marker}${newestChunk}`;
+}
+
 export function isSpokenScreenCaptureCue(text: string): boolean {
   return SPOKEN_SCREEN_CAPTURE_CUE.test(text.trim());
 }
@@ -59,7 +73,7 @@ export function buildScreenTaskContinuityContext(
 ): string {
   if (!previous || !isScreenTaskFollowUp(currentRequest)) return '';
   const question = clipTail(previous.question, MAX_PREVIOUS_QUESTION_CHARS);
-  const answer = clipTail(previous.answer, MAX_PREVIOUS_ANSWER_CHARS);
+  const answer = clipPriorSolutionSummary(previous.answer);
   if (!question && !answer) return '';
   return [
     'ПРЕДЫДУЩЕЕ ЗАДАНИЕ С ЭКРАНА (используй только если текущая просьба его продолжает):',

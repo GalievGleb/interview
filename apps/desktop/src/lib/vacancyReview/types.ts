@@ -94,6 +94,8 @@ export interface VacancyAnalysis {
    * fallback (no key / backend down). Absent on old saved analyses = unknown.
    */
   analysisSource?: 'ai' | 'heuristic';
+  /** Why the full analysis was replaced by the local result. */
+  analysisError?: 'timeout' | 'offline' | 'quota' | 'provider' | 'empty';
   /**
    * Denormalized grounding text, kept so evaluation can adapt the stronger
    * answer to the candidate's real experience. Trimmed to keep storage sane.

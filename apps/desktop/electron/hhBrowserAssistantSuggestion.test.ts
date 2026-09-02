@@ -433,6 +433,59 @@ describe('HH interactive screening-answer suggestions', () => {
     expect(result.note).toContain('Онлайн-генератор сейчас недоступен');
   });
 
+  it('prefers explicit resume tools over a stale negative traffic-inspection option', async () => {
+    const question = {
+      id: 'traffic-sniffing',
+      prompt: 'Как вы используете инструменты sniffing-трафика? (можно выбрать несколько вариантов)',
+      kind: 'multiple' as const,
+      options: [
+        'Не использую',
+        'Ловлю запросы и проверяю их параметры',
+        'Использую breakpoints для изменения запросов',
+        'Мокирую запросы и ответы',
+        'Ограничиваю скорость соединения (throttling)',
+        'Анализирую заголовки и сессии',
+        'Проверяю работу с прокси',
+        'Свой вариант',
+      ],
+      required: true,
+    };
+    const vacancy: HhQueueItem = {
+      ...pendingRtsVacancy(),
+      selectedResumeTitle: 'QA Automation Engineer Python',
+      pendingQuestions: [question],
+      screeningAnswers: [{
+        questionId: question.id,
+        question: question.prompt,
+        answer: '',
+        selectedOptions: ['Не использую'],
+        confirmedByUser: true,
+      }],
+    };
+    const generator = vi.fn(async () => ({ answers: [] }));
+    const assistant = createAssistant(generator, vacancy);
+    const mutable = assistant as unknown as { state: HhAssistantState };
+    mutable.state.screeningFacts = [{
+      id: 'stale-traffic-answer',
+      question: question.prompt,
+      answer: '',
+      selectedOptions: ['Не использую'],
+      updatedAt: new Date().toISOString(),
+    }];
+    vi.spyOn(assistant, 'getSelectedResumeText').mockResolvedValue(
+      'Chrome DevTools — анализ сетевых запросов. Fiddler — перехват HTTP-трафика.',
+    );
+
+    const result = await assistant.suggestScreeningAnswer(vacancy.key, question.id);
+
+    expect(result).toMatchObject({
+      source: 'profile',
+      selectedOptions: ['Ловлю запросы и проверяю их параметры'],
+    });
+    expect(assistant.getSelectedResumeText).toHaveBeenCalledOnce();
+    expect(generator).not.toHaveBeenCalled();
+  });
+
   it('returns a local draft when the selected resume body cannot be fetched', async () => {
     const outstaffVacancy: HhQueueItem = {
       ...pendingRtsVacancy(),

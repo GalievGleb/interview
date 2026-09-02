@@ -4,7 +4,18 @@ import { useState, type ReactNode } from 'react';
 export function formatLiveMarkdown(text: string): string {
   let out = text.trim();
   out = out.replace(/\n{3,}/g, '\n\n');
-  return out.trim();
+  return closeUnmatchedFinalFence(out.trim());
+}
+
+/**
+ * Во время стрима последний fenced-блок несколько секунд остаётся открытым.
+ * Закрываем только отображаемую копию: исходный текст ответа не меняется, а
+ * код сразу попадает в тот же читаемый блок, что и после финального чанка.
+ */
+export function closeUnmatchedFinalFence(text: string): string {
+  const fenceCount = text.match(/```/g)?.length ?? 0;
+  if (fenceCount % 2 === 0) return text;
+  return `${text}\n\`\`\``;
 }
 
 function isBulletLine(line: string): boolean {

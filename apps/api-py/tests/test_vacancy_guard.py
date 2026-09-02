@@ -3,6 +3,123 @@ import json
 
 from app.routers import vacancy as vacancy_router
 from app.services import provider_adapter
+from app.services.vacancy_guard import expand_compact_vacancy_evaluation
+
+
+def test_compact_feedback_normalizes_a_model_that_uses_a_ten_point_scale():
+    result = expand_compact_vacancy_evaluation(
+        {"score": 8, "goodPoints": ["Практический ответ"]},
+        candidate_answer="Я привёл практический пример.",
+        expected_signals=["практический пример"],
+    )
+
+    assert result["score"] == 80
+    assert result["technicalAccuracyScore"] == 80
+
+
+def test_vacancy_evaluate_removes_false_missing_example_feedback(client, monkeypatch):
+    async def fake_complete(messages, provider=None, model=None, **kwargs):
+        return json.dumps(
+            {
+                "score": 85,
+                "levelEstimate": "middle",
+                "verdict": "ООП применено уверенно, но практические примеры применения не раскрыты.",
+                "feedback": (
+                    "Хорошо объяснены инкапсуляция и композиция, но не хватает примера из практики. "
+                    "Добавьте конкретную реализацию Page Object."
+                ),
+                "goodPoints": ["Есть архитектурное объяснение"],
+                "missingPoints": ["Конкретный практический пример"],
+                "weakPoints": ["Не приведён пример применения"],
+                "technicalCorrections": [],
+                "suggestedBetterAnswer": "Я применяю Page Object и композицию объектов страниц.",
+                "followUpQuestions": [],
+                "overclaimed": False,
+            },
+            ensure_ascii=False,
+        )
+
+    monkeypatch.setattr(provider_adapter, "complete", fake_complete)
+
+    answer = (
+        "В UI-тестах я использую Page Object: локаторы и действия страницы держу внутри отдельных "
+        "объектов, а тесты вызывают бизнес-методы. Общие зависимости передаю через композицию. "
+        "Наследование оставляю только для общего поведения, чтобы не получить хрупкую иерархию."
+    )
+    res = client.post(
+        "/vacancy/evaluate",
+        json={
+            "question": "Как вы используете ООП в своей работе?",
+            "answer": answer,
+            "topic": "Python и архитектура автотестов",
+            "level": "middle",
+            "expectedSignals": [
+                "Page Object",
+                "инкапсуляция",
+                "композиция",
+                "границы наследования",
+            ],
+            "resumeText": "QA Automation: Python, pytest, Playwright, Page Object.",
+            "vacancyText": "Автоматизация UI-тестов на Python.",
+            "language": "ru",
+            "hasResume": True,
+        },
+    )
+
+    assert res.status_code == 200, res.text
+    body = res.json()
+    combined = " ".join(
+        [body["verdict"], body["feedback"], *body["weakPoints"], *body["missingPoints"]]
+    ).lower()
+    assert "не хватает примера" not in combined
+    assert "пример применения" not in combined
+    assert "практического примера нет" not in combined
+    assert "примеры применения не раскрыты" not in combined
+    assert "конкретный практический пример" not in combined
+
+
+def test_vacancy_evaluate_retries_invalid_fast_model_json_with_stable_fallback(client, monkeypatch):
+    calls: list[str] = []
+
+    async def fake_complete(messages, provider=None, model=None, **kwargs):
+        calls.append(model)
+        if model == "qwen/qwen3.5-flash-02-23":
+            return "not-json"
+        return json.dumps(
+            {
+                "score": 80,
+                "levelEstimate": "middle",
+                "verdict": "Хороший ответ.",
+                "feedback": "Ответ точный.",
+                "goodPoints": ["Есть практический смысл"],
+                "missingPoints": [],
+                "technicalCorrections": [],
+                "suggestedBetterAnswer": "Я объясняю подход на практическом примере.",
+                "followUpQuestions": [],
+                "overclaimed": False,
+            },
+            ensure_ascii=False,
+        )
+
+    monkeypatch.setattr(
+        vacancy_router,
+        "_resolve",
+        lambda _mode: ("openrouter", "qwen/qwen3.5-flash-02-23"),
+    )
+    monkeypatch.setattr(provider_adapter, "complete", fake_complete)
+    response = client.post(
+        "/vacancy/evaluate",
+        json={
+            "question": "Как применяете тест-дизайн?",
+            "answer": "Использую классы эквивалентности и границы.",
+            "expectedSignals": ["классы эквивалентности", "граничные значения"],
+            "language": "ru",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert calls == ["qwen/qwen3.5-flash-02-23", vacancy_router.FEEDBACK_FALLBACK_MODEL]
+    assert response.json()["model"] == vacancy_router.FEEDBACK_FALLBACK_MODEL
 
 
 def test_vacancy_evaluate_removes_unsupported_claims_and_reports_asr_noise(client, monkeypatch):
@@ -41,6 +158,8 @@ def test_vacancy_evaluate_removes_unsupported_claims_and_reports_asr_noise(clien
                 "suggestedBetterAnswer": (
                     "Я руководил командой из 6 человек, менторил QA и проводил code review. "
                     "На проекте внедрил Cypress и JMeter, повысил стабильность на 40%. "
+                    "В одном из моих проектов я использовал PostgreSQL. "
+                    "В одном из моих проектов я улучшил процесс тестирования. "
                     "Также настраивал GitLab CI, Docker и Allure."
                 ),
                 "followUpQuestions": [],
@@ -62,7 +181,7 @@ def test_vacancy_evaluate_removes_unsupported_claims_and_reports_asr_noise(clien
             "expectedSignals": ["GitLab CI", "Docker", "Allure"],
             "relatedResumeEvidence": ["GitLab CI", "Docker", "Allure"],
             "resumeText": "Ведущий AQA: настраивал GitLab CI, Docker, Allure и pytest.",
-            "vacancyText": "Lead QA Automation: GitLab CI, Docker, Allure, pytest.",
+            "vacancyText": "Lead QA Automation: GitLab CI, Docker, Allure, pytest, PostgreSQL.",
             "language": "ru",
             "hasResume": True,
         },
@@ -77,6 +196,8 @@ def test_vacancy_evaluate_removes_unsupported_claims_and_reports_asr_noise(clien
     assert "code review" not in stronger
     assert "cypress" not in stronger
     assert "jmeter" not in stronger
+    assert "postgresql" not in stronger
+    assert "в одном из моих проектов" not in stronger
     assert "точных цифр сейчас не приведу" in stronger
     assert any("patreon" in item.lower() for item in body["detectedNoiseOrAsrErrors"])
     assert any(
@@ -86,6 +207,155 @@ def test_vacancy_evaluate_removes_unsupported_claims_and_reports_asr_noise(clien
     assert any(
         "метрик" in item.lower() or "цифр" in item.lower() for item in body["hallucinationGuard"]
     )
+
+
+def test_vacancy_evaluate_preserves_honest_gap_with_project_wording(client, monkeypatch):
+    async def fake_complete(messages, provider=None, model=None, **kwargs):
+        return json.dumps(
+            {
+                "score": 80,
+                "levelEstimate": "middle",
+                "verdict": "Честно обозначена граница опыта.",
+                "feedback": "Добавьте базовое понимание диагностики.",
+                "goodPoints": ["Не выдумывает опыт"],
+                "missingPoints": ["Диагностика"],
+                "technicalCorrections": [],
+                "suggestedBetterAnswer": (
+                    "На текущем проекте я Kubernetes не настраивал. "
+                    "В моих пайплайнах я могу развернуть окружение через Helm и kubectl. "
+                    "Однако понимаю назначение Pod и Deployment и начал бы диагностику с событий и логов."
+                ),
+                "followUpQuestions": [],
+                "overclaimed": False,
+            },
+            ensure_ascii=False,
+        )
+
+    monkeypatch.setattr(provider_adapter, "complete", fake_complete)
+
+    res = client.post(
+        "/vacancy/evaluate",
+        json={
+            "question": "Как вы использовали Kubernetes на проекте?",
+            "answer": "Сам Kubernetes на проекте я не настраивал; практического опыта администрирования нет.",
+            "topic": "Kubernetes",
+            "level": "middle",
+            "expectedSignals": ["честная граница опыта", "логи и диагностика"],
+            "resumeText": "QA Automation: Python, pytest, Docker, GitLab CI.",
+            "vacancyText": "Kubernetes и контейнеризация.",
+            "language": "ru",
+            "hasResume": True,
+        },
+    )
+
+    assert res.status_code == 200, res.text
+    answer = res.json()["suggestedBetterAnswer"]
+    assert "Сам Kubernetes на проекте я не настраивал" in answer
+    assert "На текущем проекте" not in answer
+    assert "Helm" not in answer
+    assert "kubectl" not in answer
+    assert not answer.startswith("Однако")
+    assert res.json()["score"] <= 75
+
+
+def test_vacancy_evaluate_restores_an_omitted_honest_experience_boundary(client, monkeypatch):
+    async def fake_complete(messages, provider=None, model=None, **kwargs):
+        return json.dumps(
+            {
+                "score": 70,
+                "levelEstimate": "middle",
+                "verdict": "Нужна практическая глубина.",
+                "feedback": "Покажите понимание диагностики.",
+                "goodPoints": ["Есть базовое понимание"],
+                "missingPoints": ["Практика"],
+                "technicalCorrections": [],
+                "suggestedBetterAnswer": (
+                    "Я понимаю назначение Pod и Deployment и начал бы диагностику с событий и логов. "
+                    "В рамках тестирования я анализировал логи через kubectl и проверял ConfigMaps. "
+                    "Я участвовал в деплое тестовых сред в кластер. "
+                    "Готов освоить kubectl для просмотра статусов."
+                ),
+                "followUpQuestions": [],
+                "overclaimed": False,
+            },
+            ensure_ascii=False,
+        )
+
+    monkeypatch.setattr(provider_adapter, "complete", fake_complete)
+
+    res = client.post(
+        "/vacancy/evaluate",
+        json={
+            "question": "Как вы использовали Kubernetes на проекте?",
+            "answer": "Сам Kubernetes на проекте я не настраивал; практического опыта администрирования нет.",
+            "topic": "Kubernetes",
+            "level": "middle",
+            "expectedSignals": ["честная граница опыта", "логи и диагностика"],
+            "resumeText": "QA Automation: Python, pytest, Docker, GitLab CI.",
+            "vacancyText": "Kubernetes и контейнеризация.",
+            "language": "ru",
+            "hasResume": True,
+        },
+    )
+
+    assert res.status_code == 200, res.text
+    answer = res.json()["suggestedBetterAnswer"]
+    assert "Kubernetes на проекте я не настраивал" in answer
+    assert "практического опыта администрирования нет" in answer
+    assert "анализировал логи через kubectl" not in answer
+    assert "проверял ConfigMaps" not in answer
+    assert "участвовал в деплое" not in answer
+    assert "Готов освоить kubectl" in answer
+
+
+def test_vacancy_evaluate_does_not_turn_a_mentioned_term_into_personal_habit(client, monkeypatch):
+    async def fake_complete(messages, provider=None, model=None, **kwargs):
+        return json.dumps(
+            {
+                "score": 20,
+                "levelEstimate": "junior",
+                "verdict": "Методы перепутаны.",
+                "feedback": "Исправьте разницу между sort и sorted.",
+                "goodPoints": [],
+                "missingPoints": [],
+                "technicalCorrections": ["sort меняет список, sorted создаёт новый"],
+                "suggestedBetterAnswer": (
+                    "list.sort() меняет исходный список и возвращает None. "
+                    "sorted() создаёт новый список. "
+                    "В тестах я чаще использую sorted, чтобы не менять данные фикстур."
+                ),
+                "followUpQuestions": [],
+                "overclaimed": False,
+            },
+            ensure_ascii=False,
+        )
+
+    monkeypatch.setattr(provider_adapter, "complete", fake_complete)
+
+    res = client.post(
+        "/vacancy/evaluate",
+        json={
+            "question": "Чем list.sort отличается от sorted в Python?",
+            "answer": "sort возвращает новый список, а sorted меняет исходный.",
+            "topic": "Python",
+            "level": "middle",
+            "expectedSignals": ["изменение на месте", "новый список"],
+            "resumeText": "QA Automation: Python и pytest.",
+            "vacancyText": "Python-разработчик автотестов.",
+            "language": "ru",
+            "hasResume": True,
+        },
+    )
+
+    assert res.status_code == 200, res.text
+    body = res.json()
+    answer = body["suggestedBetterAnswer"]
+    assert "list.sort() меняет" in answer
+    assert "sorted() создаёт" in answer
+    assert "В тестах я чаще использую sorted" not in answer
+    assert body["score"] <= 45
+    assert body["technicalAccuracyScore"] <= 45
+    assert any("list.sort" in item and "None" in item for item in body["technicalCorrections"])
 
 
 def test_vacancy_evaluate_prompt_contains_strict_allowed_sources(client, monkeypatch):
@@ -162,9 +432,11 @@ def test_vacancy_evaluate_prompt_contains_strict_allowed_sources(client, monkeyp
     prompt = captured["prompt"]
     assert "Resume and interview legend may support personal claims" in prompt
     assert "Vacancy and expected signals describe requirements" in prompt
+    assert "does not prove a personal habit" in prompt
+    assert "After an explicit experience gap" in prompt
     assert "Candidate answer:" in prompt
     assert "INTERVIEW LEGEND" not in prompt
-    assert captured["model"].endswith("gpt-4o-mini")
+    assert captured["model"] == "qwen/qwen3.5-flash-02-23"
     assert captured["max_tokens"] <= 1200
     assert captured["reasoning"] is None
     assert captured["response_format"] == {"type": "json_object"}
@@ -194,6 +466,58 @@ def test_vacancy_evaluate_has_a_hard_interactive_deadline(client, monkeypatch):
 
     assert res.status_code == 504
     assert res.json()["detail"] == "Vacancy evaluation timed out"
+
+
+def test_vacancy_feedback_budget_fits_compact_real_ai_coaching():
+    assert 7.0 <= vacancy_router.VACANCY_EVALUATE_DEADLINE_SECONDS <= 10.0
+    assert vacancy_router.VACANCY_EVALUATE_MAX_TOKENS <= 750
+
+
+def test_vacancy_evaluate_expands_compact_model_result(client, monkeypatch):
+    captured = {}
+
+    async def fake_complete(messages, provider=None, model=None, **kwargs):
+        captured["prompt"] = messages[-1]["content"]
+        return json.dumps(
+            {
+                "score": 82,
+                "levelEstimate": "middle",
+                "verdict": "Ответ технически верный и практичный.",
+                "feedback": "Вы назвали контракт и негативные проверки. Добавьте проверку изменения состояния.",
+                "goodPoints": ["Проверяет схему и типы полей"],
+                "missingPoints": ["Проверка изменения состояния"],
+                "technicalCorrections": [],
+                "suggestedBetterAnswer": "Кроме статуса я проверяю контракт, бизнес-данные и изменение состояния системы.",
+                "followUpQuestions": ["Как проверите идемпотентность запроса?"],
+                "overclaimed": False,
+            },
+            ensure_ascii=False,
+        )
+
+    monkeypatch.setattr(provider_adapter, "complete", fake_complete)
+    response = client.post(
+        "/vacancy/evaluate",
+        json={
+            "question": "Что проверяете в API кроме статуса?",
+            "answer": "Проверяю схему, типы полей и негативные кейсы.",
+            "topic": "API",
+            "level": "middle",
+            "expectedSignals": ["schema/body checks", "negative cases", "state verification"],
+            "resumeText": "API tests with pytest and HTTPX.",
+            "vacancyText": "API testing.",
+            "language": "ru",
+            "hasResume": True,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["technicalAccuracyScore"] >= 60
+    assert body["clarityScore"] >= 50
+    assert body["coverageScore"] >= 50
+    assert body["goodPoints"] == ["Проверяет схему и типы полей"]
+    assert "whyThisAnswerWorks" not in captured["prompt"]
+    assert len(captured["prompt"]) < 7_000
 
 
 def test_vacancy_evaluate_preserves_raw_voice_answer_in_prompt(client, monkeypatch):

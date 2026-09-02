@@ -21,6 +21,38 @@ describe('encodeWav', () => {
 });
 
 describe('LiveDebugRecorder', () => {
+  it('retains structured candidate hotkey ownership diagnostics without screen pixels', () => {
+    const rec = new LiveDebugRecorder();
+    rec.start(16000);
+    rec.event('candidate_hotkey_received', {
+      source: 'mic',
+      meta: { hotkeySource: 'global', generation: 4 },
+    });
+    rec.event('candidate_hotkey_queued', {
+      source: 'mic',
+      reason: 'finalizing_active_speech',
+      meta: { generation: 4 },
+    });
+    rec.event('candidate_hotkey_selected', {
+      source: 'mic',
+      meta: {
+        generation: 4,
+        sequence: 17,
+        contextSource: 'screen',
+        screenshot: 'data:image/jpeg;base64,SECRET_PIXELS',
+      },
+    });
+
+    const serialized = JSON.stringify(rec.buildJson(null));
+    expect(serialized).toContain('candidate_hotkey_received');
+    expect(serialized).toContain('candidate_hotkey_queued');
+    expect(serialized).toContain('candidate_hotkey_selected');
+    expect(serialized).toContain('"generation":4');
+    expect(serialized).toContain('"sequence":17');
+    expect(serialized).toContain('"contextSource":"screen"');
+    expect(serialized).not.toContain('SECRET_PIXELS');
+  });
+
   it('retains the newest 1,000 events and reports exact dropped and total counts', () => {
     const rec = new LiveDebugRecorder();
     rec.start(16000);

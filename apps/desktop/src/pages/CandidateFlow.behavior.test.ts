@@ -11,6 +11,10 @@ const documents = read('DocumentsPage.tsx');
 const practice = read('PracticePage.tsx');
 const history = read('HistoryPage.tsx');
 const settings = read('SettingsPage.tsx');
+const prepareStyles = fs.readFileSync(
+  path.resolve(__dirname, '../styles/prepare.css'),
+  'utf8',
+);
 const vacancySetup = fs.readFileSync(
   path.resolve(__dirname, '../components/prepare/VacancySetup.tsx'),
   'utf8',
@@ -33,6 +37,12 @@ describe('candidate flow across every primary tab', () => {
     expect(vacancySetup).toContain('initialDraft.targetRole || goalRoleLabel');
   });
 
+  it('keeps the vacancy analysis action readable in the standard desktop window', () => {
+    expect(prepareStyles).toMatch(
+      /\.prep-setup-submit\s+\.prep-btn\s*\{[^}]*white-space:\s*nowrap;/s,
+    );
+  });
+
   it('opens the requested applications mode and conversation view', () => {
     expect(applications).toContain("searchParams.get('mode') === 'settings'");
     expect(applications).toContain("searchParams.get('view')");
@@ -50,15 +60,17 @@ describe('candidate flow across every primary tab', () => {
     expect(calendar).toContain('Требования вакансии не добавлены');
   });
 
-  it('keeps the professional goal in Profile & experience', () => {
+  it('keeps one explicit preparation role in Profile & experience', () => {
     expect(practice).toContain('{scheduledVacancy && <section');
     expect(practice).not.toContain('scheduledVacancy && !inProgress');
     expect(documents).toContain('<GrowthProfileSetup');
-    expect(documents).toContain('section=goal');
+    expect(documents).toContain('section=role');
+    expect(documents).not.toContain('профессиональную цель');
   });
 
   it('keeps practice and real interviews as separate destinations', () => {
-    expect(practice).toContain('Последние сессии');
+    expect(practice).toContain('Завершённые тренировки');
+    expect(practice).toContain('Новая практика');
     expect(practice).toContain('По вакансии');
     expect(history).toContain('Реальные разговоры');
     expect(history).not.toContain('listMockSessions');

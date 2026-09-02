@@ -61,7 +61,7 @@ export default function CommandPalette() {
           run: () => setLang(getLang() === 'ru' ? 'en' : 'ru'),
         },
         { id: 'overlay', label: t('cmd.overlay'), hint: 'Ctrl+Shift+H', run: () => launchLive(() => navigate('/overlay')) },
-        ...(buildChannel === 'dev' ? [
+        ...(buildChannel === 'dev' || buildChannel === 'alpha' ? [
           { id: 'meeting', label: t('cmd.meeting'), dev: true, run: () => navigate('/meeting') },
           { id: 'testlab', label: t('cmd.testlab'), dev: true, run: () => navigate('/test-lab') },
           { id: 'benchmark', label: t('cmd.benchmark'), dev: true, run: () => navigate('/benchmark') },

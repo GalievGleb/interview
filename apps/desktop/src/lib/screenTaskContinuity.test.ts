@@ -61,4 +61,29 @@ describe('screen task continuity', () => {
     expect(context).toContain('ПРЕДЫДУЩИЙ ОТВЕТ SKILLCUE');
     expect(context.length).toBeLessThanOrEqual(3900);
   });
+
+  it('keeps the beginning of fenced prior code while retaining the newest correction', () => {
+    const context = buildScreenTaskContinuityContext(
+      'Теперь измени предыдущее решение: добавь группировку по городу.',
+      {
+        question: 'Напиши SQL-запрос',
+        answer: `Старое пояснение ${'x'.repeat(3_000)}\n\`\`\`sql\nSELECT city, count(*)\n${'y'.repeat(3_000)}\n\`\`\`\nНовейшее исправление: не удаляй фильтр active = true.`,
+      },
+    );
+
+    expect(context).toContain('```sql\nSELECT city, count(*)');
+    expect(context).toContain('Новейшее исправление: не удаляй фильтр active = true.');
+  });
+
+  it('never exceeds its declared limit when a prior solution has no fenced code', () => {
+    const context = buildScreenTaskContinuityContext(
+      'Теперь измени предыдущее решение.',
+      { question: 'Q', answer: `${'старый текст '.repeat(400)}НОВЕЙШАЯ_ПРАВКА` },
+    );
+
+    const answer = context.split('ПРЕДЫДУЩИЙ ОТВЕТ SKILLCUE:\n')[1]
+      .split('\nТекущий скриншот')[0];
+    expect(answer.length).toBeLessThanOrEqual(2_800);
+    expect(answer).toContain('НОВЕЙШАЯ_ПРАВКА');
+  });
 });

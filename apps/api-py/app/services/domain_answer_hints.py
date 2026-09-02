@@ -67,6 +67,10 @@ _SORTED_LIST_SORT_RE = re.compile(
     r"\blist\s*\.\s*sort\s*\([^)]*\).{0,100}\bsorted\s*\(",
     re.IGNORECASE | re.UNICODE,
 )
+_SQL_NOT_IN_NULL_RE = re.compile(
+    r"\bnot\s+in\b.{0,160}\bnull\b|\bnull\b.{0,160}\bnot\s+in\b",
+    re.IGNORECASE | re.UNICODE,
+)
 _PYTHON_DATA_TYPES_ASR_RE = re.compile(
     r"\bкаки\w*.{0,35}(?:подад\w*|данн\w*|тип\w*).{0,45}"
     r"(?:питон\w*|python).{0,35}зна\w*",
@@ -160,9 +164,8 @@ _PYTEST_HINT = """TOPIC HINT — pytest / fixtures (concise say-aloud, max 4 bul
 - optional inline example only: API client, auth, test data.
 Do NOT write a long Geomix/Sber story. Do NOT list every scope in a separate essay sentence."""
 
-_FLAKY_HINT = """TOPIC HINT — flaky tests / CI/CD stability (weave naturally into bullets, do NOT dump as a keyword list):
-Mention when relevant: logs; Allure; screenshots/artifacts; explicit waits; stable locators;
-retries only as temporary workaround; remove sleep; isolate test data between runs."""
+_FLAKY_HINT = """TOPIC HINT — flaky tests / CI/CD stability (weave naturally, do NOT dump as a keyword list):
+Start from evidence: reproduce and compare logs/artifacts, then separate a product defect from test-data, environment, timing and concurrency problems. Isolate data and dependencies between runs. A retry is only a temporary diagnostic or resilience measure; it must not hide the root cause."""
 
 _AUTOMATION_TYPES_HINT = """TOPIC HINT — виды/типы автоматизации (concise say-aloud, ~50–90 words):
 Talk about WHAT gets automated, not «ручная автоматизация» (that is wrong/contradictory).
@@ -204,6 +207,9 @@ dynamic = проверка с запуском приложения (функц�
 _SORTED_LIST_SORT_HINT = """VERIFIED PYTHON SORTING FACTS (use exactly; do not describe this as full vs partial/local sorting):
 sorted(iterable) returns a new list; list.sort() mutates that list in place and returns None."""
 
+_SQL_NOT_IN_NULL_HINT = """VERIFIED SQL THREE-VALUED LOGIC FACTS:
+Answer in at least two sentences. First answer the yes/no premise directly with «Нет»: NOT IN is not safe when the subquery can return NULL. Then explain that the comparison becomes UNKNOWN and can filter out every candidate row; prefer NOT EXISTS, or explicitly exclude NULL from the subquery when that matches the intended contract."""
+
 _OOP_PRACTICAL_HINT = """TOPIC HINT — practical OOP in Python UI test automation (answer as a concrete work-use example, without invented company facts or metrics):
 In Python UI autotests, Page Object classes инкапсулируют локаторы and page actions; tests call readable business actions instead of working with selectors directly. Common behavior belongs in a small BasePage or reusable composition, while one shared interface lets page/client implementations be replaced without rewriting the test flow. Не своди ответ к перечислению шаблонов проектирования."""
 
@@ -230,8 +236,7 @@ def resolve_fast_question_alias(question: str) -> str:
     ):
         return _OOP_ASR_NEAR_MISS_RE.sub("ООП", normalized)
     if (
-        _SPOKEN_SORTED_LIST_SORT_RE.search(normalized)
-        or _SORT_AND_SORTED_ASR_RE.search(normalized)
+        _SPOKEN_SORTED_LIST_SORT_RE.search(normalized) or _SORT_AND_SORTED_ASR_RE.search(normalized)
     ) and not _SORTED_LIST_SORT_RE.search(normalized):
         return "В чём разница между sorted() и list.sort()?"
     return normalized
@@ -257,6 +262,8 @@ def _resolve_domain_answer_hints(question: str, *, include_personal_templates: b
         blocks.append(_BUG_REPORT_HINT)
     if _SORTED_LIST_SORT_RE.search(q):
         blocks.append(_SORTED_LIST_SORT_HINT)
+    if _SQL_NOT_IN_NULL_RE.search(q):
+        blocks.append(_SQL_NOT_IN_NULL_HINT)
     if _OOP_PRACTICAL_RE.search(q):
         blocks.append(_OOP_PRACTICAL_HINT)
     if _TEST_DESIGN_RE.search(q):

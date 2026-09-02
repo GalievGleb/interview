@@ -56,6 +56,30 @@ describe('PersistentGlobalShortcut', () => {
     expect(registry.register).toHaveBeenCalledTimes(2);
   });
 
+  it('retries candidate registration and delivers after the overlay loses focus', () => {
+    let callback: (() => void) | null = null;
+    const registry = {
+      register: vi.fn((_accelerator: string, handler: () => void) => {
+        if (registry.register.mock.calls.length === 1) return false;
+        callback = handler;
+        return true;
+      }),
+      unregister: vi.fn(),
+      isRegistered: vi.fn(() => callback !== null),
+    };
+    const deliver = vi.fn();
+    const shortcut = new PersistentGlobalShortcut(
+      registry,
+      'CommandOrControl+\\',
+      deliver,
+    );
+
+    expect(shortcut.ensureRegistered()).toBe(false);
+    expect(shortcut.ensureRegistered()).toBe(true);
+    callback?.();
+    expect(deliver).toHaveBeenCalledOnce();
+  });
+
   it('unregisters only when the application is disposed', () => {
     const registry = {
       register: vi.fn(() => true),
@@ -80,6 +104,7 @@ describe('PersistentGlobalShortcut', () => {
     const startupSource = mainSource.slice(registerShortcutsAt, createTrayAt);
     expect(startupSource).toContain('registerForceAnswerShortcut();');
     expect(startupSource).toContain('registerForceScreenAnswerShortcut();');
+    expect(startupSource).toContain('registerCandidateFollowUpShortcut();');
     expect(mainSource).toContain('scheduleToggleOverlayShortcutRetry');
     expect(mainSource).toContain('toggleOverlayShortcutBinding?.ensureRegistered()');
     expect(mainSource).toContain(
@@ -88,5 +113,17 @@ describe('PersistentGlobalShortcut', () => {
     expect(mainSource).toContain("if (!win.isVisible()) showOverlayWindow(win, 'inactive');");
     expect(mainSource).toContain("win.webContents.send('overlay:force-answer')");
     expect(mainSource).toContain("win.webContents.send('overlay:force-screen-answer')");
+    expect(mainSource).toContain('scheduleCandidateFollowUpShortcutRetry');
+    expect(mainSource).toContain('candidateFollowUpShortcutBinding?.ensureRegistered()');
+    expect(mainSource).toContain("win.webContents.send('overlay:candidate-follow-up')");
+  });
+
+  it('keeps candidate follow-up out of the visibility-scoped shortcut owner', () => {
+    const lifecycleSource = fs.readFileSync(
+      path.resolve(__dirname, 'overlayShortcutLifecycle.ts'),
+      'utf8',
+    );
+    expect(lifecycleSource).not.toContain('CANDIDATE_FOLLOW_UP_ACCELERATOR');
+    expect(lifecycleSource).not.toContain('candidateFollowUp');
   });
 });

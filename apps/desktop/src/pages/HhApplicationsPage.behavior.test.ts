@@ -436,8 +436,9 @@ describe('HH applications redesign', () => {
     expect(pageSource).toContain('chat.prepareDecisionDrafts()');
     expect(pageSource).toContain('mergeHhChatDecisionDrafts(current, decisions)');
     expect(pageSource).toContain('decision.suggestedAnswer');
-    expect(pageSource).toContain('Готовлю ответ по вашему резюме');
-    expect(pageSource).toContain('Проверьте факты перед отправкой');
+    expect(pageSource).toContain('hhChatDecisionHelperText(chatDraftPreparing');
+    expect(pageSource).not.toContain('Проверьте факты перед отправкой');
+    expect(pageSource).not.toContain('Замените подсказку в квадратных скобках');
     expect(pageSource).not.toContain('const chatDecisionSuggestedAnswer');
     expect(mainSource).toContain("handle('hh-chat:prepare-decision-drafts'");
     expect(preloadSource).toContain("ipcRenderer.invoke('hh-chat:prepare-decision-drafts')");

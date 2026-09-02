@@ -66,7 +66,11 @@ describe('overlay shortcut lifecycle', () => {
     const scroll = vi.fn();
     const overlay = fakeOverlayWindow();
 
-    bindOverlayShortcutLifecycle(overlay, shortcuts, vi.fn(), { move, scroll, step: 40 });
+    bindOverlayShortcutLifecycle(overlay, shortcuts, vi.fn(), {
+      move,
+      scroll,
+      step: 40,
+    });
     overlay.emit('show');
 
     callbacks.get('CommandOrControl+Right')?.();
@@ -86,6 +90,11 @@ describe('overlay shortcut lifecycle', () => {
     expect(shortcuts.unregister).toHaveBeenCalledWith('CommandOrControl+Right');
     expect(shortcuts.unregister).toHaveBeenCalledWith('CommandOrControl+Up');
     expect(shortcuts.unregister).toHaveBeenCalledWith('CommandOrControl+Shift+Down');
+    expect(shortcuts.register).not.toHaveBeenCalledWith(
+      'CommandOrControl+\\',
+      expect.any(Function),
+    );
+    expect(shortcuts.unregister).not.toHaveBeenCalledWith('CommandOrControl+\\');
   });
 
   it('enables global movement and scrolling in every build while the overlay is visible', () => {

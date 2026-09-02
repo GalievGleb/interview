@@ -7,8 +7,11 @@ import {
   summarizeHhQueueGates,
 } from './HhApplicationsPage';
 import {
+  classifyHhScreeningSubmission,
+  clampHhScreeningQuestionIndex,
   isHhScreeningSubmissionAccepted,
   resolveHhScreeningVacancy,
+  shouldResetHhScreeningQuestionPosition,
 } from './HhHrProfilePage';
 import { summarizeHomeHhQueue } from './HomePage';
 
@@ -109,5 +112,36 @@ describe('HH queue UI state', () => {
     expect(isHhScreeningSubmissionAccepted({ queue: [] }, target.key)).toBe(false);
     expect(isHhScreeningSubmissionAccepted({ queue: [{ ...target, status: 'sent', pendingQuestions: undefined }] }, target.key)).toBe(true);
     expect(isHhScreeningSubmissionAccepted({ queue: [{ ...target, status: 'already_applied', pendingQuestions: undefined }] }, target.key)).toBe(true);
+  });
+
+  it('treats a fully persisted prepared questionnaire as queued success rather than an error', () => {
+    const target = vacancy('1', 'prepared', undefined, {
+      pendingQuestions: undefined,
+      screeningAnswers: [{
+        questionId: 'q1',
+        question: 'Где вы живёте?',
+        answer: 'Красноярск',
+        selectedOptions: [],
+        confirmedByUser: true,
+      }],
+    });
+
+    expect(classifyHhScreeningSubmission({ queue: [target] }, target.key, ['q1']))
+      .toBe('queued');
+    expect(classifyHhScreeningSubmission({ queue: [{ ...target, status: 'sent' }] }, target.key, ['q1']))
+      .toBe('sent');
+    expect(classifyHhScreeningSubmission({ queue: [{ ...target, screeningAnswers: [] }] }, target.key, ['q1']))
+      .toBe('rejected');
+  });
+
+  it('keeps the visible question during transient queue refreshes and vacancy-key normalization', () => {
+    const target = vacancy('42', 'needs_input');
+
+    expect(clampHhScreeningQuestionIndex(7, 0)).toBe(7);
+    expect(clampHhScreeningQuestionIndex(7, 16)).toBe(7);
+    expect(clampHhScreeningQuestionIndex(20, 16)).toBe(15);
+    expect(shouldResetHhScreeningQuestionPosition(target, target.id)).toBe(false);
+    expect(shouldResetHhScreeningQuestionPosition(target, target.key)).toBe(false);
+    expect(shouldResetHhScreeningQuestionPosition(target, 'hh:another')).toBe(true);
   });
 });

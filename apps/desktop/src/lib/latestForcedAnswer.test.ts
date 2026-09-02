@@ -640,6 +640,50 @@ describe('LatestForcedAnswerCoordinator', () => {
     });
   });
 
+  it('does not lose the next question after a prompt-echo gap and a repeated Ctrl+Enter', () => {
+    const coordinator = new LatestForcedAnswerCoordinator(() => 'unused', () => 200_000);
+    const oldFiller = [
+      {
+        sequence: 1,
+        text: 'Да, мы сейчас...',
+        source: 'system' as const,
+        capturedAtMs: 114_104,
+      },
+      {
+        sequence: 2,
+        text: 'То есть мы работаем немножко.',
+        source: 'system' as const,
+        capturedAtMs: 130_900,
+      },
+    ];
+    const firstQuestion = {
+      sequence: 3,
+      text: 'Чем отличаются list, tuple, set и dict?',
+      source: 'system' as const,
+      capturedAtMs: 164_664,
+    };
+
+    expect(coordinator.press([...oldFiller, firstQuestion], 'system')).toMatchObject({
+      action: 'submit',
+      sequence: 3,
+      question: firstQuestion.text,
+    });
+
+    const secondQuestion = {
+      sequence: 4,
+      text: 'Почему set обычно быстрее списка при проверке x in collection?',
+      source: 'system' as const,
+      capturedAtMs: 190_754,
+    };
+    expect(
+      coordinator.press([...oldFiller, firstQuestion, secondQuestion], 'system'),
+    ).toMatchObject({
+      action: 'submit',
+      sequence: 4,
+      question: secondQuestion.text,
+    });
+  });
+
   it('keeps the mic freshness boundary at 20,000 ms', () => {
     const fresh = new LatestForcedAnswerCoordinator(() => 'unused', () => 100_000);
     expect(

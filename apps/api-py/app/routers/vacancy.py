@@ -10,6 +10,7 @@ import asyncio
 import json
 import logging
 import re
+import time
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -27,7 +28,11 @@ from app.prompts.vacancy import (
 )
 from app.services import model_router, provider_adapter, rag_service
 from app.services.preferences import load_preferences
-from app.services.vacancy_guard import detect_asr_noise, harden_vacancy_evaluation
+from app.services.vacancy_guard import (
+    detect_asr_noise,
+    expand_compact_vacancy_evaluation,
+    harden_vacancy_evaluation,
+)
 
 logger = logging.getLogger("vacancy")
 
@@ -62,8 +67,8 @@ def _resolve(mode: str = "general") -> tuple[str, str]:
 # повторяем запрос этой моделью, чтобы разбор/оценка оставались AI.
 FALLBACK_MODEL = "openai/gpt-4o-mini"
 FEEDBACK_FALLBACK_MODEL = "openai/gpt-4o-mini"
-VACANCY_EVALUATE_DEADLINE_SECONDS = 4.5
-VACANCY_EVALUATE_MAX_TOKENS = 1200
+VACANCY_EVALUATE_DEADLINE_SECONDS = 8.5
+VACANCY_EVALUATE_MAX_TOKENS = 700
 SCREENING_ANSWERS_MAX_TOKENS = 1600
 SCREENING_ANSWERS_DEADLINE_MARGIN_SECONDS = 5.0
 # Electron allows 95 seconds for this localhost request. Keep the server's
@@ -1559,6 +1564,7 @@ async def evaluate(payload: EvaluatePayload, db=Depends(get_db)) -> dict:
     # This path runs after every answer, so latency is part of correctness. A
     # hard server deadline lets the desktop switch to its local deterministic
     # feedback instead of leaving the user staring at a spinner.
+    evaluation_started_at = time.monotonic()
     try:
         raw, model = await asyncio.wait_for(
             _complete_or_fallback(
@@ -1581,7 +1587,43 @@ async def evaluate(payload: EvaluatePayload, db=Depends(get_db)) -> dict:
         logger.warning("Vacancy evaluate failed: %s", exc)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-    data = _parse_json(raw)
+    try:
+        parsed = _parse_json(raw)
+    except HTTPException as exc:
+        remaining = VACANCY_EVALUATE_DEADLINE_SECONDS - (time.monotonic() - evaluation_started_at)
+        if exc.status_code != 502 or model == FEEDBACK_FALLBACK_MODEL or remaining < 0.75:
+            raise
+        logger.warning(
+            "Vacancy model %s returned invalid JSON — retrying with %s",
+            model,
+            FEEDBACK_FALLBACK_MODEL,
+        )
+        try:
+            raw = await asyncio.wait_for(
+                provider_adapter.complete(
+                    [{"role": "user", "content": prompt}],
+                    provider,
+                    FEEDBACK_FALLBACK_MODEL,
+                    max_tokens=VACANCY_EVALUATE_MAX_TOKENS,
+                    temperature=0.1,
+                    response_format={"type": "json_object"},
+                ),
+                timeout=remaining,
+            )
+            parsed = _parse_json(raw)
+            model = FEEDBACK_FALLBACK_MODEL
+        except TimeoutError as retry_exc:
+            raise HTTPException(
+                status_code=504, detail="Vacancy evaluation timed out"
+            ) from retry_exc
+
+    data = expand_compact_vacancy_evaluation(
+        parsed,
+        candidate_answer=answer,
+        expected_signals=payload.expectedSignals,
+        question=payload.question,
+        topic=payload.topic,
+    )
     data = harden_vacancy_evaluation(
         data,
         resume_text=payload.resumeText or "",

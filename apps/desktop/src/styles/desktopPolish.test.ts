@@ -55,10 +55,10 @@ describe('desktop polish contracts', () => {
     expect(sidebar).toContain('aria-label={t(\'nav.settings\')}');
   });
 
-  it('uses one edge control and Ctrl+Backslash to collapse the sidebar', () => {
+  it('uses one edge control and Ctrl+B to collapse the sidebar', () => {
     expect(sidebar).toContain('skillcue-sidebar__collapse');
-    expect(sidebar).toContain('aria-keyshortcuts="Control+Backslash"');
-    expect(sidebar).toContain("event.key !== '\\\\'");
+    expect(sidebar).toContain('aria-keyshortcuts="Control+B"');
+    expect(sidebar).toContain("event.key.toLowerCase() !== 'b'");
     expect(sidebar).toContain('<ChevronLeft size={15} />');
     expect(sidebar).toContain('<ChevronRight size={15} />');
     expect(indexCss).toContain('right-[-22px]');
@@ -79,6 +79,12 @@ describe('desktop polish contracts', () => {
     expect(markdownText).toContain('whitespace-pre-wrap');
     expect(markdownText).toContain('[overflow-wrap:anywhere]');
     expect(markdownText).not.toContain('<pre className="overflow-x-auto');
+    const answerRule = overlayCss.slice(
+      overlayCss.indexOf('.ovl-answer-body {'),
+      overlayCss.indexOf('/* Командная панель */'),
+    );
+    expect(answerRule).toContain('overflow-x: hidden');
+    expect(answerRule).toContain('overflow-wrap: anywhere');
   });
 
   it('uses a calm HH command center without the decorative journey rail', () => {

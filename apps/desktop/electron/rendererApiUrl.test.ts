@@ -12,6 +12,10 @@ describe('renderer API URL', () => {
     expect(resolveRendererApiUrl('test')).toBe('http://127.0.0.1:8000');
   });
 
+  it('uses the isolated Alpha backend only for the Alpha renderer bundle', () => {
+    expect(resolveRendererApiUrl('alphabuild')).toBe('http://127.0.0.1:8002');
+  });
+
   it('honors an explicit build override without leaving a trailing slash', () => {
     expect(resolveRendererApiUrl('devbuild', ' http://localhost:9000/ ')).toBe(
       'http://localhost:9000',

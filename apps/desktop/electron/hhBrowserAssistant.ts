@@ -76,6 +76,7 @@ import {
   reusableScreeningAnswer,
   screeningQuestionSemanticKey,
   selectRelevantScreeningFacts,
+  shouldReviewTrafficInspectionFact,
 } from './hhScreeningKnowledge';
 import {
   validateGeneratedHhCoverLetter,
@@ -5942,7 +5943,7 @@ export class HhBrowserAssistant {
       question,
       vacancy.screeningAnswers,
     );
-    if (exactVacancyAnswer) {
+    if (exactVacancyAnswer && !shouldReviewTrafficInspectionFact(question, exactVacancyAnswer)) {
       const mapped = reusableScreeningAnswer(question, exactVacancyAnswer);
       const suggestion = normalizeSuggestion(
         mapped,
@@ -5955,8 +5956,11 @@ export class HhBrowserAssistant {
       ?? findReusableScreeningFact(question, this.state.screeningFacts);
     const factMatchesExactPrompt = Boolean(exactFact)
       && screeningQuestionKey(exactFact!.question) === screeningQuestionKey(question.prompt);
+    const profileFactNeedsReview = Boolean(reusableProfileFact)
+      && shouldReviewTrafficInspectionFact(question, reusableProfileFact!);
     if (
       reusableProfileFact
+      && !profileFactNeedsReview
       && (!isCurrentLocationQuestion(question.prompt) || !vacancy.selectedResumeTitle?.trim())
       && !isSalaryRelatedQuestion(question.prompt)
     ) {
@@ -6028,6 +6032,7 @@ export class HhBrowserAssistant {
 
     if (
       exactFact
+      && !shouldReviewTrafficInspectionFact(question, exactFact)
       && !isSalaryRelatedQuestion(question.prompt)
       && (!isCurrentLocationQuestion(question.prompt)
         || !vacancy.selectedResumeTitle?.trim())
@@ -6047,7 +6052,7 @@ export class HhBrowserAssistant {
         this.state.screeningFacts,
         [question],
         30,
-      ).map((fact) => ({
+      ).filter((fact) => !shouldReviewTrafficInspectionFact(question, fact)).map((fact) => ({
         question: fact.question,
         answer: fact.answer,
         selectedOptions: fact.selectedOptions,

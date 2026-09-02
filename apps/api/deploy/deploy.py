@@ -75,7 +75,7 @@ def read_openrouter_key() -> str:
             import keyring
 
             key = keyring.get_password("interview-copilot", "openrouter_api_key") or ""
-        except Exception:
+        except Exception:  # noqa: BLE001 - keyring backends raise platform-specific errors
             key = ""
     if not key:
         # Не блокируем деплой: issue/usage работают и без апстрим-ключа, а
@@ -95,11 +95,35 @@ def read_openai_key() -> str:
             import keyring
 
             key = keyring.get_password("interview-copilot", "openai_api_key") or ""
-        except Exception:
+        except Exception:  # noqa: BLE001 - keyring backends raise platform-specific errors
             key = ""
     if not key:
         print("!! OpenAI key not found — managed STT will return 'not configured'")
     return key
+
+
+def read_openai_chat_key() -> str:
+    """Dedicated OpenAI key for Max screen assistance; legacy key is a safe migration fallback."""
+    import os
+
+    key = os.environ.get("SKILLCUE_OPENAI_CHAT_KEY", "").strip()
+    if not key:
+        try:
+            import keyring
+
+            key = keyring.get_password("interview-copilot", "openai_chat_api_key") or ""
+        except Exception:  # noqa: BLE001 - keyring backends raise platform-specific errors
+            key = ""
+    if key:
+        return key
+    legacy_key = read_openai_key()
+    if legacy_key:
+        print(
+            "!! отдельный OpenAI chat key не найден — временно используется общий STT key"
+        )
+    else:
+        print("!! OpenAI chat key не найден — Max screen assistant будет недоступен")
+    return legacy_key
 
 
 def read_yookassa_secret() -> str:
@@ -114,10 +138,12 @@ def read_yookassa_secret() -> str:
             import keyring
 
             key = keyring.get_password("interview-copilot", "yookassa_secret_key") or ""
-        except Exception:
+        except Exception:  # noqa: BLE001 - keyring backends raise platform-specific errors
             key = ""
     if not key:
-        print("!! Секрет ЮKassa не найден — оплата (/gateway/checkout) отдаст 503, пока не добавишь ключ")
+        print(
+            "!! Секрет ЮKassa не найден — оплата (/gateway/checkout) отдаст 503, пока не добавишь ключ"
+        )
     return key
 
 
@@ -132,7 +158,9 @@ def admin_secret() -> str:
 
 def build_env() -> str:
     signing = (
-        SIGNING_KEY_FILE.read_text(encoding="utf-8").strip() if SIGNING_KEY_FILE.exists() else ""
+        SIGNING_KEY_FILE.read_text(encoding="utf-8").strip()
+        if SIGNING_KEY_FILE.exists()
+        else ""
     )
     if not signing:
         print("!! нет .license_signing_key — /gateway/issue работать не будет")
@@ -144,6 +172,8 @@ def build_env() -> str:
         else "https://api.proxyapi.ru/openai/v1"
     )
     upstream_style = "openrouter" if uses_openrouter else "openai"
+    openai_stt_key = read_openai_key()
+    openai_chat_key = read_openai_chat_key()
     lines = [
         "GATEWAY_PORT=8787",
         "REDIS_URL=redis://127.0.0.1:6379",
@@ -159,13 +189,20 @@ def build_env() -> str:
         # префиксу сырого id; gpt-4o/mini, sonnet, haiku, deepseek, gemini-flash
         # остаются. Заблокированные скрыты и из /v1/models (AUTO их не выберет).
         # Переопределяется env GATEWAY_BLOCKED_MODELS при запуске сервиса.
-        "GATEWAY_BLOCKED_MODELS="
-        "openai/o1,openai/o3,openai/gpt-4.5,openai/gpt-5.5-pro,openai/gpt-5.4-pro,"
-        "anthropic/claude-3-opus,anthropic/claude-opus,google/gemini-2.5-pro",
+        (
+            "GATEWAY_BLOCKED_MODELS="
+            "openai/o1,openai/o3,openai/gpt-4.5,openai/gpt-5.5-pro,openai/gpt-5.4-pro,"
+            "anthropic/claude-3-opus,anthropic/claude-opus,google/gemini-2.5-pro"
+        ),
         # Managed STT: all licensed clients use gpt-4o-mini-transcribe through
         # the HTTP gateway endpoint.
-        f"OPENAI_API_KEY={read_openai_key()}",
+        f"OPENAI_API_KEY={openai_stt_key}",
         "OPENAI_STT_BASE_URL=https://api.openai.com/v1",
+        # GPT-5.6 screen traffic has an explicit credential/configuration surface.
+        # Prefer a separate project/key so screen quota cannot take managed STT down.
+        f"OPENAI_CHAT_API_KEY={openai_chat_key}",
+        "OPENAI_CHAT_BASE_URL=https://api.openai.com/v1",
+        "OPENAI_CHAT_REQUIRED=1",
         # Оплата ЮKassa (billing.service.ts). Секрет — из keyring/env владельца,
         # в репозиторий не попадает. Без секрета checkout отдаёт 503.
         "YOOKASSA_SHOP_ID=1402744",
@@ -186,7 +223,17 @@ def ensure_local_ssh_key() -> str:
     if not pub.exists():
         key.parent.mkdir(exist_ok=True)
         subprocess.run(
-            ["ssh-keygen", "-t", "ed25519", "-N", "", "-f", str(key), "-C", "skillcue-deploy"],
+            [
+                "ssh-keygen",
+                "-t",
+                "ed25519",
+                "-N",
+                "",
+                "-f",
+                str(key),
+                "-C",
+                "skillcue-deploy",
+            ],
             check=True,
             capture_output=True,
         )
@@ -194,7 +241,9 @@ def ensure_local_ssh_key() -> str:
     return pub.read_text(encoding="utf-8").strip()
 
 
-def run(ssh, cmd: str, *, sudo_pass: str | None = None, timeout: int = 900) -> tuple[int, str]:
+def run(
+    ssh, cmd: str, *, sudo_pass: str | None = None, timeout: int = 900
+) -> tuple[int, str]:
     if sudo_pass is not None:
         cmd = f"sudo -S -p '' bash -c {cmd!r}"
     _, stdout, stderr = ssh.exec_command(cmd, timeout=timeout, get_pty=bool(sudo_pass))
@@ -227,7 +276,12 @@ def main() -> None:
         # Спрашиваем пароль в терминале; неинтерактивно (CI/агент, stdin закрыт)
         # input() бросает EOFError — тогда идём по SSH-ключу без промпта.
         try:
-            password = input(f"SSH-пароль {args.user}@{args.host} (пусто — по ключу): ").strip() or None
+            password = (
+                input(
+                    f"SSH-пароль {args.user}@{args.host} (пусто — по ключу): "
+                ).strip()
+                or None
+            )
         except EOFError:
             password = None
 
@@ -270,8 +324,10 @@ def main() -> None:
 
     # 3) Распаковка + установка.
     steps = [
-        f"mkdir -p {APP_DIR} && tar -xzf /tmp/skillcue-bundle.tgz -C {APP_DIR} "
-        f"&& mv /tmp/gateway.env {APP_DIR}/gateway.env && chmod 600 {APP_DIR}/gateway.env",
+        (
+            f"mkdir -p {APP_DIR} && tar -xzf /tmp/skillcue-bundle.tgz -C {APP_DIR} "
+            f"&& mv /tmp/gateway.env {APP_DIR}/gateway.env && chmod 600 {APP_DIR}/gateway.env"
+        ),
         f"bash {APP_DIR}/apps/api/deploy/setup-vps.sh",
     ]
     for step in steps:
@@ -288,7 +344,7 @@ def main() -> None:
         ssh,
         "curl -s -X POST http://127.0.0.1:8787/gateway/issue "
         f"-H 'x-admin-secret: {secret}' -H 'Content-Type: application/json' "
-        "-d '{\"email\":\"smoke@test.dev\",\"plan\":\"max\",\"days\":1}'",
+        '-d \'{"email":"smoke@test.dev","plan":"max","days":1}\'',
     )
     if '"key"' not in out:
         sys.exit(f"issue smoke failed: {out[:400]}")
@@ -302,7 +358,9 @@ def main() -> None:
     print("usage smoke:", out[:200])
     if '"tokensBudget"' not in out:
         sys.exit("usage smoke failed")
-    print("\n✅ Гейтвей и лидбот работают. Дальше: домен + TLS (Caddy) перед реальными продажами.")
+    print(
+        "\n✅ Гейтвей и лидбот работают. Дальше: домен + TLS (Caddy) перед реальными продажами."
+    )
 
 
 if __name__ == "__main__":

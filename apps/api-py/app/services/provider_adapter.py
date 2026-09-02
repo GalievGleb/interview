@@ -4,7 +4,8 @@ import json
 import logging
 import os
 import uuid
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Mapping
+from typing import Literal
 from urllib.parse import urlparse
 
 import httpx
@@ -165,7 +166,9 @@ def parse_provider_error(status: int, body: str, provider: str = "openrouter") -
             status,
             "provider_timeout",
         )
-    return AppError(f"Ошибка провайдера: {body[:200]}", status, "provider_error")
+    # Provider bodies may contain prompts, images, request identifiers, or
+    # credentials echoed by a compatible gateway. They are never client-safe.
+    return AppError("Провайдер вернул ошибку. Повторите запрос позже.", status, "provider_error")
 
 
 # Гейтвей-фолбэк: кэш лицензии на минуту, чтобы не ходить в SQLite на каждый запрос.
@@ -301,6 +304,35 @@ def _headers(provider: str, key: str) -> dict[str, str]:
     return headers
 
 
+ScreenWorkloadPhase = Literal["observation", "answer", "repair"]
+_SCREEN_WORKLOAD_PHASES = frozenset({"observation", "answer", "repair"})
+
+
+def _structured_screen_headers(
+    base_url: str,
+    phase: ScreenWorkloadPhase | None,
+) -> dict[str, str]:
+    """Return internal workload headers only for the configured managed gateway.
+
+    The marker selects an economic/plan policy at the SkillCue gateway. It must
+    never be forwarded to BYOK OpenAI/OpenRouter or arbitrary compatible hosts.
+    The gateway still authenticates and authorizes the signed license; these
+    headers are classification, not authentication.
+    """
+    if phase is None:
+        return {}
+    if phase not in _SCREEN_WORKLOAD_PHASES:
+        raise ValueError("invalid screen workload phase")
+    managed_gateway = (get_settings().skillcue_gateway_url or "").rstrip("/").lower()
+    normalized_base = base_url.rstrip("/").lower()
+    if not managed_gateway or normalized_base != managed_gateway:
+        return {}
+    return {
+        "X-SkillCue-Workload": "structured-screen-v1",
+        "X-SkillCue-Screen-Phase": phase,
+    }
+
+
 def _model_for_provider(provider: str, model: str) -> str:
     """OpenRouter uses provider/model IDs; direct OpenAI uses the bare slug."""
     if provider == "openai" and model.lower().startswith("openai/"):
@@ -389,6 +421,7 @@ async def _post_with_retry(
     key: str,
     payload: dict,
     *,
+    extra_headers: Mapping[str, str] | None = None,
     request_timeout_seconds: float | None = None,
     max_attempts: int | None = None,
 ) -> httpx.Response:
@@ -402,12 +435,15 @@ async def _post_with_retry(
         ),
     )
     attempts = max(1, int(_MAX_ATTEMPTS if max_attempts is None else max_attempts))
+    headers = _headers(provider, key)
+    if extra_headers:
+        headers.update(extra_headers)
     for attempt in range(attempts):
         try:
             resp = await asyncio.wait_for(
                 get_client().post(
                     f"{base_url}/chat/completions",
-                    headers=_headers(provider, key),
+                    headers=headers,
                     json=payload,
                     timeout=attempt_timeout,
                 ),
@@ -441,9 +477,9 @@ THINKING_MODEL_MARKERS = (
     "gpt-5",
 )
 
-# Qwen3.5 Flash enables optional thinking by default on OpenRouter. For live
-# interview answers that increases tail latency and can leave only hidden
-# reasoning in the stream. The benchmarked fast route explicitly disables it.
+# Qwen3.5 Flash can expose its internal ``Thinking Process`` as normal content
+# even when OpenRouter is asked to exclude reasoning. Live answers must never
+# show that text, so Qwen reasoning stays explicitly disabled.
 LIVE_REASONING_DISABLED_MARKERS = ("qwen3.5-flash",)
 
 
@@ -485,10 +521,10 @@ def screen_stream_options(model_id: str) -> tuple[int, dict | None]:
     reasoning time here while reading the task.
     """
     if "gpt-5.6" in model_id.lower():
-        return 1800, {"effort": "medium", "exclude": True}
+        return 4200, {"effort": "medium", "exclude": True}
     if is_thinking_model(model_id):
-        return 1600, {"effort": "low", "exclude": True}
-    return 1400, None
+        return 3200, {"effort": "low", "exclude": True}
+    return 2800, None
 
 
 def _apply_reasoning_options(
@@ -506,9 +542,13 @@ def _apply_reasoning_options(
 
 
 def _apply_completion_limit(payload: dict, *, provider: str, model: str) -> None:
-    """Use the current Chat Completions token-limit field for direct GPT-5 calls."""
+    """Apply the direct GPT-5 Chat Completions compatibility contract."""
     if provider == "openai" and "gpt-5" in model.lower():
         payload["max_completion_tokens"] = payload.pop("max_tokens")
+        # Direct GPT-5 reasoning requests reject legacy sampling controls,
+        # including an explicit 0.0 value. The model default is deterministic
+        # enough for screen tasks and keeps this path compatible with OpenAI.
+        payload.pop("temperature", None)
 
 
 async def test_provider(
@@ -552,7 +592,11 @@ async def list_models(provider: str | None) -> list[str]:
 
 
 class _StreamRetry(Exception):
-    """Internal: the stream failed before any content arrived — safe to retry."""
+    """Internal: a pre-content trusted transient failure, safe to retry."""
+
+    def __init__(self, cause: AppError):
+        self.cause = cause
+        super().__init__(cause.code)
 
 
 def _stream_content_text(value: object) -> str:
@@ -589,6 +633,8 @@ async def _one_stream_attempt(
     payload: dict,
     provider: str,
     model: str,
+    *,
+    require_complete: bool = False,
 ) -> AsyncGenerator[str, None]:
     """A single streaming attempt. Raises _StreamRetry only before any content is
     produced; once tokens have been yielded a failure is terminal (no re-emit)."""
@@ -598,7 +644,23 @@ async def _one_stream_attempt(
             if resp.status_code >= 400:
                 body = await resp.aread()
                 if resp.status_code in _RETRY_STATUS:
-                    raise _StreamRetry()
+                    # Only the status is trusted at this boundary. Parsing the
+                    # body is reserved for the terminal non-transient path.
+                    if resp.status_code == 429:
+                        raise _StreamRetry(
+                            AppError(
+                                "Превышен лимит запросов. Подождите и повторите.",
+                                429,
+                                "rate_limited",
+                            )
+                        )
+                    raise _StreamRetry(
+                        AppError(
+                            "Провайдер временно недоступен. Повторите позже.",
+                            resp.status_code,
+                            "provider_timeout",
+                        )
+                    )
                 raise parse_provider_error(resp.status_code, body.decode(), provider)
             async for line in resp.aiter_lines():
                 if not line or not line.startswith("data: "):
@@ -615,9 +677,12 @@ async def _one_stream_attempt(
                 if isinstance(chunk.get("usage"), dict):
                     _last_usage.set(chunk["usage"])
                 if chunk.get("error"):
-                    err = chunk["error"]
-                    msg = err.get("message") if isinstance(err, dict) else str(err)
-                    raise AppError(msg or "Stream error", 502, "provider_error")
+                    # Compatible providers may echo arbitrary request material
+                    # in this field. Keep the desktop's existing message field
+                    # but make its value a stable, safe application message.
+                    raise AppError(
+                        "Провайдер вернул ошибку. Повторите запрос позже.", 502, "provider_error"
+                    )
                 choices = chunk.get("choices") or []
                 if not choices:
                     continue
@@ -633,15 +698,29 @@ async def _one_stream_attempt(
                 elif delta.get("reasoning"):
                     continue
                 finish = choice.get("finish_reason")
-                if finish == "length":
+                if finish in {"length", "max_tokens"}:
                     logger.warning("Stream stopped: max_tokens reached for model %s", model)
+                    if require_complete:
+                        raise AppError(
+                            "Ответ обрезан из-за лимита модели. Это неполное решение — повторите запрос.",
+                            502,
+                            "provider_output_truncated",
+                        )
             if not produced:
-                logger.warning("Provider returned a successful stream without visible content: %s", model)
-                raise _StreamRetry()
+                logger.warning(
+                    "Provider returned a successful stream without visible content: %s", model
+                )
+                raise _StreamRetry(
+                    AppError(
+                        "Провайдер вернул пустой ответ. Повторите позже.", 502, "provider_error"
+                    )
+                )
     except (httpx.TimeoutException, httpx.TransportError) as exc:
         if produced:
             raise AppError("Соединение с провайдером прервалось.", 504, "provider_timeout") from exc
-        raise _StreamRetry() from exc
+        raise _StreamRetry(
+            AppError("Провайдер не отвечает. Повторите позже.", 504, "provider_timeout")
+        ) from exc
 
 
 async def stream_chat(
@@ -654,6 +733,7 @@ async def stream_chat(
     live_fast: bool = False,
     route_fast: bool = False,
     reasoning: dict | None = None,
+    require_complete: bool = False,
 ) -> AsyncGenerator[str, None]:
     provider, base_url, key = await _resolve(provider)
     settings = get_settings()
@@ -686,14 +766,20 @@ async def stream_chat(
 
     for attempt in range(_MAX_ATTEMPTS):
         try:
-            async for piece in _one_stream_attempt(client, url, headers, payload, provider, model):
+            async for piece in _one_stream_attempt(
+                client,
+                url,
+                headers,
+                payload,
+                provider,
+                model,
+                require_complete=require_complete,
+            ):
                 yield piece
             return
         except _StreamRetry as exc:
             if attempt >= _MAX_ATTEMPTS - 1:
-                raise AppError(
-                    "Провайдер не отвечает. Повторите позже.", 504, "provider_timeout"
-                ) from exc
+                raise exc.cause from exc
             await asyncio.sleep(_backoff(attempt))
             continue
 
@@ -707,6 +793,7 @@ async def complete(
     *,
     reasoning: dict | None = None,
     response_format: dict | None = None,
+    screen_workload_phase: ScreenWorkloadPhase | None = None,
     request_timeout_seconds: float | None = None,
     max_attempts: int | None = None,
 ) -> str:
@@ -717,6 +804,7 @@ async def complete(
     thinking-capable model doesn't burn the response budget on hidden
     reasoning tokens (see is_thinking_model / vacancy_eval_options)."""
     provider, base_url, key = await _resolve(provider)
+    screen_headers = _structured_screen_headers(base_url, screen_workload_phase)
     settings = get_settings()
     model = model or settings.default_model
     model = _model_for_provider(provider, model)
@@ -735,6 +823,7 @@ async def complete(
         provider,
         key,
         payload,
+        extra_headers=screen_headers,
         request_timeout_seconds=request_timeout_seconds,
         max_attempts=max_attempts,
     )

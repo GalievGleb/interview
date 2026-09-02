@@ -70,6 +70,17 @@ const TOPIC_CATALOGUE: TopicDef[] = [
     ],
   },
   {
+    id: 'grpc',
+    title: 'gRPC',
+    category: 'Интеграции',
+    keywords: ['grpc', 'protocol buffers', 'protobuf'],
+    expectedKnowledge: 'Контракты protobuf, типы RPC, статусы, deadlines, metadata и тестирование совместимости.',
+    sampleQuestions: [
+      'Чем тестирование gRPC отличается от REST API?',
+      'Как проверяешь ошибки, deadlines и обратную совместимость protobuf-контракта?',
+    ],
+  },
+  {
     id: 'sql',
     title: 'SQL',
     category: 'Данные',
@@ -95,11 +106,44 @@ const TOPIC_CATALOGUE: TopicDef[] = [
     id: 'docker',
     title: 'Docker',
     category: 'Инфраструктура',
-    keywords: ['docker', 'докер', 'container', 'контейнер', 'kubernetes', 'k8s'],
+    keywords: ['docker', 'докер', 'container', 'контейнер'],
     expectedKnowledge: 'Образы, контейнеры, воспроизводимое тестовое окружение.',
     sampleQuestions: [
       'Зачем Docker для автотестов и как ты его использовал?',
       'Чем образ отличается от контейнера?',
+    ],
+  },
+  {
+    id: 'kubernetes',
+    title: 'Kubernetes',
+    category: 'Инфраструктура',
+    keywords: ['kubernetes', 'k8s', 'кубернетес'],
+    expectedKnowledge: 'Pods, deployments, services, конфигурация, логи и диагностика тестового окружения.',
+    sampleQuestions: [
+      'Как используешь Kubernetes при тестировании сервисов?',
+      'Что проверишь, если тесты падают только в Kubernetes-окружении?',
+    ],
+  },
+  {
+    id: 'load-testing',
+    title: 'Нагрузочное тестирование',
+    category: 'Тестирование',
+    keywords: ['нагрузочн', 'load testing', 'load test', 'performance test', 'jmeter', 'gatling', 'locust'],
+    expectedKnowledge: 'Модель нагрузки, RPS, latency и перцентили, окружение, узкие места и интерпретация результатов.',
+    sampleQuestions: [
+      'Как построишь профиль нагрузки и выберешь метрики успеха?',
+      'Как отличишь ограничение приложения от проблемы тестового стенда?',
+    ],
+  },
+  {
+    id: 'microservices',
+    title: 'Микросервисная архитектура',
+    category: 'Инженерия',
+    keywords: ['микросервис', 'microservice', 'micro-service'],
+    expectedKnowledge: 'Границы сервисов, контракты, асинхронность, сбои зависимостей, наблюдаемость и стратегия тестирования.',
+    sampleQuestions: [
+      'Как строишь тестирование цепочки из нескольких микросервисов?',
+      'Какие сбои зависимостей и контракты проверяешь отдельно?',
     ],
   },
   {
@@ -146,7 +190,7 @@ const TOPIC_CATALOGUE: TopicDef[] = [
     id: 'backend',
     title: 'Основы backend',
     category: 'Инженерия',
-    keywords: ['backend', 'микросервис', 'microservice', 'fastapi', 'django', 'flask', 'spring'],
+    keywords: ['backend', 'fastapi', 'django', 'flask', 'spring'],
     expectedKnowledge: 'Жизненный цикл запроса, REST-дизайн, поток данных.',
     sampleQuestions: ['Как устроен жизненный цикл запроса в твоём бэкенде?'],
   },
@@ -209,7 +253,7 @@ function importanceFor(text: string, keyword: string): TopicImportance {
 export function detectSeniority(text: string, role: string): SeniorityLevel {
   const t = `${role} ${text}`.toLowerCase();
   if (/\blead\b|тимлид|teamlead|principal/.test(t)) return 'lead';
-  if (/\bsenior\b|\bсиньор\b|\bсеньор\b|ведущ/.test(t)) return 'senior';
+  if (/\bsenior\b|\bсиньор\b|\bсеньор\b|ведущ|старш/.test(t)) return 'senior';
   if (/\bmiddle\b|\bмидл\b/.test(t)) return 'middle';
   if (/\bjunior\b|\bджуниор\b|\bджун\b/.test(t)) return 'junior';
   if (/\bintern\b|стажёр|стажер|trainee/.test(t)) return 'intern';

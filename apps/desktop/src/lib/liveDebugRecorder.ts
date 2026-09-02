@@ -25,6 +25,10 @@ export interface DebugEvent {
     | 'answer_started'
     | 'answer_first_token'
     | 'answer_done'
+    | 'candidate_hotkey_received'
+    | 'candidate_hotkey_queued'
+    | 'candidate_hotkey_ignored'
+    | 'candidate_hotkey_selected'
     | 'source_warning'
     | 'source_recovered'
     | 'error';
@@ -108,16 +112,22 @@ function put(target: Record<string, unknown>, key: string, value: unknown): void
 const EVENT_TYPES = new Set<DebugEvent['type']>([
   'session_start', 'ready', 'speech_started', 'partial', 'final', 'low_quality',
   'answer_blocked', 'answer_started', 'answer_first_token', 'answer_done',
+  'candidate_hotkey_received', 'candidate_hotkey_queued',
+  'candidate_hotkey_ignored', 'candidate_hotkey_selected',
   'source_warning', 'source_recovered', 'error',
 ]);
 
 function sanitizeEventMeta(value: unknown): Record<string, unknown> | undefined {
   const source = record(value);
   const result: Record<string, unknown> = {};
-  const stringFields = ['model', 'modelSource', 'engine', 'readyKind', 'utteranceId', 'recoveredFrom'];
+  const stringFields = [
+    'model', 'modelSource', 'engine', 'readyKind', 'utteranceId', 'recoveredFrom',
+    'hotkeySource', 'contextSource', 'phase',
+  ];
   const numberFields = [
     'sampleRate', 'sttLatencyMs', 'llmLatencyMs', 'speechEndToFinalMs',
     'openaiInferenceMs', 'queueWaitMs', 'queueDepth', 'capturedAtMs', 'captureEpoch',
+    'generation', 'sequence',
   ];
   const booleanFields = ['reconnected', 'recoverable', 'nonFatal'];
   stringFields.forEach((key) => put(result, key, safeString(source[key], 300)));

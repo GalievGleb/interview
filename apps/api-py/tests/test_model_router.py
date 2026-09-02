@@ -67,13 +67,14 @@ def test_pick_auto_feedback_prefers_low_latency_model():
         "openai/gpt-4o",
         "openai/gpt-5.6-sol",
         "openai/gpt-4o-mini",
+        "qwen/qwen3.5-flash-02-23",
     }
 
-    assert pick_auto_model("feedback", available) == "openai/gpt-4o-mini"
+    assert pick_auto_model("feedback", available) == "qwen/qwen3.5-flash-02-23"
 
 
 def test_pick_auto_feedback_empty_cache_uses_low_latency_default():
-    assert pick_auto_model("feedback", set()) == "openai/gpt-4o-mini"
+    assert pick_auto_model("feedback", set()) == "qwen/qwen3.5-flash-02-23"
 
 
 def test_resolve_vacancy_ignores_dedicated_setting_when_explicit():

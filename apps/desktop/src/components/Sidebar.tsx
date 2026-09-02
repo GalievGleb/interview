@@ -146,7 +146,7 @@ export default function Sidebar() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (!event.ctrlKey || event.altKey || event.metaKey || event.key !== '\\') return;
+      if (!event.ctrlKey || event.altKey || event.metaKey || event.key.toLowerCase() !== 'b') return;
       event.preventDefault();
       toggleCollapsed();
     };
@@ -161,8 +161,8 @@ export default function Sidebar() {
         className="skillcue-sidebar__collapse"
         onClick={toggleCollapsed}
         aria-label={collapsed ? t('sidebar.expand') : t('sidebar.collapse')}
-        aria-keyshortcuts="Control+Backslash"
-        title={`${collapsed ? t('sidebar.expand') : t('sidebar.collapse')} · Ctrl+\\`}
+        aria-keyshortcuts="Control+B"
+        title={`${collapsed ? t('sidebar.expand') : t('sidebar.collapse')} · Ctrl+B`}
       >
         {collapsed ? <ChevronRight size={15} /> : <ChevronLeft size={15} />}
       </button>}

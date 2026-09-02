@@ -6,7 +6,11 @@ import Modal from '../components/Modal';
 import { hhAutomationAllowed, shouldDisableHhDailySchedule } from '../lib/billing';
 import { useApp } from '../context/AppContext';
 import { countUnansweredHhScreeningQuestions, readHhScreeningDrafts, summarizePendingHhScreening } from '../lib/hhScreening';
-import { hasUnresolvedHhChatDraftFact, mergeHhChatDecisionDrafts } from '../lib/hhChatDecisionDrafts';
+import {
+  hhChatDecisionHelperText,
+  mergeHhChatDecisionDrafts,
+  prepareHhChatDecisionAnswer,
+} from '../lib/hhChatDecisionDrafts';
 import { compactHhResumeTitle } from '../lib/hhResumeTitle';
 import { pluralRu } from '../lib/pluralRu';
 import type { HhAssistantConfig, HhAssistantState, HhChatState, HhQueueItem, InterviewCalendarSettings, InterviewCalendarState } from '../types/electron';
@@ -31,7 +35,10 @@ const PLATFORMS = [
 const splitList = (value: string) => value.split(',').map((item) => item.trim()).filter(Boolean);
 const errorMessage = (error: unknown, fallback: string) => {
   const message = error instanceof Error ? error.message : String(error ?? '');
-  return message.replace(/^Error invoking remote method '[^']+': Error:\s*/i, '').trim() || fallback;
+  return message
+    .replace(/^Error invoking remote method '[^']+':\s*/i, '')
+    .replace(/^(?:Error|[A-Za-z_$][\w$]*Error):\s*/i, '')
+    .trim() || fallback;
 };
 const sentToday = (queue: HhQueueItem[]) => {
   const today = new Date().toDateString();
@@ -765,13 +772,11 @@ export default function HhApplicationsPage() {
   const answerChatDecision = async (decisionId: string, remember: boolean) => {
     if (!chat) return;
     const decision = chatState?.pendingDecisions.find((item) => item.id === decisionId);
-    const answer = (chatDecisionDrafts[decisionId] ?? decision?.suggestedAnswer ?? '').trim();
+    const answer = prepareHhChatDecisionAnswer(
+      chatDecisionDrafts[decisionId] ?? decision?.suggestedAnswer ?? '',
+    );
     if (!answer) {
       setChatError('Напишите, что ответить работодателю.');
-      return;
-    }
-    if (hasUnresolvedHhChatDraftFact(answer)) {
-      setChatError('Замените подсказку в квадратных скобках на точный факт перед отправкой.');
       return;
     }
     setChatBusy(true);
@@ -1574,12 +1579,19 @@ export default function HhApplicationsPage() {
         </div>
         {(chatState?.pendingDecisions.length ?? 0) > 0 && <div className="mt-4 overflow-hidden rounded-xl border border-surface-border bg-surface/25">
           <div className="border-b border-surface-border px-4 py-3"><p className="text-sm font-semibold text-ink">Нужен ответ</p></div>
-          <div className="divide-y divide-surface-border">{chatState?.pendingDecisions.map((decision) => <div key={decision.id} className="p-4">
-            <p className="text-xs font-semibold text-ink">{decision.vacancyTitle} · {decision.companyName}</p>
-            <p className="mt-2 rounded-lg bg-surface-light p-3 text-sm text-ink-muted">HR: {decision.recruiterMessage}</p>
-            <label className="mt-3 block"><span className="label">{decision.question}</span><span className="mb-2 block text-xs text-ink-faint">{chatDraftPreparing && !decision.suggestedAnswer ? 'Готовлю ответ по вашему резюме…' : 'Проверьте факты перед отправкой'}</span><textarea className="field min-h-20 resize-y" value={chatDecisionDrafts[decision.id] ?? decision.suggestedAnswer ?? ''} onChange={(event) => setChatDecisionDrafts((current) => ({ ...current, [decision.id]: event.target.value }))} placeholder="Ваш ответ" /></label>
-            <div className="mt-3 flex flex-wrap gap-2"><button type="button" className="btn-primary" disabled={chatBusy || (chatDraftPreparing && !decision.suggestedAnswer)} onClick={() => void answerChatDecision(decision.id, true)}>{chatDraftPreparing && !decision.suggestedAnswer ? <Loader2 className="animate-spin" size={14} /> : <Send size={14} />}Отправить и запомнить</button><button type="button" className="btn-ghost" disabled={chatBusy || (chatDraftPreparing && !decision.suggestedAnswer)} onClick={() => void answerChatDecision(decision.id, false)}>Отправить один раз</button><button type="button" className="btn-ghost text-red-300 hover:text-red-200" disabled={chatBusy} onClick={() => void declineChatDecision(decision.id)}><Ban size={14} />Не продолжать отклик</button></div>
-          </div>)}</div>
+          <div className="divide-y divide-surface-border">{chatState?.pendingDecisions.map((decision) => {
+            const helperText = hhChatDecisionHelperText(chatDraftPreparing, Boolean(decision.suggestedAnswer));
+            return <div key={decision.id} className="p-4">
+              <p className="text-xs font-semibold text-ink">{decision.vacancyTitle} · {decision.companyName}</p>
+              <p className="mt-2 rounded-lg bg-surface-light p-3 text-sm text-ink-muted">HR: {decision.recruiterMessage}</p>
+              <label className="mt-3 block">
+                <span className="label">{decision.question}</span>
+                {helperText && <span className="mb-2 block text-xs text-ink-faint">{helperText}</span>}
+                <textarea className="field min-h-20 resize-y" value={chatDecisionDrafts[decision.id] ?? prepareHhChatDecisionAnswer(decision.suggestedAnswer ?? '')} onChange={(event) => setChatDecisionDrafts((current) => ({ ...current, [decision.id]: event.target.value }))} placeholder="Ваш ответ" />
+              </label>
+              <div className="mt-3 flex flex-wrap gap-2"><button type="button" className="btn-primary" disabled={chatBusy || (chatDraftPreparing && !decision.suggestedAnswer)} onClick={() => void answerChatDecision(decision.id, true)}>{chatDraftPreparing && !decision.suggestedAnswer ? <Loader2 className="animate-spin" size={14} /> : <Send size={14} />}Отправить и запомнить</button><button type="button" className="btn-ghost" disabled={chatBusy || (chatDraftPreparing && !decision.suggestedAnswer)} onClick={() => void answerChatDecision(decision.id, false)}>Отправить один раз</button><button type="button" className="btn-ghost text-red-300 hover:text-red-200" disabled={chatBusy} onClick={() => void declineChatDecision(decision.id)}><Ban size={14} />Не продолжать отклик</button></div>
+            </div>;
+          })}</div>
         </div>}
         {((chatState?.repliesToday ?? 0) > 0 || chatState?.lastPollAt) && <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-ink-faint">{chatState?.lastPollAt && <span>Проверено {new Date(chatState.lastPollAt).toLocaleTimeString()}</span>}{(chatState?.repliesToday ?? 0) > 0 && <button type="button" className="font-medium text-sky-300 hover:text-sky-200" onClick={revealReplyHistory}>Ответы сегодня: {chatState?.repliesToday}</button>}</div>}
         {chatPanelError && <p className="mt-3 rounded-lg border border-red-500/25 bg-red-500/5 p-3 text-xs text-red-300">{chatPanelError}</p>}

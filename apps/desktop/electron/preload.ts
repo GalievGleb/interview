@@ -1,5 +1,38 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
+// Sandboxed Electron preloads may only require Electron and a small built-in
+// module allowlist. Keep this startup queue self-contained: a relative require
+// makes the whole preload abort before electronAPI is exposed.
+class QueuedRendererSignal {
+  private pending = false;
+  private subscriber: (() => void) | null = null;
+
+  constructor(channel: string) {
+    ipcRenderer.on(channel, () => {
+      if (this.subscriber) {
+        this.subscriber();
+        return;
+      }
+      this.pending = true;
+    });
+  }
+
+  subscribe(callback: () => void): () => void {
+    this.subscriber = callback;
+    if (this.pending) {
+      this.pending = false;
+      callback();
+    }
+    return () => {
+      if (this.subscriber === callback) this.subscriber = null;
+    };
+  }
+}
+
+const candidateFollowUpSignal = new QueuedRendererSignal(
+  'overlay:candidate-follow-up',
+);
+
 const api = {
   getApiUrl: () => ipcRenderer.invoke('app:getApiUrl'),
   getApiToken: () => ipcRenderer.invoke('app:getApiToken'),
@@ -176,6 +209,7 @@ const api = {
       ipcRenderer.on('overlay:force-screen-answer', handler);
       return () => ipcRenderer.removeListener('overlay:force-screen-answer', handler);
     },
+    onCandidateFollowUp: (cb: () => void) => candidateFollowUpSignal.subscribe(cb),
     onScroll: (cb: (direction: -1 | 1) => void) => {
       const handler = (_event: unknown, direction: -1 | 1) => cb(direction);
       ipcRenderer.on('overlay:scroll', handler);

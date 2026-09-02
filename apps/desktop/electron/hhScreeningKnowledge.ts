@@ -68,6 +68,7 @@ export type ScreeningRelocationScope = 'russia' | 'abroad' | 'unspecified';
 const CURRENT_LOCATION_SEMANTIC_KEY = 'profile:current-location';
 const AGE_SEMANTIC_KEY = 'profile:age';
 const TEST_SCOPE_RATIO_SEMANTIC_KEY = 'profile:test-scope-ratio';
+const TRAFFIC_INSPECTION_SEMANTIC_KEY = 'profile:traffic-inspection';
 
 function isAgeQuestion(value: string): boolean {
   return !/(?:дата|день|месяц|год)\s+рождени/iu.test(value)
@@ -78,6 +79,28 @@ function isBackendFrontendTestingRatioQuestion(value: string): boolean {
   return /(?:б[эе]к(?:энд|енд)|backend)/iu.test(value)
     && /(?:фронт(?:енд|энд)?|frontend)/iu.test(value)
     && /(?:процент|соотношени|дол[яи]|\d{1,3}\s*%)/iu.test(value);
+}
+
+function isTrafficInspectionQuestion(value: string): boolean {
+  const normalized = value.toLocaleLowerCase('ru').replace(/ё/g, 'е');
+  return /(?:sniff|снифф|wireshark|fiddler|charles|tcpdump|burp\s*suite)/iu.test(normalized)
+    || (
+      /(?:сетев\w*\s+запрос|http[- ]?трафик|перехват\w*\s+(?:трафик|запрос)|анализ\w*\s+трафик)/iu.test(normalized)
+      && /(?:инструмент|использ|анализ|лов|перехват|провер)/iu.test(normalized)
+    );
+}
+
+export function shouldReviewTrafficInspectionFact(
+  question: HhScreeningQuestion,
+  fact: ConfirmedScreeningFact,
+): boolean {
+  if (!isTrafficInspectionQuestion(question.prompt)) return false;
+  const evidence = [fact.answer, ...fact.selectedOptions]
+    .join(' ')
+    .toLocaleLowerCase('ru')
+    .replace(/ё/g, 'е');
+  const positiveEvidence = /(?:devtools|fiddler|charles|wireshark|tcpdump|burp\s*suite|анализ[а-яё]*\s+(?:сетев[а-яё]*\s+запрос|http[- ]?трафик)|перехват[а-яё]*\s+(?:трафик|запрос))/iu.test(evidence);
+  return !positiveEvidence && /(?:^|[^а-яё])не\s+использу|нет\s+опыта/iu.test(evidence);
 }
 
 /** True only for a request for the candidate's present home location. */
@@ -105,6 +128,7 @@ export function screeningQuestionSemanticKey(value: string): string {
   if (isCurrentLocationQuestion(value)) return CURRENT_LOCATION_SEMANTIC_KEY;
   if (isAgeQuestion(value)) return AGE_SEMANTIC_KEY;
   if (isBackendFrontendTestingRatioQuestion(value)) return TEST_SCOPE_RATIO_SEMANTIC_KEY;
+  if (isTrafficInspectionQuestion(value)) return TRAFFIC_INSPECTION_SEMANTIC_KEY;
   // Destination-specific relocation questions must remain separate in
   // storage and in the UI. A confirmed global refusal can still be reused by
   // reusableScreeningAnswer, but “Рязань” and “Йошкар-Ола” must never collapse
@@ -171,6 +195,42 @@ function isGlobalRelocationDecline(fact: ConfirmedScreeningFact): boolean {
   return /(?:только(?:\s+полностью)?\s+удален|без\s+переезд(?:а|ов)?(?:\s+вообще)?|переезд(?:ы)?(?:\s+по\s+россии|\s+вообще)?\s+не\s+рассматрива|не\s+рассматрива.{0,25}переезд(?:ы)?(?:\s+по\s+россии|\s+вообще)?|ни\s+в\s+какой\s+город)/.test(value);
 }
 
+function trafficInspectionOptionsForFact(
+  options: string[],
+  fact: ConfirmedScreeningFact,
+  multiple: boolean,
+): string[] {
+  const evidence = [fact.question, fact.answer, ...fact.selectedOptions]
+    .join(' ')
+    .toLocaleLowerCase('ru')
+    .replace(/ё/g, 'е');
+  const positiveEvidence = /(?:devtools|fiddler|charles|wireshark|tcpdump|burp\s*suite|анализ\w*\s+(?:сетев\w*\s+запрос|http[- ]?трафик)|перехват\w*\s+(?:трафик|запрос))/iu.test(evidence);
+
+  if (!positiveEvidence && /(?:^|[^а-яё])не\s+использу|нет\s+опыта/iu.test(evidence)) {
+    const negative = options.find((option) => /(?:^|[^а-яё])не\s+использу/iu.test(option));
+    return negative ? [negative] : [];
+  }
+  if (!positiveEvidence) return [];
+
+  const rules: Array<{ evidence: RegExp; option: RegExp }> = [
+    {
+      evidence: /(?:devtools|fiddler|charles|wireshark|tcpdump|burp\s*suite|перехват\w*\s+(?:трафик|запрос)|анализ\w*\s+(?:сетев\w*\s+запрос|http[- ]?трафик))/iu,
+      option: /(?:лов[а-яё]*\s+запрос|перехват[а-яё]*\s+запрос|провер[а-яё]*\s+(?:их\s+)?параметр)/iu,
+    },
+    { evidence: /breakpoint|точк[а-яё]*\s+останова/iu, option: /breakpoint|изменен[а-яё]*\s+запрос/iu },
+    { evidence: /(?:^|[^а-яё])мок[а-яё]*\s+(?:запрос|ответ)/iu, option: /мок[а-яё]*\s+(?:запрос|ответ)/iu },
+    { evidence: /throttl|огранич[а-яё]*\s+скорост/iu, option: /throttl|огранич[а-яё]*\s+скорост/iu },
+    { evidence: /заголов|сесси|cookie/iu, option: /заголов|сесси/iu },
+    { evidence: /(?:^|[^а-яё])прокси(?:$|[^а-яё])/iu, option: /работ[а-яё]*\s+с\s+прокси/iu },
+  ];
+  const selected = rules.flatMap((rule) => {
+    if (!rule.evidence.test(evidence)) return [];
+    const option = options.find((candidate) => rule.option.test(candidate));
+    return option ? [option] : [];
+  });
+  return [...new Set(selected)].slice(0, multiple ? undefined : 1);
+}
+
 /** Maps one confirmed preference to a differently worded form question. */
 export function reusableScreeningAnswer(
   question: HhScreeningQuestion,
@@ -186,6 +246,10 @@ export function reusableScreeningAnswer(
     || sameRelocationScope;
   const sameCurrentLocation = sameMeaning && semanticKey === CURRENT_LOCATION_SEMANTIC_KEY;
   if (!exact && !sameMeaning) return null;
+  // A remembered exclusion can silently remove a suitable vacancy. Treat a
+  // negative traffic-tools answer as review-only and prefer current résumé
+  // evidence or a fresh user choice instead of auto-selecting it again.
+  if (shouldReviewTrafficInspectionFact(question, fact)) return null;
   const intent = screeningPreferenceIntent(fact);
   // A refusal aimed at one city is destination-specific too. Only an explicit
   // global/remote-only refusal may be reused for a differently worded place.
@@ -207,6 +271,16 @@ export function reusableScreeningAnswer(
   );
   if (exactOptions.length > 0) {
     return { id: question.id, answer: fact.answer, selectedOptions: exactOptions, canAutoFill: true, reason: '' };
+  }
+  if (sameMeaning && semanticKey === TRAFFIC_INSPECTION_SEMANTIC_KEY) {
+    const selectedOptions = trafficInspectionOptionsForFact(
+      question.options,
+      fact,
+      question.kind === 'multiple',
+    );
+    if (selectedOptions.length > 0) {
+      return { id: question.id, answer: '', selectedOptions, canAutoFill: true, reason: '' };
+    }
   }
   if (sameCurrentLocation) {
     const location = fact.answer.trim() || fact.selectedOptions[0]?.trim() || '';
@@ -639,6 +713,28 @@ export function knownScreeningAnswer(
           reason: '',
         };
       }
+    }
+  }
+
+  if (screeningQuestionSemanticKey(question.prompt) === TRAFFIC_INSPECTION_SEMANTIC_KEY) {
+    const selectedOptions = trafficInspectionOptionsForFact(
+      question.options,
+      { question: question.prompt, answer: resumeText, selectedOptions: [] },
+      question.kind === 'multiple',
+    );
+    if (selectedOptions.length > 0) {
+      const evidenceQuote = resumeText.split(/\r?\n/u).find((line) => (
+        /(?:devtools|fiddler|charles|wireshark|tcpdump|burp\s*suite|сетев[а-яё]*\s+запрос|http[- ]?трафик)/iu.test(line)
+      ))?.trim().slice(0, 300);
+      return {
+        id: question.id,
+        answer: '',
+        selectedOptions,
+        canAutoFill: true,
+        sourceType: 'resume',
+        evidenceQuote,
+        reason: '',
+      };
     }
   }
 

@@ -60,8 +60,46 @@ export function isHhScreeningSubmissionAccepted(
   state: Pick<HhAssistantState, 'queue'>,
   vacancyKey: string,
 ): boolean {
+  return classifyHhScreeningSubmission(state, vacancyKey, []) === 'sent';
+}
+
+export type HhScreeningSubmissionOutcome = 'rejected' | 'queued' | 'sent';
+
+export function classifyHhScreeningSubmission(
+  state: Pick<HhAssistantState, 'queue'>,
+  vacancyKey: string,
+  submittedQuestionIds: readonly string[],
+): HhScreeningSubmissionOutcome {
   const target = state.queue.find((item) => item.key === vacancyKey || item.id === vacancyKey);
-  return target?.status === 'sent' || target?.status === 'already_applied';
+  if (target?.status === 'sent' || target?.status === 'already_applied') return 'sent';
+  if (
+    target?.status !== 'prepared'
+    || (target.pendingQuestions?.length ?? 0) > 0
+    || submittedQuestionIds.length === 0
+  ) return 'rejected';
+
+  const confirmedQuestionIds = new Set(
+    (target.screeningAnswers ?? [])
+      .filter((answer) => answer.confirmedByUser === true)
+      .map((answer) => answer.questionId),
+  );
+  return submittedQuestionIds.every((questionId) => confirmedQuestionIds.has(questionId))
+    ? 'queued'
+    : 'rejected';
+}
+
+export function clampHhScreeningQuestionIndex(current: number, questionCount: number): number {
+  if (questionCount <= 0) return Math.max(0, current);
+  return Math.max(0, Math.min(current, questionCount - 1));
+}
+
+export function shouldResetHhScreeningQuestionPosition(
+  vacancy: Pick<HhQueueItem, 'key' | 'id'>,
+  activeVacancyKey: string,
+): boolean {
+  return Boolean(activeVacancyKey)
+    && vacancy.key !== activeVacancyKey
+    && vacancy.id !== activeVacancyKey;
 }
 
 export function resolveHhScreeningVacancy(
@@ -172,13 +210,14 @@ export default function HhHrProfilePage() {
   useEffect(() => {
     if (!activeVacancy) return;
     if (activeVacancy.key !== activeVacancyKey) {
+      const shouldReset = shouldResetHhScreeningQuestionPosition(activeVacancy, activeVacancyKey);
       setActiveVacancyKey(activeVacancy.key);
-      setQuestionIndex(0);
+      if (shouldReset) setQuestionIndex(0);
     }
   }, [activeVacancy, activeVacancyKey]);
 
   useEffect(() => {
-    setQuestionIndex((current) => Math.max(0, Math.min(current, Math.max(0, questions.length - 1))));
+    setQuestionIndex((current) => clampHhScreeningQuestionIndex(current, questions.length));
   }, [questions.length]);
 
   useEffect(() => {
@@ -426,7 +465,12 @@ export default function HhHrProfilePage() {
         }),
       );
       const nextVacancies = summarizePendingHhScreening(next.queue).vacancies;
-      if (!isHhScreeningSubmissionAccepted(next, vacancyKey)) {
+      const submissionOutcome = classifyHhScreeningSubmission(
+        next,
+        vacancyKey,
+        questions.map((question) => question.id),
+      );
+      if (submissionOutcome === 'rejected') {
         const unresolved = nextVacancies.find((item) => item.key === vacancyKey);
         setState(next);
         setActiveVacancyKey(vacancyKey);
@@ -436,16 +480,20 @@ export default function HhHrProfilePage() {
       }
       const nextVacancy = nextVacancies.find((item) => item.key !== vacancyKey) ?? null;
       setState(next);
-      setDrafts((current) => {
-        const nextDrafts = { ...current };
-        for (const question of rawQuestions) delete nextDrafts[draftKey(activeVacancy.key, question.id)];
-        return nextDrafts;
-      });
+      if (submissionOutcome === 'sent') {
+        setDrafts((current) => {
+          const nextDrafts = { ...current };
+          for (const question of rawQuestions) delete nextDrafts[draftKey(activeVacancy.key, question.id)];
+          return nextDrafts;
+        });
+      }
       setActiveVacancyKey(nextVacancy?.key ?? '');
       setQuestionIndex(0);
-      setNotice(nextVacancy
-        ? `Ответы отправлены. Открыта следующая вакансия: ${nextVacancy.title}.`
-        : 'Ответы отправлены. Вопросов, требующих вашего решения, больше нет.');
+      setNotice(submissionOutcome === 'queued'
+        ? (next.message || 'Ответы сохранены. Отклик продолжится автоматически.')
+        : nextVacancy
+          ? `Ответы отправлены. Открыта следующая вакансия: ${nextVacancy.title}.`
+          : 'Ответы отправлены. Вопросов, требующих вашего решения, больше нет.');
       window.setTimeout(() => {
         document.getElementById('hr-profile-current-question')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }, 0);
@@ -559,7 +607,7 @@ export default function HhHrProfilePage() {
       </header>
 
       {error && <div className="flex items-start gap-2 rounded-xl border border-red-500/25 bg-red-500/[0.05] px-4 py-3 text-sm text-red-300" role="alert"><AlertTriangle className="mt-0.5 shrink-0" size={16} /><span>{error}</span></div>}
-      {notice && <div className="flex items-center gap-2 rounded-xl border border-sky-500/20 bg-sky-500/[0.045] px-4 py-3 text-sm text-sky-100" role="status"><Check className="shrink-0" size={16} /><span>{notice}</span>{undoSkippedVacancyKey && <button type="button" className="ml-auto inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-semibold text-sky-100 hover:bg-sky-400/10" onClick={() => void undoSkippedVacancy()}><Undo2 size={13} />Вернуть</button>}</div>}
+      {notice && <div className="flex items-center gap-2 rounded-xl border border-emerald-400/20 bg-emerald-400/[0.055] px-4 py-3 text-sm text-emerald-100" role="status"><Check className="shrink-0" size={16} /><span>{notice}</span>{undoSkippedVacancyKey && <button type="button" className="ml-auto inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-semibold text-emerald-100 hover:bg-emerald-400/10" onClick={() => void undoSkippedVacancy()}><Undo2 size={13} />Вернуть</button>}</div>}
 
       {pendingVacancies.length === 0 ? (
         <section className="panel-card p-8 text-center">

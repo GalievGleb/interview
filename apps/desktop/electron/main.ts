@@ -33,7 +33,10 @@ import {
   type HhChatCandidateProfile,
 } from './hhChatBrowser';
 import { findNearestCurrentInterview, InterviewCalendarStore } from './interviewCalendar';
-import { isReservedOverlayShortcut } from './shortcutPolicy';
+import {
+  CANDIDATE_FOLLOW_UP_ACCELERATOR,
+  isReservedOverlayShortcut,
+} from './shortcutPolicy';
 import { createAutoUpdateCoordinator } from './autoUpdateCoordinator';
 import { createUpdaterStatusStore } from './updaterStatusStore';
 import {
@@ -53,7 +56,11 @@ import { PersistentGlobalShortcut } from './persistentGlobalShortcut';
 import { bindOverlayPointerRecovery } from './overlayPointerRecovery';
 import { getTitleBarOverlayTheme } from './titleBarTheme';
 import { preparePersistentBackendData, sqliteDatabaseUrl } from './backendData';
-import { getAppIdentity, resolveBuildChannel } from './buildChannel';
+import {
+  getAppIdentity,
+  localApiConnectSources,
+  resolveBuildChannel,
+} from './buildChannel';
 import {
   captureScreenWithoutOverlay,
   ScreenCaptureCoordinator,
@@ -87,7 +94,7 @@ function readPackagedBuildChannel(): unknown {
 
 const BUILD_CHANNEL = resolveBuildChannel(app.isPackaged, readPackagedBuildChannel());
 const APP_IDENTITY = getAppIdentity(BUILD_CHANNEL);
-const isDeveloperBuild = BUILD_CHANNEL === 'dev';
+const isDeveloperBuild = BUILD_CHANNEL === 'dev' || BUILD_CHANNEL === 'alpha';
 // The first macOS release is distributed as architecture-specific DMGs. Keep
 // the Windows updater quiet until a signed macOS ZIP/update manifest is shipped.
 const isAutoUpdateSupported = !isDeveloperBuild && process.platform === 'win32';
@@ -159,6 +166,8 @@ let forceAnswerShortcutBinding: PersistentGlobalShortcut | null = null;
 let forceAnswerShortcutRetryTimer: NodeJS.Timeout | null = null;
 let forceScreenAnswerShortcutBinding: PersistentGlobalShortcut | null = null;
 let forceScreenAnswerShortcutRetryTimer: NodeJS.Timeout | null = null;
+let candidateFollowUpShortcutBinding: PersistentGlobalShortcut | null = null;
+let candidateFollowUpShortcutRetryTimer: NodeJS.Timeout | null = null;
 let hhBrowserAssistant: HhBrowserAssistant | null = null;
 let hhOAuthService: HhOAuthService | null = null;
 let hhChatBrowser: HhChatBrowser | null = null;
@@ -421,6 +430,7 @@ function hardenWindow(win: BrowserWindow): void {
 /** Strict CSP for the packaged app (dev uses Vite's own server + HMR). */
 function setupContentSecurityPolicy(): void {
   if (isDev) return;
+  const localApiSources = localApiConnectSources(APP_IDENTITY).join(' ');
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({
       responseHeaders: {
@@ -433,7 +443,7 @@ function setupContentSecurityPolicy(): void {
             "img-src 'self' data: blob:",
             "font-src 'self' data: https://fonts.gstatic.com",
             "media-src 'self' blob:",
-            "connect-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com http://127.0.0.1:8000 ws://127.0.0.1:8000 http://localhost:8000 ws://localhost:8000 http://127.0.0.1:8001 ws://127.0.0.1:8001 http://localhost:8001 ws://localhost:8001",
+            `connect-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com ${localApiSources}`,
           ].join('; '),
         ],
       },
@@ -881,7 +891,7 @@ function registerIpc(): void {
       return {
         ok: false,
         shortcut: toggleOverlayShortcut,
-        error: 'Ctrl+Enter is reserved for sending the current live question',
+        error: 'Сочетание уже используется командами live-оверлея',
       };
     }
     if (next === toggleOverlayShortcut) return { ok: true, shortcut: toggleOverlayShortcut };
@@ -1381,6 +1391,45 @@ function registerForceScreenAnswerShortcut(): void {
   }
 }
 
+function deliverCandidateFollowUpToOverlay(): void {
+  const existingOverlay = isLiveWindow(overlayWindow) ? overlayWindow : null;
+  if (isDeveloperBuild && (!existingOverlay || !existingOverlay.isVisible())) return;
+  const win = existingOverlay ?? getOrCreateOverlayWindow();
+  if (!win.isVisible()) showOverlayWindow(win, 'inactive');
+  const send = () => {
+    if (!isLiveWindow(win) || win.webContents.isDestroyed()) return;
+    win.webContents.send('overlay:candidate-follow-up');
+  };
+  if (win.webContents.isLoadingMainFrame()) win.webContents.once('did-finish-load', send);
+  else send();
+}
+
+function scheduleCandidateFollowUpShortcutRetry(): void {
+  if (quitting || candidateFollowUpShortcutRetryTimer) return;
+  candidateFollowUpShortcutRetryTimer = setTimeout(() => {
+    candidateFollowUpShortcutRetryTimer = null;
+    if (!candidateFollowUpShortcutBinding?.ensureRegistered()) {
+      scheduleCandidateFollowUpShortcutRetry();
+    }
+  }, 2_000);
+}
+
+function registerCandidateFollowUpShortcut(): void {
+  candidateFollowUpShortcutBinding?.dispose();
+  candidateFollowUpShortcutBinding = new PersistentGlobalShortcut(
+    globalShortcut,
+    CANDIDATE_FOLLOW_UP_ACCELERATOR,
+    deliverCandidateFollowUpToOverlay,
+    (accelerator) => {
+      console.warn(`[overlay] global candidate shortcut unavailable, retrying: ${accelerator}`);
+      scheduleCandidateFollowUpShortcutRetry();
+    },
+  );
+  if (!candidateFollowUpShortcutBinding.ensureRegistered()) {
+    scheduleCandidateFollowUpShortcutRetry();
+  }
+}
+
 function registerShortcuts(): void {
   const stored = loadMainSettings().toggleOverlayShortcut;
   if (typeof stored === 'string' && stored.trim() && registerToggleShortcut(stored.trim(), true)) {
@@ -1391,6 +1440,7 @@ function registerShortcuts(): void {
   }
   registerForceAnswerShortcut();
   registerForceScreenAnswerShortcut();
+  registerCandidateFollowUpShortcut();
 }
 
 function createTray(): void {
@@ -1836,6 +1886,10 @@ if (!hasSingleInstanceLock) {
     forceScreenAnswerShortcutRetryTimer = null;
     forceScreenAnswerShortcutBinding?.dispose();
     forceScreenAnswerShortcutBinding = null;
+    if (candidateFollowUpShortcutRetryTimer) clearTimeout(candidateFollowUpShortcutRetryTimer);
+    candidateFollowUpShortcutRetryTimer = null;
+    candidateFollowUpShortcutBinding?.dispose();
+    candidateFollowUpShortcutBinding = null;
     globalShortcut.unregisterAll();
     stopBackend();
     backendLogStream?.end();

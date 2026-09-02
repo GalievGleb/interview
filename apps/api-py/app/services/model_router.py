@@ -10,10 +10,15 @@ AUTO = "auto"
 # заблокирован в GATEWAY_BLOCKED_MODELS (защита от разорения на дорогих моделях),
 # поэтому дефолт должен быть из разрешённых, иначе разбор у покупателей упрётся в 403.
 VACANCY_DEFAULT_MODEL = "openai/gpt-4o"
-# Per-answer coaching is interactive: keep it on the small low-latency model.
-# The detailed end-of-interview report still has its separate vacancy route.
-FEEDBACK_DEFAULT_MODEL = "openai/gpt-4o-mini"
+# Per-answer coaching is interactive. The installed six-case corpus showed Qwen
+# returning stronger factual corrections in roughly 2.1–2.7 s versus GPT-4o
+# mini's 3.2–4.1 s. Invalid JSON is retried once with the stable GPT fallback.
+FEEDBACK_DEFAULT_MODEL = "qwen/qwen3.5-flash-02-23"
 FAST_CORE_DEFAULT_MODEL = "qwen/qwen3.5-flash-02-23"
+# Comparisons and classifications need reliable category/guarantee handling.
+# Gemini won the repeated general-reasoning corpus without adding a second call;
+# Qwen remains the lower-latency default for all other live intents.
+FAST_ACCURACY_MODEL = "google/gemini-3.5-flash"
 # Vision needs exact literals as well as OCR. The previous model read Female/F
 # correctly but sometimes normalized them to lowercase while writing SQL.
 # GPT-5.6 Sol won the installed exact-literal regression with lower TTFT too.
@@ -91,6 +96,7 @@ VACANCY_PATTERNS = [
 # Low-latency ordering for per-answer coaching. Avoid reasoning models here:
 # the UI promises a result (or its deterministic fallback) within a few seconds.
 FEEDBACK_PATTERNS = [
+    "qwen3.5-flash-02-23",
     "gpt-4o-mini",
     "gpt-4.1-mini",
     "gemini-2.0-flash-lite",

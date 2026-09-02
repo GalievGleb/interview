@@ -6,6 +6,10 @@ import {
 } from './aiModels';
 import { answerLanguageParam } from './answerLanguage';
 import type { DebugBundle } from './liveDebugRecorder';
+import {
+  parseOpaqueScreenTaskState,
+  type OpaqueScreenTaskState,
+} from './screenTaskStateMemory';
 import { parseInterviewStreamEvent } from './streamInterviewEvent';
 
 export interface SttSettingsDto {
@@ -111,7 +115,9 @@ const STREAM_IDLE_TIMEOUT_MS = 25_000;
 // путь, пользователь готов подождать пару секунд ради настоящего разбора.
 // The API uses a compact non-reasoning model with a 4.5s budget. This client
 // guard guarantees an immediate local fallback if transport cancellation stalls.
-const VACANCY_EVALUATE_TIMEOUT_MS = 5_000;
+// The API owns an 8.5 s quality deadline. Leave enough transport margin for a
+// structured timeout instead of aborting a valid answer just before it arrives.
+const VACANCY_EVALUATE_TIMEOUT_MS = 9_500;
 
 export interface MockAnswerTranscriptionContext {
   question: string;
@@ -155,12 +161,16 @@ export interface UsageRow {
 export interface SseDoneMetadata {
   model?: string;
   modelSource?: string;
+  /** Чувствительный ограниченный контекст экрана: только память, без логов и диска. */
+  taskState?: OpaqueScreenTaskState;
+  /** Строгий профиль не поддержан; ответ завершён проверенным legacy-потоком. */
+  legacyFallback?: true;
 }
 
 interface SseHandlers {
   onChunk: (text: string) => void;
   onDone: () => void;
-  onError: (msg: string) => void;
+  onError: (msg: string, code?: string) => void;
 }
 
 interface MetadataSseHandlers extends Omit<SseHandlers, 'onDone'> {
@@ -204,6 +214,7 @@ function sseChatStream(
   path: string,
   body: unknown,
   handlers: SseHandlers | MetadataSseHandlers,
+  options: { failClosed?: boolean } = {},
 ): () => void {
   const controller = new AbortController();
   const watchdog = createIdleWatchdog(controller);
@@ -215,10 +226,11 @@ function sseChatStream(
     (handlers.onDone as (value?: SseDoneMetadata) => void)(meta);
     return true;
   };
-  const settleError = (message: string): boolean => {
+  const settleError = (message: string, code?: string): boolean => {
     if (settled || cancelled) return false;
     settled = true;
-    handlers.onError(message);
+    if (code) handlers.onError(message, code);
+    else handlers.onError(message);
     return true;
   };
   void (async () => {
@@ -239,23 +251,46 @@ function sseChatStream(
       let buffer = '';
       const processLine = (line: string): boolean => {
         if (!line.startsWith('data: ')) return false;
+        let evt: unknown;
         try {
-          const evt = JSON.parse(line.slice(6));
-          if (evt.type === 'chunk' && !settled && !cancelled) handlers.onChunk(evt.text);
-          else if (evt.type === 'done') {
-            settleDone({
-              ...(typeof evt.model === 'string' ? { model: evt.model } : {}),
-              ...(typeof (evt.model_source ?? evt.modelSource) === 'string'
-                ? { modelSource: evt.model_source ?? evt.modelSource }
-                : {}),
-            });
-            return true;
-          } else if (evt.type === 'error') {
-            settleError(evt.message ?? 'Ошибка');
-            return true;
-          }
+          evt = JSON.parse(line.slice(6));
         } catch {
-          // ignore malformed SSE lines
+          return options.failClosed
+            ? settleError('Ответ сервера повреждён. Повторите запрос.', 'invalid_sse_event')
+            : false;
+        }
+        if (typeof evt !== 'object' || evt === null || Array.isArray(evt)) {
+          return options.failClosed
+            ? settleError('Ответ сервера повреждён. Повторите запрос.', 'invalid_sse_event')
+            : false;
+        }
+        const event = evt as Record<string, unknown>;
+        if (event.type === 'chunk') {
+          if (typeof event.text !== 'string') {
+            return options.failClosed
+              ? settleError('Ответ сервера повреждён. Повторите запрос.', 'invalid_sse_event')
+              : false;
+          }
+          if (!settled && !cancelled) handlers.onChunk(event.text);
+        } else if (event.type === 'done') {
+          const parsedTaskState = parseOpaqueScreenTaskState(event.task_state);
+          const modelSource = event.model_source ?? event.modelSource;
+          settleDone({
+            ...(typeof event.model === 'string' ? { model: event.model } : {}),
+            ...(typeof modelSource === 'string'
+              ? { modelSource }
+              : {}),
+            ...(parsedTaskState ? { taskState: parsedTaskState.value } : {}),
+          });
+          return true;
+        } else if (event.type === 'error') {
+          settleError(
+            typeof event.message === 'string' ? event.message : 'Ошибка',
+            typeof event.code === 'string' ? event.code : undefined,
+          );
+          return true;
+        } else if (options.failClosed) {
+          return settleError('Ответ сервера повреждён. Повторите запрос.', 'invalid_sse_event');
         }
         return false;
       };
@@ -354,6 +389,12 @@ export interface StreamInterviewOpts {
   sessionId?: string;
   rawQuestion?: string;
   candidateContext?: string;
+  activeScreenTask?: {
+    rootQuestion: string;
+    currentQuestion: string;
+    latestAnswer: string;
+    updatedAtMs: number;
+  };
   resolvedQuestion?: string;
   previousTopic?: string;
   isFollowUp?: boolean;
@@ -930,6 +971,14 @@ export const api = {
           question,
           raw_question: opts.rawQuestion ?? question,
           candidate_context: opts.candidateContext?.trim() || null,
+          active_screen_task: opts.activeScreenTask
+            ? {
+                root_question: opts.activeScreenTask.rootQuestion,
+                current_question: opts.activeScreenTask.currentQuestion,
+                latest_answer: opts.activeScreenTask.latestAnswer,
+                updated_at_ms: opts.activeScreenTask.updatedAtMs,
+              }
+            : null,
           session_id: opts.sessionId,
           answer_language: answerLanguageParam(),
           mode: 'fast',
@@ -1130,19 +1179,95 @@ export const api = {
     image: string,
     question: string,
     handlers: MetadataSseHandlers,
-    opts: { context?: string; mode?: string } = {},
+    opts: {
+      context?: string;
+      mode?: string;
+      previousImages?: string[];
+      priorSolutionSummary?: string;
+      structuredScreen?: boolean;
+      taskState?: string;
+    } = {},
   ): () => void {
-    return sseChatStream(
+    const structuredScreen = opts.structuredScreen === true;
+    const parsedOutgoingState = opts.taskState === undefined
+      ? null
+      : parseOpaqueScreenTaskState(opts.taskState);
+    if (structuredScreen && opts.taskState !== undefined && !parsedOutgoingState) {
+      let cancelled = false;
+      queueMicrotask(() => {
+        if (!cancelled) {
+          handlers.onError(
+            'Контекст экранной задачи повреждён или устарел. Начните задачу заново.',
+            'invalid_screen_task_state',
+          );
+        }
+      });
+      return () => { cancelled = true; };
+    }
+    const baseBody = {
+      image,
+      question,
+      context: opts.context,
+      previous_images: opts.previousImages,
+      prior_solution_summary: opts.priorSolutionSummary,
+      mode: opts.mode ?? 'general',
+      answer_language: answerLanguageParam(),
+    };
+    if (!structuredScreen) {
+      return sseChatStream('/chat/screen/stream', baseBody, handlers);
+    }
+
+    let cancelled = false;
+    let sawStructuredChunk = false;
+    let fallbackStarted = false;
+    let cancelActive: () => void = () => undefined;
+    const structuredHandlers: MetadataSseHandlers = {
+      onChunk: (text) => {
+        sawStructuredChunk = true;
+        handlers.onChunk(text);
+      },
+      onDone: (meta) => {
+        if (!meta?.taskState) {
+          handlers.onError(
+            'Ответ по экрану не завершён: сервер не подтвердил контекст. Повторите.',
+          );
+          return;
+        }
+        handlers.onDone(meta);
+      },
+      onError: (message, code) => {
+        if (
+          code === 'unsupported_screen_python_profile'
+          && !sawStructuredChunk
+          && !fallbackStarted
+          && !cancelled
+        ) {
+          fallbackStarted = true;
+          cancelActive = sseChatStream('/chat/screen/stream', baseBody, {
+            onChunk: handlers.onChunk,
+            onDone: (meta) => handlers.onDone({ ...meta, legacyFallback: true }),
+            onError: handlers.onError,
+          });
+          return;
+        }
+        handlers.onError(message, code);
+      },
+    };
+    cancelActive = sseChatStream(
       '/chat/screen/stream',
       {
-        image,
-        question,
-        context: opts.context,
-        mode: opts.mode ?? 'general',
-        answer_language: answerLanguageParam(),
+        ...baseBody,
+        structuredScreen: true,
+        taskAction: parsedOutgoingState ? 'continue' : 'new',
+        ...(parsedOutgoingState ? { taskState: parsedOutgoingState.value } : {}),
       },
-      handlers,
+      structuredHandlers,
+      { failClosed: true },
     );
+    return () => {
+      cancelled = true;
+      cancelActive();
+    };
   },
 
   /** Streaming meeting summary (SSE). Returns a cancel function. */

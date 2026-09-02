@@ -133,6 +133,22 @@
 .ovl-answer-body {
   @apply min-h-0 flex-1 overflow-y-auto text-[16px] leading-relaxed text-ink;
   min-height: min(18vh, 140px);
+  overflow-x: hidden;
+  overflow-wrap: anywhere;
+}
+
+.ovl-answer-issue {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 9px 0 0;
+  border: 1px solid rgba(251, 191, 36, 0.28);
+  border-radius: 10px;
+  padding: 8px 10px;
+  color: #fde68a;
+  background: rgba(146, 64, 14, 0.16);
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 /* Командная панель */

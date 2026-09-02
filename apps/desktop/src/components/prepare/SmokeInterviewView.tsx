@@ -114,6 +114,12 @@ export default function SmokeInterviewView({
 
   const topic = vacancyAnalysis.interviewTopics.find((item) => item.id === question.topicId);
   const evaluation = existing?.evaluation;
+  const primaryStrength = evaluation?.goodPoints?.[0] ?? '';
+  const primaryFix = evaluation?.technicalCorrections?.[0]
+    ?? evaluation?.missingPoints?.[0]
+    ?? evaluation?.weakPoints?.[0]
+    ?? evaluation?.feedback
+    ?? '';
   const answered = Boolean(existing);
   const isLast = currentIndex === questions.length - 1;
   const canDrill =
@@ -426,12 +432,20 @@ export default function SmokeInterviewView({
             </div>
           </div>
 
-          <p className="prep-sub">{evaluation.feedback}</p>
-
-          {evaluation.answerStrategy && evaluation.evaluationSource !== 'heuristic' && (
-            <div className="prep-answer-strategy">
-              <strong>{t('prep.smoke.answerLogic')}</strong>
-              <span>{evaluation.answerStrategy}</span>
+          {(primaryStrength || primaryFix) && (
+            <div className="prep-coaching-summary">
+              {primaryStrength && (
+                <div className="prep-coaching-summary__item is-good">
+                  <strong>{t('prep.smoke.alreadyGood')}</strong>
+                  <p>{primaryStrength}</p>
+                </div>
+              )}
+              {primaryFix && (
+                <div className="prep-coaching-summary__item is-fix">
+                  <strong>{t('prep.smoke.improveFirst')}</strong>
+                  <p>{primaryFix}</p>
+                </div>
+              )}
             </div>
           )}
 
@@ -439,31 +453,6 @@ export default function SmokeInterviewView({
             <div className="prep-strong-answer">
               <p className="prep-eyebrow">{t('prep.smoke.strongVersion')}</p>
               <p className="mt-2 whitespace-pre-wrap">{evaluation.suggestedBetterAnswer}</p>
-              {evaluation.whyThisAnswerWorks && evaluation.whyThisAnswerWorks.length > 0 && (
-                <div className="prep-answer-rationale">
-                  <p className="prep-faint">{t('prep.smoke.whyAnswerWorks')}</p>
-                  <ul>
-                    {evaluation.whyThisAnswerWorks.map((reason) => (
-                      <li key={reason}>
-                        <span>✓</span>
-                        {reason}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              {evaluation.hallucinationGuard && evaluation.hallucinationGuard.length > 0 && (
-                <small>
-                  {t('prep.smoke.noFiction')} {evaluation.hallucinationGuard.join(' · ')}
-                </small>
-              )}
-            </div>
-          )}
-
-          {evaluation.nextTrainingFocus && (
-            <div className="prep-training-focus">
-              <strong>{t('prep.smoke.trainWhat')}</strong>
-              <span>{evaluation.nextTrainingFocus}</span>
             </div>
           )}
 
@@ -494,6 +483,42 @@ export default function SmokeInterviewView({
               <ChevronDown size={15} aria-hidden="true" />
             </summary>
             <div className="prep-feedback-details__body">
+              {evaluation.feedback && <p className="prep-sub">{evaluation.feedback}</p>}
+
+              {evaluation.answerStrategy && evaluation.evaluationSource !== 'heuristic' && (
+                <div className="prep-answer-strategy">
+                  <strong>{t('prep.smoke.answerLogic')}</strong>
+                  <span>{evaluation.answerStrategy}</span>
+                </div>
+              )}
+
+              {evaluation.whyThisAnswerWorks && evaluation.whyThisAnswerWorks.length > 0 && (
+                <div className="prep-answer-rationale">
+                  <p className="prep-faint">{t('prep.smoke.whyAnswerWorks')}</p>
+                  <ul>
+                    {evaluation.whyThisAnswerWorks.map((reason) => (
+                      <li key={reason}>
+                        <span>✓</span>
+                        {reason}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {evaluation.nextTrainingFocus && (
+                <div className="prep-training-focus">
+                  <strong>{t('prep.smoke.trainWhat')}</strong>
+                  <span>{evaluation.nextTrainingFocus}</span>
+                </div>
+              )}
+
+              {evaluation.hallucinationGuard && evaluation.hallucinationGuard.length > 0 && (
+                <p className="prep-faint">
+                  {t('prep.smoke.noFiction')} {evaluation.hallucinationGuard.join(' · ')}
+                </p>
+              )}
+
               <div className="prep-metrics">
                 <Metric
                   label={t('prep.metric.accuracy')}

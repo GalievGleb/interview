@@ -11,7 +11,7 @@ import {
 } from './lib/liveReadinessMonitor';
 
 // Route-level code splitting — keeps the initial bundle small and cold start fast.
-const DEV_SURFACE = import.meta.env.MODE === 'devbuild';
+const DEV_SURFACE = ['devbuild', 'alphabuild'].includes(import.meta.env.MODE);
 const HomePage = lazy(() => import('./pages/HomePage'));
 const PreparePage = lazy(() => import('./pages/PreparePage'));
 const PracticePage = lazy(() => import('./pages/PracticePage'));

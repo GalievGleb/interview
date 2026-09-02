@@ -337,53 +337,38 @@ candidate_answer (raw voice transcript):
 Return only the JSON object."""
 
 
-# Compact prompt for the interactive per-answer path. It deliberately keeps the
-# same response contract as V2 so saved sessions and the hardening layer remain
-# compatible, while cutting the output and instruction budget dramatically.
+# Compact prompt for the interactive per-answer path. The server expands this
+# small coaching payload into the stable desktop contract after generation.
+# Asking the model for every derived score made the real provider miss the
+# interactive deadline and silently pushed users onto deterministic feedback.
 VACANCY_EVALUATE_FAST_PROMPT = """You are a senior interviewer and concise interview coach. Evaluate one spoken answer quickly and honestly.
 
 Rules:
 - Judge meaning, not transcription noise. Never invent personal experience, metrics, projects, tools used personally, leadership, or results.
 - Resume and interview legend may support personal claims. Vacancy and expected signals describe requirements, not candidate experience.
-- Assess expected signals semantically; never list a covered idea as missing.
-- suggestedBetterAnswer must be a natural, finished first-person answer to this exact question, ready to say aloud. It is not advice or a template.
-- For technical questions: direct answer -> reasoning/steps -> trade-off or failure mode. For behavioral/project questions: context -> candidate action -> result, using only supported facts.
-- For a broad technology question (for example Docker), use two compact paragraphs: first explain the core concepts in plain language, then show practical use, operational details, and one important trade-off. Cover the essential ideas, not just the keywords explicitly named in the question.
-- Keep feedback to 2-3 specific sentences, lists to at most 3 short items, and the better answer to roughly 90-180 words. Completeness matters more than an artificial word limit.
+- Score is an integer from 0 to 100 (never a 0-10 scale).
+- Assess expected signals semantically; never list a covered idea as missing. Missing points must come from the expected signals or a factual error, not generic wishes such as metrics/results for a knowledge question.
+- Treat a concrete explanation of how a pattern is applied (for example Page Object, composition, or boundary values) as a practical example even when no employer or project name is given.
+- suggestedBetterAnswer must be a natural, finished first-person answer to this exact question, ready to say aloud. It is not advice, a template, or a repetition of the question.
+- For technical questions: direct answer -> reasoning or steps -> one trade-off/failure mode. For experience questions: answer in the candidate's profession and use only facts supported by the resume, legend, or candidate answer. For behavioral/project questions: context -> candidate action -> result.
+- A practical question such as "how do you use OOP" needs a concrete application from the candidate's stack when evidence supports it, not a textbook definition alone.
+- Distinguish an honest knowledge gap from a weak answer. Never punish a candidate for explicitly saying they have not used a tool; give a safe, truthful better answer.
+- The better answer may add general technical knowledge, but every first-person experience claim must already exist in the candidate answer, resume, or legend. Never invent a project, database, outcome, metric, or tool usage. Preserve an honest "I have not used it" boundary.
+- Mentioning a term in the question or in a knowledge explanation does not prove a personal habit. Do not turn it into "I usually use..." or past project work unless that usage is supported. After an explicit experience gap, describe only knowledge, a hypothetical approach, or a learning plan—never past actions in that tool's ecosystem.
+- Keep feedback to 2 specific sentences, lists to at most 2 short items, one follow-up, and the better answer to roughly 70-140 words.
 - All text must be in {language}. Return strict JSON only.
 
-Return this complete shape:
+Return exactly this compact shape:
 {{
   "score": 0,
-  "coverageScore": 0,
-  "technicalContentScore": 0,
-  "projectSpecificityScore": 0,
-  "leadershipScore": 0,
-  "ownershipScore": 0,
-  "structureScore": 0,
-  "speechClarityScore": 0,
-  "technicalAccuracyScore": 0,
-  "specificityScore": 0,
-  "clarityScore": 0,
-  "confidenceScore": 0,
   "levelEstimate": "junior|middle|senior|lead",
   "verdict": "one sentence",
   "feedback": "what worked, decisive gap, exact fix",
-  "normalizedAnswerSummary": "cleaned candidate meaning",
-  "detectedNoiseOrAsrErrors": [],
-  "extractedValidPoints": [],
   "goodPoints": [],
-  "weakPoints": [],
   "missingPoints": [],
   "technicalCorrections": [],
-  "hallucinationGuard": [],
-  "betterStructure": [],
-  "answerStrategy": "one sentence",
-  "whyThisAnswerWorks": [],
-  "deliveryTips": [],
   "suggestedBetterAnswer": "finished answer",
   "followUpQuestions": [],
-  "nextTrainingFocus": "one concrete rehearsal task",
   "overclaimed": false
 }}
 

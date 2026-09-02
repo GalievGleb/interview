@@ -19,13 +19,13 @@ describe('personal progress migration', () => {
     expect(app).toContain('to="/practice"');
   });
 
-  it('moves the professional goal and baseline into profile and experience', () => {
+  it('keeps only the role actually used to generate practice in profile and experience', () => {
     expect(documents).toContain('<GrowthProfileSetup');
-    expect(documents).toContain("section=goal");
-    expect(growthSetup).toContain('ПРОФЕССИОНАЛЬНАЯ ЦЕЛЬ');
+    expect(documents).toContain("section=role");
+    expect(growthSetup).toContain('РОЛЬ ДЛЯ ПОДГОТОВКИ');
     expect(growthSetup).toContain('Другая специализация');
-    expect(growthSetup).toContain('Добавить стартовую самооценку');
-    expect(growthSetup).toContain('<details className="growth-baseline-disclosure">');
+    expect(growthSetup).not.toContain('Добавить стартовую самооценку');
+    expect(growthSetup).not.toContain('growth-baseline-disclosure');
   });
 
   it('keeps role-based setup and saved attempts inside the Practice navigation context', () => {
@@ -35,19 +35,21 @@ describe('personal progress migration', () => {
     expect(practice).toContain('`/practice/session?session=');
   });
 
-  it('uses native form semantics and keeps save discoverable', () => {
-    expect(growthSetup).toContain('<fieldset className="growth-baseline-row"');
-    expect(growthSetup).toContain('<legend className="sr-only">{topic}</legend>');
-    expect(growthSetup).toContain('type="radio"');
+  it('keeps role selection accessible and save discoverable', () => {
     expect(growthSetup).toContain('aria-expanded={expanded}');
     expect(growthSetup).toContain('aria-invalid=');
-    expect(growthSetup).not.toMatch(/Сохранить цель[^]*disabled=/);
+    expect(growthSetup).not.toMatch(/Сохранить роль[^]*disabled=/);
   });
 
   it('moves progress into practice results and leaves History for real interviews', () => {
     expect(practice).toContain('listSessions()');
-    expect(practice).toContain('Последние сессии');
+    expect(practice).toContain('Завершённые тренировки');
     expect(history).toContain('Реальные разговоры');
     expect(history).not.toContain('buildCareerProgress');
+  });
+
+  it('does not render a meaningless score placeholder for unfinished practice', () => {
+    expect(practice).not.toContain("score == null ? '—'");
+    expect(practice).toContain('{score != null &&');
   });
 });

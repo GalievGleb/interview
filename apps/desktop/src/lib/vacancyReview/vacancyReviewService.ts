@@ -115,6 +115,7 @@ function asImportance(v: string): TopicImportance {
  */
 export async function analyzeVacancy(input: VacancyReviewInput): Promise<VacancyAnalysis> {
   const hasResume = Boolean(input.resumeText?.trim());
+  let analysisError: VacancyAnalysis['analysisError'] = 'empty';
   try {
     const r = await api.vacancyAnalyze({
       vacancyText: input.vacancyText,
@@ -185,10 +186,17 @@ export async function analyzeVacancy(input: VacancyReviewInput): Promise<Vacancy
         createdAt: Date.now(),
       };
     }
-  } catch {
-    // Backend/model unavailable — fall through to the deterministic mock.
+  } catch (error) {
+    const message = String(error instanceof Error ? error.message : error).toLowerCase();
+    analysisError = /timeout|timed out|abort/.test(message)
+      ? 'timeout'
+      : /429|quota|limit|лимит/.test(message)
+        ? 'quota'
+        : /network|fetch|econnrefused|offline|backend/.test(message)
+          ? 'offline'
+          : 'provider';
   }
-  return analyzeVacancyMock(input);
+  return { ...analyzeVacancyMock(input), analysisError };
 }
 
 /** Deterministic fallback analysis (no backend). */
@@ -288,7 +296,7 @@ function resumeMatchFor(title: string, resumeLower: string, hasResume: boolean):
     .filter((w) => w.length > 2);
   const hit = words.some((w) => resumeLower.includes(w));
   if (hit) return 'strong';
-  return 'partial';
+  return 'gap';
 }
 
 /** Expected depth from importance + role seniority (mock only). */

@@ -416,8 +416,87 @@ export function findLatestUnansweredRecruiterQuestionnaire(
   return null;
 }
 
+/** A recruiter reminder carries no answerable content and must reuse the unanswered question. */
+export function isRecruiterReminder(value: string): boolean {
+  const text = compactText(value);
+  return (
+    /напоминаю[^.!?]{0,100}(?:про|о)\s+(?:мой|предыдущ|заданн)[а-яё]*\s+вопрос/i.test(text)
+    || /возвращаюсь[^.!?]{0,100}(?:к|ко)\s+(?:моему|предыдущ)[а-яё]*\s+вопрос/i.test(text)
+    || /(?:удалось|получилось)\s+(?:ли\s+)?(?:посмотреть|ответить)[^.!?]{0,80}(?:вопрос|сообщен)/i.test(text)
+  );
+}
+
+function looksLikeRecruiterQuestion(value: string): boolean {
+  const text = compactText(value);
+  return (
+    /\?/u.test(text)
+    || /(?:^|[.!]\s*)(?:расскажите|ответьте|напишите|уточните|подтвердите|укажите|пришлите|есть\s+ли|какой|какие|как|когда|где|готовы\s+ли|можете\s+ли)(?=$|[\s,:!?])/iu.test(text)
+  );
+}
+
+/** Finds the latest employer question that was not followed by an applicant reply. */
+export function findUnansweredQuestionBehindReminder(
+  messages: ChatMessage[],
+  reminder: ChatMessage,
+): ChatMessage | null {
+  if (!isRecruiterReminder(reminder.text)) return null;
+  const reminderIndex = messages.findIndex((message) => message.id === reminder.id);
+  if (reminderIndex <= 0) return null;
+  for (let index = reminderIndex - 1; index >= Math.max(0, reminderIndex - 16); index -= 1) {
+    const message = messages[index];
+    if (message.isMine) return null;
+    if (message.isSystem || isHhPlatformAssistantMessage(message.text) || isRecruiterReminder(message.text)) {
+      continue;
+    }
+    if (looksLikeRecruiterQuestion(message.text)) return message;
+  }
+  return null;
+}
+
 export function stripTrailingChatTimestamp(value: string): string {
-  return value.replace(/(?:\r?\n|\r)\s*(?:[01]\d|2[0-3]):[0-5]\d\s*$/, '').trim();
+  return value
+    .replace(/(?:\r?\n|\r)\s*(?:[01]\d|2[0-3]):[0-5]\d\s*$/, '')
+    .replace(/([.!?])\s+(?:[01]\d|2[0-3]):[0-5]\d\s*$/, '$1')
+    .trim();
+}
+
+function normalizePersistedPendingDecisions(
+  decisions: readonly HhChatPendingDecision[],
+): HhChatPendingDecision[] {
+  const normalized = decisions.map((decision) => {
+    const recruiterMessage = stripTrailingChatTimestamp(decision.recruiterMessage);
+    const question = /^Подтвердите личный факт для ответа работодателю:/iu.test(decision.question)
+      ? `Подтвердите личный факт для ответа работодателю: «${recruiterMessage}»`
+      : decision.question;
+    return { ...decision, recruiterMessage, question };
+  });
+  const result: HhChatPendingDecision[] = [];
+  for (const decision of normalized) {
+    if (!isRecruiterReminder(decision.recruiterMessage)) {
+      result.push(decision);
+      continue;
+    }
+    let originalIndex = -1;
+    for (let index = result.length - 1; index >= 0; index -= 1) {
+      const candidate = result[index];
+      if (
+        candidate.negotiationKey === decision.negotiationKey
+        && !isRecruiterReminder(candidate.recruiterMessage)
+      ) {
+        originalIndex = index;
+        break;
+      }
+    }
+    if (originalIndex < 0) {
+      result.push(decision);
+      continue;
+    }
+    result[originalIndex] = {
+      ...result[originalIndex],
+      messageId: decision.messageId,
+    };
+  }
+  return result.slice(-100);
 }
 
 export function normalizeHhNegotiationVacancyUrl(value: string): string | undefined {
@@ -782,8 +861,11 @@ export class HhChatBrowser {
     if (persisted?.seenMessageIds) {
       this.seenMessageIds = new Set(persisted.seenMessageIds.slice(-500));
     }
+    let shouldMigratePendingDecisions = false;
     if (Array.isArray(persisted?.pendingDecisions)) {
-      this.pendingDecisions = persisted.pendingDecisions.slice(-100);
+      this.pendingDecisions = normalizePersistedPendingDecisions(persisted.pendingDecisions);
+      shouldMigratePendingDecisions = JSON.stringify(this.pendingDecisions)
+        !== JSON.stringify(persisted.pendingDecisions.slice(-100));
     }
     if (Array.isArray(persisted?.ignoredNegotiationKeys)) {
       this.ignoredNegotiationKeys = new Set(persisted.ignoredNegotiationKeys.slice(-300));
@@ -810,7 +892,8 @@ export class HhChatBrowser {
       persisted && (
         persisted.config?.replyPrompt !== DEFAULT_CHAT_CONFIG.replyPrompt ||
         persisted.config?.onlyDiscussions ||
-        shouldMigrateReplyCounter
+        shouldMigrateReplyCounter ||
+        shouldMigratePendingDecisions
       )
     ) {
       this.persist();
@@ -1001,8 +1084,21 @@ export class HhChatBrowser {
       this.persist();
       throw new Error('Работодатель уже отказал по этой вакансии. Ответ больше не требуется.');
     }
-    const frame = await this.openNegotiation(page, negotiation);
-    await this.sendChatMessage(frame, answer);
+    try {
+      const frame = await this.openNegotiation(page, negotiation);
+      await this.sendChatMessage(frame, answer);
+    } catch (error) {
+      if (error instanceof ChatNotWritableError) {
+        this.pendingDecisions = this.pendingDecisions.filter(
+          (item) => item.negotiationKey !== pending.negotiationKey,
+        );
+        this.conversations = this.conversations.map((item) => item.key === pending.negotiationKey
+          ? { ...item, hasUnread: false, needsUserInput: false }
+          : item);
+        this.persist();
+      }
+      throw error;
+    }
     this.recordReply({
       negotiationKey: pending.negotiationKey,
       messageId: pending.messageId,
@@ -1195,7 +1291,21 @@ export class HhChatBrowser {
         const latestMessage = await this.scrapeLastMessage(frame, messages);
         if (!accountSessionIsCurrent()) return;
         const unansweredQuestionnaire = findLatestUnansweredRecruiterQuestionnaire(messages);
-        const lastMessage = unansweredQuestionnaire ?? latestMessage;
+        const reminderPending = latestMessage && isRecruiterReminder(latestMessage.text)
+          ? [...this.pendingDecisions].reverse().find((item) => (
+            item.negotiationKey === negotiation.key
+            && !isRecruiterReminder(item.recruiterMessage)
+          ))
+          : undefined;
+        const reminderQuestion = latestMessage && isRecruiterReminder(latestMessage.text)
+          ? reminderPending
+            ? { ...latestMessage, text: reminderPending.recruiterMessage }
+            : (() => {
+              const previous = findUnansweredQuestionBehindReminder(messages, latestMessage);
+              return previous ? { ...latestMessage, text: previous.text } : null;
+            })()
+          : null;
+        const lastMessage = unansweredQuestionnaire ?? reminderQuestion ?? latestMessage;
         const frameLabel = compactText(await frame.locator('body').innerText({ timeout: 1_500 }).catch(() => ''));
         if (!accountSessionIsCurrent()) return;
         const previousConversation = conversations.get(negotiation.key)!;
@@ -1227,6 +1337,16 @@ export class HhChatBrowser {
         const messageId = questionnaire
           ? `${negotiation.key}:${lastMessage.id}:questionnaire-v${QUESTIONNAIRE_ROUTE_VERSION}`
           : `${negotiation.key}:${lastMessage.id}`;
+        if (reminderQuestion && reminderPending && reminderPending.messageId !== messageId) {
+          this.pendingDecisions = this.pendingDecisions
+            .filter((item) => (
+              item.negotiationKey !== negotiation.key
+              || item.id === reminderPending.id
+              || !isRecruiterReminder(item.recruiterMessage)
+            ))
+            .map((item) => item.id === reminderPending.id ? { ...item, messageId } : item);
+          shouldPersist = true;
+        }
         if (questionnaire) {
           // v1 could already contain a calendar answer produced by the old
           // routing order. The v2 id retries the real questionnaire while this
@@ -2011,7 +2131,7 @@ export class HhChatBrowser {
       const rawText = hasDedicatedText
         ? await textNode.innerText({ timeout: 1_000 }).catch(() => '')
         : await message.innerText({ timeout: 1_000 }).catch(() => '');
-      const text = compactText(hasDedicatedText ? rawText : stripTrailingChatTimestamp(rawText));
+      const text = compactText(stripTrailingChatTimestamp(rawText));
       if (!text) continue;
       const ownClass = await message
         .evaluate((element) => {

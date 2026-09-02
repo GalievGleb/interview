@@ -784,6 +784,51 @@ AQA-Engineer Python. API автотесты Requests + Pytest.
     expect(selected).toContain(matrix);
   });
 
+  it('maps a confirmed traffic-inspection fact onto a reworded HH multi-select question', () => {
+    const fact = {
+      question: 'Использовали ли вы Wireshark, Fiddler, tcpdump, DevTools в браузере или похожие инструменты?',
+      answer: 'Да, использовал DevTools для анализа сетевых запросов и Fiddler для перехвата HTTP-трафика.',
+      selectedOptions: [] as string[],
+    };
+    const question = {
+      id: 'traffic-sniffing',
+      prompt: 'Как вы используете инструменты sniffing-трафика? (можно выбрать несколько вариантов)',
+      kind: 'multiple' as const,
+      options: [
+        'Не использую',
+        'Ловлю запросы и проверяю их параметры',
+        'Использую breakpoints для изменения запросов',
+        'Мокирую запросы и ответы',
+        'Ограничиваю скорость соединения (throttling)',
+        'Анализирую заголовки и сессии',
+        'Проверяю работу с прокси',
+        'Свой вариант',
+      ],
+      required: true,
+    };
+
+    expect(screeningQuestionSemanticKey(fact.question)).toBe('profile:traffic-inspection');
+    expect(screeningQuestionSemanticKey(question.prompt)).toBe('profile:traffic-inspection');
+    expect(reusableScreeningAnswer(question, fact)).toMatchObject({
+      selectedOptions: ['Ловлю запросы и проверяю их параметры'],
+      canAutoFill: true,
+    });
+    expect(knownScreeningAnswer(
+      question,
+      null,
+      'Инструменты: Chrome DevTools для анализа сетевых запросов; Fiddler для перехвата HTTP-трафика.',
+    )).toMatchObject({
+      selectedOptions: ['Ловлю запросы и проверяю их параметры'],
+      canAutoFill: true,
+      sourceType: 'resume',
+    });
+    expect(reusableScreeningAnswer(question, {
+      question: question.prompt,
+      answer: '',
+      selectedOptions: ['Не использую'],
+    })).toBeNull();
+  });
+
   it('does not send unrelated zero-score facts to the screening model', () => {
     const unrelated = {
       question: 'Готовы ли вы к командировкам?',

@@ -55,6 +55,101 @@ class AcceptanceRuntimeError(RuntimeError):
 
 LIVE_SAMPLE_RATE = 16_000
 DEFAULT_EVENT_TIMEOUT_S = 20.0
+_NULL_KEYRING_BACKEND = "keyring.backends.null.Keyring"
+_MANAGED_DEV_GATEWAY_URL = "https://skill-cue.ru/v1"
+_MAX_REPORT_SEQUENCE_ITEMS = 64
+_MAX_MANIFEST_CASES = 64
+_MAX_CASE_REPETITIONS = 10
+_MAX_REPORT_ATTEMPTS = 256
+
+_SAFE_MODEL_IDS = frozenset(
+    {
+        "unknown",
+        "gpt-4o-mini-transcribe",
+        "openai-gpt-4o-mini-transcribe",
+        "openai/gpt-4o",
+        "openai/gpt-4o-mini",
+        "openai/gpt-4.1",
+        "openai/gpt-4.1-mini",
+        "openai/gpt-4.1-nano",
+        "openai/gpt-5.6-sol",
+        "qwen/qwen3.5-flash-02-23",
+        "qwen/qwen3.8-flash",
+        "google/gemini-2.0-flash-001",
+        "google/gemini-3.5-flash",
+    }
+)
+_SOURCE_HASH = re.compile(r"sha256:[0-9a-f]{6,64}", re.IGNORECASE)
+_HASHED_IDENTIFIER = re.compile(r"sha256:[0-9a-f]{16}", re.IGNORECASE)
+_SAFE_QUESTION_INTENTS = frozenset(
+    {
+        "experience",
+        "technical_definition",
+        "technical_list",
+        "technical_comparison",
+        "technical_task",
+        "api_test_task",
+        "practical_usage",
+        "behavioral",
+        "unclear",
+    }
+)
+_SAFE_ANSWER_SOURCES = frozenset(
+    {
+        "auto",
+        "manual",
+        "fast_core_accuracy",
+        "fast_core_default",
+        "fast_core_latency_hedge",
+        "fast_core_reliability_fallback",
+    }
+)
+_SAFE_HEDGE_WINNERS = frozenset({"primary", "fallback"})
+_SAFE_STT_EVENT_TYPES = frozenset(
+    {
+        "speech_started",
+        "transcript",
+        "utterance_end",
+        "force_empty",
+        "low_quality",
+        "transcription_error",
+        "error",
+        "ready",
+    }
+)
+_SAFE_FAILURE_CODES = frozenset(
+    {
+        "transcript_semantics",
+        "empty_terminal_answer",
+        "answer_semantics",
+        "stt_budget",
+        "first_chunk_budget",
+        "trigger_to_first_answer_budget",
+        "total_budget",
+        "backend_health_timeout",
+        "installed_backend_missing",
+        "localappdata_missing",
+        "model_first_chunk_missing",
+        "model_http_error",
+        "model_network_error",
+        "model_stream_error",
+        "model_stream_incomplete",
+        "screen_fixture_format",
+        "stt_empty_transcript",
+        "stt_finalize_timeout",
+        "stt_low_quality",
+        "stt_ready_timeout",
+        "stt_startup_error",
+        "stt_transcription_error",
+        "stt_error",
+        "stt_socket_closed",
+        "voice_fixture_channel_count",
+        "voice_fixture_empty",
+        "voice_fixture_invalid_wav",
+        "voice_fixture_not_pcm16",
+        "unexpected_runtime_error",
+    }
+)
 
 
 _LATENCY_FIELDS = (
@@ -64,35 +159,10 @@ _LATENCY_FIELDS = (
     "totalMs",
 )
 
-_SAFE_ATTEMPT_FIELDS = (
-    "caseId",
-    "kind",
-    "repetition",
-    "passed",
-    "sourceHash",
-    "matchedTranscriptKeys",
-    "matchedAnswerKeys",
-    "sttMs",
-    "firstChunkMs",
-    "triggerToFirstAnswerMs",
-    "totalMs",
-    "model",
-    "sttModel",
-    "sttInferenceMs",
-    "fragmentCount",
-    "fragmentArrivalMs",
-    "fragmentForced",
-    "sttEventTimeline",
-    "questionIntent",
-    "answerSource",
-    "answerLatencyMs",
-    "hedgeStarted",
-    "hedgeWinner",
-    "failures",
-)
 
-
-def nearest_rank_percentile(values: Sequence[int | float], percentile: int) -> int | float:
+def nearest_rank_percentile(
+    values: Sequence[int | float], percentile: int
+) -> int | float:
     """Return the nearest-rank percentile used by the acceptance gate."""
     if not values:
         raise ValueError("Percentile requires at least one value")
@@ -153,6 +223,10 @@ def validate_manifest(data: Any, manifest_dir: Path) -> dict[str, Any]:
     raw_cases = data.get("cases")
     if not isinstance(raw_cases, list) or not raw_cases:
         raise ManifestError("Manifest must contain at least one case")
+    if len(raw_cases) > _MAX_MANIFEST_CASES:
+        raise ManifestError(
+            f"Manifest must contain at most {_MAX_MANIFEST_CASES} cases"
+        )
 
     seen_ids: set[str] = set()
     cases: list[dict[str, Any]] = []
@@ -195,7 +269,9 @@ def validate_manifest(data: Any, manifest_dir: Path) -> dict[str, Any]:
         min_transcript_matches = int(raw_case.get("minTranscriptMatches", 1))
         if not 1 <= min_answer_matches <= len(expected_answer):
             raise ManifestError(f"case {case_id}.minAnswerMatches is out of range")
-        if kind == "voice" and not 1 <= min_transcript_matches <= len(expected_transcript):
+        if kind == "voice" and not 1 <= min_transcript_matches <= len(
+            expected_transcript
+        ):
             raise ManifestError(f"case {case_id}.minTranscriptMatches is out of range")
 
         normalized = dict(raw_case)
@@ -209,11 +285,17 @@ def validate_manifest(data: Any, manifest_dir: Path) -> dict[str, Any]:
                 "minAnswerMatches": min_answer_matches,
                 "minTranscriptMatches": min_transcript_matches,
                 "budgets": normalized_budgets,
-                "repetitions": int(raw_case.get("repetitions", data.get("repetitions", 1))),
+                "repetitions": int(
+                    raw_case.get("repetitions", data.get("repetitions", 1))
+                ),
             }
         )
         if normalized["repetitions"] <= 0:
             raise ManifestError(f"case {case_id}.repetitions must be positive")
+        if normalized["repetitions"] > _MAX_CASE_REPETITIONS:
+            raise ManifestError(
+                f"case {case_id} must use at most {_MAX_CASE_REPETITIONS} repetitions"
+            )
         if kind == "screen":
             normalized["question"] = _require_non_empty_string(
                 raw_case.get("question"), f"case {case_id}.question"
@@ -264,7 +346,9 @@ def pcm_duration_seconds(pcm: bytes, sample_rate: int) -> float:
 
 def silence_pcm(duration_ms: int, *, sample_rate: int) -> bytes:
     if duration_ms < 0 or sample_rate <= 0:
-        raise ValueError("duration_ms must be non-negative and sample_rate must be positive")
+        raise ValueError(
+            "duration_ms must be non-negative and sample_rate must be positive"
+        )
     return b"\0\0" * (sample_rate * duration_ms // 1000)
 
 
@@ -317,7 +401,9 @@ def merge_transcript_fragments(fragments: Iterable[str]) -> str:
     return merged.strip()
 
 
-def voice_timings(*, stt_ms: int, first_chunk_ms: int, llm_total_ms: int) -> dict[str, int]:
+def voice_timings(
+    *, stt_ms: int, first_chunk_ms: int, llm_total_ms: int
+) -> dict[str, int]:
     """Measure response budgets from the explicit Ctrl+Enter trigger."""
     return {
         "sttMs": stt_ms,
@@ -327,7 +413,9 @@ def voice_timings(*, stt_ms: int, first_chunk_ms: int, llm_total_ms: int) -> dic
     }
 
 
-def finalize_request_complete(events: Sequence[dict[str, Any]], request_id: str) -> bool:
+def finalize_request_complete(
+    events: Sequence[dict[str, Any]], request_id: str
+) -> bool:
     """Mirror the Ctrl+Enter race: force_empty may precede an active id-less final."""
     tagged_terminal = any(
         event.get("force_request_id") == request_id
@@ -369,7 +457,10 @@ def evaluate_attempt(
     failures: list[str] = []
     matched_transcript = match_concepts(transcript, case.get("expectedTranscript", []))
     matched_answer = match_concepts(answer, case["expectedAnswer"])
-    if case["kind"] == "voice" and len(matched_transcript) < case["minTranscriptMatches"]:
+    if (
+        case["kind"] == "voice"
+        and len(matched_transcript) < case["minTranscriptMatches"]
+    ):
         failures.append("transcript_semantics")
     if not answer.strip():
         failures.append("empty_terminal_answer")
@@ -430,6 +521,29 @@ def _installed_backend_path() -> Path:
     )
 
 
+def backend_launch_spec(
+    *, source_backend: bool, port: int, root: Path | None = None
+) -> tuple[list[str], Path | None]:
+    """Select the current source API or the installed executable without starting it."""
+    repo_root = root or Path(__file__).resolve().parents[1]
+    if source_backend:
+        api_root = repo_root / "apps" / "api-py"
+        return (
+            [
+                str(api_root / ".venv" / "Scripts" / "python.exe"),
+                "-m",
+                "uvicorn",
+                "app.main:app",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                str(port),
+            ],
+            api_root,
+        )
+    return [str(_installed_backend_path())], None
+
+
 def _free_port() -> int:
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
@@ -440,7 +554,9 @@ def _wait_for_health(port: int, timeout_s: float = 15.0) -> None:
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
         try:
-            with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=1) as response:
+            with urllib.request.urlopen(
+                f"http://127.0.0.1:{port}/health", timeout=1
+            ) as response:
                 if response.status == 200:
                     return
         except (OSError, urllib.error.URLError):
@@ -456,16 +572,15 @@ class InstalledBackendSession:
     token: str = ""
     process: subprocess.Popen[bytes] | None = None
     db_path: Path | None = None
+    source_backend: bool = False
 
     def __enter__(self) -> Self:
-        backend = _installed_backend_path()
-        if not backend.is_file():
+        if not self.source_backend and not _installed_backend_path().is_file():
             raise AcceptanceRuntimeError("installed_backend_missing")
         self.port = _free_port()
         self.token = uuid.uuid4().hex
         self.db_path = (
-            Path(tempfile.gettempdir())
-            / f"skillcue-real-interview-{self.token}.sqlite"
+            Path(tempfile.gettempdir()) / f"skillcue-real-interview-{self.token}.sqlite"
         )
         seed_installed_gateway_identity(self.db_path)
         env = {
@@ -473,11 +588,25 @@ class InstalledBackendSession:
             "SKILLCUE_PORT": str(self.port),
             "SKILLCUE_API_TOKEN": self.token,
             "SKILLCUE_BUILD_CHANNEL": "dev",
-            "SKILLCUE_GATEWAY_URL": "https://skill-cue.ru/v1",
+            "SKILLCUE_GATEWAY_URL": _MANAGED_DEV_GATEWAY_URL,
             "DATABASE_URL": f"sqlite:///{self.db_path.as_posix()}",
         }
+        if self.source_backend:
+            env.update(
+                {
+                    "OPENAI_API_KEY": "",
+                    "OPENROUTER_API_KEY": "",
+                    "PYTHON_KEYRING_BACKEND": _NULL_KEYRING_BACKEND,
+                    "SKILLCUE_GATEWAY_URL": _MANAGED_DEV_GATEWAY_URL,
+                }
+            )
+        command, cwd = backend_launch_spec(
+            source_backend=self.source_backend,
+            port=self.port,
+        )
         self.process = subprocess.Popen(
-            [str(backend)],
+            command,
+            cwd=cwd,
             env=env,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -568,7 +697,9 @@ def _resample_pcm16_mono(pcm: bytes, from_rate: int, to_rate: int) -> bytes:
     return output.tobytes()
 
 
-async def _receive_stt_events(ws: Any, events: list[dict[str, Any]], changed: asyncio.Event) -> None:
+async def _receive_stt_events(
+    ws: Any, events: list[dict[str, Any]], changed: asyncio.Event
+) -> None:
     try:
         while True:
             raw = await ws.recv()
@@ -625,7 +756,11 @@ async def replay_voice_transcript(
     if not pcm:
         raise AcceptanceRuntimeError("voice_fixture_empty")
     query = urllib.parse.urlencode(
-        {"language": str(case.get("language") or "ru"), "sample_rate": LIVE_SAMPLE_RATE, "token": token}
+        {
+            "language": str(case.get("language") or "ru"),
+            "sample_rate": LIVE_SAMPLE_RATE,
+            "token": token,
+        }
     )
     url = f"ws://127.0.0.1:{port}/stt/stream?{query}"
     events: list[dict[str, Any]] = []
@@ -672,7 +807,8 @@ async def replay_voice_transcript(
             transcript_events = [
                 event
                 for event in events
-                if event.get("type") == "transcript" and str(event.get("text") or "").strip()
+                if event.get("type") == "transcript"
+                and str(event.get("text") or "").strip()
             ]
             if not transcript_events:
                 if any(event.get("type") == "transcription_error" for event in events):
@@ -694,19 +830,34 @@ async def replay_voice_transcript(
                 "openaiInferenceMs": transcript_events[-1].get("openaiInferenceMs"),
                 "fragmentCount": len(transcript_events),
                 "fragmentArrivalMs": [
-                    round((float(event.get("_receivedAt") or trigger_started) - trigger_started) * 1000)
+                    round(
+                        (
+                            float(event.get("_receivedAt") or trigger_started)
+                            - trigger_started
+                        )
+                        * 1000
+                    )
                     for event in transcript_events
                 ],
-                "fragmentForced": [bool(event.get("force_request_id")) for event in transcript_events],
+                "fragmentForced": [
+                    bool(event.get("force_request_id")) for event in transcript_events
+                ],
                 "eventTimeline": [
                     {
                         "type": str(event.get("type") or "unknown"),
                         "arrivalMs": round(
-                            (float(event.get("_receivedAt") or trigger_started) - trigger_started)
+                            (
+                                float(event.get("_receivedAt") or trigger_started)
+                                - trigger_started
+                            )
                             * 1000
                         ),
                         "forced": bool(event.get("force_request_id")),
-                        **({"reason": str(event.get("reason"))} if event.get("reason") else {}),
+                        **(
+                            {"reason": str(event.get("reason"))}
+                            if event.get("reason")
+                            else {}
+                        ),
                     }
                     for event in events
                     if event.get("type") != "runner_socket_closed"
@@ -729,7 +880,9 @@ def complete_sse_events(
     )
     if done is None:
         raise AcceptanceRuntimeError("model_stream_incomplete", "stream did not finish")
-    chunks = [str(event.get("text") or "") for event in events if event.get("type") == "chunk"]
+    chunks = [
+        str(event.get("text") or "") for event in events if event.get("type") == "chunk"
+    ]
     answer = str(done.get("spoken") or "".join(chunks)).strip()
     first_chunk_ms = next(
         (
@@ -746,7 +899,9 @@ def complete_sse_events(
     return answer, first_chunk_ms, total_ms, done
 
 
-def _stream_sse(request: urllib.request.Request, *, timeout_s: float) -> tuple[str, int, int, dict[str, Any]]:
+def _stream_sse(
+    request: urllib.request.Request, *, timeout_s: float
+) -> tuple[str, int, int, dict[str, Any]]:
     started = time.monotonic()
     events: list[dict[str, Any]] = []
     try:
@@ -778,10 +933,8 @@ def ask_interview(
         "mode": str(case.get("mode") or "fast"),
         "fast_answer": case.get("mode", "fast") == "fast",
         "answer_language": str(case.get("answerLanguage") or "ru"),
+        "provider": "openrouter",
     }
-    model = str(case.get("model") or "").strip()
-    if model:
-        payload["model"] = model
     request = urllib.request.Request(
         f"http://127.0.0.1:{port}/chat/interview/stream",
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
@@ -817,7 +970,9 @@ def run_voice_attempt(
         model=str(done.get("model") or "unknown"),
         repetition=repetition,
     )
-    correction = done.get("correction") if isinstance(done.get("correction"), dict) else {}
+    correction = (
+        done.get("correction") if isinstance(done.get("correction"), dict) else {}
+    )
     attempt.update(
         {
             "sttModel": stt_metadata.get("model"),
@@ -874,7 +1029,9 @@ def run_screen_attempt(
     case: dict[str, Any],
     repetition: int,
 ) -> dict[str, Any]:
-    answer, first_chunk_ms, total_ms, done = ask_screen(session.port, session.token, case)
+    answer, first_chunk_ms, total_ms, done = ask_screen(
+        session.port, session.token, case
+    )
     attempt = evaluate_attempt(
         case,
         transcript="",
@@ -883,7 +1040,9 @@ def run_screen_attempt(
         model=str(done.get("model") or "unknown"),
         repetition=repetition,
     )
-    correction = done.get("correction") if isinstance(done.get("correction"), dict) else {}
+    correction = (
+        done.get("correction") if isinstance(done.get("correction"), dict) else {}
+    )
     attempt.update(
         {
             "questionIntent": correction.get("question_intent"),
@@ -917,16 +1076,22 @@ def run_acceptance_suite(
     *,
     case_ids: set[str] | None = None,
     repetitions_override: int | None = None,
+    source_backend: bool = False,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    if (
+        repetitions_override is not None
+        and not 1 <= repetitions_override <= _MAX_CASE_REPETITIONS
+    ):
+        raise ManifestError(
+            f"Acceptance run must use at most {_MAX_CASE_REPETITIONS} repetitions"
+        )
     selected = [
-        case
-        for case in manifest["cases"]
-        if case_ids is None or case["id"] in case_ids
+        case for case in manifest["cases"] if case_ids is None or case["id"] in case_ids
     ]
     if not selected:
         raise ManifestError("No selected cases")
     attempts: list[dict[str, Any]] = []
-    with InstalledBackendSession() as session:
+    with InstalledBackendSession(source_backend=source_backend) as session:
         for case in selected:
             repetitions = repetitions_override or case["repetitions"]
             for repetition in range(1, repetitions + 1):
@@ -943,9 +1108,13 @@ def run_acceptance_suite(
                 except AcceptanceRuntimeError as exc:
                     attempt = _runtime_failure_attempt(case, repetition, exc.code)
                 except Exception:  # noqa: BLE001 - convert unknown failures to privacy-safe status
-                    attempt = _runtime_failure_attempt(case, repetition, "unexpected_runtime_error")
+                    attempt = _runtime_failure_attempt(
+                        case, repetition, "unexpected_runtime_error"
+                    )
                 attempts.append(attempt)
-                latency = attempt.get("triggerToFirstAnswerMs", attempt.get("firstChunkMs", "-"))
+                latency = attempt.get(
+                    "triggerToFirstAnswerMs", attempt.get("firstChunkMs", "-")
+                )
                 status = "PASS" if attempt["passed"] else "FAIL"
                 print(
                     f"{status} {case['id']} repetition={repetition} "
@@ -968,6 +1137,11 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--report", type=Path)
     parser.add_argument("--case", action="append", dest="case_ids")
     parser.add_argument("--repetitions", type=int)
+    parser.add_argument(
+        "--source-backend",
+        action="store_true",
+        help="run the current workspace FastAPI source instead of an installed build",
+    )
     return parser.parse_args(argv)
 
 
@@ -983,6 +1157,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         manifest,
         case_ids=set(args.case_ids) if args.case_ids else None,
         repetitions_override=args.repetitions,
+        source_backend=args.source_backend,
     )
     report_path = (
         args.report.expanduser().resolve()
@@ -999,8 +1174,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     return 0 if report["summary"]["passed"] else 1
 
 
-def _latency_summary(attempts: Sequence[dict[str, Any]], field: str) -> dict[str, Any] | None:
-    values = [attempt[field] for attempt in attempts if isinstance(attempt.get(field), (int, float))]
+def _latency_summary(
+    attempts: Sequence[dict[str, Any]], field: str
+) -> dict[str, Any] | None:
+    values = [
+        attempt[field]
+        for attempt in attempts
+        if isinstance(attempt.get(field), (int, float))
+    ]
     if not values:
         return None
     return {
@@ -1017,7 +1198,11 @@ def summarize_attempts(attempts: Sequence[dict[str, Any]]) -> dict[str, Any]:
     for field in _LATENCY_FIELDS:
         summary = _latency_summary(attempts, field)
         if summary is not None:
-            label = "triggerToFirstAnswer" if field == "triggerToFirstAnswerMs" else field[:-2]
+            label = (
+                "triggerToFirstAnswer"
+                if field == "triggerToFirstAnswerMs"
+                else field[:-2]
+            )
             latency[label] = summary
     return {
         "passed": bool(attempts) and not failed,
@@ -1027,19 +1212,174 @@ def summarize_attempts(attempts: Sequence[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _safe_numeric_metric(value: Any) -> int | float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if value < 0 or not math.isfinite(float(value)):
+        return None
+    return value
+
+
+def _safe_non_negative_int(value: Any) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return None
+    return value
+
+
+def _hashed_identifier(value: Any) -> str:
+    if not isinstance(value, str) or not value:
+        return "unknown"
+    if _HASHED_IDENTIFIER.fullmatch(value):
+        return value.casefold()
+    digest = hashlib.sha256(value.encode("utf-8", errors="replace")).hexdigest()
+    return f"sha256:{digest[:16]}"
+
+
+def _safe_model_identifier(value: Any) -> str:
+    if isinstance(value, str) and value in _SAFE_MODEL_IDS:
+        return value
+    return _hashed_identifier(value)
+
+
+def _safe_enum(value: Any, allowed: frozenset[str]) -> str:
+    return value if isinstance(value, str) and value in allowed else "unknown"
+
+
+def _safe_identifier_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [
+        hashed
+        for item in value[:_MAX_REPORT_SEQUENCE_ITEMS]
+        if (hashed := _hashed_identifier(item)) != "unknown"
+    ]
+
+
+def _safe_numeric_list(value: Any) -> list[int | float | None]:
+    if not isinstance(value, list):
+        return []
+    return [_safe_numeric_metric(item) for item in value[:_MAX_REPORT_SEQUENCE_ITEMS]]
+
+
+def _safe_boolean_list(value: Any) -> list[bool]:
+    if not isinstance(value, list):
+        return []
+    return [
+        item if isinstance(item, bool) else False
+        for item in value[:_MAX_REPORT_SEQUENCE_ITEMS]
+    ]
+
+
+def _safe_stt_event_timeline(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    timeline: list[dict[str, Any]] = []
+    for event in value:
+        if len(timeline) >= _MAX_REPORT_SEQUENCE_ITEMS:
+            break
+        if not isinstance(event, dict):
+            continue
+        event_type = event.get("type")
+        if not isinstance(event_type, str) or event_type not in _SAFE_STT_EVENT_TYPES:
+            continue
+        timeline.append(
+            {
+                "type": event_type,
+                "arrivalMs": _safe_numeric_metric(event.get("arrivalMs")),
+                "forced": event.get("forced")
+                if isinstance(event.get("forced"), bool)
+                else False,
+            }
+        )
+    return timeline
+
+
+def _safe_attempt(attempt: dict[str, Any]) -> dict[str, Any]:
+    kind = attempt.get("kind")
+    failures = attempt.get("failures")
+    safe: dict[str, Any] = {
+        "caseId": _hashed_identifier(attempt.get("caseId")),
+        "kind": kind
+        if isinstance(kind, str) and kind in {"voice", "screen"}
+        else "unknown",
+        "repetition": _safe_non_negative_int(attempt.get("repetition")),
+        "passed": attempt.get("passed") is True,
+        "sourceHash": (
+            attempt["sourceHash"]
+            if isinstance(attempt.get("sourceHash"), str)
+            and _SOURCE_HASH.fullmatch(attempt["sourceHash"])
+            else "unknown"
+        ),
+        "matchedTranscriptKeys": _safe_identifier_list(
+            attempt.get("matchedTranscriptKeys")
+        ),
+        "matchedAnswerKeys": _safe_identifier_list(attempt.get("matchedAnswerKeys")),
+        "model": _safe_model_identifier(attempt.get("model")),
+        # The backend-reported model is diagnostic metadata, not proof of the
+        # managed gateway's actual upstream route.
+        "modelVerified": False,
+        "failures": [
+            code
+            for code in failures[:_MAX_REPORT_SEQUENCE_ITEMS]
+            if isinstance(code, str) and code in _SAFE_FAILURE_CODES
+        ]
+        if isinstance(failures, list)
+        else ["unexpected_runtime_error"],
+    }
+    for field in (*_LATENCY_FIELDS, "sttInferenceMs", "answerLatencyMs"):
+        if field in attempt:
+            safe[field] = _safe_numeric_metric(attempt.get(field))
+    if "sttModel" in attempt:
+        safe["sttModel"] = _safe_model_identifier(attempt.get("sttModel"))
+    if "fragmentCount" in attempt:
+        safe["fragmentCount"] = _safe_non_negative_int(attempt.get("fragmentCount"))
+    if "fragmentArrivalMs" in attempt:
+        safe["fragmentArrivalMs"] = _safe_numeric_list(attempt.get("fragmentArrivalMs"))
+    if "fragmentForced" in attempt:
+        safe["fragmentForced"] = _safe_boolean_list(attempt.get("fragmentForced"))
+    if "sttEventTimeline" in attempt:
+        safe["sttEventTimeline"] = _safe_stt_event_timeline(
+            attempt.get("sttEventTimeline")
+        )
+    if "questionIntent" in attempt:
+        value = attempt.get("questionIntent")
+        safe["questionIntent"] = (
+            None if value is None else _safe_enum(value, _SAFE_QUESTION_INTENTS)
+        )
+    if "answerSource" in attempt:
+        value = attempt.get("answerSource")
+        safe["answerSource"] = (
+            None if value is None else _safe_enum(value, _SAFE_ANSWER_SOURCES)
+        )
+    if "hedgeWinner" in attempt:
+        value = attempt.get("hedgeWinner")
+        safe["hedgeWinner"] = (
+            None if value is None else _safe_enum(value, _SAFE_HEDGE_WINNERS)
+        )
+    if "hedgeStarted" in attempt:
+        value = attempt.get("hedgeStarted")
+        safe["hedgeStarted"] = value if isinstance(value, bool) else None
+    return safe
+
+
 def build_privacy_safe_report(
     suite: str, attempts: Sequence[dict[str, Any]]
 ) -> dict[str, Any]:
     """Persist only allow-listed metadata; never raw interview/model content."""
-    safe_attempts = [
-        {field: attempt[field] for field in _SAFE_ATTEMPT_FIELDS if field in attempt}
-        for attempt in attempts
-    ]
+    all_safe_attempts = [_safe_attempt(dict(attempt)) for attempt in attempts]
+    safe_attempts = all_safe_attempts[:_MAX_REPORT_ATTEMPTS]
+    summary = summarize_attempts(all_safe_attempts)
+    summary.update(
+        {
+            "reportedAttempts": len(safe_attempts),
+            "omittedAttempts": len(all_safe_attempts) - len(safe_attempts),
+        }
+    )
     return {
         "schemaVersion": 1,
-        "suite": suite,
+        "suite": _hashed_identifier(suite),
         "createdAt": datetime.now(UTC).isoformat(),
-        "summary": summarize_attempts(safe_attempts),
+        "summary": summary,
         "attempts": safe_attempts,
     }
 

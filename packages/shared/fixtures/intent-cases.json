@@ -8,6 +8,7 @@
   { "question": "В чём разница PUT и PATCH?", "intent": "technical_comparison" },
   { "question": "Что такое декоратор?", "intent": "technical_definition" },
   { "question": "Как ты настраивал Docker?", "intent": "practical_usage" },
+  { "question": "Расскажи подробно, как у вас был устроен CI/CD для автотестов.", "intent": "practical_usage" },
   { "question": "Как вы тестировали API и какие негативные проверки делали?", "intent": "practical_usage" },
   { "question": "Какие ошибки бывают в Page Object Model?", "intent": "technical_list" },
   { "question": "Как работает git rebase и как разрешить конфликт?", "intent": "technical_definition" },

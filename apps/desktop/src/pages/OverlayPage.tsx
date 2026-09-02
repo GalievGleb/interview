@@ -3,6 +3,7 @@ import {
   api,
   type InterviewOutcomeResult,
   type SessionAssessment,
+  type SseDoneMetadata,
 } from '../lib/api';
 import { useLiveCopilot } from '../hooks/useLiveCopilot';
 import { useLiveCopilotPrefs } from '../hooks/useLiveCopilotPrefs';
@@ -33,10 +34,24 @@ import { refreshSessionKnowledge } from '../lib/sessionKnowledge';
 import { resolveSessionEvidenceLayout } from '../lib/sessionAnalysisPresentation';
 import { answerLanguageParam } from '../lib/answerLanguage';
 import { liveStartupWarmup } from '../lib/liveStartupWarmup';
+import { overlayScrollOffset } from '../lib/overlayScroll';
+import {
+  presentScreenRequestTerminal,
+  ScreenFallbackLaunchCoordinator,
+  ScreenRequestCoordinator,
+  isCurrentForceScreenFallbackRequest,
+  type ScreenAssistStartStatus,
+} from '../lib/screenRequestCoordinator';
+import type { StagedScreenFrame } from '../lib/screenFrameMemory';
+import {
+  STRUCTURED_SCREEN_ASSIST_ENABLED,
+  type ScreenTaskAction,
+  type ScreenTaskStateLease,
+} from '../lib/screenTaskStateMemory';
 import {
   buildScreenTaskContinuityContext,
-  type PreviousScreenTask,
 } from '../lib/screenTaskContinuity';
+import { ScreenTaskRuntimeMemory } from '../lib/screenTaskRuntimeMemory';
 import type {
   InterviewCalendarEvent,
   InterviewOutcome,
@@ -53,6 +68,8 @@ import type {
  */
 
 type ActionId = OverlayActionId;
+
+const SCREEN_CAPTURE_TIMEOUT_MS = 10_000;
 
 const ACTIONS: Record<
   ActionId,
@@ -119,6 +136,8 @@ interface Exchange {
   request: string;
   text: string;
   streaming: boolean;
+  /** Отдельное состояние ошибки: частичный код не должен выглядеть завершённым. */
+  issue?: string;
   /** Скриншот, который ушёл модели (для превью «Смотрел экран»). */
   image?: string;
 }
@@ -232,12 +251,17 @@ export default function OverlayPage() {
     forcePhase,
     forceScreenFallback,
     commitScreenFirstOutput,
+    finishScreenFallback,
     markScreenTaskAvailable,
+    publishScreenTaskContext,
+    clearScreenTaskContext,
+    clearForceScreenFallback,
     screenAssistDiagnostics,
     sourceHealthWarning,
     error,
     sessionId,
     forceAnswer,
+    forceCandidateFollowUp,
     forceScreenAnswer,
     start,
     pause,
@@ -288,10 +312,14 @@ export default function OverlayPage() {
   const summaryCancelRef = useRef<(() => void) | null>(null);
   const analysisRequestGenerationRef = useRef(0);
   const screenAssistGenerationRef = useRef(0);
+  const screenRequestCoordinatorRef = useRef(
+    new ScreenRequestCoordinator({ captureTimeoutMs: SCREEN_CAPTURE_TIMEOUT_MS }),
+  );
+  const screenTaskRuntimeRef = useRef(new ScreenTaskRuntimeMemory());
+  const activeScreenTaskStateGenerationRef = useRef<number | null>(null);
   const activeScreenDiagnosticRef = useRef<{ id: string; requestGeneration: number } | null>(null);
-  const forceScreenFallbackOwnerRef = useRef(0);
+  const screenFallbackLaunchRef = useRef(new ScreenFallbackLaunchCoordinator());
   const manualBusyRef = useRef(false);
-  const lastForceScreenFallbackRef = useRef('');
   const rootRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
@@ -301,8 +329,8 @@ export default function OverlayPage() {
   const transcriptFollowsTailRef = useRef(true);
   const transcriptWasOpenRef = useRef(false);
   const lastForceHotkeyRef = useRef<ForceHotkeyEvent | null>(null);
+  const lastCandidateHotkeyRef = useRef<ForceHotkeyEvent | null>(null);
   const lastScreenHotkeyRef = useRef<ForceHotkeyEvent | null>(null);
-  const lastScreenTaskRef = useRef<PreviousScreenTask | null>(null);
   const pointerControllerRef = useRef<OverlayPointerController | null>(null);
   const [menuPosition, setMenuPosition] = useState({ left: 8, top: 8 });
   const liveBlocked = license?.live_allowed === false;
@@ -311,7 +339,9 @@ export default function OverlayPage() {
         title: 'Как пользоваться',
         record: 'Нажмите красную кнопку — начнутся запись и транскрипция.',
         answer: 'Ctrl+Enter — ответ по разговору.',
+        candidate: 'Ctrl+\\ — учесть вашу последнюю фразу и продолжить решение.',
         screen: 'Ctrl+Shift+Enter — снимок экрана. Можно сказать «покажу решение» и нажать Ctrl+Enter.',
+        newScreenTask: 'Новая задача с экрана',
         move: 'Ctrl+Shift+H скрывает панель, Ctrl+стрелки перемещают её.',
         done: 'Понятно',
       }
@@ -319,7 +349,9 @@ export default function OverlayPage() {
         title: 'How it works',
         record: 'Press the red button to start recording and transcription.',
         answer: 'Ctrl+Enter answers from the conversation.',
+        candidate: 'Ctrl+\\ uses your latest phrase to continue the solution.',
         screen: 'Ctrl+Shift+Enter captures the screen. You can also say “I’ll show my solution” and press Ctrl+Enter.',
+        newScreenTask: 'New screen task',
         move: 'Ctrl+Shift+H hides the panel; Ctrl+arrows move it.',
         done: 'Got it',
       };
@@ -416,23 +448,37 @@ export default function OverlayPage() {
 
   const cancelActiveScreenAssist = useCallback(() => {
     const activeScreen = activeScreenDiagnosticRef.current;
-    if (!activeScreen) return;
+    if (!activeScreen && !screenRequestCoordinatorRef.current.isActive()) return;
+    const taskStateGeneration = activeScreenTaskStateGenerationRef.current;
+    if (taskStateGeneration !== null) {
+      screenTaskRuntimeRef.current.state.invalidatePending(taskStateGeneration);
+      activeScreenTaskStateGenerationRef.current = null;
+    }
     screenAssistGenerationRef.current += 1;
-    cancelRef.current?.();
+    screenRequestCoordinatorRef.current.cancelActive();
     cancelRef.current = null;
     manualBusyRef.current = false;
-    screenAssistDiagnostics.cancel(activeScreen.id);
+    if (activeScreen) screenAssistDiagnostics.cancel(activeScreen.id);
     activeScreenDiagnosticRef.current = null;
     screenAssistDiagnostics.registerActiveCancel(null);
   }, [screenAssistDiagnostics]);
 
+  const resetScreenTaskContext = useCallback((cancelRequest = true) => {
+    if (cancelRequest) cancelActiveScreenAssist();
+    screenTaskRuntimeRef.current.reset();
+    screenFallbackLaunchRef.current.reset();
+    activeScreenTaskStateGenerationRef.current = null;
+    clearForceScreenFallback();
+    clearScreenTaskContext();
+  }, [cancelActiveScreenAssist, clearForceScreenFallback, clearScreenTaskContext]);
+
   useEffect(
     () => () => {
-      cancelActiveScreenAssist();
+      resetScreenTaskContext();
       cancelRef.current?.();
       summaryCancelRef.current?.();
     },
-    [cancelActiveScreenAssist],
+    [resetScreenTaskContext],
   );
 
   // The backend is authoritative for trial/plan limits. If it rejects a live
@@ -470,14 +516,16 @@ export default function OverlayPage() {
   }, [lines, showTranscript]);
 
   const runScreenAssist = useCallback(
-    async (
+    (
       customText: string,
       mode: 'general' | 'deep',
       forceOwner?: { generation: number; screenRevision: number },
       trigger?: 'manual' | 'visual_question',
       untrustedPartialHint?: string,
-    ) => {
-      cancelActiveScreenAssist();
+      taskAction: ScreenTaskAction = 'continue',
+    ): ScreenAssistStartStatus => {
+      if (screenRequestCoordinatorRef.current.isActive()) return 'busy';
+      const screenTaskRuntime = screenTaskRuntimeRef.current;
       const requestGeneration = ++screenAssistGenerationRef.current;
       const diagnosticId = `${sessionId ?? 'local'}:${requestGeneration}:${crypto.randomUUID()}`;
       const capture = window.electronAPI?.overlay.captureScreen;
@@ -488,8 +536,160 @@ export default function OverlayPage() {
       const recentConversation = conversationContext.split('\n').slice(-6).join('\n');
       const continuityContext = buildScreenTaskContinuityContext(
         `${request}\n${recentConversation}`,
-        lastScreenTaskRef.current,
+        screenTaskRuntime.lastTask,
       );
+      setNotice('');
+      cancelRef.current?.();
+      cancelRef.current = null;
+      manualBusyRef.current = true;
+      setInput('');
+      let screenOutputCommitted = false;
+      let image = '';
+      let previousImages: string[] = [];
+      let stagedFrame: StagedScreenFrame | null = null;
+      const structuredLease: ScreenTaskStateLease | undefined =
+        STRUCTURED_SCREEN_ASSIST_ENABLED
+          ? screenTaskRuntime.state.beginRequest(taskAction)
+          : undefined;
+      const token = screenRequestCoordinatorRef.current.start<SseDoneMetadata>({
+        capture: () => capture?.() ?? Promise.reject(new Error(t('overlay.screenOnlyDesktop'))),
+        onCaptured: (capturedImage) => {
+          image = capturedImage;
+          stagedFrame = screenTaskRuntime.frames.stage(capturedImage);
+          previousImages = stagedFrame.previousFrames;
+          screenAssistDiagnostics.captured(diagnosticId, image);
+          setExchange({ label: t('overlay.action.screen'), request, text: '', streaming: true, image });
+        },
+        onChunk: (chunk) => {
+          if (chunk.trim()) screenAssistDiagnostics.firstOutput(diagnosticId, chunk);
+          if (forceOwner) {
+            if (!screenOutputCommitted && !chunk.trim()) return;
+            if (!commitScreenFirstOutput(forceOwner.generation, forceOwner.screenRevision)) {
+              cancelActiveScreenAssist();
+              return;
+            }
+            screenOutputCommitted = true;
+          }
+          setExchange((prev) => (prev ? { ...prev, text: prev.text + chunk } : prev));
+        },
+        startStream: (capturedImage, handlers) => {
+          const cancel = api.streamScreenAssist(
+            capturedImage,
+            effectiveQuestion,
+            handlers,
+            {
+              context: [
+                continuityContext,
+                continuityContext ? recentConversation : conversationContext,
+                untrustedPartialHint
+                  ? `UNTRUSTED CURRENT PARTIAL HINT (screen context only; may be incomplete): ${untrustedPartialHint}`
+                  : '',
+              ].filter(Boolean).join('\n\n') || undefined,
+              mode,
+              previousImages,
+              priorSolutionSummary: screenTaskRuntime.frames.priorSolutionSummary(),
+              structuredScreen: STRUCTURED_SCREEN_ASSIST_ENABLED,
+              taskState: structuredLease?.taskState,
+            },
+          );
+          cancelRef.current = cancel;
+          return cancel;
+        },
+        onTerminal: (result) => {
+          if (requestGeneration !== screenAssistGenerationRef.current) {
+            stagedFrame?.settle(false);
+            if (structuredLease) {
+              screenTaskRuntime.state.invalidatePending(structuredLease.generation);
+            }
+            return;
+          }
+          let terminalResult = result;
+          if (result.status === 'done' && structuredLease && result.meta?.legacyFallback) {
+            screenTaskRuntime.settleLegacyFallback(structuredLease.generation);
+          } else if (
+            result.status === 'done'
+            && structuredLease
+            && !screenTaskRuntime.state.commit(
+              structuredLease.generation,
+              result.meta?.taskState,
+            )
+          ) {
+            terminalResult = {
+              status: 'error',
+              answer: result.answer,
+              reason: 'stream_error',
+              message: 'Ответ по экрану не завершён: контекст задачи не подтверждён.',
+            };
+          } else if (result.status === 'error' && structuredLease) {
+            screenTaskRuntime.settleFailure(structuredLease.generation, result.errorCode);
+            if (result.errorCode === 'screen_task_state_expired') {
+              screenFallbackLaunchRef.current.reset();
+              activeScreenTaskStateGenerationRef.current = null;
+              clearScreenTaskContext();
+            }
+          }
+          const message = terminalResult.message ?? (
+            terminalResult.reason === 'stream_empty'
+              ? 'Ответ по экрану не получен. Повторите.'
+              : t('overlay.screenshotFailed')
+          );
+          const presentation = presentScreenRequestTerminal({ ...terminalResult, message });
+          stagedFrame?.settle(presentation.complete);
+          stagedFrame = null;
+          if (presentation.complete) {
+            screenAssistDiagnostics.done(diagnosticId, {
+              answer: terminalResult.answer,
+              model: terminalResult.meta?.model,
+              modelSource: terminalResult.meta?.modelSource,
+            });
+            if (forceOwner) {
+              finishScreenFallback(forceOwner.generation, forceOwner.screenRevision, 'done');
+            }
+            screenTaskRuntime.lastTask = { question: request, answer: terminalResult.answer.trim() };
+            screenTaskRuntime.frames.setPriorSolutionSummary(terminalResult.answer);
+            publishScreenTaskContext({
+              question: request,
+              answer: terminalResult.answer,
+              continuesPrevious: structuredLease
+                ? structuredLease.taskAction === 'continue'
+                : Boolean(continuityContext),
+            });
+            markScreenTaskAvailable();
+            setExchange((prev) => (prev ? { ...prev, ...presentation } : prev));
+            setUsageLog((log) => [
+              ...log,
+              { label: t('overlay.action.screen'), request, text: terminalResult.answer, image },
+            ]);
+          } else {
+            screenAssistDiagnostics.error(diagnosticId, message);
+            if (forceOwner) {
+              finishScreenFallback(forceOwner.generation, forceOwner.screenRevision, 'error');
+            }
+            if (!image) {
+              setExchange(null);
+              setNotice(message);
+            } else {
+              setExchange((prev) =>
+                prev ? { ...prev, ...presentation } : prev,
+              );
+            }
+          }
+          if (activeScreenDiagnosticRef.current?.id === diagnosticId) {
+            activeScreenDiagnosticRef.current = null;
+            activeScreenTaskStateGenerationRef.current = null;
+            screenAssistDiagnostics.registerActiveCancel(null);
+          }
+          cancelRef.current = null;
+          manualBusyRef.current = false;
+        },
+      });
+      if (!token) {
+        if (structuredLease) {
+          screenTaskRuntime.state.invalidatePending(structuredLease.generation);
+        }
+        manualBusyRef.current = false;
+        return 'busy';
+      }
       screenAssistDiagnostics.request({
         id: diagnosticId,
         generation: forceOwner?.generation ?? requestGeneration,
@@ -498,104 +698,17 @@ export default function OverlayPage() {
         effectiveQuestion,
       });
       activeScreenDiagnosticRef.current = { id: diagnosticId, requestGeneration };
+      activeScreenTaskStateGenerationRef.current = structuredLease?.generation ?? null;
       screenAssistDiagnostics.registerActiveCancel(cancelActiveScreenAssist);
-      if (!capture) {
-        screenAssistDiagnostics.error(diagnosticId, t('overlay.screenOnlyDesktop'));
-        activeScreenDiagnosticRef.current = null;
-        screenAssistDiagnostics.registerActiveCancel(null);
-        setNotice(t('overlay.screenOnlyDesktop'));
-        return;
-      }
-      setNotice('');
-      cancelRef.current?.();
-      cancelRef.current = null;
-      manualBusyRef.current = true;
-      setInput('');
-
-      const image = await capture().catch(() => '');
-      if (requestGeneration !== screenAssistGenerationRef.current) return;
-      if (!image) {
-        screenAssistDiagnostics.error(diagnosticId, t('overlay.screenshotFailed'));
-        activeScreenDiagnosticRef.current = null;
-        screenAssistDiagnostics.registerActiveCancel(null);
-        manualBusyRef.current = false;
-        setExchange(null);
-        setNotice(t('overlay.screenshotFailed'));
-        return;
-      }
-      screenAssistDiagnostics.captured(diagnosticId, image);
-      setExchange({ label: t('overlay.action.screen'), request, text: '', streaming: true, image });
-
-      let acc = '';
-      let screenOutputCommitted = false;
-      cancelRef.current = api.streamScreenAssist(
-        image,
-        effectiveQuestion,
-        {
-          onChunk: (t) => {
-            if (requestGeneration !== screenAssistGenerationRef.current) return;
-            if (t.trim()) screenAssistDiagnostics.firstOutput(diagnosticId, t);
-            if (forceOwner) {
-              if (!screenOutputCommitted && !t.trim()) return;
-              if (!commitScreenFirstOutput(forceOwner.generation, forceOwner.screenRevision)) {
-                cancelActiveScreenAssist();
-                return;
-              }
-              screenOutputCommitted = true;
-            }
-            acc += t;
-            setExchange((prev) => (prev ? { ...prev, text: prev.text + t } : prev));
-          },
-          onDone: (meta) => {
-            if (requestGeneration !== screenAssistGenerationRef.current) return;
-            screenAssistDiagnostics.done(diagnosticId, {
-              answer: acc,
-              model: meta?.model,
-              modelSource: meta?.modelSource,
-            });
-            if (activeScreenDiagnosticRef.current?.id === diagnosticId) {
-              activeScreenDiagnosticRef.current = null;
-              screenAssistDiagnostics.registerActiveCancel(null);
-            }
-            cancelRef.current = null;
-            manualBusyRef.current = false;
-            if (acc.trim()) {
-              lastScreenTaskRef.current = { question: request, answer: acc.trim() };
-              markScreenTaskAvailable();
-            }
-            setExchange((prev) => (prev ? { ...prev, streaming: false } : prev));
-            setUsageLog((log) => [...log, { label: t('overlay.action.screen'), request, text: acc, image }]);
-          },
-          onError: (msg) => {
-            if (requestGeneration !== screenAssistGenerationRef.current) return;
-            screenAssistDiagnostics.error(diagnosticId, msg);
-            if (activeScreenDiagnosticRef.current?.id === diagnosticId) {
-              activeScreenDiagnosticRef.current = null;
-              screenAssistDiagnostics.registerActiveCancel(null);
-            }
-            cancelRef.current = null;
-            manualBusyRef.current = false;
-            setExchange((prev) =>
-              prev ? { ...prev, streaming: false, text: prev.text || `⚠ ${msg}` } : prev,
-            );
-          },
-        },
-        {
-          context: [
-            continuityContext,
-            continuityContext ? recentConversation : conversationContext,
-            untrustedPartialHint
-              ? `UNTRUSTED CURRENT PARTIAL HINT (screen context only; may be incomplete): ${untrustedPartialHint}`
-              : '',
-          ].filter(Boolean).join('\n\n') || undefined,
-          mode,
-        },
-      );
+      return 'started';
     },
     [
       cancelActiveScreenAssist,
       commitScreenFirstOutput,
+      finishScreenFallback,
       markScreenTaskAvailable,
+      publishScreenTaskContext,
+      clearScreenTaskContext,
       screenAssistDiagnostics,
       sessionId,
       transcriptContext,
@@ -678,32 +791,46 @@ export default function OverlayPage() {
   // Live-ответы (авто) — в ту же панель, пока нет ручного запроса.
   const lastEntry = answerHistory[answerHistory.length - 1];
   useEffect(() => {
-    if (!forceScreenFallback.generation) {
-      lastForceScreenFallbackRef.current = '';
+    if (!isCurrentForceScreenFallbackRequest(
+      forceScreenFallback, forceGeneration, forcePhase,
+    )) {
+      if (!forceScreenFallback.generation) {
+        screenFallbackLaunchRef.current.clearRequestKey();
+      }
       return;
     }
-    const requestKey = JSON.stringify(forceScreenFallback);
-    if (lastForceScreenFallbackRef.current === requestKey) return;
-    lastForceScreenFallbackRef.current = requestKey;
-    forceScreenFallbackOwnerRef.current = forceScreenFallback.generation;
-    void runScreenAssist(forceScreenFallback.question, smart ? 'deep' : 'general', {
-        generation: forceScreenFallback.generation,
-        screenRevision: forceScreenFallback.screenRevision,
-      },
-      'visual_question',
-      forceScreenFallback.untrustedPartialHint,
-    );
-  }, [forceScreenFallback, runScreenAssist, smart]);
+    screenFallbackLaunchRef.current.launch(forceScreenFallback, {
+      isActive: () => screenRequestCoordinatorRef.current.isActive(),
+      cancelActive: cancelActiveScreenAssist,
+      start: () => runScreenAssist(
+        forceScreenFallback.question,
+        smart ? 'deep' : 'general',
+        {
+          generation: forceScreenFallback.generation,
+          screenRevision: forceScreenFallback.screenRevision,
+        },
+        'visual_question',
+        forceScreenFallback.untrustedPartialHint,
+        'continue',
+      ),
+    });
+  }, [
+    cancelActiveScreenAssist,
+    forceGeneration,
+    forcePhase,
+    forceScreenFallback,
+    runScreenAssist,
+    smart,
+  ]);
 
   const cancelOwnedForceScreenFallback = useCallback((generation: number) => {
-    if (!generation || forceScreenFallbackOwnerRef.current !== generation) return;
-    forceScreenFallbackOwnerRef.current = 0;
+    if (!screenFallbackLaunchRef.current.releaseOwner(generation)) return;
     cancelActiveScreenAssist();
     manualBusyRef.current = false;
   }, [cancelActiveScreenAssist]);
 
   useEffect(() => {
-    const ownedGeneration = forceScreenFallbackOwnerRef.current;
+    const ownedGeneration = screenFallbackLaunchRef.current.ownerGeneration();
     if (!shouldCancelScreenFallbackOwner(ownedGeneration, forceGeneration, forcePhase)) return;
     cancelOwnedForceScreenFallback(ownedGeneration);
   }, [cancelOwnedForceScreenFallback, forceGeneration, forcePhase]);
@@ -767,10 +894,17 @@ export default function OverlayPage() {
   };
 
   const closeExchange = useCallback(() => {
-    forceScreenFallbackOwnerRef.current = 0;
-    cancelActiveScreenAssist();
+    resetScreenTaskContext();
     setExchange(null);
-  }, [cancelActiveScreenAssist]);
+  }, [resetScreenTaskContext]);
+
+  const startNewScreenTask = useCallback(() => {
+    resetScreenTaskContext();
+    setExchange(null);
+    setNotice('');
+    setInput('');
+    runScreenAssist('', smart ? 'deep' : 'general', undefined, 'manual', undefined, 'new');
+  }, [resetScreenTaskContext, runScreenAssist, smart]);
 
   // ---------- Итоги сессии ----------
   const generateSummary = useCallback((ls: TranscriptLine[]) => {
@@ -883,6 +1017,7 @@ export default function OverlayPage() {
       endedSessionId: string | null,
       linkedEvent: InterviewCalendarEvent | null,
     ) => {
+      resetScreenTaskContext();
       analysisRequestGenerationRef.current += 1;
       setRecap({
         lines: snapshot,
@@ -903,10 +1038,11 @@ export default function OverlayPage() {
       }
       if (endedSessionId) void requestRecapAnalysis(endedSessionId);
     },
-    [generateInterviewOutcome, generateSummary, requestRecapAnalysis],
+    [generateInterviewOutcome, generateSummary, requestRecapAnalysis, resetScreenTaskContext],
   );
 
   const closeRecap = useCallback(() => {
+    resetScreenTaskContext();
     analysisRequestGenerationRef.current += 1;
     summaryCancelRef.current?.();
     setRecap(null);
@@ -918,7 +1054,7 @@ export default function OverlayPage() {
     setRecapOutcome(null);
     setOutcomeLoading(false);
     setOutcomeError('');
-  }, []);
+  }, [resetScreenTaskContext]);
 
   const resetInactiveOverlay = useCallback(() => {
     closeRecap();
@@ -942,13 +1078,14 @@ export default function OverlayPage() {
 
   const stopSession = useCallback(() => {
     if (!active) return;
+    resetScreenTaskContext();
     const snapshot = lines.slice();
     const endedSessionId = sessionId;
     const linkedEvent = interviewContext;
     void stop().then(() => {
       if (snapshot.some((l) => l.isFinal)) openRecap(snapshot, endedSessionId, linkedEvent);
     }).finally(() => void refreshLicense());
-  }, [active, interviewContext, lines, sessionId, stop, openRecap, refreshLicense]);
+  }, [active, interviewContext, lines, sessionId, stop, openRecap, refreshLicense, resetScreenTaskContext]);
 
   const analyzeRecap = useCallback(async () => {
     if (!recap?.sessionId) {
@@ -965,8 +1102,8 @@ export default function OverlayPage() {
       void window.electronAPI?.overlay.openSettings?.('billing');
       return;
     }
+    resetScreenTaskContext();
     void liveStartupWarmup.warm();
-    lastScreenTaskRef.current = null;
     closeRecap();
     setUsageLog([]);
     setNotice('');
@@ -987,13 +1124,17 @@ export default function OverlayPage() {
 
   const toggleSession = () => {
     if (!active) void startSession();
-    else if (paused) void resume();
+    else if (paused) {
+      resetScreenTaskContext();
+      void resume();
+    }
     else pause();
   };
 
   const resumeFromRecap = async () => {
     const recapSessionId = recap?.sessionId ?? undefined;
     const linkedEvent = recap?.interviewEvent ?? interviewContext;
+    resetScreenTaskContext();
     closeRecap();
     if (liveBlocked) {
       setNotice(t('overlay.rec.needLicense'));
@@ -1047,7 +1188,7 @@ export default function OverlayPage() {
       return;
     }
 
-    forceScreenFallbackOwnerRef.current = 0;
+    screenFallbackLaunchRef.current.reset();
     cancelActiveScreenAssist();
     screenAssistGenerationRef.current += 1;
     setNotice('');
@@ -1061,7 +1202,8 @@ export default function OverlayPage() {
     if (!acceptForceHotkey(lastScreenHotkeyRef.current, event)) return;
     lastScreenHotkeyRef.current = event;
 
-    forceScreenFallbackOwnerRef.current = 0;
+    if (screenRequestCoordinatorRef.current.isActive()) return;
+    screenFallbackLaunchRef.current.reset();
     cancelActiveScreenAssist();
     screenAssistGenerationRef.current += 1;
     setNotice('');
@@ -1069,6 +1211,19 @@ export default function OverlayPage() {
     if (status === 'started' || status === 'finalizing') return;
     setNotice(t('overlay.forceUnavailable'));
   }, [cancelActiveScreenAssist, forceScreenAnswer, input, t]);
+
+  const submitCandidateFollowUp = useCallback((source: ForceHotkeySource = 'button') => {
+    const event = { source, at: Date.now() } satisfies ForceHotkeyEvent;
+    if (!acceptForceHotkey(lastCandidateHotkeyRef.current, event)) return;
+    lastCandidateHotkeyRef.current = event;
+
+    setNotice('');
+    const status = forceCandidateFollowUp(source);
+    if (status === 'unavailable') {
+      setNotice(t('overlay.forceUnavailable'));
+      return;
+    }
+  }, [forceCandidateFollowUp, t]);
 
   const scrollOverlayContent = useCallback((direction: -1 | 1) => {
     const candidates = [
@@ -1081,7 +1236,7 @@ export default function OverlayPage() {
         candidate && candidate.scrollHeight > candidate.clientHeight + 2,
       ),
     );
-    body?.scrollBy({ top: direction * 180, behavior: 'smooth' });
+    body?.scrollBy({ top: overlayScrollOffset(direction), behavior: 'auto' });
   }, []);
 
   // ---------- Горячие клавиши ----------
@@ -1109,6 +1264,12 @@ export default function OverlayPage() {
         e.preventDefault();
         if (e.repeat) return;
         submitForcedScreenAnswer('renderer');
+        return;
+      }
+      if (mod && !e.shiftKey && (e.key === '\\' || e.code === 'Backslash')) {
+        e.preventDefault();
+        if (e.repeat) return;
+        submitCandidateFollowUp('renderer');
         return;
       }
       if (mod && !e.shiftKey && e.key === 'Enter') {
@@ -1143,7 +1304,7 @@ export default function OverlayPage() {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [menuOpen, exchange, recap, submitForcedAnswer, submitForcedScreenAnswer, closeExchange, scrollOverlayContent, stopSession]);
+  }, [menuOpen, exchange, recap, submitCandidateFollowUp, submitForcedAnswer, submitForcedScreenAnswer, closeExchange, scrollOverlayContent, stopSession]);
 
   useEffect(
     () => window.electronAPI?.overlay.onForceAnswer?.(() => submitForcedAnswer('global')),
@@ -1153,6 +1314,11 @@ export default function OverlayPage() {
   useEffect(
     () => window.electronAPI?.overlay.onForceScreenAnswer?.(() => submitForcedScreenAnswer('global')),
     [submitForcedScreenAnswer],
+  );
+
+  useEffect(
+    () => window.electronAPI?.overlay.onCandidateFollowUp?.(() => submitCandidateFollowUp('global')),
+    [submitCandidateFollowUp],
   );
 
   useEffect(
@@ -1196,6 +1362,7 @@ export default function OverlayPage() {
   const KEYBINDS: Array<{ labelKey: I18nKey; keys: string; d: string }> = [
     { labelKey: 'overlay.kb.toggle', keys: 'Ctrl+Shift+H', d: 'M2 4h20v13H2z|M8 20h8' },
     { labelKey: 'overlay.kb.ask', keys: 'Ctrl+↵', d: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z' },
+    { labelKey: 'overlay.kb.candidateFollowUp', keys: 'Ctrl+\\', d: 'M4 12h11|M11 8l4 4-4 4|M20 5v14' },
     { labelKey: 'overlay.kb.screenAsk', keys: 'Ctrl+Shift+↵', d: 'M2 4h20v12H2z|M8 20h8|M12 16v4' },
     { labelKey: 'overlay.kb.clear', keys: 'Ctrl+R', d: 'M3 6h18|M8 6V4h8v2|M6 6l1 14h10l1-14' },
     { labelKey: 'overlay.kb.stop', keys: 'Ctrl+Shift+\\', d: 'M6 6h12v12H6z' },
@@ -1297,6 +1464,7 @@ export default function OverlayPage() {
           <div className="ovl-quick-guide__steps">
             <p><span className="ovl-quick-guide__record" aria-hidden="true" />{guideCopy.record}</p>
             <p><span className="ovl-kbd">Ctrl+Enter</span>{guideCopy.answer}</p>
+            <p><span className="ovl-kbd">Ctrl+\\</span>{guideCopy.candidate}</p>
             <p><span className="ovl-kbd">Ctrl+Shift+Enter</span>{guideCopy.screen}</p>
             <p><span className="ovl-kbd">Ctrl+Shift+H</span>{guideCopy.move}</p>
           </div>
@@ -1626,17 +1794,26 @@ export default function OverlayPage() {
                 </div>
 
                 {exchange.image ? (
-                  <span className="ovl-viewed ovl-answer-label">
-                    {t('overlay.viewedScreen')}
-                    <span className="ovl-shot-pop">
-                      <img
-                        src={exchange.image}
-                        alt={t('overlay.screenshotAlt')}
-                        width={320}
-                        height={180}
-                      />
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="ovl-viewed ovl-answer-label">
+                      {t('overlay.viewedScreen')}
+                      <span className="ovl-shot-pop">
+                        <img
+                          src={exchange.image}
+                          alt={t('overlay.screenshotAlt')}
+                          width={320}
+                          height={180}
+                        />
+                      </span>
                     </span>
-                  </span>
+                    <button
+                      type="button"
+                      className="ovl-action"
+                      onClick={startNewScreenTask}
+                    >
+                      {guideCopy.newScreenTask}
+                    </button>
+                  </div>
                 ) : (
                   <p className="ovl-answer-label">
                     {exchange.label === 'Live' ? t('overlay.liveAnswer') : exchange.label}
@@ -1645,13 +1822,18 @@ export default function OverlayPage() {
                 <div ref={answerBodyRef} className="ovl-answer-body">
                   {exchange.text ? (
                     <MarkdownText text={exchange.text} size="inherit" />
-                  ) : (
-                    <span className="ovl-think-dot" aria-label={t('overlay.thinking')} />
-                  )}
+                  ) : exchange.streaming ? <span className="ovl-think-dot" aria-label={t('overlay.thinking')} /> : null}
                   {exchange.streaming && exchange.text && <span className="sc-caret" />}
                 </div>
 
-                {!exchange.streaming && exchange.text && (
+                {exchange.issue && (
+                  <p className="ovl-answer-issue" role="alert">
+                    <span aria-hidden="true">⚠</span>
+                    {exchange.issue}
+                  </p>
+                )}
+
+                {!exchange.streaming && exchange.text && !exchange.issue && (
                   <div className="mt-2 flex justify-start">
                     <CopyButton text={exchange.text} label={t('overlay.copy')} />
                   </div>
@@ -1858,10 +2040,11 @@ export default function OverlayPage() {
                             onClick={() => {
                               setSources(src);
                               setMenuOpen(false);
-                              if (active) {
-                                const linkedEvent = interviewContext;
-                                const linkedSessionId = sessionId ?? linkedEvent?.sessionId;
-                                void stop().then(async () => {
+                               if (active) {
+                                 const linkedEvent = interviewContext;
+                                 const linkedSessionId = sessionId ?? linkedEvent?.sessionId;
+                                 resetScreenTaskContext();
+                                 void stop().then(async () => {
                                   const restartedSessionId = await start(src, sttOptions, {
                                     sessionId: linkedSessionId,
                                     title: linkedEvent

@@ -14,6 +14,10 @@ KNOWN_TOOLS = {
     "postman": "Postman",
     "insomnia": "Insomnia",
     "docker": "Docker",
+    "docker compose": "Docker Compose",
+    "postgresql": "PostgreSQL",
+    "postgres": "PostgreSQL",
+    "база данных": "база данных",
     "jenkins": "Jenkins",
     "gitlab": "GitLab",
     "gitlab ci": "GitLab CI",
@@ -21,8 +25,21 @@ KNOWN_TOOLS = {
     "jmeter": "JMeter",
     "cypress": "Cypress",
     "testng": "TestNG",
+    "list.sort": "list.sort()",
+    "sorted": "sorted()",
     "kubernetes": "Kubernetes",
     "k8s": "Kubernetes",
+    "helm": "Helm",
+    "kubectl": "kubectl",
+    "configmap": "ConfigMap",
+    "configmaps": "ConfigMap",
+    "secrets": "Kubernetes Secrets",
+    "кластер": "Kubernetes-кластер",
+    "cluster": "Kubernetes-кластер",
+    "pod": "Kubernetes Pod",
+    "pods": "Kubernetes Pod",
+    "deployment": "Kubernetes Deployment",
+    "deployments": "Kubernetes Deployment",
     "kafka": "Kafka",
     "java": "Java",
     "typescript": "TypeScript",
@@ -42,6 +59,67 @@ ASR_LONG_FILLER_RE = re.compile(
     re.IGNORECASE,
 )
 ASR_MIC_CHECK_RE = re.compile(r"^(?:раз|м{3,}|э{3,}|е{3,}|m{3,}|[\s,.\-–—])+$", re.IGNORECASE)
+
+PERSONAL_EXPERIENCE_CLAIM_RE = re.compile(
+    r"(?:"
+    r"\b(?:я|мы)\s+(?:(?:лично|активно|самостоятельно)\s+)?(?:"
+    r"использовал[аи]?|применял[аи]?|настраивал[аи]?|внедрил[аи]?|"
+    r"разработал[аи]?|работал[аи]?|анализировал[аи]?|проверял[аи]?|"
+    r"участвовал[аи]?|запускал[аи]?|разворачивал[аи]?|деплоил[аи]?|"
+    r"создавал[аи]?|поддерживал[аи]?|интегрировал[аи]?|диагностировал[аи]?)|"
+    r"\b(?:я|мы)\s+(?:(?:лично|активно|самостоятельно|часто|обычно|чаще)\s+)?(?:"
+    r"использую|используем|применяю|применяем|настраиваю|настраиваем|"
+    r"анализирую|анализируем|проверяю|проверяем|участвую|участвуем|"
+    r"запускаю|запускаем|разворачиваю|разворачиваем|деплою|деплоим|"
+    r"создаю|создаём|поддерживаю|поддерживаем|интегрирую|интегрируем|"
+    r"диагностирую|диагностируем)|"
+    r"\b(?:я|мы)\s+(?:могу|можем|умею|умеем)\s+(?:\w+[\s,]+){0,4}"
+    r"(?:использовать|применить|настроить|развернуть|внедрить)|"
+    r"\bна\s+(?:одном\s+из\s+моих|мо[её]м|текущем)?\s*проекте\s+(?:я\s+)?"
+    r"(?:использовал|применял|настраивал|внедрил|разработал|работал)|"
+    r"\bI\s+(?:personally\s+)?(?:used|implemented|configured|built|worked\s+with)\b|"
+    r"\bon\s+(?:one\s+of\s+)?my\s+projects?\b"
+    r")",
+    re.IGNORECASE,
+)
+PERSONAL_PROJECT_ANCHOR_RE = re.compile(
+    r"\b(?:в\s+одном\s+из\s+моих\s+проектов|в\s+моих\s+проектах|"
+    r"на\s+текущем\s+проекте|на\s+моих\s+проектах|"
+    r"on\s+one\s+of\s+my\s+projects?|on\s+my\s+current\s+project)\b",
+    re.IGNORECASE,
+)
+HONEST_EXPERIENCE_GAP_RE = re.compile(
+    r"(?:"
+    r"\bне\s+(?:использовал[аи]?|настраивал[аи]?|применял[аи]?|"
+    r"администрировал[аи]?|работал[аи]?(?:\s+с)?)\b|"
+    r"\bнет\s+(?:у\s+меня\s+)?(?:практического\s+)?опыта\b|"
+    r"\b(?:практического\s+)?опыта(?:\s+\w+){0,3}\s+нет\b|"
+    r"\b(?:have\s+not|haven't|did\s+not|didn't)\s+"
+    r"(?:used|configured|worked\s+with|administered)\b|"
+    r"\bno\s+practical\s+experience\b"
+    r")",
+    re.IGNORECASE,
+)
+CRITICAL_TECHNICAL_ERROR_RE = re.compile(
+    r"(?:перепут\w*|полност\w*\s+(?:невер|инверт)|фундаментальн\w*\s+ошиб|"
+    r"критическ\w*\s+ошиб|фактическ\w*\s+ошиб|fundamental\s+error|critical\s+error|"
+    r"reversed\s+the\s+(?:meaning|behavior)|factually\s+wrong)",
+    re.IGNORECASE,
+)
+PRACTICAL_EXAMPLE_COMPLAINT_RE = re.compile(
+    r"(?:"
+    r"^(?:(?:конкретн|практическ)\w*\s+){1,2}пример\w*$|"
+    r"не\s+(?:хватает|привед[её]н|привел|показан).{0,70}(?:пример|реализаци|кейс)|"
+    r"(?:конкретн|практическ)\w*\s+пример\w*.{0,30}(?:нет|отсутств)|"
+    r"(?:конкретн|практическ)\w*\s+пример\w*.{0,40}не\s+(?:раскрыт|показан|привед)|"
+    r"(?:пример\w*\s+(?:из\s+практик|применени)).{0,30}(?:нет|не\s+привед)|"
+    r"не\s+раскрыл\w*.{0,60}пример|"
+    r"отсутств\w*.{0,70}(?:пример|реализаци|подтвержден\w*\s+практик)|"
+    r"добав(?:ьте|ить).{0,50}(?:пример|кейс|конкретн\w*\s+реализаци)|"
+    r"(?:missing|lacks?|did\s+not\s+provide).{0,50}(?:practical|concrete)\s+example"
+    r")",
+    re.IGNORECASE,
+)
 
 BEHAVIORAL_RULES: tuple[tuple[str, re.Pattern[str], re.Pattern[str]], ...] = (
     (
@@ -164,6 +242,80 @@ def _as_list(value: Any, limit: int = 12) -> list[str]:
     return _dedupe([str(v).strip() for v in value if str(v).strip()], limit)
 
 
+def expand_compact_vacancy_evaluation(
+    data: dict[str, Any],
+    *,
+    candidate_answer: str,
+    expected_signals: list[str],
+    question: str = "",
+    topic: str = "",
+) -> dict[str, Any]:
+    """Expand the low-latency model payload into the stable desktop schema.
+
+    The interactive model should spend its token budget on judgment and a good
+    replacement answer. Numeric sibling metrics and compatibility fields are
+    deterministic derivatives; asking the provider to repeat them made the
+    response slower without improving coaching quality.
+    """
+    out = dict(data)
+
+    try:
+        score = max(0, min(100, round(float(out.get("score", 0) or 0))))
+    except (TypeError, ValueError):
+        score = 0
+    # Some fast models occasionally ignore the JSON hint and answer on a 0–10
+    # interviewer scale. Normalize it once so a clearly strong 8/10 is not
+    # rendered as a catastrophic 8%.
+    if 0 < score <= 10:
+        score *= 10
+    out["score"] = score
+
+    good = _as_list(out.get("goodPoints"), 6)
+    missing = _as_list(out.get("missingPoints"), 6)
+    corrections = _as_list(out.get("technicalCorrections"), 6)
+    expected_count = len(_dedupe(expected_signals or [], 12))
+    if expected_count:
+        coverage = round(
+            100 * max(0, expected_count - min(expected_count, len(missing))) / expected_count
+        )
+    else:
+        coverage = score
+
+    # A correction lowers technical confidence, but it must not erase the
+    # correct parts already recognized by the model.
+    technical_accuracy = max(0, score - min(24, len(corrections) * 10))
+    combined_weak = _dedupe(missing + corrections, 8)
+    is_project = _is_project_experience_question(f"{question}\n{topic}")
+
+    defaults: dict[str, Any] = {
+        "coverageScore": coverage,
+        "technicalContentScore": score,
+        "projectSpecificityScore": score if is_project else max(0, score - 10),
+        "leadershipScore": score if is_project else 0,
+        "ownershipScore": score if is_project else 0,
+        "structureScore": score,
+        "speechClarityScore": score,
+        "technicalAccuracyScore": technical_accuracy,
+        "specificityScore": score,
+        "clarityScore": score,
+        "confidenceScore": score,
+        "normalizedAnswerSummary": candidate_answer.strip(),
+        "detectedNoiseOrAsrErrors": [],
+        "extractedValidPoints": good,
+        "weakPoints": combined_weak,
+        "hallucinationGuard": [],
+        "betterStructure": [],
+        "answerStrategy": "",
+        "whyThisAnswerWorks": [],
+        "deliveryTips": [],
+        "nextTrainingFocus": combined_weak[0] if combined_weak else "",
+    }
+    for key, value in defaults.items():
+        if key not in out or out.get(key) in (None, ""):
+            out[key] = value
+    return out
+
+
 SEMANTIC_RULES: tuple[tuple[str, re.Pattern[str], re.Pattern[str]], ...] = (
     (
         "waits",
@@ -271,6 +423,16 @@ PROJECT_EXPERIENCE_RE = re.compile(
     r"walk\s+me\s+through\s+a\s+project",
     re.IGNORECASE,
 )
+PERSONAL_EXPERIENCE_QUESTION_RE = re.compile(
+    r"(?:"
+    r"как\s+(?:вы|ты).{0,60}(?:использовал|применял|работал|настраивал|внедрял)|"
+    r"(?:есть|был|имеется)\s+ли.{0,50}опыт|какой.{0,40}опыт|"
+    r"на\s+проекте.{0,50}(?:использовал|применял|работал|настраивал)|"
+    r"how\s+(?:have\s+)?you.{0,50}(?:used|worked|configured|implemented)|"
+    r"do\s+you\s+have.{0,30}experience|what.{0,30}experience"
+    r")",
+    re.IGNORECASE,
+)
 
 PROJECT_RULES: tuple[tuple[str, re.Pattern[str], re.Pattern[str]], ...] = (
     (
@@ -373,6 +535,70 @@ def _floor_score(out: dict[str, Any], key: str, floor_value: int) -> None:
     except (TypeError, ValueError):
         current = 0
     out[key] = max(round(current), floor_value)
+
+
+def _cap_score(out: dict[str, Any], key: str, cap_value: int) -> None:
+    """Lower out[key] to at most cap_value; malformed values become the cap."""
+    try:
+        current = float(out.get(key, cap_value) or 0)
+    except (TypeError, ValueError):
+        current = cap_value
+    out[key] = min(round(current), cap_value)
+
+
+def _has_sort_inversion(answer: str) -> bool:
+    low = _norm(answer)
+    sort_claims_new_list = bool(
+        re.search(
+            r"\b(?:list\.)?sort(?:\(\))?.{0,90}(?:нов\w*\s+спис|new\s+list)",
+            low,
+        )
+    )
+    sorted_claims_in_place = bool(
+        re.search(
+            r"\bsorted(?:\(\))?.{0,90}(?:меня\w*.{0,35}(?:исход|спис)|"
+            r"на\s+месте|in[-\s]?place|mutat)",
+            low,
+        )
+    )
+    return sort_claims_new_list and sorted_claims_in_place
+
+
+def _has_practical_example(answer: str) -> bool:
+    text = re.sub(r"\s+", " ", answer or "").strip()
+    if len(text) < 140:
+        return False
+    markers = (
+        r"\bнапример\b",
+        r"page\s*object",
+        r"локатор",
+        r"композици",
+        r"наследован|инкапсул",
+        r"граничн",
+        r"класс\w*\s+эквивалент",
+        r"таблиц\w*\s+решен",
+        r"фикстур",
+        r"\byield\b",
+        r"\bscope\b",
+        r"json|схем\w*\s+ответ|статус[-\s]?код",
+        r"для\s+(?:поля|каждого|сложн|критич)",
+    )
+    return sum(bool(re.search(pattern, text, re.IGNORECASE)) for pattern in markers) >= 2
+
+
+def _remove_false_example_complaints(text: str) -> str:
+    kept: list[str] = []
+    for sentence in _split_sentences(text):
+        if not PRACTICAL_EXAMPLE_COMPLAINT_RE.search(sentence):
+            kept.append(sentence)
+            continue
+        prefix = re.split(r"\b(?:но|однако)\b", sentence, maxsplit=1, flags=re.IGNORECASE)[0]
+        prefix = prefix.rstrip(" ,;:—-").strip()
+        if len(prefix) >= 18 and not PRACTICAL_EXAMPLE_COMPLAINT_RE.search(prefix):
+            if prefix[-1] not in ".!?":
+                prefix += "."
+            kept.append(prefix)
+    return " ".join(kept).strip()
 
 
 def _has_result_signal(answer: str) -> bool:
@@ -674,31 +900,6 @@ def strip_asr_noise_for_evaluation(candidate_answer: str) -> tuple[str, list[str
     return re.sub(r"\s+", " ", " ".join(kept)).strip(), _dedupe(noise, 6)
 
 
-def _source_corpus(
-    *,
-    resume_text: str,
-    vacancy_text: str,
-    candidate_answer: str,
-    expected_signals: list[str],
-    topic: str,
-    question: str = "",
-    legend_text: str = "",
-) -> str:
-    return _norm(
-        "\n".join(
-            [
-                resume_text or "",
-                legend_text or "",
-                vacancy_text or "",
-                candidate_answer or "",
-                topic or "",
-                question or "",
-                " ".join(expected_signals or []),
-            ]
-        )
-    )
-
-
 def _mentions_supported(pattern: re.Pattern[str], source: str) -> bool:
     return bool(pattern.search(source))
 
@@ -717,14 +918,27 @@ def _split_sentences(text: str) -> list[str]:
     return [chunk.strip() for chunk in chunks if chunk.strip()]
 
 
+def _honest_experience_boundary(candidate_answer: str) -> str:
+    cleaned, _ = strip_asr_noise_for_evaluation(candidate_answer)
+    for sentence in _split_sentences(cleaned):
+        if HONEST_EXPERIENCE_GAP_RE.search(sentence):
+            boundary = sentence[:320].strip()
+            if boundary and boundary[-1] not in ".!?":
+                boundary += "."
+            return boundary
+    return ""
+
+
 def _sanitize_suggested_answer(
     text: str,
     *,
     source: str,
+    experience_source: str,
     level: str,
 ) -> tuple[str, list[str]]:
     guard: list[str] = []
     removed_metric = False
+    removed_sentence = False
     kept: list[str] = []
 
     allow_people_mgmt = _mentions_supported(PEOPLE_MGMT_RE, source)
@@ -735,7 +949,16 @@ def _sanitize_suggested_answer(
 
     for sentence in _split_sentences(text):
         should_drop = False
-        unsupported_tools = _unsupported_tools(sentence, source)
+        project_anchor = PERSONAL_PROJECT_ANCHOR_RE.search(sentence)
+        honest_gap = bool(HONEST_EXPERIENCE_GAP_RE.search(sentence))
+        if project_anchor and _norm(project_anchor.group(0)) not in source:
+            guard.append("Без выдуманного проектного примера")
+            should_drop = True
+        unsupported_tools = (
+            _unsupported_tools(sentence, experience_source)
+            if PERSONAL_EXPERIENCE_CLAIM_RE.search(sentence) and not honest_gap
+            else []
+        )
         if unsupported_tools:
             guard.append(f"Без неподтверждённых инструментов: {', '.join(unsupported_tools)}")
             should_drop = True
@@ -757,6 +980,7 @@ def _sanitize_suggested_answer(
             should_drop = True
 
         if should_drop:
+            removed_sentence = True
             continue
         kept.append(sentence)
 
@@ -766,6 +990,18 @@ def _sanitize_suggested_answer(
         )
 
     result = " ".join(kept).strip()
+    if removed_sentence:
+        cleaned_leading_connector = re.sub(
+            r"^(?:однако|при этом|также|кроме того)\s*,?\s*",
+            "",
+            result,
+            flags=re.IGNORECASE,
+        )
+        if cleaned_leading_connector != result and cleaned_leading_connector:
+            cleaned_leading_connector = (
+                cleaned_leading_connector[:1].upper() + cleaned_leading_connector[1:]
+            )
+        result = cleaned_leading_connector
     if removed_metric:
         impact_phrase = (
             "Точных цифр сейчас не приведу, но эффект был в более понятной поддержке "
@@ -791,17 +1027,19 @@ def harden_vacancy_evaluation(
 ) -> dict[str, Any]:
     """Make model output obey the grounding contract before returning it."""
     out = dict(data)
-    # The legend is part of the grounding corpus: tools/roles the candidate's
-    # agreed self-presentation commits to must not be stripped as "unsupported".
-    source = _source_corpus(
-        resume_text=resume_text,
-        vacancy_text=vacancy_text,
-        candidate_answer=candidate_answer,
-        expected_signals=expected_signals,
-        topic=topic,
-        question=question,
-        legend_text=legend_text,
+    # Requirements may justify discussing a technology, but they never prove
+    # that the candidate personally used it. Personal-claim sanitization must
+    # only trust the candidate's own answer, resume, and interview legend.
+    personal_source = _norm(
+        "\n".join([resume_text or "", legend_text or "", candidate_answer or ""])
     )
+    candidate_experience = (
+        candidate_answer if PERSONAL_EXPERIENCE_CLAIM_RE.search(candidate_answer or "") else ""
+    )
+    experience_source = _norm(
+        "\n".join([resume_text or "", legend_text or "", candidate_experience])
+    )
+    honest_boundary = _honest_experience_boundary(candidate_answer)
 
     noise = _dedupe(
         _as_list(out.get("detectedNoiseOrAsrErrors"), 6)
@@ -814,8 +1052,45 @@ def harden_vacancy_evaluation(
     extracted = _as_list(out.get("extractedValidPoints"), 10)
     good = _as_list(out.get("goodPoints"), 10)
     weak = _as_list(out.get("weakPoints"), 10)
+    raw_missing = _as_list(out.get("missingPoints"), 12)
+    if _has_practical_example(candidate_answer):
+        out["verdict"] = (
+            _remove_false_example_complaints(str(out.get("verdict", "") or ""))
+            or "Ответ содержит практическое применение и соответствует вопросу."
+        )
+        out["feedback"] = _remove_false_example_complaints(str(out.get("feedback", "") or "")) or (
+            "Практическое применение уже показано. Для более сильного ответа добавьте "
+            "только границу применимости или осознанный компромисс."
+        )
+        weak = [item for item in weak if not PRACTICAL_EXAMPLE_COMPLAINT_RE.search(item)]
+        raw_missing = [
+            item for item in raw_missing if not PRACTICAL_EXAMPLE_COMPLAINT_RE.search(item)
+        ]
+    corrections = _as_list(out.get("technicalCorrections"), 10)
+    sort_inversion = _has_sort_inversion(candidate_answer)
+    if sort_inversion:
+        corrections = _dedupe(
+            corrections
+            + [
+                "list.sort() изменяет исходный список на месте и возвращает None",
+                "sorted() не меняет исходную коллекцию и возвращает новый список",
+            ],
+            10,
+        )
+    out["technicalCorrections"] = corrections
+    assessment_text = " ".join(
+        [
+            str(out.get("verdict", "") or ""),
+            str(out.get("feedback", "") or ""),
+            " ".join(corrections),
+            " ".join(raw_missing),
+        ]
+    )
+    critical_technical_error = sort_inversion or bool(
+        CRITICAL_TECHNICAL_ERROR_RE.search(assessment_text)
+    )
     missing, missing_covered = _remove_covered_missing(
-        _as_list(out.get("missingPoints"), 12),
+        raw_missing,
         candidate_answer,
     )
     signal_covered = _semantic_covered_points(expected_signals or [], candidate_answer)
@@ -823,7 +1098,11 @@ def harden_vacancy_evaluation(
 
     if covered:
         extracted = _dedupe(extracted + [f"Семантически покрыто: {item}" for item in covered], 10)
-        good = _dedupe(good + [f"Покрыл по смыслу: {item}" for item in covered], 10)
+        # Keep the model's user-facing praise when it exists. Appending raw
+        # rubric labels (often English) made concise feedback noisy and could
+        # repeat the exact same idea in two phrasings.
+        if not good:
+            good = [f"Покрыл по смыслу: {item}" for item in covered[:3]]
         weak = _replace_behavioral_weak_points(weak, covered)
         weak = _replace_project_weak_points(weak, covered)
         missing = [m for m in missing if m not in covered]
@@ -864,7 +1143,7 @@ def harden_vacancy_evaluation(
         ]
 
     has_technical_claim = _has_technical_claim(candidate_answer, extracted + good + covered)
-    if has_technical_claim:
+    if has_technical_claim and not critical_technical_error:
         # Never score technical accuracy near-zero when the candidate stated any
         # correct technical/project-relevant fact — floor 50, scaling to 75 as
         # more signals are semantically covered.
@@ -898,6 +1177,23 @@ def harden_vacancy_evaluation(
                 _floor_score(out, "ownershipScore", 30)
             _floor_score(out, "score", 45)
 
+    if critical_technical_error:
+        score_cap = 30 if sort_inversion else 45
+        _cap_score(out, "score", score_cap)
+        _cap_score(out, "technicalAccuracyScore", score_cap)
+        _cap_score(out, "technicalContentScore", max(score_cap, 40))
+
+    if honest_boundary and (
+        _is_project_experience_question(f"{question}\n{topic}")
+        or PERSONAL_EXPERIENCE_QUESTION_RE.search(question or "")
+    ):
+        # A truthful gap is much better than fabricated experience, but it still
+        # means the experience question was not fully satisfied for this role.
+        _cap_score(out, "score", 75)
+        _cap_score(out, "specificityScore", 75)
+        _cap_score(out, "projectSpecificityScore", 75)
+        _cap_score(out, "ownershipScore", 75)
+
     try:
         score = float(out.get("score", 0) or 0)
     except (TypeError, ValueError):
@@ -914,7 +1210,8 @@ def harden_vacancy_evaluation(
 
     sanitized, guard = _sanitize_suggested_answer(
         str(out.get("suggestedBetterAnswer", "")),
-        source=source,
+        source=personal_source,
+        experience_source=experience_source,
         level=(level or "").lower(),
     )
     wrong_frame_for_project = _is_project_experience_question(
@@ -924,6 +1221,8 @@ def harden_vacancy_evaluation(
         sanitized = _ready_answer(
             question, topic, candidate_answer, resume_text=resume_text, vacancy_text=vacancy_text
         )
+    if honest_boundary and not HONEST_EXPERIENCE_GAP_RE.search(sanitized):
+        sanitized = f"{honest_boundary} {sanitized}".strip()
     out["suggestedBetterAnswer"] = sanitized
     out["hallucinationGuard"] = _dedupe(_as_list(out.get("hallucinationGuard"), 8) + guard, 10)
     return out

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowRight, BriefcaseBusiness, CheckCircle2, FileSearch, Trash2 } from 'lucide-react';
+import { ArrowRight, BriefcaseBusiness, FileSearch, Trash2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { growthRoleLabel, readGrowthProfile } from '../lib/growthProfile';
 import {
@@ -40,14 +40,13 @@ export default function PracticePage() {
   }, []);
 
   const inProgress = useMemo(
-    () => sessions.find((session) => session.status === 'in_progress'),
+    () => sessions.filter((session) => session.status === 'in_progress'),
     [sessions],
   );
   const completed = useMemo(
     () => sessions.filter((session) => session.status === 'completed'),
     [sessions],
   );
-  const answered = inProgress?.answers.filter((answer) => !answer.skipped).length ?? 0;
   const scheduledVacancy = useMemo(() => calendarState?.events
     .filter((event) => event.status !== 'cancelled' && +new Date(event.endAt) > Date.now())
     .filter((event) => Boolean(event.vacancyUrl?.trim() || event.sessionId))
@@ -69,6 +68,43 @@ export default function PracticePage() {
     setSessionToDelete(null);
   };
 
+  const renderSessionRow = (session: SmokeReviewSession) => {
+    const score = session.report?.overallScore;
+    const completedSession = session.status === 'completed';
+    const answered = session.answers.filter((answer) => !answer.skipped).length;
+    return (
+      <article key={session.id} className="practice-session-row">
+        <button
+          type="button"
+          className="practice-session-row__open"
+          onClick={() => navigate(`/practice/session?session=${encodeURIComponent(session.id)}`)}
+        >
+          <span className={`practice-session-row__status ${completedSession ? 'is-complete' : ''}`} aria-hidden="true" />
+          <span className="min-w-0 flex-1">
+            <strong>{sessionTitle(session)}</strong>
+            <small>
+              {new Date(session.startedAt).toLocaleDateString('ru-RU')} · {completedSession
+                ? 'Завершено'
+                : `${answered} из ${session.questions.length} ответов`}
+            </small>
+          </span>
+          {score != null && (
+            <span className="practice-session-row__score">{score}/100</span>
+          )}
+        </button>
+        <button
+          type="button"
+          className="prep-icon-button"
+          aria-label={`Удалить практику «${sessionTitle(session)}»`}
+          title="Удалить"
+          onClick={() => setSessionToDelete(session)}
+        >
+          <Trash2 size={15} aria-hidden="true" />
+        </button>
+      </article>
+    );
+  };
+
   return (
     <div className="prep h-full overflow-y-auto">
       <div className="prep-wrap prep-rise practice-page">
@@ -88,26 +124,26 @@ export default function PracticePage() {
 
         <section className="practice-primary" aria-labelledby="practice-primary-title">
           <span className="practice-primary__icon" aria-hidden="true">
-            {inProgress ? <CheckCircle2 size={22} /> : <BriefcaseBusiness size={22} />}
+            <BriefcaseBusiness size={22} />
           </span>
           <div className="practice-primary__copy">
-            <p className="prep-eyebrow">{inProgress ? 'НЕ ЗАВЕРШЕНО' : goal ? 'ВАША ЦЕЛЬ' : 'БЕЗ ВАКАНСИИ'}</p>
+            <p className="prep-eyebrow">Новая практика</p>
             <h2 id="practice-primary-title">
-              {inProgress ? sessionTitle(inProgress) : goal || 'Выберите роль перед стартом'}
+              {goal || 'Практика по роли'}
             </h2>
             <p>
-              {inProgress
-                ? `${answered} из ${inProgress.questions.length} вопросов отвечено.`
-                : 'SkillCue соберёт вопросы по роли. Вакансию добавлять не обязательно.'}
+              {goal
+                ? 'Короткая тренировка по вашей роли. Резюме и опыт подключатся автоматически.'
+                : 'Выберите роль на следующем экране. Вакансия не обязательна.'}
             </p>
           </div>
           <div className="practice-primary__actions">
             <button
               type="button"
               className="prep-btn"
-              onClick={() => navigate(inProgress ? `/practice/session?session=${encodeURIComponent(inProgress.id)}` : '/practice/new')}
+              onClick={() => navigate('/practice/new')}
             >
-              {inProgress ? 'Продолжить практику' : 'Начать практику'} <ArrowRight size={16} aria-hidden="true" />
+              Начать новую <ArrowRight size={16} aria-hidden="true" />
             </button>
             <button type="button" className="prep-btn prep-btn-ghost" onClick={() => navigate('/prepare')}>
               <FileSearch size={15} aria-hidden="true" /> По вакансии
@@ -115,53 +151,34 @@ export default function PracticePage() {
           </div>
         </section>
 
+        {inProgress.length > 0 && (
+          <section aria-labelledby="practice-active-title">
+            <div className="prep-section-head">
+              <div>
+                <p className="prep-eyebrow">НЕ ЗАВЕРШЕНО</p>
+                <h2 id="practice-active-title" className="prep-h2 prep-section-title">Продолжить</h2>
+              </div>
+              <span className="prep-faint">{inProgress.length}</span>
+            </div>
+            <div className="practice-session-list">{inProgress.map(renderSessionRow)}</div>
+          </section>
+        )}
+
         <section aria-labelledby="practice-history-title">
           <div className="prep-section-head">
             <div>
               <p className="prep-eyebrow">РЕЗУЛЬТАТЫ</p>
-              <h2 id="practice-history-title" className="prep-h2 prep-section-title">Последние сессии</h2>
+              <h2 id="practice-history-title" className="prep-h2 prep-section-title">Завершённые тренировки</h2>
             </div>
             {completed.length > 0 && <span className="prep-faint">Завершено: {completed.length}</span>}
           </div>
 
-          {sessions.length === 0 ? (
+          {completed.length === 0 ? (
             <div className="practice-empty">
-              <p>Здесь появятся ответы, оценка и темы для повторения.</p>
+              <p>После завершения здесь появятся оценка и темы для повторения.</p>
             </div>
           ) : (
-            <div className="practice-session-list">
-              {sessions.map((session) => {
-                const score = session.report?.overallScore;
-                const completedSession = session.status === 'completed';
-                return (
-                  <article key={session.id} className="practice-session-row">
-                    <button
-                      type="button"
-                      className="practice-session-row__open"
-                      onClick={() => navigate(`/practice/session?session=${encodeURIComponent(session.id)}`)}
-                    >
-                      <span className={`practice-session-row__status ${completedSession ? 'is-complete' : ''}`} aria-hidden="true" />
-                      <span className="min-w-0 flex-1">
-                        <strong>{sessionTitle(session)}</strong>
-                        <small>
-                          {new Date(session.startedAt).toLocaleDateString('ru-RU')} · {completedSession ? 'Завершено' : 'Не завершено'}
-                        </small>
-                      </span>
-                      <span className="practice-session-row__score">{score == null ? '—' : `${score}/100`}</span>
-                    </button>
-                    <button
-                      type="button"
-                      className="prep-icon-button"
-                      aria-label={`Удалить практику «${sessionTitle(session)}»`}
-                      title="Удалить"
-                      onClick={() => setSessionToDelete(session)}
-                    >
-                      <Trash2 size={15} aria-hidden="true" />
-                    </button>
-                  </article>
-                );
-              })}
-            </div>
+            <div className="practice-session-list">{completed.map(renderSessionRow)}</div>
           )}
         </section>
       </div>

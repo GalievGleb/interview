@@ -18,6 +18,13 @@ const cssSource = fs.readFileSync(
 );
 
 describe('overlay request behavior', () => {
+  it('stops the thinking indicator after an empty screen error and shows the issue instead', () => {
+    expect(overlaySource).toContain(
+      "exchange.streaming ? <span className=\"ovl-think-dot\" aria-label={t('overlay.thinking')} /> : null",
+    );
+    expect(overlaySource).toContain('className="ovl-answer-issue" role="alert"');
+  });
+
   it('blocks live before opening sockets when the licence has no live entitlement', () => {
     expect(overlaySource).toContain("const liveBlocked = license?.live_allowed === false");
     expect(overlaySource).toContain("setNotice(t('overlay.rec.needLicense'))");
@@ -156,11 +163,7 @@ describe('overlay request behavior', () => {
 
   it('invalidates a pending screen capture when a newer Ctrl+Enter starts', () => {
     expect(overlaySource).toContain('screenAssistGenerationRef');
-    const captureAt = overlaySource.indexOf('const image = await capture()');
-    expect(captureAt).toBeGreaterThan(-1);
-    expect(overlaySource.slice(captureAt, captureAt + 240)).toContain(
-      'if (requestGeneration !== screenAssistGenerationRef.current) return;',
-    );
+    expect(overlaySource).toContain('screenRequestCoordinatorRef.current.cancelActive();');
     const forceAt = overlaySource.indexOf('const submitForcedAnswer');
     expect(forceAt).toBeGreaterThan(-1);
     expect(overlaySource.slice(forceAt, forceAt + 520)).toContain(
@@ -172,14 +175,15 @@ describe('overlay request behavior', () => {
     expect(hookSource).toContain('routeVisualQuestionToScreen');
     expect(hookSource).toContain("forceSnapshot.phase === 'screen-fallback'");
     expect(hookSource).toContain("if (decision.action !== 'submit')");
-    expect(overlaySource).toContain('forceScreenFallbackOwnerRef');
+    expect(overlaySource).toContain('screenFallbackLaunchRef.current.ownerGeneration()');
+    expect(overlaySource).toContain('screenFallbackLaunchRef.current.launch(forceScreenFallback');
     expect(overlaySource).toContain("forcePhase === 'waiting-first-token'");
     expect(overlaySource).toContain('cancelOwnedForceScreenFallback(ownedGeneration)');
   });
 
   it('commits the first nonempty screen chunk before rendering it', () => {
     expect(hookSource).toContain('commitScreenFirstOutput');
-    const chunkAt = overlaySource.indexOf('onChunk: (t) => {', overlaySource.indexOf('streamScreenAssist'));
+    const chunkAt = overlaySource.indexOf('onChunk: (chunk) =>', overlaySource.indexOf('const runScreenAssist'));
     const chunkSource = overlaySource.slice(chunkAt, chunkAt + 800);
     expect(chunkSource).toContain('commitScreenFirstOutput');
     expect(chunkSource.indexOf('commitScreenFirstOutput')).toBeLessThan(
@@ -199,7 +203,7 @@ describe('overlay request behavior', () => {
   });
 
   it('revalidates every forced-screen chunk instead of trusting a prior commit', () => {
-    const chunkAt = overlaySource.indexOf('onChunk: (t) => {', overlaySource.indexOf('streamScreenAssist'));
+    const chunkAt = overlaySource.indexOf('onChunk: (chunk) =>', overlaySource.indexOf('const runScreenAssist'));
     const chunkSource = overlaySource.slice(chunkAt, chunkAt + 900);
     expect(chunkSource).toContain('commitScreenFirstOutput(forceOwner.generation');
     expect(chunkSource).not.toContain("forceChunkAuthority === 'committed'");
@@ -251,7 +255,7 @@ describe('overlay request behavior', () => {
   it('uses deep screen analysis for an explicit visual question when Smart is enabled', () => {
     expect(
       overlaySource.match(
-        /runScreenAssist\(forceScreenFallback\.question, smart \? 'deep' : 'general', \{/g,
+        /runScreenAssist\(\s*forceScreenFallback\.question,\s*smart \? 'deep' : 'general',\s*\{/g,
       ),
     ).toHaveLength(1);
   });
@@ -327,6 +331,42 @@ describe('overlay request behavior', () => {
     expect(hookSource).toContain('candidateContext: candidateContextRef.current');
   });
 
+  it('publishes completed screen tasks into the live fast-path context', () => {
+    expect(overlaySource).toContain('publishScreenTaskContext({');
+    expect(hookSource).toContain('contextForInterviewQuestion({');
+    expect(hookSource).toContain('activeScreenTask: requestActiveScreenTask ?? undefined');
+    expect(apiSource).toContain('active_screen_task: opts.activeScreenTask');
+  });
+
+  it('cancels an active screen request only after the hook selects a candidate utterance', () => {
+    const submitAt = overlaySource.indexOf('const submitCandidateFollowUp');
+    const endAt = overlaySource.indexOf('const scrollOverlayContent', submitAt);
+    const body = overlaySource.slice(submitAt, endAt);
+    expect(body).toContain('forceCandidateFollowUp');
+    expect(body).not.toContain('cancelActiveScreenAssist()');
+    const selectedAt = hookSource.indexOf("recordCandidateHotkeyDiagnostic('candidate_hotkey_selected'");
+    const cancelAt = hookSource.lastIndexOf(
+      'activeScreenCancellationRef.current.cancelAndClear()',
+      selectedAt,
+    );
+    expect(cancelAt).toBeGreaterThan(-1);
+    expect(cancelAt).toBeLessThan(selectedAt);
+  });
+
+  it('clears active screen task memory exactly once', () => {
+    const clearAt = hookSource.indexOf('const clearScreenTaskContext');
+    const endAt = hookSource.indexOf('const resetForceCoordinator', clearAt);
+    const clearBody = hookSource.slice(clearAt, endAt);
+    expect(clearBody.match(/activeScreenTaskContextRef\.current\.clear\(\)/g)).toHaveLength(1);
+  });
+
+  it('records received, queued, ignored and selected candidate hotkey diagnostics', () => {
+    expect(hookSource).toContain("'candidate_hotkey_received'");
+    expect(hookSource).toContain("'candidate_hotkey_queued'");
+    expect(hookSource).toContain("'candidate_hotkey_ignored'");
+    expect(hookSource).toContain("'candidate_hotkey_selected'");
+  });
+
   it('routes deictic code-on-screen questions to vision after Ctrl+Enter', () => {
     expect(hookSource).toContain('requiresScreenContext(question, screenTaskAvailableRef.current)');
     expect(hookSource).toContain('routeQuestionToScreen(generation)');
@@ -338,28 +378,106 @@ describe('overlay request behavior', () => {
     expect(hookSource).toContain(
       'setForceScreenFallback({ generation, screenRevision, question: screenQuestion })',
     );
-    expect(overlaySource).toContain('runScreenAssist(forceScreenFallback.question');
+    expect(overlaySource).toMatch(/runScreenAssist\(\s*forceScreenFallback\.question/);
   });
 
   it('keeps bounded previous screen context for explicit task modifications', () => {
-    expect(overlaySource).toContain('lastScreenTaskRef');
+    expect(overlaySource).toContain('screenTaskRuntime.lastTask');
     expect(overlaySource).toContain('buildScreenTaskContinuityContext(');
     expect(overlaySource).toContain('markScreenTaskAvailable()');
   });
 
+  it('keeps typed screen state transient and commits it only after validated done', () => {
+    expect(overlaySource).toContain('STRUCTURED_SCREEN_ASSIST_ENABLED');
+    expect(overlaySource).toContain('screenTaskRuntimeRef');
+    expect(overlaySource).toContain('screenTaskRuntime.state.beginRequest(taskAction)');
+    expect(overlaySource).toContain('structuredScreen: STRUCTURED_SCREEN_ASSIST_ENABLED');
+    expect(overlaySource).toContain('taskState: structuredLease?.taskState');
+    expect(overlaySource).toContain('screenTaskRuntime.state.commit(');
+    expect(overlaySource).toContain('result.meta?.legacyFallback');
+    expect(overlaySource).toContain('screenTaskRuntime.settleLegacyFallback(');
+    expect(overlaySource).toContain(
+      "structuredLease.taskAction === 'continue'",
+    );
+    expect(overlaySource).not.toContain('localStorage.setItem(SCREEN_TASK_STATE');
+  });
+
+  it('invalidates stale typed screen work and resets it at every session boundary', () => {
+    expect(overlaySource).toContain(
+      'if (requestGeneration !== screenAssistGenerationRef.current)',
+    );
+    expect(overlaySource).toContain('screenTaskRuntime.state.invalidatePending(');
+    expect(overlaySource).toContain('screenTaskRuntimeRef.current.reset();');
+    const unmountAt = overlaySource.indexOf('() => () => {');
+    expect(overlaySource.slice(unmountAt, unmountAt + 260)).toContain(
+      'resetScreenTaskContext();',
+    );
+
+    for (const boundary of ['const stopSession', 'const startSession', 'const resumeFromRecap']) {
+      const boundaryAt = overlaySource.indexOf(boundary);
+      const boundaryBody = overlaySource.slice(boundaryAt, boundaryAt + 700);
+      expect(boundaryAt).toBeGreaterThan(-1);
+      expect(boundaryBody).toContain('resetScreenTaskContext();');
+    }
+  });
+
+  it('resets the complete screen-task epoch on recap and audio-session restart paths', () => {
+    for (const boundary of ['const openRecap', 'const closeRecap']) {
+      const boundaryAt = overlaySource.indexOf(boundary);
+      expect(boundaryAt).toBeGreaterThan(-1);
+      expect(overlaySource.slice(boundaryAt, boundaryAt + 700)).toContain(
+        'resetScreenTaskContext();',
+      );
+    }
+    const audioSourceAt = overlaySource.indexOf("t('overlay.audioSourceHead')");
+    const audioRestartAt = overlaySource.indexOf('void stop().then(async () => {', audioSourceAt);
+    expect(audioRestartAt).toBeGreaterThan(audioSourceAt);
+    expect(overlaySource.slice(audioRestartAt - 260, audioRestartAt)).toContain(
+      'resetScreenTaskContext();',
+    );
+  });
+
   it('restarts the same-generation screen fallback when a late exact question arrives', () => {
-    expect(overlaySource).toContain('const requestKey = JSON.stringify(forceScreenFallback)');
-    expect(overlaySource).toContain('lastForceScreenFallbackRef.current === requestKey');
-    expect(overlaySource).toContain('lastForceScreenFallbackRef.current = requestKey');
+    expect(overlaySource).toContain('screenFallbackLaunchRef.current.launch(forceScreenFallback');
+    expect(overlaySource).toContain('cancelActive: cancelActiveScreenAssist');
+    expect(overlaySource).toContain("start: () => runScreenAssist(");
+  });
+
+  it('exposes an atomic new-screen-task command and keeps Ctrl+R on the same reset path', () => {
+    expect(overlaySource).toContain('const startNewScreenTask = useCallback');
+    expect(overlaySource).toContain("runScreenAssist('', smart ? 'deep' : 'general', undefined, 'manual', undefined, 'new')");
+    expect(overlaySource).toContain('onClick={startNewScreenTask}');
+    expect(overlaySource).toContain('{guideCopy.newScreenTask}');
+    const closeAt = overlaySource.indexOf('const closeExchange = useCallback');
+    expect(overlaySource.slice(closeAt, closeAt + 220)).toContain('resetScreenTaskContext();');
+    const hotkeyAt = overlaySource.indexOf("if (mod && (e.key === 'r' || e.key === 'R'))");
+    expect(overlaySource.slice(hotkeyAt, hotkeyAt + 220)).toContain('closeExchange();');
+  });
+
+  it('atomically consumes a force-screen fallback before reset can rerender', () => {
+    expect(hookSource).toContain('const clearForceScreenFallback = useCallback');
+    expect(hookSource).toContain("snapshot.phase === 'screen-fallback'");
+    expect(hookSource).toContain("forceCoordinatorRef.current.setPhase(snapshot.generation, 'error')");
+    expect(hookSource).toContain('setForceScreenFallback(EMPTY_FORCE_SCREEN_FALLBACK)');
+
+    const resetAt = overlaySource.indexOf('const resetScreenTaskContext = useCallback');
+    const resetBody = overlaySource.slice(resetAt, resetAt + 500);
+    expect(resetBody).toContain('clearForceScreenFallback();');
+
+    const fallbackEffectAt = overlaySource.indexOf('if (!isCurrentForceScreenFallbackRequest(');
+    expect(fallbackEffectAt).toBeGreaterThan(-1);
+    expect(overlaySource.slice(fallbackEffectAt, fallbackEffectAt + 300)).toContain(
+      'forceScreenFallback, forceGeneration, forcePhase',
+    );
   });
 
   it('captures the uncovered desktop before rendering a loading answer card', () => {
     const runAt = overlaySource.indexOf('const runScreenAssist = useCallback');
-    const captureAt = overlaySource.indexOf('const image = await capture()', runAt);
+    const captureAt = overlaySource.indexOf('onCaptured: (capturedImage) =>', runAt);
     const exchangeAt = overlaySource.indexOf('setExchange({', runAt);
     expect(captureAt).toBeGreaterThan(runAt);
     expect(exchangeAt).toBeGreaterThan(captureAt);
-    expect(overlaySource.slice(captureAt, captureAt + 900)).toContain('effectiveQuestion,');
+    expect(overlaySource.slice(captureAt, captureAt + 1_200)).toContain('effectiveQuestion,');
     expect(mainSource).toContain('captureScreenWithoutOverlay(');
     expect(mainSource).toContain('screenCaptureCoordinator.run(');
     expect(mainSource).toContain("showOverlayWindow(currentOverlay, 'inactive')");
@@ -469,7 +587,7 @@ describe('overlay request behavior', () => {
     expect(runBody).toContain("const effectiveTrigger = trigger ?? 'manual'");
     expect(runBody).toContain('const effectiveQuestion = `${modeInstructionPrefix()}${request}`.trim()');
     expect(runBody).toContain('effectiveQuestion,');
-    expect(runBody).toContain('api.streamScreenAssist(\n        image,\n        effectiveQuestion,');
+    expect(runBody).toContain('api.streamScreenAssist(\n            capturedImage,\n            effectiveQuestion,');
     expect(overlaySource).not.toContain("runScreenAssist('', smart ? 'deep' : 'general', undefined, 'stt_timeout')");
   });
 
@@ -576,7 +694,8 @@ describe('overlay request behavior', () => {
   it('pauses capture separately from ending the session and opening recap', () => {
     expect(hookSource).toContain('entry.session.pause()');
     expect(hookSource).toContain('entry.session.resume()');
-    expect(overlaySource).toContain('if (paused) void resume()');
+    expect(overlaySource).toContain('resetScreenTaskContext();');
+    expect(overlaySource).toContain('void resume();');
     expect(overlaySource).toContain('else pause()');
     expect(overlaySource).toContain('onClick={stopSession}');
     expect(overlaySource).toContain("t('overlay.rec.pauseTip')");

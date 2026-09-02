@@ -23,6 +23,36 @@ def test_fast_core_prompt_is_small_and_question_only():
         assert forbidden not in combined
 
 
+def test_fast_core_prompt_requests_natural_connected_speech_not_a_memorized_template():
+    prompt = build_fast_core_user_prompt(
+        "Чем list отличается от tuple?",
+        "technical_comparison",
+        "\nOUTPUT LANGUAGE: Russian",
+    )
+    combined = FAST_CORE_SYSTEM_PROMPT + prompt
+
+    assert "connected spoken sentences" in combined
+    assert "Do not mechanically repeat one answer template" in combined
+    assert "ordinary definition or comparison" in combined
+    assert "Natural does not mean adding filler words" in combined
+    assert "answer that classification explicitly" in combined
+
+
+def test_fast_core_uses_a_general_accuracy_contract_instead_of_topic_cheats():
+    system_prompt = FAST_CORE_SYSTEM_PROMPT
+
+    assert "solve the question independently" in system_prompt
+    assert "cover every named item" in system_prompt
+    assert "guaranteed from conditional" in system_prompt
+    assert "contradiction pass" in system_prompt
+    assert "final state after one vs repeated identical operations" in system_prompt
+    assert "separate guaranteed semantics from common implementation behavior" in system_prompt
+    assert "Do not copy an incorrect premise from the question" in system_prompt
+    assert "Do not invent a measured result or an arbitrary configuration" in system_prompt
+    for topic_cheat in ("PATCH", "DELETE", "xdist", "staticmethod", "classmethod"):
+        assert topic_cheat not in system_prompt
+
+
 def test_fast_core_theory_cap_is_70_words():
     answer = " ".join(f"слово{i}." for i in range(120))
     finalized = _finalize_live_spoken(answer, "technical_definition", spoken_cap=70)
@@ -47,15 +77,20 @@ def test_russian_output_language_also_applies_to_inline_code_comments():
 
 
 def test_report_asr_aliases_are_resolved_locally_without_an_extra_model_call():
-    assert domain_answer_hints.resolve_fast_question_alias(
-        "Каки ти подадна в Питоните знаеш."
-    ) == "Какие типы данных в Python ты знаешь?"
-    assert domain_answer_hints.resolve_fast_question_alias(
-        "Сорт, точка сорт применяется?"
-    ) == "В чём разница между sorted() и list.sort()?"
-    assert domain_answer_hints.resolve_fast_question_alias(
-        "Расскажи, пожалуйста, в чём разница между sort и sorted."
-    ) == "В чём разница между sorted() и list.sort()?"
+    assert (
+        domain_answer_hints.resolve_fast_question_alias("Каки ти подадна в Питоните знаеш.")
+        == "Какие типы данных в Python ты знаешь?"
+    )
+    assert (
+        domain_answer_hints.resolve_fast_question_alias("Сорт, точка сорт применяется?")
+        == "В чём разница между sorted() и list.sort()?"
+    )
+    assert (
+        domain_answer_hints.resolve_fast_question_alias(
+            "Расскажи, пожалуйста, в чём разница между sort и sorted."
+        )
+        == "В чём разница между sorted() и list.sort()?"
+    )
     ambiguous_design = "Дизайны, которые ты используешь. Я использую на своей работе."
     assert domain_answer_hints.resolve_fast_question_alias(ambiguous_design) == ambiguous_design
     explicit_test_design = (
@@ -65,9 +100,12 @@ def test_report_asr_aliases_are_resolved_locally_without_an_extra_model_call():
         domain_answer_hints.resolve_fast_question_alias(explicit_test_design)
         == explicit_test_design
     )
-    assert domain_answer_hints.resolve_fast_question_alias(
-        "ОПО, который ты используешь на своей работе."
-    ) == "ООП, который ты используешь на своей работе."
+    assert (
+        domain_answer_hints.resolve_fast_question_alias(
+            "ОПО, который ты используешь на своей работе."
+        )
+        == "ООП, который ты используешь на своей работе."
+    )
     assert domain_answer_hints.resolve_fast_question_alias(
         "Можешь сказать, вот... Написать, можешь сказать, вот... Написать, точнее, "
         "мне функцию сейчас, декоратор, который принимает аргсы, кварксы и считает, "
@@ -82,6 +120,18 @@ def test_spoken_sorted_alias_gets_verified_python_facts():
     hint = resolve_fast_domain_answer_hints("Сорт, точка сорт применяется?")
     assert "sorted(iterable) returns a new list" in hint
     assert "list.sort() mutates that list in place and returns None" in hint
+
+
+def test_fast_sql_not_in_null_premise_gets_verified_three_valued_logic_facts():
+    hint = resolve_fast_domain_answer_hints(
+        "Правда ли, что NOT IN всегда безопасно исключает строки, "
+        "если подзапрос может вернуть NULL?"
+    )
+
+    assert "NOT IN is not safe when the subquery can return NULL" in hint
+    assert "UNKNOWN" in hint
+    assert "NOT EXISTS" in hint
+    assert "at least two sentences" in hint
 
 
 def test_fast_cicd_hint_does_not_supply_unconfirmed_ci_vendor_names():
@@ -140,10 +190,11 @@ def test_screen_output_task_preserves_python_semantics():
         "НЕ переписывай",
         "весь stdout, который успел появиться ДО исключения",
         "первого необработанного исключения",
-        "строка '7' не равна числу 7",
-        "s[0] = 'H' вызывает TypeError",
+        "Сохраняй точные видимые типы и значения",
     ):
         assert required in SCREEN_ASSIST_PROMPT
+    assert "s[0] = 'H'" not in SCREEN_ASSIST_PROMPT
+    assert "'Female'" not in SCREEN_ASSIST_PROMPT
 
 
 def test_screen_code_contract_is_copyable_and_say_aloud_in_russian():

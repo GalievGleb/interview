@@ -126,6 +126,8 @@ export class GatewayController {
   @Post('v1/chat/completions')
   async chatCompletions(
     @Headers('authorization') auth: string | undefined,
+    @Headers('x-skillcue-workload') workload: string | undefined,
+    @Headers('x-skillcue-screen-phase') screenPhase: string | undefined,
     @Body() body: Record<string, unknown>,
     @Res() res: Response,
   ) {
@@ -133,7 +135,10 @@ export class GatewayController {
     // Клиент отключился → абортим апстрим (перестаём жечь токены OpenRouter).
     const ac = new AbortController();
     res.on('close', () => ac.abort());
-    const upstream = await this.gateway.chatCompletions(license, body, ac.signal);
+    const upstream = await this.gateway.chatCompletions(license, body, ac.signal, {
+      workload,
+      phase: screenPhase,
+    });
 
     if (!upstream.ok && !upstream.body) {
       res.status(upstream.status).json({

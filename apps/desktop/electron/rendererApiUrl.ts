@@ -1,6 +1,7 @@
 import { getAppIdentity, type BuildChannel } from './buildChannel';
 
 function rendererBuildChannel(mode: string): BuildChannel {
+  if (mode === 'alphabuild') return 'alpha';
   return mode === 'development' || mode === 'devbuild' ? 'dev' : 'stable';
 }
 

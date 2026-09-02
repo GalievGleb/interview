@@ -192,6 +192,21 @@ def test_live_stt_rejects_capitalized_vocabulary_hallucination_from_silent_mic()
     assert strip_live_prompt_echo(observed_silent_mic_hallucination) == ""
 
 
+def test_live_stt_removes_mutated_partial_vocabulary_echo_from_real_session():
+    observed_session_echo = (
+        "формы, тест-дизайна, классы эквивалентности, граничные значения, "
+        "Python, pytest, Docker, REST API, HTTP, JSON, SQL, Playwright, CI/CD, "
+        "Kafka, Kubernetes."
+    )
+    question = (
+        "Чем отличаются list, tuple, set и dict? Почему set обычно быстрее "
+        "списка при проверке x in collection?"
+    )
+
+    assert strip_live_prompt_echo(observed_session_echo) == ""
+    assert strip_live_prompt_echo(f"{observed_session_echo} {question}") == question
+
+
 def test_gateway_response_cannot_forward_live_prompt_echo():
     question = "Что проверите в форме поиска?"
     response = httpx.Response(

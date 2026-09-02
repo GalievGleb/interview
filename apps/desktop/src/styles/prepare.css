@@ -1058,6 +1058,11 @@ button.prep-priority-row:hover {
   border-top: 1px solid var(--prep-border);
 }
 
+.prep-setup-submit .prep-btn {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
 .prep-inline-error {
   border: 1px solid color-mix(in srgb, var(--prep-red) 42%, var(--prep-border));
   border-radius: 8px;
@@ -1862,6 +1867,49 @@ button.prep-priority-row:hover {
   margin-top: 5px;
   color: var(--prep-ink-faint);
   font-size: 10.5px;
+}
+
+.prep-coaching-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.prep-coaching-summary__item {
+  min-width: 0;
+  border: 1px solid var(--prep-border);
+  border-radius: 11px;
+  padding: 11px 12px;
+  background: var(--prep-card);
+}
+
+.prep-coaching-summary__item strong {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--prep-ink);
+  font-size: 11px;
+}
+
+.prep-coaching-summary__item p {
+  color: var(--prep-ink-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.prep-coaching-summary__item.is-good {
+  border-color: color-mix(in srgb, var(--prep-green) 28%, var(--prep-border));
+  background: color-mix(in srgb, var(--prep-green) 7%, var(--prep-card));
+}
+
+.prep-coaching-summary__item.is-fix {
+  border-color: color-mix(in srgb, var(--prep-amber) 30%, var(--prep-border));
+  background: color-mix(in srgb, var(--prep-amber) 7%, var(--prep-card));
+}
+
+@media (max-width: 720px) {
+  .prep-coaching-summary {
+    grid-template-columns: 1fr;
+  }
 }
 
 .prep-strong-answer small {

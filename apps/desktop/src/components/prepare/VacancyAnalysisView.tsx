@@ -95,6 +95,15 @@ export default function VacancyAnalysisView({
   );
   const competencies = analysis.competencies ?? [];
   const rolePractice = analysis.contextKind === 'role';
+  const localAnalysisBody = analysis.analysisError === 'timeout'
+    ? t('prep.analysis.heuristicTimeout')
+    : analysis.analysisError === 'offline'
+      ? t('prep.analysis.heuristicOffline')
+      : analysis.analysisError === 'quota'
+        ? t('prep.analysis.heuristicQuota')
+        : analysis.analysisError === 'empty'
+          ? t('prep.analysis.heuristicEmpty')
+          : t('prep.analysis.heuristicBody');
 
   return (
     <div className="prep-rise space-y-5">
@@ -139,7 +148,7 @@ export default function VacancyAnalysisView({
           <AlertTriangle size={17} aria-hidden="true" />
           <div>
             <strong>{t('prep.analysis.heuristicTitle')}</strong>
-            <p>{t('prep.analysis.heuristicBody')}</p>
+            <p>{localAnalysisBody}</p>
           </div>
           <button type="button" className="prep-link-btn" onClick={onRetry}>
             {t('prep.analysis.retryAi')}

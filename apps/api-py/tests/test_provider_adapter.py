@@ -7,7 +7,9 @@ import asyncio
 import json
 
 import httpx
+import pytest
 
+from app.core.errors import AppError
 from app.services import provider_adapter
 
 
@@ -99,13 +101,115 @@ def test_fast_routing_option_is_sent_to_openrouter_and_managed_gateway(monkeypat
     assert provider_adapter._supports_openrouter_routing(
         "openrouter", "https://openrouter.ai/api/v1"
     )
-    assert provider_adapter._supports_openrouter_routing(
-        "openrouter", "https://skill-cue.ru/v1"
-    )
+    assert provider_adapter._supports_openrouter_routing("openrouter", "https://skill-cue.ru/v1")
     assert not provider_adapter._supports_openrouter_routing(
         "openrouter", "https://untrusted-compatible.example/v1"
     )
     assert not provider_adapter._supports_openrouter_routing("openai", "https://api.openai.com/v1")
+
+
+@pytest.mark.parametrize("phase", ["observation", "answer", "repair"])
+def test_structured_screen_headers_are_sent_only_to_exact_managed_gateway(monkeypatch, phase):
+    captured: dict = {}
+
+    class CapClient:
+        async def post(self, url, headers=None, json=None, timeout=None):
+            captured.update(url=url, headers=headers, json=json)
+            return _Resp(200, {"choices": [{"message": {"content": "ok"}}]})
+
+    async def fake_resolve(_provider):
+        return "openrouter", "https://skill-cue.ru/v1/", "license"
+
+    monkeypatch.setattr(provider_adapter, "_resolve", fake_resolve)
+    monkeypatch.setattr(provider_adapter, "get_client", lambda: CapClient())
+    monkeypatch.setattr(
+        provider_adapter,
+        "get_settings",
+        lambda: type("Settings", (), {"skillcue_gateway_url": "https://skill-cue.ru/v1"})(),
+    )
+
+    out = asyncio.run(
+        provider_adapter.complete(
+            [{"role": "user", "content": "q"}],
+            provider="openrouter",
+            model="openai/gpt-5.6-sol",
+            screen_workload_phase=phase,
+        )
+    )
+
+    assert out == "ok"
+    assert captured["headers"]["X-SkillCue-Workload"] == "structured-screen-v1"
+    assert captured["headers"]["X-SkillCue-Screen-Phase"] == phase
+    assert "X-SkillCue-Workload" not in captured["json"]
+    assert "X-SkillCue-Screen-Phase" not in captured["json"]
+
+
+@pytest.mark.parametrize(
+    ("provider", "base_url"),
+    [
+        ("openai", "https://api.openai.com/v1"),
+        ("openrouter", "https://openrouter.ai/api/v1"),
+        ("openrouter", "https://compatible.example/v1"),
+    ],
+)
+def test_structured_screen_headers_never_leave_managed_gateway(monkeypatch, provider, base_url):
+    captured: dict = {}
+
+    class CapClient:
+        async def post(self, url, headers=None, json=None, timeout=None):
+            captured.update(headers=headers, json=json)
+            return _Resp(200, {"choices": [{"message": {"content": "ok"}}]})
+
+    async def fake_resolve(_provider):
+        return provider, base_url, "byok"
+
+    monkeypatch.setattr(provider_adapter, "_resolve", fake_resolve)
+    monkeypatch.setattr(provider_adapter, "get_client", lambda: CapClient())
+    monkeypatch.setattr(
+        provider_adapter,
+        "get_settings",
+        lambda: type("Settings", (), {"skillcue_gateway_url": "https://skill-cue.ru/v1"})(),
+    )
+
+    asyncio.run(
+        provider_adapter.complete(
+            [{"role": "user", "content": "q"}],
+            provider=provider,
+            model="openai/gpt-5.6-sol",
+            screen_workload_phase="answer",
+        )
+    )
+
+    assert "X-SkillCue-Workload" not in captured["headers"]
+    assert "X-SkillCue-Screen-Phase" not in captured["headers"]
+    assert "X-SkillCue-Workload" not in captured["json"]
+    assert "X-SkillCue-Screen-Phase" not in captured["json"]
+
+
+def test_invalid_structured_screen_phase_fails_before_network(monkeypatch):
+    class ForbiddenClient:
+        async def post(self, *_args, **_kwargs):
+            raise AssertionError("network must not be reached")
+
+    async def fake_resolve(_provider):
+        return "openrouter", "https://skill-cue.ru/v1", "license"
+
+    monkeypatch.setattr(provider_adapter, "_resolve", fake_resolve)
+    monkeypatch.setattr(provider_adapter, "get_client", lambda: ForbiddenClient())
+    monkeypatch.setattr(
+        provider_adapter,
+        "get_settings",
+        lambda: type("Settings", (), {"skillcue_gateway_url": "https://skill-cue.ru/v1"})(),
+    )
+
+    with pytest.raises(ValueError, match="screen workload phase"):
+        asyncio.run(
+            provider_adapter.complete(
+                [{"role": "user", "content": "q"}],
+                model="openai/gpt-5.6-sol",
+                screen_workload_phase="dev-bypass",
+            )
+        )
 
 
 # --- retry ----------------------------------------------------------------
@@ -188,6 +292,156 @@ def test_stream_keeps_content_when_reasoning_is_in_the_same_delta(monkeypatch):
     assert client.calls == 1
 
 
+def test_stream_require_complete_raises_on_length_after_preserving_partial(monkeypatch):
+    client = _StreamingClient(
+        [
+            [
+                _sse_chunk({"content": "```sql\nSELECT 1"}),
+                _sse_chunk({}, finish_reason="length"),
+                "data: [DONE]",
+            ]
+        ]
+    )
+    _patch_common(monkeypatch, client)
+    partial: list[str] = []
+
+    async def collect() -> None:
+        async for chunk in provider_adapter.stream_chat(
+            [{"role": "user", "content": "q"}],
+            model="openai/gpt-4.1",
+            require_complete=True,
+        ):
+            partial.append(chunk)
+
+    with pytest.raises(AppError) as raised:
+        asyncio.run(collect())
+
+    assert "".join(partial) == "```sql\nSELECT 1"
+    assert raised.value.code == "provider_output_truncated"
+    assert client.calls == 1
+
+
+def test_stream_default_keeps_existing_length_compatibility(monkeypatch):
+    client = _StreamingClient(
+        [
+            [
+                _sse_chunk({"content": "Короткий ответ"}),
+                _sse_chunk({}, finish_reason="length"),
+                "data: [DONE]",
+            ]
+        ]
+    )
+    _patch_common(monkeypatch, client)
+
+    async def collect() -> str:
+        return "".join(
+            [
+                chunk
+                async for chunk in provider_adapter.stream_chat(
+                    [{"role": "user", "content": "q"}], model="openai/gpt-4.1"
+                )
+            ]
+        )
+
+    assert asyncio.run(collect()) == "Короткий ответ"
+    assert client.calls == 1
+
+
+def test_stream_repeated_rate_limit_retains_rate_limited_cause(monkeypatch):
+    client = _StreamingClient([[], [], []])
+    for response in client.attempts:
+        response.append("data: [DONE]")
+    # A response status, rather than an arbitrary exception string, is the
+    # trusted source for the stable failure code.
+    client.stream = lambda *_args, **_kwargs: _StreamResp([], status_code=429)  # type: ignore[method-assign]
+    _patch_common(monkeypatch, client)
+
+    async def collect() -> None:
+        async for _chunk in provider_adapter.stream_chat(
+            [{"role": "user", "content": "q"}], model="openai/gpt-4.1"
+        ):
+            pass
+
+    with pytest.raises(AppError) as raised:
+        asyncio.run(collect())
+
+    assert raised.value.code == "rate_limited"
+    assert raised.value.status_code == 429
+
+
+def test_stream_repeated_5xx_retains_provider_timeout_cause(monkeypatch):
+    client = _StreamingClient([[], [], []])
+    client.stream = lambda *_args, **_kwargs: _StreamResp([], status_code=503)  # type: ignore[method-assign]
+    _patch_common(monkeypatch, client)
+
+    async def collect() -> None:
+        async for _chunk in provider_adapter.stream_chat(
+            [{"role": "user", "content": "q"}], model="openai/gpt-4.1"
+        ):
+            pass
+
+    with pytest.raises(AppError) as raised:
+        asyncio.run(collect())
+
+    assert raised.value.code == "provider_timeout"
+    assert raised.value.status_code == 503
+
+
+def test_stream_repeated_precontent_transport_failure_retains_provider_timeout(monkeypatch):
+    class Client:
+        calls = 0
+
+        def stream(self, *_args, **_kwargs):
+            self.calls += 1
+            raise httpx.ConnectError("PRIVATE transport detail")
+
+    client = Client()
+    _patch_common(monkeypatch, client)
+
+    async def collect() -> None:
+        async for _chunk in provider_adapter.stream_chat(
+            [{"role": "user", "content": "q"}], model="openai/gpt-4.1"
+        ):
+            pass
+
+    with pytest.raises(AppError) as raised:
+        asyncio.run(collect())
+
+    assert raised.value.code == "provider_timeout"
+    assert client.calls == 3
+
+
+def test_stream_post_chunk_transport_failure_is_not_retried(monkeypatch):
+    class BrokenAfterChunk(_StreamResp):
+        async def aiter_lines(self):
+            yield _sse_chunk({"content": "visible"})
+            raise httpx.ReadError("PRIVATE upstream body")
+
+    class Client:
+        calls = 0
+
+        def stream(self, *_args, **_kwargs):
+            self.calls += 1
+            return BrokenAfterChunk([])
+
+    client = Client()
+    _patch_common(monkeypatch, client)
+    chunks: list[str] = []
+
+    async def collect() -> None:
+        async for chunk in provider_adapter.stream_chat(
+            [{"role": "user", "content": "q"}], model="openai/gpt-4.1"
+        ):
+            chunks.append(chunk)
+
+    with pytest.raises(AppError) as raised:
+        asyncio.run(collect())
+
+    assert chunks == ["visible"]
+    assert raised.value.code == "provider_timeout"
+    assert client.calls == 1
+
+
 def test_direct_openai_gpt5_uses_native_reasoning_and_completion_fields(monkeypatch):
     captured: dict = {}
 
@@ -219,7 +473,45 @@ def test_direct_openai_gpt5_uses_native_reasoning_and_completion_fields(monkeypa
     assert captured["json"]["max_completion_tokens"] == 6000
     assert "reasoning" not in captured["json"]
     assert "max_tokens" not in captured["json"]
+    assert "temperature" not in captured["json"]
     assert captured["json"]["response_format"] == {"type": "json_object"}
+
+
+def test_direct_openai_gpt5_stream_omits_unsupported_temperature(monkeypatch):
+    captured: dict = {}
+
+    class CapStreamingClient:
+        def stream(self, _method, _url, **kwargs):
+            captured["json"] = kwargs["json"]
+            return _StreamResp([_sse_chunk({"content": "ok"}), "data: [DONE]"])
+
+    async def fake_openai_resolve(_provider):
+        return ("openai", "https://api.openai.test/v1", "k")
+
+    monkeypatch.setattr(provider_adapter, "_resolve", fake_openai_resolve)
+    monkeypatch.setattr(provider_adapter, "get_client", lambda: CapStreamingClient())
+
+    async def collect() -> str:
+        return "".join(
+            [
+                chunk
+                async for chunk in provider_adapter.stream_chat(
+                    [{"role": "user", "content": "q"}],
+                    provider="openai",
+                    model="openai/gpt-5.6-sol",
+                    max_tokens=4200,
+                    temperature=0.0,
+                    reasoning={"effort": "medium", "exclude": True},
+                    require_complete=True,
+                )
+            ]
+        )
+
+    assert asyncio.run(collect()) == "ok"
+    assert captured["json"]["model"] == "gpt-5.6-sol"
+    assert captured["json"]["reasoning_effort"] == "medium"
+    assert captured["json"]["max_completion_tokens"] == 4200
+    assert "temperature" not in captured["json"]
 
 
 def test_openrouter_keeps_unified_reasoning_shape(monkeypatch):

@@ -426,6 +426,7 @@ const KEYBIND_GROUPS: Array<{ titleKey: I18nKey; items: Array<{ id: string; keys
     items: [
       { id: 'toggleOverlay', keys: 'Ctrl+Shift+H' },
       { id: 'ask', keys: 'Ctrl+Enter' },
+      { id: 'candidateFollowUp', keys: 'Ctrl+\\' },
       { id: 'screenAsk', keys: 'Ctrl+Shift+Enter' },
       { id: 'clearChat', keys: 'Ctrl+R' },
       { id: 'stopSession', keys: 'Ctrl+Shift+\\' },

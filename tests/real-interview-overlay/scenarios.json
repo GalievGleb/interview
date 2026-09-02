@@ -1,0 +1,181 @@
+{
+  "schemaVersion": 1,
+  "scenarios": [
+    {
+      "id": "candidate-cold-start-active-speech",
+      "kind": "desktop-sequence",
+      "timeline": [
+        { "atMs": 0, "event": "ipc-before-subscribe" },
+        { "atMs": 10, "event": "renderer-subscribe" },
+        { "atMs": 20, "event": "mic-final", "text": "Нужно добавить проверки" },
+        { "atMs": 30, "event": "candidate-hotkey", "sourceSpeaking": true },
+        { "atMs": 80, "event": "request-final", "text": "граничных значений и пустого списка." }
+      ],
+      "expectedSelectedPhrase": "Нужно добавить проверки граничных значений и пустого списка.",
+      "invariants": [
+        "single_candidate_request",
+        "candidate_phrase_context",
+        "merged_phrase_is_task_root",
+        "no_cancel_before_selection",
+        "partial_error_not_persisted"
+      ]
+    },
+    {
+      "id": "duplicate-screen-command",
+      "kind": "desktop-sequence",
+      "captureDelayMs": 500,
+      "streamChunks": ["часть 1", " часть 2"],
+      "invariants": [
+        "one_capture",
+        "one_http_stream",
+        "zero_cancellation",
+        "one_done",
+        "answer_once",
+        "new_press_after_terminal_allowed"
+      ]
+    },
+    {
+      "id": "screen-first-answer-at-26000ms",
+      "kind": "transport-sequence",
+      "watchdogMs": 25000,
+      "transportCommentAtMs": [10000, 20000],
+      "firstChunkAtMs": 26000,
+      "invariants": [
+        "comments_not_answer_text",
+        "comments_rearm_watchdog",
+        "not_aborted",
+        "single_chunk",
+        "single_done"
+      ]
+    },
+    {
+      "id": "multiscroll-gitlab-cicd",
+      "kind": "screen-sequence",
+      "viewport": { "width": 1600, "height": 900 },
+      "frames": [
+        {
+          "text": [
+            "stages: [build, test, deploy]",
+            "build_job:",
+            "  stage: build",
+            "  script: echo build",
+            "smoke_test_job:",
+            "  stage: test",
+            "  script: pytest -m smoke"
+          ]
+        },
+        {
+          "text": [
+            "regression_test_job:",
+            "  stage: test",
+            "  script: echo regression",
+            "post_cleanup_job:",
+            "  stage: post",
+            "  script: git tag -l | xargs git tag -d",
+            "  # clears cache"
+          ]
+        }
+      ],
+      "questions": [
+        "Определи CI/CD-платформу по видимой конфигурации и найди её дефекты.",
+        "Продолжи анализ после прокрутки: назови CI/CD-платформу и учти дефекты предыдущего и текущего экранов."
+      ],
+      "requiredConceptGroups": {
+        "gitlab_identified": ["gitlab", ".gitlab-ci"],
+        "prior_frame_defect": ["build_job только echo", "build_job не собира", "сборка не выполня", "отсутствие реальной сборки", "реальная сборка отсутств"],
+        "current_frame_defect": ["regression_test_job только echo", "регрессионные тесты не запуска", "post отсутств", "post не объяв", "не очищает cache", "не очищает кэш"]
+      },
+      "forbiddenConcepts": ["github actions", ".github/workflows"],
+      "budgets": { "transportFirstByteMs": 11000, "firstChunkMs": 30000, "totalMs": 60000 }
+    },
+    {
+      "id": "simple-order-sql-refinement",
+      "kind": "screen-sequence",
+      "screenText": [
+        "def get_order(conn, order_id: int) -> list[dict[str, Any]]:",
+        "    \"\"\"Return the row from table Order whose id equals order_id.\"\"\""
+      ],
+      "questions": [
+        "Реши задачу на экране и верни полный код.",
+        "SQL слишком сложный. Нужна только запись Order по ID; сохрани сигнатуру функции и верни полный актуальный код."
+      ],
+      "requiredConceptGroups": {
+        "get_order": ["get_order"],
+        "order_id": ["order_id"],
+        "select": ["select"],
+        "from": ["from"],
+        "where": ["where"],
+        "parameter_placeholder": ["?", "%s", ":order_id", "$1"]
+      },
+      "forbiddenConcepts": ["join", "with", "json_agg", "group by", "order_items", "items"],
+      "format": {
+        "language": "python",
+        "spokenPlanLanguage": "ru",
+        "fencedCodeBlocks": 1,
+        "commentsBelowCode": true
+      },
+      "budgets": { "transportFirstByteMs": 11000, "firstChunkMs": 30000, "totalMs": 60000 }
+    },
+    {
+      "id": "route-checklist-novelty",
+      "kind": "screen-sequence",
+      "screenText": [
+        "POST /order",
+        "shipments: array",
+        "address: string",
+        "date: ISO date",
+        "comment: string",
+        "is_leave_at_door: boolean",
+        "payment_method: string"
+      ],
+      "questions": [
+        "Дай ровно пять проверок уровня endpoint.",
+        "Добавь ровно три новые проверки бизнес-логики, не повторяй прошлые пункты. Базу данных не проверяем."
+      ],
+      "requiredNewConceptCount": 3,
+      "minimumNovelConceptCount": 2,
+      "maximumBulletJaccard": 0.82,
+      "forbiddenConcepts": ["database", "база данных", "sql", "таблиц"],
+      "budgets": { "transportFirstByteMs": 11000, "firstChunkMs": 30000, "totalMs": 60000 }
+    },
+    {
+      "id": "truncated-code-stream",
+      "kind": "stream-sequence",
+      "providerText": "Короткий план.\n\n```sql\nSELECT *\n-- Выбираем строки.",
+      "finishReason": "length",
+      "expectedSseTypes": ["chunk", "error"],
+      "forbiddenSseTypes": ["done"],
+      "invariants": [
+        "partial_visible",
+        "warning_separate",
+        "display_repaired",
+        "original_unchanged",
+        "partial_not_persisted"
+      ]
+    },
+    {
+      "id": "long-session-95m",
+      "kind": "soak",
+      "durationMinutes": 95,
+      "voiceCheckpointMinutes": [0, 30, 61, 91],
+      "screenCheckpointMinutes": [2, 62, 92],
+      "budgets": {
+        "sttMs": 6000,
+        "llmFirstChunkMs": 5000,
+        "triggerToFirstAnswerMs": 4000,
+        "screenTransportFirstByteMs": 11000,
+        "screenFirstChunkMs": 30000,
+        "screenTotalMs": 60000,
+        "workingSetGrowthMiB": 256
+      },
+      "forbiddenFailureCodes": [
+        "quota",
+        "authorization",
+        "token_limit",
+        "empty_answer",
+        "incomplete_stream",
+        "terminal_transport_failure"
+      ]
+    }
+  ]
+}

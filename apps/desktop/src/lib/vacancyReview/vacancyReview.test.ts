@@ -3,6 +3,7 @@ import { api } from '../api';
 import { extractTopics, detectRole, detectSeniority } from './topicExtraction';
 import {
   MAX_DRILL_DEPTH,
+  analyzeVacancy,
   analyzeVacancyMock,
   buildDrillDownQuestion,
   buildSmokePlan,
@@ -24,6 +25,11 @@ const QA_VACANCY = `QA Automation Engineer (Middle)
 - Allure отчёты, Git
 - Тест-дизайн, регрессионное и smoke тестирование`;
 
+const OZON_SENIOR_VACANCY = `Старший инженер по автоматизации тестирования (Python), Налоговая платформа
+Наш стек: Python, Pytest, gRPC, Kubernetes, SQL.
+Вы будете разрабатывать API-автотесты и внутренние инструменты, работать с микросервисной архитектурой,
+подготавливать и анализировать результаты нагрузочных тестов, настраивать CI/CD пайплайны.`;
+
 describe('topic extraction', () => {
   it('derives topics from the vacancy, not a generic list', () => {
     const { topics } = extractTopics(QA_VACANCY);
@@ -40,6 +46,20 @@ describe('topic extraction', () => {
   it('detects role and seniority', () => {
     expect(detectRole(QA_VACANCY)).toMatch(/QA Automation/i);
     expect(detectSeniority(QA_VACANCY, 'QA Automation Engineer')).toBe('middle');
+  });
+
+  it('keeps explicit senior Ozon requirements in deterministic fallback', () => {
+    const { topics } = extractTopics(OZON_SENIOR_VACANCY);
+    const ids = topics.map((topic) => topic.id);
+
+    expect(detectSeniority(OZON_SENIOR_VACANCY, 'Старший инженер по автоматизации тестирования')).toBe('senior');
+    expect(ids).toEqual(expect.arrayContaining([
+      'grpc',
+      'kubernetes',
+      'microservices',
+      'load-testing',
+      'cicd',
+    ]));
   });
 
   it('extracts no topics from empty text', () => {
@@ -137,12 +157,36 @@ describe('topic extraction', () => {
 });
 
 describe('smoke plan', () => {
+  it('preserves why AI analysis fell back instead of silently hiding it', async () => {
+    const request = vi.spyOn(api, 'vacancyAnalyze').mockRejectedValueOnce(
+      new Error('Request timeout after 30000ms'),
+    );
+
+    const analysis = await analyzeVacancy({ vacancyText: QA_VACANCY, language: 'ru' });
+
+    expect(analysis.analysisSource).toBe('heuristic');
+    expect(analysis.analysisError).toBe('timeout');
+    request.mockRestore();
+  });
+
   it('keeps résumé coverage unknown when no résumé was provided', () => {
     const analysis = analyzeVacancyMock({ vacancyText: QA_VACANCY, language: 'ru' });
     expect(analysis.hasResume).toBe(false);
     expect(analysis.competencies?.length).toBeGreaterThan(0);
     expect(analysis.competencies?.every((item) => item.resumeMatch === 'unknown')).toBe(true);
     expect(analysis.riskAreas.join(' ')).not.toContain('Пробелы против резюме');
+  });
+
+  it('marks an explicit vacancy technology missing from the resume as a gap', () => {
+    const analysis = analyzeVacancyMock({
+      vacancyText: OZON_SENIOR_VACANCY,
+      language: 'ru',
+      resumeText: 'Python, pytest, Playwright, HTTPX, GitLab CI и Docker.',
+    });
+
+    expect(analysis.seniorityLevel).toBe('senior');
+    expect(analysis.competencies?.find((item) => item.name === 'Kubernetes')?.resumeMatch).toBe('gap');
+    expect(analysis.riskAreas.join(' ')).toContain('Kubernetes');
   });
 
   it('builds 8–15 questions grouped by topic, increasing difficulty', async () => {

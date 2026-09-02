@@ -7,13 +7,66 @@ monkeypatched, so we test the routing, prompt wiring, and SSE framing only.
 import asyncio
 import json
 
+from app.core import local_auth
+from app.core.errors import AppError
 from app.prompts.meeting import (
     build_interview_outcome_prompt,
     build_interview_review_prompt,
     build_meeting_prompt,
 )
-from app.routers.chat import MAX_SCREEN_IMAGE_CHARS
+from app.routers.chat import (
+    MAX_PREVIOUS_SCREEN_IMAGE_CHARS,
+    MAX_PRIOR_SOLUTION_SUMMARY_CHARS,
+    MAX_SCREEN_IMAGE_CHARS,
+)
 from app.services import provider_adapter
+
+
+async def _asgi_post_chunks(path: str, chunks: list[bytes], headers: dict[str, str] | None = None):
+    """Exercise app middleware with an actual multi-chunk ASGI request body."""
+    from app.main import app
+
+    sent: list[dict] = []
+    index = 0
+    request_headers = {
+        "content-type": "application/json",
+        "x-skillcue-token": local_auth.API_TOKEN,
+        **(headers or {}),
+    }
+
+    async def receive():
+        nonlocal index
+        if index < len(chunks):
+            body = chunks[index]
+            index += 1
+            return {
+                "type": "http.request",
+                "body": body,
+                "more_body": index < len(chunks),
+            }
+        await asyncio.Future()
+
+    async def send(message):
+        sent.append(message)
+
+    await app(
+        {
+            "type": "http",
+            "asgi": {"version": "3.0", "spec_version": "2.3"},
+            "http_version": "1.1",
+            "method": "POST",
+            "scheme": "http",
+            "path": path,
+            "raw_path": path.encode(),
+            "query_string": b"",
+            "headers": [(key.encode(), value.encode()) for key, value in request_headers.items()],
+            "client": ("127.0.0.1", 1234),
+            "server": ("testserver", 80),
+        },
+        receive,
+        send,
+    )
+    return sent
 
 
 def test_interview_outcome_prompt_is_compact_and_stage_specific():
@@ -181,7 +234,9 @@ def test_meeting_summary_stream_emits_chunks_then_done(client, monkeypatch):
 def test_screen_assist_stream_builds_multimodal_message(client, monkeypatch):
     captured: dict = {}
 
-    async def fake_stream(messages, provider=None, model=None, max_tokens=800, temperature=0.4, **kwargs):
+    async def fake_stream(
+        messages, provider=None, model=None, max_tokens=800, temperature=0.4, **kwargs
+    ):
         captured["messages"] = messages
         captured["stream_kwargs"] = kwargs
         yield "На экране задача по SQL."
@@ -220,13 +275,157 @@ def test_screen_assist_stream_builds_multimodal_message(client, monkeypatch):
     assert "не означает автоматически" in system_prompt
     assert "ответ без полного исполняемого блока кода неправильный" in system_prompt
     assert "НЕ переписывай и НЕ исправляй код" in system_prompt
-    assert "s[0] = 'H' вызывает TypeError" in system_prompt
+    assert "Сохраняй точные видимые типы и значения" in system_prompt
     assert "Сохрани точные имена, регистр строковых литералов" in system_prompt
     assert "комментарий отдельной строкой сразу под строкой кода" in system_prompt
-    assert system_prompt.index("СНАЧАЛА короткая устная сводка") < system_prompt.index(
-        "ЗАТЕМ решение одним блоком кода"
-    ) < system_prompt.index("Для результата/ошибки")
+    assert (
+        system_prompt.index("СНАЧАЛА короткая устная сводка")
+        < system_prompt.index("ЗАТЕМ решение одним блоком кода")
+        < system_prompt.index("Для результата/ошибки")
+    )
     assert captured["stream_kwargs"]["reasoning"] == {"effort": "medium", "exclude": True}
+    assert captured["stream_kwargs"]["require_complete"] is True
+
+
+def test_screen_prompt_prefers_smallest_requirement_complete_solution_without_invented_architecture(
+    client, monkeypatch
+):
+    captured: dict = {}
+
+    async def fake_stream(messages, provider=None, model=None, **kwargs):
+        captured["messages"] = messages
+        yield "```sql\nSELECT id FROM users;\n```"
+
+    monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
+    response = client.post(
+        "/chat/screen/stream",
+        json={
+            "image": "data:image/jpeg;base64,QUJD",
+            "question": "Напиши простой SELECT и скажи, что вернёт видимая таблица users.",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    system_prompt = captured["messages"][0]["content"]
+    user_prompt = captured["messages"][-1]["content"][0]["text"]
+    prompt_lower = system_prompt.lower()
+    assert "самое маленькое стандартное решение" in system_prompt
+    assert "всем видимым требованиям" in system_prompt
+    for invented in ("таблицы", "поля", "JOIN", "CTE", "JSON", "классы", "архитектуру"):
+        assert invented in system_prompt
+    assert "не выдумывай" in prompt_lower
+    assert "s[0] = 'H'" not in system_prompt
+    assert "'Female'" not in system_prompt
+    assert "s[index]" not in user_prompt
+    assert "str неизменяем" not in user_prompt
+
+
+def test_screen_refinement_preserves_interfaces_and_changes_only_latest_request(
+    client, monkeypatch
+):
+    captured: dict = {}
+
+    async def fake_stream(messages, provider=None, model=None, **kwargs):
+        captured["messages"] = messages
+        yield "updated"
+
+    monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
+    response = client.post(
+        "/chat/screen/stream",
+        json={
+            "image": "data:image/jpeg;base64,QUJD",
+            "question": "Теперь добавь только фильтр active = true.",
+            "prior_solution_summary": "def load_users(limit: int) -> list[User]: ...",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    system_prompt = captured["messages"][0]["content"]
+    prompt_lower = system_prompt.lower()
+    user_prompt = captured["messages"][-1]["content"][0]["text"]
+    assert "точные видимые имена, литералы, сигнатуры, схему и форму результата" in system_prompt
+    assert "последнее исправление интервьюера имеет приоритет" in prompt_lower
+    assert "измени только то, что запросили последним" in system_prompt
+    assert "полное обновлённое решение" in system_prompt
+    assert "LATEST INTERVIEWER CORRECTION" in user_prompt
+    assert "PRIOR SOLUTION SUMMARY" in user_prompt
+    assert "def load_users(limit: int)" in user_prompt
+
+
+def test_screen_mode_word_limit_applies_only_to_spoken_summary_not_code(client, monkeypatch):
+    captured: dict = {}
+
+    async def fake_stream(messages, provider=None, model=None, **kwargs):
+        captured["messages"] = messages
+        yield "complete"
+
+    monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
+    response = client.post(
+        "/chat/screen/stream",
+        json={
+            "image": "data:image/jpeg;base64,QUJD",
+            "question": "Инструкция режима: ответ 40–80 слов. Реализуй видимый класс.",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    system_prompt = captured["messages"][0]["content"]
+    prompt_lower = system_prompt.lower()
+    assert "лимит слов режима относится только к устной сводке" in prompt_lower
+    assert "не сокращает код, чек-листы, комментарии" in prompt_lower
+
+
+def test_screen_assist_truncation_emits_chunk_then_error_and_never_done(client, monkeypatch):
+    captured: dict = {}
+
+    async def fake_stream(messages, provider=None, model=None, **kwargs):
+        captured["kwargs"] = kwargs
+        yield "```python\nprint('partial')"
+        raise AppError(
+            "Ответ обрезан из-за лимита модели. Это неполное решение — повторите запрос.",
+            502,
+            "provider_output_truncated",
+        )
+
+    monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
+    response = client.post(
+        "/chat/screen/stream",
+        json={"image": "data:image/jpeg;base64,QUJD", "question": "Реши задачу"},
+    )
+
+    assert response.status_code == 200, response.text
+    events = [
+        json.loads(line[6:]) for line in response.text.splitlines() if line.startswith("data: ")
+    ]
+    assert [event["type"] for event in events] == ["chunk", "error"]
+    assert "неполное решение" in events[-1]["message"]
+    assert captured["kwargs"]["require_complete"] is True
+
+
+def test_screen_assist_stream_keeps_transport_alive_until_slow_first_token(client, monkeypatch):
+    """A slow vision model must not look byte-silent to the desktop watchdog."""
+    from app.routers import chat as chat_router
+
+    async def fake_stream(messages, provider=None, model=None, **kwargs):
+        await asyncio.sleep(0.04)
+        yield "Delayed screen answer"
+
+    monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
+    monkeypatch.setattr(chat_router, "SCREEN_STREAM_KEEPALIVE_SECONDS", 0.01, raising=False)
+
+    response = client.post(
+        "/chat/screen/stream",
+        json={"image": "data:image/jpeg;base64,QUJD", "question": "Read the screen"},
+    )
+
+    assert response.status_code == 200, response.text
+    frames = response.text.split("\n\n")
+    assert sum(frame == ": keepalive" for frame in frames) >= 2
+    events = [
+        json.loads(line[6:]) for line in response.text.splitlines() if line.startswith("data: ")
+    ]
+    assert [event["type"] for event in events] == ["chunk", "done"]
+    assert events[0]["text"] == "Delayed screen answer"
 
 
 def test_screen_code_contract_requires_spoken_summary_before_code(client, monkeypatch):
@@ -401,7 +600,306 @@ def test_screen_assist_rejects_empty_and_huge_images(client, monkeypatch):
     monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
     assert client.post("/chat/screen/stream", json={"image": ""}).status_code == 400
     huge = "A" * (MAX_SCREEN_IMAGE_CHARS + 1)
-    assert client.post("/chat/screen/stream", json={"image": huge}).status_code == 413
+    assert client.post("/chat/screen/stream", json={"image": huge}).status_code == 422
+
+
+def test_screen_assist_orders_previous_frames_before_the_authoritative_current_frame(
+    client, monkeypatch
+):
+    captured: dict = {}
+
+    async def fake_stream(messages, provider=None, model=None, **kwargs):
+        captured["content"] = messages[-1]["content"]
+        yield "updated solution"
+
+    monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
+    response = client.post(
+        "/chat/screen/stream",
+        json={
+            "image": "data:image/jpeg;base64,current",
+            "previous_images": [
+                "data:image/jpeg;base64,previous-1",
+                "data:image/jpeg;base64,previous-2",
+            ],
+            "prior_solution_summary": "```sql\nSELECT * FROM users;\n```\nKeep the filter.",
+            "question": "Add the latest interviewer correction: group by city.",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    images = [
+        part["image_url"]["url"] for part in captured["content"] if part["type"] == "image_url"
+    ]
+    assert images == [
+        "data:image/jpeg;base64,previous-1",
+        "data:image/jpeg;base64,previous-2",
+        "data:image/jpeg;base64,current",
+    ]
+    prompt = captured["content"][0]["text"]
+    assert "LATEST INTERVIEWER CORRECTION" in prompt
+    assert "group by city" in prompt
+    assert "current viewport overrides prior context only where an actual conflict exists" in prompt
+    assert "SELECT * FROM users" in prompt
+
+
+def test_screen_assist_rejects_more_than_two_or_over_budget_previous_images(client, monkeypatch):
+    async def fake_stream(*args, **kwargs):
+        yield "unreachable"
+
+    monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
+    base = {"image": "data:image/jpeg;base64,current"}
+    assert (
+        client.post(
+            "/chat/screen/stream",
+            json={**base, "previous_images": ["one", "two", "three"]},
+        ).status_code
+        == 422
+    )
+    assert (
+        client.post(
+            "/chat/screen/stream",
+            json={
+                **base,
+                "previous_images": ["a" * MAX_PREVIOUS_SCREEN_IMAGE_CHARS, "b"],
+            },
+        ).status_code
+        == 413
+    )
+    # Budget applies to the normalized data URL sent to the provider too.
+    assert (
+        client.post(
+            "/chat/screen/stream",
+            json={**base, "previous_images": ["a" * (MAX_PREVIOUS_SCREEN_IMAGE_CHARS - 1)]},
+        ).status_code
+        == 413
+    )
+
+
+def test_screen_assist_schema_counts_blank_previous_frame_entries_and_bounds_fields(client):
+    base = {"image": "data:image/jpeg;base64,QUJD"}
+    assert (
+        client.post(
+            "/chat/screen/stream",
+            json={**base, "previous_images": ["", " ", "\t"]},
+        ).status_code
+        == 422
+    )
+    assert (
+        client.post(
+            "/chat/screen/stream",
+            json={**base, "previous_images": ["x" * (MAX_PREVIOUS_SCREEN_IMAGE_CHARS + 1)]},
+        ).status_code
+        == 422
+    )
+    assert (
+        client.post(
+            "/chat/screen/stream",
+            json={**base, "prior_solution_summary": "x" * (MAX_PRIOR_SOLUTION_SUMMARY_CHARS + 1)},
+        ).status_code
+        == 422
+    )
+    assert (
+        client.post(
+            "/chat/screen/stream",
+            json={"image": "x" * (MAX_SCREEN_IMAGE_CHARS + 1)},
+        ).status_code
+        == 422
+    )
+
+
+def test_screen_assist_rejects_oversized_content_length_before_parsing(client, monkeypatch):
+    from app.main import MAX_SCREEN_ASSIST_REQUEST_BYTES
+
+    called = False
+
+    async def fake_stream(*args, **kwargs):
+        nonlocal called
+        called = True
+        yield "unreachable"
+
+    monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
+    response = client.post(
+        "/chat/screen/stream",
+        content=b"{" + b"x" * MAX_SCREEN_ASSIST_REQUEST_BYTES + b"}",
+        headers={"content-type": "application/json"},
+    )
+
+    assert response.status_code == 413
+    assert response.json()["error"]["code"] == "screen_request_too_large"
+    assert called is False
+
+
+async def test_screen_assist_receive_limiter_rejects_missing_content_length_in_multiple_chunks(
+    monkeypatch,
+):
+    from app.main import MAX_SCREEN_ASSIST_REQUEST_BYTES
+
+    called = False
+
+    async def fake_stream(*args, **kwargs):
+        nonlocal called
+        called = True
+        yield "unreachable"
+
+    monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
+    sent = await _asgi_post_chunks(
+        "/chat/screen/stream",
+        [
+            b"{" + b"x" * (MAX_SCREEN_ASSIST_REQUEST_BYTES // 2),
+            b"x" * (MAX_SCREEN_ASSIST_REQUEST_BYTES // 2) + b"}",
+        ],
+    )
+
+    assert (
+        next(message for message in sent if message["type"] == "http.response.start")["status"]
+        == 413
+    )
+    assert called is False
+
+
+async def test_screen_assist_receive_limiter_rejects_chunked_transfer_encoding(monkeypatch):
+    from app.main import MAX_SCREEN_ASSIST_REQUEST_BYTES
+
+    called = False
+
+    async def fake_stream(*args, **kwargs):
+        nonlocal called
+        called = True
+        yield "unreachable"
+
+    monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
+    sent = await _asgi_post_chunks(
+        "/chat/screen/stream",
+        [
+            b"{" + b"x" * (MAX_SCREEN_ASSIST_REQUEST_BYTES // 2),
+            b"x" * (MAX_SCREEN_ASSIST_REQUEST_BYTES // 2) + b"}",
+        ],
+        {"transfer-encoding": "chunked"},
+    )
+
+    assert (
+        next(message for message in sent if message["type"] == "http.response.start")["status"]
+        == 413
+    )
+    assert called is False
+
+
+async def test_screen_assist_receive_limiter_rejects_a_lying_content_length(monkeypatch):
+    from app.main import MAX_SCREEN_ASSIST_REQUEST_BYTES
+
+    called = False
+
+    async def fake_stream(*args, **kwargs):
+        nonlocal called
+        called = True
+        yield "unreachable"
+
+    monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
+    sent = await _asgi_post_chunks(
+        "/chat/screen/stream",
+        [
+            b"{" + b"x" * (MAX_SCREEN_ASSIST_REQUEST_BYTES // 2),
+            b"x" * (MAX_SCREEN_ASSIST_REQUEST_BYTES // 2) + b"}",
+        ],
+        {"content-length": "1"},
+    )
+
+    assert (
+        next(message for message in sent if message["type"] == "http.response.start")["status"]
+        == 413
+    )
+    assert called is False
+
+
+async def test_screen_assist_receive_limiter_fast_rejects_negative_content_length():
+    sent = await _asgi_post_chunks(
+        "/chat/screen/stream",
+        [b'{"image":"data:image/jpeg;base64,QUJD"}'],
+        {"content-length": "-1"},
+    )
+
+    assert (
+        next(message for message in sent if message["type"] == "http.response.start")["status"]
+        == 413
+    )
+
+
+async def test_screen_assist_receive_limiter_passes_under_limit_chunked_request(monkeypatch):
+    called = False
+
+    async def fake_stream(*args, **kwargs):
+        nonlocal called
+        called = True
+        yield "ok"
+
+    monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
+    body = json.dumps({"image": "data:image/jpeg;base64,QUJD"}).encode()
+    sent = await _asgi_post_chunks(
+        "/chat/screen/stream",
+        [body[:8], body[8:20], body[20:]],
+        {"transfer-encoding": "chunked"},
+    )
+
+    assert (
+        next(message for message in sent if message["type"] == "http.response.start")["status"]
+        == 200
+    )
+    assert called is True
+
+
+async def test_screen_assist_receive_limiter_does_not_apply_to_unrelated_routes():
+    sent = await _asgi_post_chunks(
+        "/chat/interview/stream",
+        [b"{" + b"x" * 1_100_000, b"x" * 1_100_000 + b"}"],
+        {"transfer-encoding": "chunked"},
+    )
+
+    response = next(message for message in sent if message["type"] == "http.response.start")
+    assert response["status"] != 413
+
+
+def test_screen_assist_server_clipping_keeps_fenced_code_opening_and_newest_tail(
+    client, monkeypatch
+):
+    captured: dict = {}
+
+    async def fake_stream(messages, provider=None, model=None, **kwargs):
+        captured["prompt"] = messages[-1]["content"][0]["text"]
+        yield "updated"
+
+    monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
+    summary = (
+        f"OLD_PROSE {'x' * 1_500}\n```python\nCODE_OPENING_SENTINEL\n"
+        f"{'y' * 3_000}\n```\nNEWEST_CORRECTION_SENTINEL"
+    )
+    response = client.post(
+        "/chat/screen/stream",
+        json={"image": "data:image/jpeg;base64,QUJD", "prior_solution_summary": summary},
+    )
+
+    assert response.status_code == 200, response.text
+    assert "```python\nCODE_OPENING_SENTINEL" in captured["prompt"]
+    assert "NEWEST_CORRECTION_SENTINEL" in captured["prompt"]
+
+
+def test_screen_assist_server_tail_clips_chronological_context_to_latest_lines(client, monkeypatch):
+    captured: dict = {}
+
+    async def fake_stream(messages, provider=None, model=None, **kwargs):
+        captured["prompt"] = messages[-1]["content"][0]["text"]
+        yield "updated"
+
+    monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
+    context = "\n".join([f"OLD_TRANSCRIPT_SENTINEL_{index} {'x' * 90}" for index in range(70)])
+    context += "\nLATEST_INTERVIEWER_CORRECTION_SENTINEL"
+    response = client.post(
+        "/chat/screen/stream",
+        json={"image": "data:image/jpeg;base64,QUJD", "context": context},
+    )
+
+    assert response.status_code == 200, response.text
+    assert "LATEST_INTERVIEWER_CORRECTION_SENTINEL" in captured["prompt"]
+    assert "OLD_TRANSCRIPT_SENTINEL_0" not in captured["prompt"]
 
 
 def test_chat_injects_answer_language_block(client, monkeypatch):
@@ -542,7 +1040,7 @@ def test_interview_fast_core_uses_one_grounded_provider_call(client, monkeypatch
     assert "Чем список отличается от кортежа?" not in user_prompt
     assert "Главное отличие — изменяемость" not in user_prompt
     assert captured["kwargs"]["route_fast"] is True
-    assert captured["model"] == "qwen/qwen3.5-flash-02-23"
+    assert captured["model"] == "google/gemini-3.5-flash"
 
     done = next(
         json.loads(line[6:])
@@ -550,6 +1048,7 @@ def test_interview_fast_core_uses_one_grounded_provider_call(client, monkeypatch
         if line.startswith("data: ") and '"type": "done"' in line
     )
     meta = done["correction"]
+    assert done["model_source"] == "fast_core_accuracy"
     assert meta["prompt_mode"] == "fast_core"
     assert meta["enrichment_used"] is True
     assert meta["knowledgePackUsed"] is False
@@ -558,9 +1057,46 @@ def test_interview_fast_core_uses_one_grounded_provider_call(client, monkeypatch
     assert meta["resume_context_reason"] == "fast_core_local_enrichment"
 
 
-def test_interview_fast_core_uses_preloaded_resume_only_for_personal_answer(
-    client, monkeypatch
-):
+def test_interview_fast_core_includes_active_screen_task_in_same_provider_call(client, monkeypatch):
+    captured: dict = {"stream_calls": 0}
+
+    async def fake_stream(messages, provider=None, model=None, **kwargs):
+        captured["stream_calls"] += 1
+        captured["messages"] = messages
+        yield "Обновлённое решение."
+
+    async def forbidden_complete(*args, **kwargs):
+        raise AssertionError("screen-task context must not add a resolver provider call")
+
+    monkeypatch.setattr(provider_adapter, "complete", forbidden_complete)
+    monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
+
+    response = client.post(
+        "/chat/interview/stream",
+        json={
+            "question": "Теперь добавь TTL.",
+            "fast_answer": True,
+            "active_screen_task": {
+                "root_question": "Реализуй LRU cache.",
+                "current_question": "Добавь eviction по capacity.",
+                "latest_answer": "class LruCache: ...",
+                "updated_at_ms": 1_777_777,
+            },
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert captured["stream_calls"] == 1
+    prompt = captured["messages"][-1]["content"]
+    assert "ACTIVE SCREEN TASK" in prompt
+    assert "Реализуй LRU cache." in prompt
+    assert "Добавь eviction по capacity." in prompt
+    assert "class LruCache: ..." in prompt
+    assert "true follow-up, critique, correction, or refinement" in prompt
+    assert "explicit new topic" in prompt
+
+
+def test_interview_fast_core_uses_preloaded_resume_only_for_personal_answer(client, monkeypatch):
     captured: dict = {"stream_calls": 0}
 
     async def fake_stream(messages, provider=None, model=None, **kwargs):
@@ -608,6 +1144,49 @@ def test_interview_fast_core_uses_preloaded_resume_only_for_personal_answer(
     assert meta["resume_context_reason"] == "fast_core_preloaded_candidate_context"
 
 
+def test_interview_fast_core_uses_resume_for_how_your_cicd_was_set_up(client, monkeypatch):
+    captured: dict = {}
+
+    async def fake_stream(messages, provider=None, model=None, **kwargs):
+        captured["messages"] = messages
+        yield "В автотестах CI/CD был построен вокруг GitLab, Docker, pytest и Allure."
+
+    from conftest import TestingSessionLocal
+
+    from app.routers import chat as chat_router
+
+    monkeypatch.setattr(chat_router, "SessionLocal", TestingSessionLocal)
+    monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
+
+    candidate_context = (
+        "QA Automation Engineer. Автотесты запускал в CI/CD через GitLab и Jenkins, "
+        "использовал Docker, pytest и Allure для прогонов и отчётов."
+    )
+    response = client.post(
+        "/chat/interview/stream",
+        json={
+            "question": "Расскажи подробно, как у вас был устроен CI/CD для автотестов.",
+            "candidate_context": candidate_context,
+            "fast_answer": True,
+            "answer_language": "ru",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    user_prompt = captured["messages"][-1]["content"]
+    assert candidate_context in user_prompt
+    assert "CONFIRMED CANDIDATE CONTEXT" in user_prompt
+
+    done = next(
+        json.loads(line[6:])
+        for line in response.text.splitlines()
+        if line.startswith("data: ") and '"type": "done"' in line
+    )
+    meta = done["correction"]
+    assert meta["question_intent"] == "practical_usage"
+    assert meta["resume_context_used"] is True
+
+
 def test_interview_fast_core_does_not_send_resume_to_theory_model(client, monkeypatch):
     captured: dict = {}
 
@@ -639,9 +1218,7 @@ def test_interview_fast_core_does_not_send_resume_to_theory_model(client, monkey
     assert private_marker not in captured["messages"][-1]["content"]
 
 
-def test_interview_fast_core_resolves_known_report_asr_alias_before_prompt(
-    client, monkeypatch
-):
+def test_interview_fast_core_resolves_known_report_asr_alias_before_prompt(client, monkeypatch):
     captured: dict = {}
 
     async def fake_stream(messages, provider=None, model=None, **kwargs):
@@ -719,9 +1296,7 @@ def test_interview_fast_core_hedges_slow_theory_with_quality_model(client, monke
     assert done["correction"]["hedgeWinner"] == "fallback"
 
 
-def test_interview_fast_core_starts_theory_fallback_before_live_budget_expires(
-    client, monkeypatch
-):
+def test_interview_fast_core_starts_theory_fallback_before_live_budget_expires(client, monkeypatch):
     from conftest import TestingSessionLocal
 
     from app.routers import chat as chat_router
@@ -755,9 +1330,7 @@ def test_interview_fast_core_starts_theory_fallback_before_live_budget_expires(
     assert "Слишком поздний Qwen-ответ." not in response.text
 
 
-def test_interview_fast_core_gives_benchmarked_qwen_startup_window(
-    client, monkeypatch
-):
+def test_interview_fast_core_gives_benchmarked_qwen_startup_window(client, monkeypatch):
     from conftest import TestingSessionLocal
 
     from app.routers import chat as chat_router
@@ -828,9 +1401,7 @@ def test_interview_fast_core_uses_fast_theory_model_without_waiting_for_hedge(cl
     assert done["correction"]["hedgeWinner"] == "primary"
 
 
-def test_interview_fast_core_starts_qwen_for_practical_work_answers(
-    client, monkeypatch
-):
+def test_interview_fast_core_starts_qwen_for_practical_work_answers(client, monkeypatch):
     from conftest import TestingSessionLocal
 
     from app.routers import chat as chat_router
@@ -867,6 +1438,51 @@ def test_interview_fast_core_starts_qwen_for_practical_work_answers(
     assert done["correction"]["hedgeStarted"] is False
 
 
+def test_interview_fast_core_uses_earlier_practical_hedge_than_personal_experience(
+    client, monkeypatch
+):
+    from conftest import TestingSessionLocal
+
+    from app.routers import chat as chat_router
+
+    calls: list[str] = []
+
+    async def fake_stream(messages, provider=None, model=None, **kwargs):
+        calls.append(model)
+        if model == "qwen/qwen3.5-flash-02-23":
+            await asyncio.sleep(0.04)
+            yield "Слишком поздний основной практический ответ."
+            return
+        assert model == "openai/gpt-4o-mini"
+        yield "Быстрый резервный практический ответ."
+
+    monkeypatch.setattr(chat_router, "SessionLocal", TestingSessionLocal)
+    monkeypatch.setattr(chat_router, "LIVE_PRACTICAL_HEDGE_AFTER_SECONDS", 0.001)
+    monkeypatch.setattr(chat_router, "LIVE_EXPERIENCE_HEDGE_AFTER_SECONDS", 0.1)
+    monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
+
+    response = client.post(
+        "/chat/interview/stream",
+        json={
+            "question": "Расскажи про техники тест-дизайна, которые ты применяешь в работе.",
+            "fast_answer": True,
+            "answer_language": "ru",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert calls == ["qwen/qwen3.5-flash-02-23", "openai/gpt-4o-mini"]
+    assert "Быстрый резервный практический ответ." in response.text
+    done = next(
+        json.loads(line[6:])
+        for line in response.text.splitlines()
+        if line.startswith("data: ") and '"type": "done"' in line
+    )
+    assert done["correction"]["question_intent"] == "practical_usage"
+    assert done["correction"]["hedgeStarted"] is True
+    assert done["correction"]["hedgeWinner"] == "fallback"
+
+
 def test_interview_fast_core_starts_qwen_for_fast_personal_experience(client, monkeypatch):
     from conftest import TestingSessionLocal
 
@@ -880,6 +1496,7 @@ def test_interview_fast_core_starts_qwen_for_fast_personal_experience(client, mo
         yield "Точный ответ по резюме."
 
     monkeypatch.setattr(chat_router, "SessionLocal", TestingSessionLocal)
+    monkeypatch.setattr(chat_router, "LIVE_PRACTICAL_HEDGE_AFTER_SECONDS", 0.001)
     monkeypatch.setattr(chat_router, "LIVE_EXPERIENCE_HEDGE_AFTER_SECONDS", 0.02)
     monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
 
@@ -900,6 +1517,13 @@ def test_interview_fast_core_starts_qwen_for_fast_personal_experience(client, mo
     )
     assert done["model"] == "qwen/qwen3.5-flash-02-23"
     assert done["correction"]["hedgeStarted"] is False
+
+
+def test_live_hedge_policy_keeps_practical_deadline_separate_from_experience():
+    from app.routers import chat as chat_router
+
+    assert chat_router.LIVE_PRACTICAL_HEDGE_AFTER_SECONDS == 0.8
+    assert chat_router.LIVE_EXPERIENCE_HEDGE_AFTER_SECONDS == 1.25
 
 
 def test_interview_fast_core_hedges_stalled_personal_experience(client, monkeypatch):
@@ -946,9 +1570,7 @@ def test_interview_fast_core_hedges_stalled_personal_experience(client, monkeypa
     assert done["correction"]["hedgeWinner"] == "fallback"
 
 
-def test_interview_fast_core_does_not_treat_topic_hints_as_personal_grounding(
-    client, monkeypatch
-):
+def test_interview_fast_core_does_not_treat_topic_hints_as_personal_grounding(client, monkeypatch):
     from conftest import TestingSessionLocal
 
     from app.routers import chat as chat_router

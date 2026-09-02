@@ -87,6 +87,11 @@ import {
   type TranscriptLine,
 } from '../lib/interviewSessionExport';
 import { resolvePreferredResume } from '../lib/resumeContext';
+import {
+  ActiveScreenTaskContextMemory,
+  CandidateFollowUpGenerationOwner,
+  dispatchOwnedCandidateFollowUp,
+} from '../lib/candidateFollowUp';
 
 export type { Speaker, TranscriptLine, CopilotAnswerEntry, CopilotAnswerPipeline };
 export type { SttDebugInfo };
@@ -132,6 +137,12 @@ interface AnswerRequest {
   questionFinalAt: number | null;
   forceGeneration?: number;
   stt?: AnswerSttDiagnostics;
+  displayQuestion?: string;
+  preservePreviousTopic?: boolean;
+  taskContextUpdate?: {
+    rootQuestion: string;
+    currentQuestion: string;
+  };
 }
 
 interface QueuedAnswerRequest {
@@ -146,6 +157,12 @@ interface ForceScreenFallbackRequest {
   question: string;
   untrustedPartialHint?: string;
 }
+
+const EMPTY_FORCE_SCREEN_FALLBACK: ForceScreenFallbackRequest = {
+  generation: 0,
+  screenRevision: 0,
+  question: '',
+};
 
 interface ForcedSttSubmissionHandlers {
   prepare: () => void;
@@ -275,11 +292,9 @@ export function useLiveCopilot() {
   const [suggestLoading, setSuggestLoading] = useState(false);
   const [forceGeneration, setForceGeneration] = useState(0);
   const [forcePhase, setForcePhase] = useState<ForcePhase>('idle');
-  const [forceScreenFallback, setForceScreenFallback] = useState<ForceScreenFallbackRequest>({
-    generation: 0,
-    screenRevision: 0,
-    question: '',
-  });
+  const [forceScreenFallback, setForceScreenFallback] = useState<ForceScreenFallbackRequest>(
+    EMPTY_FORCE_SCREEN_FALLBACK,
+  );
   const [error, setError] = useState('');
   const [reconnecting, setReconnecting] = useState<string | null>(null);
   const [sourceHealthWarning, setSourceHealthWarning] = useState<
@@ -332,6 +347,8 @@ export function useLiveCopilot() {
   const forcedFinalLedgerRef = useRef(new ForcedFinalMetadataLedger());
   const pendingTriggerSequenceRef = useRef<number | null>(null);
   const forceCoordinatorRef = useRef(new LatestForcedAnswerCoordinator());
+  const candidateFollowUpOwnerRef = useRef(new CandidateFollowUpGenerationOwner());
+  const activeScreenTaskContextRef = useRef(new ActiveScreenTaskContextMemory());
   const forceFallbackSchedulerRef = useRef<ForceFallbackScheduler | null>(null);
   const forcePrefixStabilizationTimerRef = useRef<number | null>(null);
   const speechActivityRef = useRef(new SpeechActivityTracker());
@@ -391,6 +408,23 @@ export function useLiveCopilot() {
     if (!sid) return false;
     return diagnosticsWriterRef.current.enqueue(epoch, sid, buildDiagnosticsSnapshot);
   }, [buildDiagnosticsSnapshot]);
+
+  const recordCandidateHotkeyDiagnostic = useCallback((
+    type:
+      | 'candidate_hotkey_received'
+      | 'candidate_hotkey_queued'
+      | 'candidate_hotkey_ignored'
+      | 'candidate_hotkey_selected',
+    data: {
+      reason?: string;
+      source?: 'mic' | 'system';
+      meta?: Record<string, unknown>;
+    } = {},
+  ) => {
+    hasSessionContentRef.current = true;
+    debugRef.current.event(type, data);
+    enqueueDiagnosticsSnapshot();
+  }, [enqueueDiagnosticsSnapshot]);
 
   const applySourceHealthResult = useCallback((result: LiveSourceHealthResult) => {
     setSourceHealthWarning(result.warning);
@@ -470,6 +504,16 @@ export function useLiveCopilot() {
             forceCoordinatorRef.current,
             scheduledGeneration,
             () => {
+              if (candidateFollowUpOwnerRef.current.isOwned(scheduledGeneration)) {
+                candidateFollowUpOwnerRef.current.clear(scheduledGeneration);
+                forceCoordinatorRef.current.setPhase(scheduledGeneration, 'error');
+                syncForceSnapshot();
+                recordCandidateHotkeyDiagnostic('candidate_hotkey_ignored', {
+                  source: 'mic',
+                  reason: 'finalization_timeout',
+                  meta: { generation: scheduledGeneration },
+                });
+              }
               setError(t('live.forceNoAudio'));
             },
           );
@@ -477,7 +521,7 @@ export function useLiveCopilot() {
       }
       forceFallbackSchedulerRef.current.schedule(generation, delayMs);
     },
-    [],
+    [recordCandidateHotkeyDiagnostic, syncForceSnapshot],
   );
 
   const routeVisualQuestionToScreen = useCallback(
@@ -504,14 +548,41 @@ export function useLiveCopilot() {
     screenTaskAvailableRef.current = true;
   }, []);
 
+  const publishScreenTaskContext = useCallback((input: {
+    question: string;
+    answer: string;
+    continuesPrevious: boolean;
+  }) => {
+    activeScreenTaskContextRef.current.publishScreenResult(input);
+    screenTaskAvailableRef.current = true;
+  }, []);
+
+  const clearScreenTaskContext = useCallback(() => {
+    activeScreenTaskContextRef.current.clear();
+    screenTaskAvailableRef.current = false;
+  }, []);
+
+  /** Consume the hook-level request and terminalize its active force epoch before UI reset. */
+  const clearForceScreenFallback = useCallback(() => {
+    const snapshot = forceCoordinatorRef.current.snapshot();
+    clearForceTimeout(snapshot.generation);
+    timeoutScreenPartialRef.current.clearGeneration(snapshot.generation);
+    if (snapshot.phase === 'screen-fallback') {
+      forceCoordinatorRef.current.setPhase(snapshot.generation, 'error');
+      syncForceSnapshot();
+    }
+    setForceScreenFallback(EMPTY_FORCE_SCREEN_FALLBACK);
+  }, [clearForceTimeout, syncForceSnapshot]);
+
   const resetForceCoordinator = useCallback(() => {
     clearForceTimeout();
     clearForcePrefixStabilization();
     forceCoordinatorRef.current.reset();
+    candidateFollowUpOwnerRef.current.clear();
     forcedFinalLedgerRef.current.reset();
     pendingTriggerSequenceRef.current = null;
     timeoutScreenPartialRef.current.reset();
-    setForceScreenFallback({ generation: 0, screenRevision: 0, question: '' });
+    setForceScreenFallback(EMPTY_FORCE_SCREEN_FALLBACK);
     syncForceSnapshot();
   }, [clearForcePrefixStabilization, clearForceTimeout, syncForceSnapshot]);
 
@@ -519,6 +590,21 @@ export function useLiveCopilot() {
     (generation: number, screenRevision: number) =>
       forceCoordinatorRef.current.commitScreenFirstOutput(generation, screenRevision),
     [],
+  );
+
+  const finishScreenFallback = useCallback(
+    (generation: number, screenRevision: number, phase: 'done' | 'error') => {
+      const snapshot = forceCoordinatorRef.current.snapshot();
+      if (
+        snapshot.generation !== generation ||
+        snapshot.screenRevision !== screenRevision ||
+        snapshot.phase !== 'screen-fallback'
+      ) return false;
+      if (!forceCoordinatorRef.current.setPhase(generation, phase)) return false;
+      syncForceSnapshot();
+      return true;
+    },
+    [syncForceSnapshot],
   );
 
   const screenAssistDiagnostics = useMemo(() => ({
@@ -751,10 +837,24 @@ export function useLiveCopilot() {
     } : null);
     const requestStt = request.stt ? { ...request.stt } : undefined;
     const requestQuestionFinalAt = request.questionFinalAt;
+    const requestTaskContextUpdate = request.taskContextUpdate;
     // Ctrl+Enter fast-path sends the captured question as-is. Local intent and
     // follow-up analysis stays diagnostics-only and never expands the LLM prompt.
     const q = prepared.rawTranscript.trim();
     if (q.length < 3) return;
+    const requestRequiresScreenContext = request.preservePreviousTopic
+      ? true
+      : requiresScreenContext(q, screenTaskAvailableRef.current);
+    const requestActiveScreenTask = request.preservePreviousTopic
+      ? activeScreenTaskContextRef.current.snapshot()
+      : activeScreenTaskContextRef.current.contextForInterviewQuestion({
+          resetPreviousTopic: prepared.followUp.resetPreviousTopic,
+          requiresScreenContext: requestRequiresScreenContext,
+        });
+    if (prepared.followUp.resetPreviousTopic && !requestRequiresScreenContext) {
+      screenTaskAvailableRef.current = false;
+    }
+    const displayQuestion = request.displayQuestion?.trim() || q;
     streamLockRef.current = true;
     lastQuestionRef.current = q;
     const gen = ++streamGenRef.current;
@@ -813,7 +913,7 @@ export function useLiveCopilot() {
     setStreaming(true);
     setSuggestLoading(true);
     setStreamText('');
-    setCurrentQuestion(q);
+    setCurrentQuestion(displayQuestion);
     setError('');
     if (
       requestForceGeneration != null &&
@@ -851,7 +951,7 @@ export function useLiveCopilot() {
       hasSessionContentRef.current = true;
       const entry: CopilotAnswerEntry = {
         id: answerId || crypto.randomUUID(),
-        question: q,
+        question: displayQuestion,
         spoken: text,
         ts: Date.now(),
         source: 'live',
@@ -925,6 +1025,13 @@ export function useLiveCopilot() {
           const preserveCode =
             ['technical_task', 'api_test_task'].includes(prepared.answerStrategy.questionIntent) || rawAnswer.includes('```');
           const text = preserveCode ? rawAnswer : trimSpokenAnswer(sanitizeLiveAnswer(rawAnswer));
+          if (requestTaskContextUpdate && text) {
+            activeScreenTaskContextRef.current.settleCandidateStream({
+              completed: true,
+              ...requestTaskContextUpdate,
+              answer: text,
+            });
+          }
           const debugSnapshot = sttDebugRef.current;
           const llmLatencyMs = performance.now() - answerStartedAt;
           const pipeline = buildPipelineFromPrepared(prepared, {
@@ -952,13 +1059,18 @@ export function useLiveCopilot() {
             text,
             meta: { sttLatencyMs: latency.sttLatencyMs, llmLatencyMs: latency.llmLatencyMs },
           });
+          const contextQuestion = request.preservePreviousTopic
+            ? displayQuestion
+            : prepared.resolvedQuestion;
           sessionContextRef.current = updateSessionContextAfterAnswer(sessionContextRef.current, {
-            rawQuestion: prepared.rawTranscript,
-            correctedQuestion: prepared.normalized,
-            intentCorrectedQuestion: prepared.normalized,
-            resolvedQuestion: prepared.resolvedQuestion,
+            rawQuestion: request.preservePreviousTopic ? displayQuestion : prepared.rawTranscript,
+            correctedQuestion: request.preservePreviousTopic ? displayQuestion : prepared.normalized,
+            intentCorrectedQuestion: request.preservePreviousTopic ? displayQuestion : prepared.normalized,
+            resolvedQuestion: contextQuestion,
             questionIntent: prepared.answerStrategy.questionIntent,
-            canonicalTopic: prepared.canonicalTopic,
+            canonicalTopic: request.preservePreviousTopic
+              ? (sessionContextRef.current.lastCanonicalTopic ?? prepared.canonicalTopic)
+              : prepared.canonicalTopic,
             answerSummary: text,
             resetPreviousTopic: prepared.followUp.resetPreviousTopic,
           });
@@ -974,12 +1086,24 @@ export function useLiveCopilot() {
             requestForceGeneration != null &&
             forceCoordinatorRef.current.setPhase(
               requestForceGeneration,
-              accumulated ? 'done' : 'error',
+              requestTaskContextUpdate ? 'error' : accumulated ? 'done' : 'error',
             )
           ) {
             syncForceSnapshot();
           }
           debugRef.current.event('error', { reason: msg, text: q });
+          if (requestTaskContextUpdate) {
+            activeScreenTaskContextRef.current.settleCandidateStream({
+              completed: false,
+              ...requestTaskContextUpdate,
+              answer: accumulated,
+            });
+            setStreamText('');
+            setCurrentQuestion('');
+            setError(msg);
+            runQueuedAnswer();
+            return;
+          }
           if (accumulated) {
             lastCompletedRef.current = q;
             lastCompletedRawRef.current = prepared.rawTranscript;
@@ -1008,6 +1132,7 @@ export function useLiveCopilot() {
         sessionId: sessionRef.current ?? undefined,
         rawQuestion: q,
         candidateContext: candidateContextRef.current,
+        activeScreenTask: requestActiveScreenTask ?? undefined,
         fastAnswer: true,
         onMeta: (correctionMeta) => {
           if (gen !== streamGenRef.current) return;
@@ -1154,7 +1279,16 @@ export function useLiveCopilot() {
    * минуя качественные гейты (ввод явный, доверяем ему).
    */
   const askQuestion = useCallback(
-    (text: string, forceGeneration?: number, stt?: AnswerSttDiagnostics) => {
+    (
+      text: string,
+      forceGeneration?: number,
+      stt?: AnswerSttDiagnostics,
+      presentation?: {
+        displayQuestion: string;
+        preservePreviousTopic: boolean;
+        taskContextUpdate?: { rootQuestion: string; currentQuestion: string };
+      },
+    ) => {
       const t = text.trim();
       if (t.length < 3) return;
       if (finalDebounceRef.current) {
@@ -1174,6 +1308,9 @@ export function useLiveCopilot() {
         questionFinalAt: questionFinalAtRef.current,
         forceGeneration,
         stt: stt ? { ...stt } : undefined,
+        displayQuestion: presentation?.displayQuestion,
+        preservePreviousTopic: presentation?.preservePreviousTopic,
+        taskContextUpdate: presentation?.taskContextUpdate,
       });
     },
     [runStream],
@@ -1189,21 +1326,74 @@ export function useLiveCopilot() {
   }, []);
 
   const dispatchAcceptedForceDecision = useCallback((decision: ForceAcceptDecision) => {
+    const decisionGeneration = decision.action === 'store-only'
+      ? forceCoordinatorRef.current.snapshot().generation
+      : decision.generation;
+    const candidateOwned = candidateFollowUpOwnerRef.current.isOwned(decisionGeneration);
+    const candidateSequence = decision.action === 'submit' ? decision.sequence : undefined;
     const answeredLine = decision.action === 'submit'
       ? forcedFinalLedgerRef.current
           .snapshot()
           .find((line) => line.sequence === decision.sequence)
       : undefined;
+    if (decision.action === 'store-only' && candidateOwned) {
+      candidateFollowUpOwnerRef.current.clear(decisionGeneration);
+      forceCoordinatorRef.current.setPhase(decisionGeneration, 'error');
+      syncForceSnapshot();
+      recordCandidateHotkeyDiagnostic('candidate_hotkey_ignored', {
+        source: 'mic',
+        reason: 'stale_owned_final',
+        meta: { generation: decisionGeneration },
+      });
+    }
     return dispatchForcedSttAcceptDecision(decision, sttLanguageRef.current, {
-      askQuestion: (question, generation) => askQuestion(question, generation, answeredLine ? {
-        utteranceId: answeredLine.utteranceId,
-        source: answeredLine.source,
-        capturedAtMs: answeredLine.capturedAtMs,
-        queueWaitMs: answeredLine.queueWaitMs,
-        queueDepth: answeredLine.queueDepth,
-        speechEndToFinalMs: answeredLine.speechEndToFinalMs,
-        openaiInferenceMs: answeredLine.openaiInferenceMs,
-      } : undefined),
+      askQuestion: (question, generation) => {
+        const stt = answeredLine ? {
+          utteranceId: answeredLine.utteranceId,
+          source: answeredLine.source,
+          capturedAtMs: answeredLine.capturedAtMs,
+          queueWaitMs: answeredLine.queueWaitMs,
+          queueDepth: answeredLine.queueDepth,
+          speechEndToFinalMs: answeredLine.speechEndToFinalMs,
+          openaiInferenceMs: answeredLine.openaiInferenceMs,
+        } : undefined;
+        if (!candidateOwned) {
+          askQuestion(question, generation, stt);
+          return;
+        }
+        const followUp = dispatchOwnedCandidateFollowUp({
+          owner: candidateFollowUpOwnerRef.current,
+          generation,
+          candidatePhrase: question,
+          cancelActiveScreen: () => activeScreenCancellationRef.current.cancelAndClear(),
+          requestProvider: (request) => {
+            recordCandidateHotkeyDiagnostic('candidate_hotkey_selected', {
+              source: answeredLine?.source ?? 'mic',
+              meta: {
+                generation,
+                sequence: answeredLine?.sequence ?? candidateSequence,
+                contextSource: request.contextSource,
+              },
+            });
+            askQuestion(request.prompt, generation, stt, {
+              displayQuestion: request.displayQuestion,
+              preservePreviousTopic: true,
+              taskContextUpdate: {
+                rootQuestion: request.taskRootQuestion,
+                currentQuestion: request.taskCurrentQuestion,
+              },
+            });
+          },
+        });
+        if (!followUp) {
+          recordCandidateHotkeyDiagnostic('candidate_hotkey_ignored', {
+            source: 'mic',
+            reason: 'owned_final_missing_context',
+            meta: { generation, sequence: answeredLine?.sequence },
+          });
+          return;
+        }
+      },
       prepare: () => {
         if (decision.action !== 'submit') return;
         clearForcePrefixStabilization();
@@ -1212,9 +1402,19 @@ export function useLiveCopilot() {
         cancelPendingQuestion();
         utteranceBufferRef.current = [];
       },
-      reject: rejectForcedTranscript,
+      reject: (question, generation, reason) => {
+        candidateFollowUpOwnerRef.current.clear(generation);
+        if (candidateOwned) {
+          recordCandidateHotkeyDiagnostic('candidate_hotkey_ignored', {
+            source: 'mic',
+            reason,
+            meta: { generation, sequence: candidateSequence },
+          });
+        }
+        rejectForcedTranscript(question, generation, reason);
+      },
       routeVisualToScreen: (question, generation) =>
-        routeVisualQuestionToScreen(question, generation),
+        candidateOwned ? false : routeVisualQuestionToScreen(question, generation),
     });
   }, [
     askQuestion,
@@ -1222,8 +1422,9 @@ export function useLiveCopilot() {
     clearForcePrefixStabilization,
     clearForceTimeout,
     rejectForcedTranscript,
-    routeVisualQuestionToScreen,
-    syncForceSnapshot,
+      routeVisualQuestionToScreen,
+      recordCandidateHotkeyDiagnostic,
+      syncForceSnapshot,
   ]);
 
   const scheduleFinalizedPrefixCommit = useCallback((
@@ -1517,6 +1718,126 @@ export function useLiveCopilot() {
     clearForceTimeout,
     routeVisualQuestionToScreen,
     rejectForcedTranscript,
+    scheduleForceTranscriptNotice,
+    syncForceSnapshot,
+  ]);
+
+  const forceCandidateFollowUp = useCallback((hotkeySource = 'button'): ForceAnswerStatus => {
+    recordCandidateHotkeyDiagnostic('candidate_hotkey_received', {
+      source: 'mic',
+      meta: { hotkeySource },
+    });
+    if (!active || paused || !liveSourcesRef.current.mic) {
+      recordCandidateHotkeyDiagnostic('candidate_hotkey_ignored', {
+        source: 'mic',
+        reason: !active ? 'session_inactive' : paused ? 'session_paused' : 'mic_disabled',
+        meta: { hotkeySource },
+      });
+      return 'unavailable';
+    }
+    const pressedAtMs = Date.now();
+    const forceSnapshot = forceCoordinatorRef.current.snapshot();
+    const forcedFinals = forcedFinalLedgerRef.current.snapshot();
+    const micFinals = forcedFinals.filter((line) => line.source === 'mic');
+    const hasUnconsumedMic = micFinals.some(
+      (line) => line.sequence > forceSnapshot.consumedSequence,
+    );
+    const speechActivity = speechActivityRef.current.snapshot();
+    if (!hasUnconsumedMic && !speechActivity.mic) {
+      recordCandidateHotkeyDiagnostic('candidate_hotkey_ignored', {
+        source: 'mic',
+        reason: 'no_candidate_utterance',
+        meta: { hotkeySource, generation: forceSnapshot.generation },
+      });
+      return 'unavailable';
+    }
+    const previous = answerHistoryRef.current.at(-1);
+    const candidateBase = activeScreenTaskContextRef.current.selectCandidateBase(previous);
+
+    clearForcePrefixStabilization();
+    streamGenRef.current += 1;
+    cancelStreamRef.current?.();
+    cancelStreamRef.current = null;
+    streamLockRef.current = false;
+    queuedAnswerRef.current = null;
+    setStreaming(false);
+    setSuggestLoading(false);
+    setStreamText('');
+    setCurrentQuestion('');
+    cancelPendingQuestion();
+    setError('');
+
+    const latestUnconsumedFinal = micFinals
+      .filter((line) => line.sequence > forceSnapshot.consumedSequence)
+      .at(-1);
+    const decision = forceCoordinatorRef.current.press(
+      micFinals,
+      'mic',
+      shouldFinalizeCurrentSpeech(
+        'mic',
+        speechActivity,
+        { mic: hasUnconsumedMic ? 1 : 0, system: 0 },
+        latestUnconsumedFinal?.receivedAt,
+        pressedAtMs,
+        speechActivityRef.current.latestStartedAt('mic'),
+      ),
+    );
+    candidateFollowUpOwnerRef.current.begin(decision.generation, candidateBase);
+    timeoutScreenPartialRef.current.freezeGeneration(
+      decision.generation,
+      'mic',
+      pressedAtMs,
+    );
+    clearForceTimeout(decision.generation);
+    syncForceSnapshot();
+
+    if (decision.action === 'submit') {
+      utteranceBufferRef.current = [];
+      const result = dispatchAcceptedForceDecision(decision);
+      return result === 'text' ? 'started' : 'unavailable';
+    }
+
+    if (decision.action === 'flush') {
+      recordCandidateHotkeyDiagnostic('candidate_hotkey_queued', {
+        source: 'mic',
+        reason: speechActivity.mic
+          ? 'finalizing_active_speech'
+          : 'finalizing_owned_utterance',
+        meta: { generation: decision.generation, phase: 'finalizing-transcript' },
+      });
+      const micSession = liveRef.current.find((entry) => entry.source === 'mic');
+      if (!micSession?.session.flush(decision.requestId)) {
+        candidateFollowUpOwnerRef.current.clear(decision.generation);
+        forceCoordinatorRef.current.setPhase(decision.generation, 'error');
+        syncForceSnapshot();
+        recordCandidateHotkeyDiagnostic('candidate_hotkey_ignored', {
+          source: 'mic',
+          reason: 'finalize_unavailable',
+          meta: { generation: decision.generation },
+        });
+        return 'unavailable';
+      }
+      serverTimingsRef.current = null;
+      questionFinalAtRef.current = performance.now();
+      scheduleForceTranscriptNotice(decision.generation);
+      return 'finalizing';
+    }
+
+    candidateFollowUpOwnerRef.current.clear(decision.generation);
+    recordCandidateHotkeyDiagnostic('candidate_hotkey_ignored', {
+      source: 'mic',
+      reason: 'no_owned_final',
+      meta: { generation: decision.generation },
+    });
+    return 'unavailable';
+  }, [
+    active,
+    paused,
+    cancelPendingQuestion,
+    clearForcePrefixStabilization,
+    clearForceTimeout,
+    dispatchAcceptedForceDecision,
+    recordCandidateHotkeyDiagnostic,
     scheduleForceTranscriptNotice,
     syncForceSnapshot,
   ]);
@@ -2187,7 +2508,11 @@ export function useLiveCopilot() {
     forcePhase,
     forceScreenFallback,
     commitScreenFirstOutput,
+    finishScreenFallback,
     markScreenTaskAvailable,
+    publishScreenTaskContext,
+    clearScreenTaskContext,
+    clearForceScreenFallback,
     screenAssistDiagnostics,
     suggestLoading,
     error,
@@ -2201,6 +2526,7 @@ export function useLiveCopilot() {
     downloadDebug,
     askQuestion,
     forceAnswer,
+    forceCandidateFollowUp,
     forceScreenAnswer,
     start,
     pause,

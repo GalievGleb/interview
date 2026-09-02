@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 
-export type BuildChannel = 'stable' | 'dev';
+export type BuildChannel = 'stable' | 'dev' | 'alpha';
 
 function browserFallback(): BuildChannel {
   return import.meta.env.DEV ? 'dev' : 'stable';
@@ -26,7 +26,7 @@ export function useBuildChannel(): BuildChannel | null {
     let active = true;
     void getBuildChannel()
       .then((next) => {
-        if (active) setChannel(next === 'dev' ? 'dev' : 'stable');
+        if (active) setChannel(next === 'dev' || next === 'alpha' ? next : 'stable');
       })
       .catch(() => {
         if (active) setChannel('stable');

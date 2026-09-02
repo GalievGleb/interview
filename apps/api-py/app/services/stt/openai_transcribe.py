@@ -36,9 +36,7 @@ LEGACY_REALTIME_RU_PROMPT = (
     "Kafka, Kubernetes."
 )
 _LIVE_RU_PROMPT_WITHOUT_LOCALE = LIVE_RU_PROMPT.removeprefix("Русское ")
-_LEGACY_REALTIME_RU_PROMPT_WITHOUT_LOCALE = LEGACY_REALTIME_RU_PROMPT.removeprefix(
-    "Русское "
-)
+_LEGACY_REALTIME_RU_PROMPT_WITHOUT_LOCALE = LEGACY_REALTIME_RU_PROMPT.removeprefix("Русское ")
 LIVE_RU_PROMPT_VARIANTS = (
     LIVE_RU_PROMPT,
     _LIVE_RU_PROMPT_WITHOUT_LOCALE,
@@ -48,6 +46,11 @@ LIVE_RU_PROMPT_VARIANTS = (
     _LEGACY_REALTIME_RU_PROMPT_WITHOUT_LOCALE,
     _LEGACY_REALTIME_RU_PROMPT_WITHOUT_LOCALE[:1].upper()
     + _LEGACY_REALTIME_RU_PROMPT_WITHOUT_LOCALE[1:],
+)
+_REALTIME_RU_PROMPT_TAIL = REALTIME_RU_PROMPT.split(", ", 1)[1]
+_MUTATED_REALTIME_PROMPT_ECHO_RE = re.compile(
+    rf"(?:[^\s,]+,\s*)?{re.escape(_REALTIME_RU_PROMPT_TAIL)}\.?",
+    re.IGNORECASE,
 )
 STT_RETRY_DELAYS_S = (0.2, 0.6)
 STT_RETRY_STATUS_CODES = {429, 500, 502, 503, 504, 520, 521, 522, 523, 524, 525, 526, 527, 530}
@@ -61,6 +64,11 @@ def strip_live_prompt_echo(text: str) -> str:
         return ""
     for prompt in LIVE_RU_PROMPT_VARIANTS:
         cleaned = re.sub(re.escape(prompt), " ", cleaned, flags=re.IGNORECASE)
+    # Realtime occasionally mutates only the first priming token (for example
+    # «формы» instead of «тест-дизайн») while reproducing the long private
+    # vocabulary tail verbatim. Remove that tail, including the one mutated
+    # comma-separated token, but preserve any real question around it.
+    cleaned = _MUTATED_REALTIME_PROMPT_ECHO_RE.sub(" ", cleaned)
     cleaned = " ".join(cleaned.split()).strip(" ,;:-")
     cleaned = re.sub(r"^(?:[.,;:!?—-]+\s+)+", "", cleaned)
     cleaned = re.sub(r"(?:\s+[.,;:!?—-]+)+$", "", cleaned).strip()
