@@ -451,6 +451,14 @@ function isModelBlocked(model: string): boolean {
   );
 }
 
+function isStructuredScreenModelExplicitlyAllowed(model: string): boolean {
+  const ids = modelPolicyIds(model);
+  const allowed = envModels('GATEWAY_STRUCTURED_SCREEN_ALLOWED_MODELS').flatMap(
+    modelPolicyIds,
+  );
+  return allowed.some((allowedId) => ids.some((modelId) => modelId === allowedId));
+}
+
 function prepareChatUpstreamBody(
   body: Record<string, unknown>,
   route: ChatUpstreamRoute,
@@ -767,13 +775,19 @@ export class GatewayService {
     if (structuredScreen && !route.directLive) {
       throw structuredScreenForbidden();
     }
+    // A Max user may still use the legacy screen route when the dedicated
+    // direct-screen credential is temporarily unavailable. In that case the
+    // configured OpenRouter upstream is the safe compatibility fallback;
+    // structured-screen requests remain fail-closed below.
     const maxQualityScreen =
       qualityScreen &&
-      route.directLive &&
-      plan === 'max';
+      plan === 'max' &&
+      (route.directLive || (route.style === 'openrouter' && Boolean(route.apiKey)));
     const maxStructuredScreen = structuredScreen && route.directLive && plan === 'max';
+    const exactStructuredBlockOverride =
+      maxStructuredScreen && isStructuredScreenModelExplicitlyAllowed(model);
     if (
-      isModelBlocked(model) ||
+      (isModelBlocked(model) && !exactStructuredBlockOverride && !maxQualityScreen) ||
       (!isModelAllowed(model) && !maxQualityScreen && !maxStructuredScreen) ||
       (qualityScreen && !maxQualityScreen)
     ) {

@@ -167,6 +167,142 @@ test('authorized structured observation uses the official direct OpenAI route', 
   });
 });
 
+test('Max legacy screen falls back to configured OpenRouter when direct screen credentials are unavailable', async () => {
+  await withEnvironment(
+    {
+      ...DIRECT_ENVIRONMENT,
+      OPENAI_CHAT_API_KEY: undefined,
+      OPENAI_CHAT_BASE_URL: undefined,
+      GATEWAY_BLOCKED_MODELS: 'openai/gpt-5',
+      GATEWAY_STRUCTURED_SCREEN_ALLOWED_MODELS: undefined,
+    },
+    async () => {
+      await captureFetches(async (calls) => {
+        const service = new GatewayService(fakeRedis());
+        const response = await callStructured(
+          service,
+          'max',
+          {
+            ...observationBody(),
+            stream: true,
+            messages: [
+              {
+                role: 'user',
+                content: [
+                  { type: 'text', text: 'Extract the visible task.' },
+                  {
+                    type: 'image_url',
+                    image_url: {
+                      url: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z7JwAAAAASUVORK5CYII=',
+                    },
+                  },
+                ],
+              },
+            ],
+            response_format: undefined,
+          },
+          {},
+        );
+
+        assert.equal(response.status, 200);
+        assert.deepEqual(calls.map((call) => call.input), [
+          'https://openrouter.ai/api/v1/chat/completions',
+        ]);
+      });
+    },
+  );
+});
+
+test('broad model block remains a kill switch unless the exact structured model is explicitly allowed', async () => {
+  const broadlyBlocked = {
+    ...DIRECT_ENVIRONMENT,
+    GATEWAY_BLOCKED_MODELS: 'openai/gpt-5',
+    GATEWAY_STRUCTURED_SCREEN_ALLOWED_MODELS: undefined,
+  };
+
+  await withEnvironment(broadlyBlocked, async () => {
+    await captureFetches(async (calls) => {
+      const service = new GatewayService(fakeRedis());
+      await assertForbiddenBeforeFetch(
+        () =>
+          callStructured(
+            service,
+            'max',
+            observationBody(),
+            structuredHeaders('observation'),
+          ),
+        calls,
+      );
+    });
+  });
+
+  await withEnvironment(
+    {
+      ...broadlyBlocked,
+      GATEWAY_STRUCTURED_SCREEN_ALLOWED_MODELS: 'openai/gpt-5.6-sol',
+    },
+    async () => {
+      await captureFetches(async (calls) => {
+        const service = new GatewayService(fakeRedis());
+        const response = await callStructured(
+          service,
+          'max',
+          observationBody(),
+          structuredHeaders('observation'),
+        );
+
+        assert.equal(response.status, 200);
+        assert.deepEqual(calls.map((call) => call.input), [
+          'https://api.openai.com/v1/chat/completions',
+        ]);
+      });
+    },
+  );
+});
+
+test('the exact structured block override grants no unmarked, non-Max, malformed, or prefix access', async () => {
+  await withEnvironment(
+    {
+      ...DIRECT_ENVIRONMENT,
+      GATEWAY_BLOCKED_MODELS: 'openai/gpt-5',
+      GATEWAY_STRUCTURED_SCREEN_ALLOWED_MODELS: 'openai/gpt-5.6-sol',
+    },
+    async () => {
+      await captureFetches(async (calls) => {
+        const service = new GatewayService(fakeRedis());
+        const forbidden = [
+          () => callStructured(service, 'max', answerBody(), {}),
+          () =>
+            callStructured(
+              service,
+              'basic',
+              answerBody(),
+              structuredHeaders('answer'),
+            ),
+          () =>
+            callStructured(
+              service,
+              'max',
+              answerBody(),
+              { workload: STRUCTURED_WORKLOAD, phase: 'unknown' },
+            ),
+          () =>
+            callStructured(
+              service,
+              'max',
+              answerBody({ model: 'openai/gpt-5.6-sol-preview' }),
+              structuredHeaders('answer'),
+            ),
+        ];
+
+        for (const run of forbidden) {
+          await assertForbiddenBeforeFetch(run, calls);
+        }
+      });
+    },
+  );
+});
+
 test('authorized structured answer and repair accept only the safe schema allowlist', async () => {
   await withEnvironment(DIRECT_ENVIRONMENT, async () => {
     await captureFetches(async (calls) => {

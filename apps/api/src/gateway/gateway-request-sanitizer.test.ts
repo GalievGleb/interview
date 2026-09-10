@@ -357,7 +357,7 @@ test('max screen request bypasses a restrictive ordinary allowlist, but basic ne
   );
 });
 
-test('max screen request cannot bypass the allowlist when direct OpenAI is unavailable', async () => {
+test('max screen request uses configured OpenRouter when direct OpenAI is unavailable', async () => {
   await withEnvironment(
     {
       GATEWAY_ALLOWED_MODELS: 'qwen/qwen3.8-flash',
@@ -378,14 +378,9 @@ test('max screen request cannot bypass the allowlist when direct OpenAI is unava
       }) as typeof fetch;
       try {
         const service = new GatewayService(fakeRedis());
-        await assert.rejects(
-          service.chatCompletions(maxLicense(), screenBody()),
-          (error: unknown) => {
-            assert.equal((error as { status?: number }).status, 403);
-            return true;
-          },
-        );
-        assert.equal(calls, 0);
+        const response = await service.chatCompletions(maxLicense(), screenBody());
+        assert.equal(response.status, 200);
+        assert.equal(calls, 1);
       } finally {
         globalThis.fetch = originalFetch;
       }
