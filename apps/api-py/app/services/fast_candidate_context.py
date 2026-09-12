@@ -27,10 +27,22 @@ def build_recent_turns_context(turns):
             + json.dumps(turns, ensure_ascii=False))
 
 
-def is_conversation_followup(question: str) -> bool:
+def is_conversation_followup(question: str, intent: str) -> bool:
+    # An independently classified theory question introduces its own topic.
+    # Politeness/expansion verbs are not references to the previous project.
+    if intent in {'technical_definition', 'technical_comparison'}:
+        return False
+    # Existential "there" ("is there a difference") is not a location reference.
+    # Require an action for a bare English "there" to refer back to prior work.
+    action_there = re.search(
+        r'\b(do|did|work|worked|use|used|choose|chose|happen|happened)\b[^?.!]*\bthere\b',
+        question, re.I,
+    )
+    if action_there:
+        return True
     return bool(re.search(
-        r'\b(there|that project|your role|that team|why so|elaborate|'
-        r'там|тогда|этом проекте|той команде|почему так|подробнее|уточни)\b', question, re.I,
+        r'\b(that project|your role|that team|why so|'
+        r'там|тогда|этом проекте|той команде|почему так)\b', question, re.I,
     ))
 
 
@@ -39,4 +51,4 @@ def needs_personal_context(question, intent, turns):
         return True
     # Require a reference and a prior personal question; answers cannot establish facts.
     personal = re.compile(r'(your .*?(project|experience|team)|сво[йёю].*?(проект|опыт)|у вас|тво[йёю].*?проект|последн\w* проект|last project)', re.I)
-    return bool(is_conversation_followup(question) and any(personal.search(turn['question']) for turn in turns))
+    return bool(is_conversation_followup(question, intent) and any(personal.search(turn['question']) for turn in turns))

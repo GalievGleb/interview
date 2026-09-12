@@ -6,6 +6,7 @@ monkeypatched, so we test the routing, prompt wiring, and SSE framing only.
 
 import asyncio
 import json
+import pytest
 
 from app.core import local_auth
 from app.core.errors import AppError
@@ -1221,7 +1222,13 @@ def test_interview_fast_core_does_not_send_resume_to_theory_model(client, monkey
     assert private_marker not in captured["messages"][-1]["content"]
 
 
-def test_fast_followup_keeps_project_sources_separate_from_generated_history(client, monkeypatch, db_session):
+@pytest.mark.parametrize('unrelated_question', [
+    'What is TCP?',
+    'Уточни, что такое TCP?',
+    'Расскажи подробнее, чем TCP отличается от UDP?',
+    'Is there a difference between TCP and UDP?',
+])
+def test_fast_followup_keeps_project_sources_separate_from_generated_history(client, monkeypatch, db_session, unrelated_question):
     from conftest import TestingSessionLocal
     from app.routers import chat as chat_router
     from app.db.models import Document, AppMeta
@@ -1237,21 +1244,27 @@ def test_fast_followup_keeps_project_sources_separate_from_generated_history(cli
 
     monkeypatch.setattr(chat_router, 'SessionLocal', TestingSessionLocal)
     monkeypatch.setattr(provider_adapter, 'stream_chat', fake_stream)
-    turns = [{'question': 'Tell me about your last project', 'answer': 'UNVERIFIED generated claim'}]
-    for question in ['What did you do there?', 'What is TCP?']:
+    turns = [{'question': 'Расскажи про последний проект', 'answer': 'UNVERIFIED generated claim'}]
+    for question in [
+        'What did you do there?',
+        'А какие техники тест-дизайна ты там применял?',
+        'А почему там выбрали это?',
+        unrelated_question,
+    ]:
         response = client.post('/chat/interview/stream', json={
             'question': question, 'candidate_context': 'Synthetic selected resume',
             'recent_turns': turns, 'fast_answer': True,
         })
         assert response.status_code == 200
-    assert 'Project Orion' in prompts[0]
-    assert 'Synthetic selected resume' in prompts[0]
-    assert 'not confirmed experience' in prompts[0]
-    assert 'UNVERIFIED generated claim' in prompts[0]
-    assert 'STALE INVENTED OWNERSHIP' not in prompts[0]
-    assert 'Project Orion' not in prompts[1]
-    assert 'Synthetic selected resume' not in prompts[1]
-    assert 'UNVERIFIED generated claim' not in prompts[1]
+    for prompt in prompts[:3]:
+        assert 'Project Orion' in prompt
+        assert 'Synthetic selected resume' in prompt
+        assert 'not confirmed experience' in prompt
+        assert 'UNVERIFIED generated claim' in prompt
+        assert 'STALE INVENTED OWNERSHIP' not in prompt
+    assert 'Project Orion' not in prompts[3]
+    assert 'Synthetic selected resume' not in prompts[3]
+    assert 'UNVERIFIED generated claim' not in prompts[3]
 
 
 def test_interview_fast_core_resolves_known_report_asr_alias_before_prompt(client, monkeypatch):

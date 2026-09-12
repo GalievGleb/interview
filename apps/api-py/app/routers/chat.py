@@ -609,7 +609,7 @@ async def _interview_event_stream(
             personal_context = ""
             personal_context_reason = ""
             recent_turns = [turn.model_dump() for turn in payload.recent_turns]
-            history_context = build_recent_turns_context(recent_turns) if is_conversation_followup(prompt_question) else ""
+            history_context = build_recent_turns_context(recent_turns) if is_conversation_followup(prompt_question, intent) else ""
             if history_context:
                 enrichment_blocks.append(history_context)
             if needs_personal_context(prompt_question, intent, recent_turns):
