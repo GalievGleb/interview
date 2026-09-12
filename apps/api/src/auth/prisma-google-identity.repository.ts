@@ -15,8 +15,8 @@ export class PrismaGoogleIdentityRepository implements GoogleIdentityRepository 
       // Linking touches two unique keys (Google sub and normalized email).
       // Serialize both before any read/create so concurrent first sign-ins
       // cannot race into a unique violation and abort the transaction.
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`skillcue-google-sub:${identity.subject}`}))`;
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`skillcue-google-email:${identity.email}`}))`;
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`skillcue-google-sub:${identity.subject}`}))::text AS lock`;
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`skillcue-google-email:${identity.email}`}))::text AS lock`;
       const linked = await tx.authIdentity.findUnique({
         where: { provider_subject: { provider: AuthProvider.GOOGLE, subject: identity.subject } },
         include: { user: true },

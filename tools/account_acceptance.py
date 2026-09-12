@@ -18,7 +18,6 @@ import uuid
 from pathlib import Path
 from typing import Any, Protocol
 
-
 SENSITIVE_KEYS = {
     "password",
     "code",
@@ -126,7 +125,10 @@ class AccountApi:
         access_token: str | None = None,
     ) -> Any:
         data = None if body is None else json.dumps(body).encode("utf-8")
-        headers = {"Accept": "application/json"}
+        headers = {
+            "Accept": "application/json",
+            "User-Agent": "SkillCue-Account-Acceptance/0.1.13",
+        }
         if data is not None:
             headers["Content-Type"] = "application/json"
         if access_token:

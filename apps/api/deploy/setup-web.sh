@@ -19,6 +19,87 @@ APP_DIR="${APP_DIR:-/opt/skillcue}"
 GW_PORT="$(grep -oP '(?<=^GATEWAY_PORT=)\d+' "$APP_DIR/gateway.env" || echo 8787)"
 ACCOUNT_PORT="$(grep -oP '(?<=^ACCOUNT_API_PORT=)\d+' "$APP_DIR/account.env" 2>/dev/null || echo 8788)"
 
+# Production runs through a remotely managed Cloudflare Tunnel into the
+# hardened loopback nginx listener on the Raspberry Pi. Preserve that vhost
+# and add only the account routes; do not replace it with a public :80 server.
+PI_NGINX_AVAILABLE="/etc/nginx/sites-available/skillcue.conf"
+PI_NGINX_ENABLED="/etc/nginx/sites-enabled/skillcue.conf"
+PI_NGINX_BACKUP_DIR="$APP_DIR/backups/nginx-account-route"
+PI_NGINX_ACTIVE_BACKUP="$PI_NGINX_BACKUP_DIR/active.conf.before-account"
+PI_NGINX_AVAILABLE_BACKUP="$PI_NGINX_BACKUP_DIR/available.conf.before-account"
+PI_NGINX_CONF="$PI_NGINX_AVAILABLE"
+if [ -e "$PI_NGINX_ENABLED" ]; then
+  # Some older installs copied the vhost instead of creating a symlink. Patch
+  # the file nginx actually loads, then keep sites-available in sync.
+  PI_NGINX_CONF="$(readlink -f "$PI_NGINX_ENABLED")"
+fi
+if command -v nginx >/dev/null \
+  && [ -f "$PI_NGINX_CONF" ] \
+  && grep -q 'listen 127.0.0.1:8080' "$PI_NGINX_CONF"; then
+  echo "== Cloudflare Tunnel + nginx: добавляю /account/ в существующий vhost"
+  install -d -m 0700 "$PI_NGINX_BACKUP_DIR"
+  cp -a "$PI_NGINX_CONF" "$PI_NGINX_ACTIVE_BACKUP"
+  if [ -f "$PI_NGINX_AVAILABLE" ] \
+    && [ "$(readlink -f "$PI_NGINX_AVAILABLE")" != "$PI_NGINX_CONF" ]; then
+    cp -a "$PI_NGINX_AVAILABLE" "$PI_NGINX_AVAILABLE_BACKUP"
+  fi
+  python3 - "$PI_NGINX_CONF" "$ACCOUNT_PORT" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+port = int(sys.argv[2])
+text = path.read_text(encoding="utf-8")
+begin = "    # BEGIN SKILLCUE ACCOUNT\n"
+end = "    # END SKILLCUE ACCOUNT\n"
+if begin in text:
+    prefix, rest = text.split(begin, 1)
+    if end not in rest:
+        raise SystemExit("broken existing SkillCue account route marker")
+    text = prefix + rest.split(end, 1)[1]
+needle = "    location / {\n"
+if needle not in text:
+    raise SystemExit("SkillCue nginx fallback location not found")
+block = f"""{begin}    location /account/billing/webhooks/ {{
+        proxy_pass http://127.0.0.1:{port}/billing/webhooks/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_read_timeout 60s;
+    }}
+
+    location /account/ {{
+        proxy_pass http://127.0.0.1:{port}/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_read_timeout 60s;
+    }}
+{end}
+"""
+path.write_text(text.replace(needle, block + needle, 1), encoding="utf-8")
+PY
+  if [ -f "$PI_NGINX_AVAILABLE" ] \
+    && [ "$(readlink -f "$PI_NGINX_AVAILABLE")" != "$PI_NGINX_CONF" ]; then
+    cp -a "$PI_NGINX_CONF" "$PI_NGINX_AVAILABLE"
+  fi
+  install -d -m 0755 /var/www/skillcue
+  cp -a "$APP_DIR/landing/." /var/www/skillcue/
+  if ! nginx -t; then
+    cp -a "$PI_NGINX_ACTIVE_BACKUP" "$PI_NGINX_CONF"
+    if [ -f "$PI_NGINX_AVAILABLE_BACKUP" ]; then
+      cp -a "$PI_NGINX_AVAILABLE_BACKUP" "$PI_NGINX_AVAILABLE"
+    fi
+    nginx -t
+    echo "!! nginx-конфигурация не прошла проверку; восстановлена резервная копия"
+    exit 1
+  fi
+  systemctl reload nginx
+  curl -fsS "http://127.0.0.1:${ACCOUNT_PORT}/health" >/dev/null
+  curl -fsS -H "Host: $DOMAIN" "http://127.0.0.1:8080/account/health" \
+    | grep -F '"service":"skillcue-account"' >/dev/null
+  echo "== account API опубликован через Cloudflare Tunnel origin"
+  exit 0
+fi
+
 holder="$(ss -ltnp 2>/dev/null | awk '$4 ~ /:80$/{print $6; exit}')"
 
 if command -v nginx >/dev/null && [[ "${holder:-}" == *nginx* ]]; then

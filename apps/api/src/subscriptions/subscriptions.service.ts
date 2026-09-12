@@ -70,8 +70,8 @@ export class SubscriptionsService {
     const email = rawEmail.trim().toLowerCase();
     if (typeof (this.prisma as unknown as { $transaction?: unknown }).$transaction === 'function') {
       await this.prisma.$transaction(async (tx) => {
-        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`skillcue-entitlement:${email}`}))`;
-        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`skillcue-subscription:${userId}`}))`;
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`skillcue-entitlement:${email}`}))::text AS lock`;
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`skillcue-subscription:${userId}`}))::text AS lock`;
         const pending = await tx.pendingEntitlement.findMany({
           where: { email, claimedAt: null },
           orderBy: { createdAt: 'asc' },
@@ -202,7 +202,7 @@ export class SubscriptionsService {
       return this.activateWithClient(this.prisma, userId, plan, provider, externalId, periodEnd);
     }
     return this.prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`skillcue-subscription:${userId}`}))`;
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`skillcue-subscription:${userId}`}))::text AS lock`;
       return this.activateWithClient(tx, userId, plan, provider, externalId, periodEnd);
     });
   }

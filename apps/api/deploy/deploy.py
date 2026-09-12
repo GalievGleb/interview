@@ -192,6 +192,13 @@ def build_account_env() -> str:
 
     resend_key = os.environ.get("RESEND_API_KEY", "").strip()
     google_client_id = os.environ.get("SKILLCUE_GOOGLE_OAUTH_CLIENT_ID", "").strip()
+    account_port_raw = os.environ.get("SKILLCUE_ACCOUNT_API_PORT", "8788").strip()
+    try:
+        account_port = int(account_port_raw)
+    except ValueError as error:
+        raise RuntimeError("SKILLCUE_ACCOUNT_API_PORT must be a valid TCP port") from error
+    if not 1024 <= account_port <= 65535:
+        raise RuntimeError("SKILLCUE_ACCOUNT_API_PORT must be between 1024 and 65535")
     if not resend_key:
         raise RuntimeError("RESEND_API_KEY is required for account deployment")
     if not google_client_id:
@@ -209,7 +216,7 @@ def build_account_env() -> str:
     database_password = secrets["database_password"]
     lines = [
         "ACCOUNT_API_HOST=127.0.0.1",
-        "ACCOUNT_API_PORT=8788",
+        f"ACCOUNT_API_PORT={account_port}",
         "PG_ACCOUNT_USER=skillcue_account",
         f"PG_ACCOUNT_PASSWORD={database_password}",
         (
@@ -322,12 +329,30 @@ def ensure_local_ssh_key() -> str:
     return pub.read_text(encoding="utf-8").strip()
 
 
+def remote_command(
+    cmd: str, *, use_sudo: bool = False, sudo_pass: str | None = None
+) -> tuple[str, bool]:
+    if not use_sudo:
+        return cmd, False
+    if sudo_pass is None:
+        return f"sudo -n bash -c {cmd!r}", False
+    return f"sudo -S -p '' bash -c {cmd!r}", True
+
+
 def run(
-    ssh, cmd: str, *, sudo_pass: str | None = None, timeout: int = 900
+    ssh,
+    cmd: str,
+    *,
+    use_sudo: bool = False,
+    sudo_pass: str | None = None,
+    timeout: int = 900,
 ) -> tuple[int, str]:
-    if sudo_pass is not None:
-        cmd = f"sudo -S -p '' bash -c {cmd!r}"
-    _, stdout, stderr = ssh.exec_command(cmd, timeout=timeout, get_pty=bool(sudo_pass))
+    cmd, needs_pty = remote_command(
+        cmd,
+        use_sudo=use_sudo,
+        sudo_pass=sudo_pass,
+    )
+    _, stdout, stderr = ssh.exec_command(cmd, timeout=timeout, get_pty=needs_pty)
     if sudo_pass is not None:
         stdout.channel.send(sudo_pass + "\n")
     out = stdout.read().decode("utf-8", "replace")
@@ -404,7 +429,8 @@ def main() -> None:
         look_for_keys=password is None,
         allow_agent=password is None,
     )
-    sudo_pass = None if args.user == "root" else password
+    use_sudo = args.user != "root"
+    sudo_pass = password if use_sudo else None
 
     code, out = run(ssh, "uname -a && free -m | head -2 && python3 --version")
     print(out)
@@ -435,7 +461,12 @@ def main() -> None:
     steps = deployment_steps(with_account=args.with_account, domain=args.domain)
     for step in steps:
         print(f"$ {step[:90]}…")
-        code, out = run(ssh, step, sudo_pass=sudo_pass)
+        code, out = run(
+            ssh,
+            step,
+            use_sudo=use_sudo,
+            sudo_pass=sudo_pass,
+        )
         print(out[-3000:])
         if code != 0:
             sys.exit(f"шаг упал с кодом {code}")

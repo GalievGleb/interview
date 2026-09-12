@@ -64,6 +64,50 @@ test('claiming pending purchases activates each payment once for the verified ac
   assert.deepEqual(claimed, ['pending-1', 'pending-2']);
 });
 
+test('transactional entitlement locks cast PostgreSQL void results to text', async () => {
+  const queries: string[] = [];
+  const tx = {
+    $queryRaw: async (strings: TemplateStringsArray) => {
+      queries.push(strings.join('?'));
+      return [{ lock: '' }];
+    },
+    pendingEntitlement: { findMany: async () => [] },
+  };
+  const prisma = {
+    $transaction: async (callback: (client: typeof tx) => Promise<void>) => callback(tx),
+  };
+  const service = new SubscriptionsService(prisma as never);
+
+  await service.claimPending('user-1', 'buyer@example.com');
+
+  assert.equal(queries.length, 2);
+  assert.ok(queries.every((query) => query.includes('::text AS lock')));
+});
+
+test('subscription activation lock casts PostgreSQL void result to text', async () => {
+  let lockQuery = '';
+  const tx = {
+    $queryRaw: async (strings: TemplateStringsArray) => {
+      lockQuery = strings.join('?');
+      return [{ lock: '' }];
+    },
+    subscription: {
+      findUnique: async () => null,
+      upsert: async (input: unknown) => input,
+    },
+  };
+  const prisma = {
+    $transaction: async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx),
+  };
+  const service = new SubscriptionsService(prisma as never);
+
+  await service.activateSubscription(
+    'user-1', 'BASIC' as never, 'YOOKASSA', 'payment-1', new Date('2026-10-13T00:00:00Z'),
+  );
+
+  assert.ok(lockQuery.includes('::text AS lock'));
+});
+
 test('issues a 24-hour managed license for an active account subscription', async () => {
   const keys = rawKeyPair();
   const currentPeriodEnd = new Date(Date.now() + 30 * 86_400_000);

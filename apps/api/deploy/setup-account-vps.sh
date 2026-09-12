@@ -3,6 +3,7 @@ set -euo pipefail
 
 APP_DIR="${APP_DIR:-/opt/skillcue}"
 ACCOUNT_ENV="$APP_DIR/account.env"
+ACCOUNT_PORT="$(grep -oP '(?<=^ACCOUNT_API_PORT=)\d+' "$ACCOUNT_ENV" 2>/dev/null || echo 8788)"
 
 log() { echo "== $*"; }
 test -f "$ACCOUNT_ENV" || { echo "!! account.env not found"; exit 1; }
@@ -29,7 +30,7 @@ id -u skillcue >/dev/null 2>&1 || useradd --system --home "$APP_DIR" --shell /us
 
 cd "$APP_DIR"
 log "install dependencies and build isolated account API"
-pnpm install --no-frozen-lockfile
+CI=true pnpm install --no-frozen-lockfile
 pnpm --filter @interview/shared build
 pnpm --filter @interview/api db:generate
 pnpm --filter @interview/api exec tsc -p tsconfig.account.json
@@ -43,7 +44,7 @@ systemctl enable --now skillcue-account
 systemctl restart skillcue-account
 
 for _ in $(seq 1 30); do
-  if curl -fsS http://127.0.0.1:8788/health >/dev/null; then
+  if curl -fsS "http://127.0.0.1:${ACCOUNT_PORT}/health" >/dev/null; then
     log "account API OK"
     exit 0
   fi

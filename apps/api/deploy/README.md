@@ -77,7 +77,17 @@ curl -s http://127.0.0.1:8787/gateway/stats -H "x-admin-secret: <секрет>" 
 
 - **Гейтвей:** скопировать изменённые файлы `apps/api/src/**` → `cd /opt/skillcue/apps/api && npx tsc -p tsconfig.gateway.json && systemctl restart skillcue-gateway`.
 - **Бот:** `scp tools/leadbot/leadbot.py skillcue-pi:/home/gleb/ && ssh skillcue-pi 'sudo install -o leadbot -g leadbot -m 0640 /home/gleb/leadbot.py /opt/skillcue-leadbot/leadbot.py && sudo systemctl restart skillcue-leadbot'`.
-- **Полный передеплой:** запускать на Pi либо адаптировать deploy-команду под `skillcue-pi`; старый Beget больше не является production host.
+- **Полный передеплой:** старый Beget больше не является production host. Для Pi
+  используется `192.168.2.132`, пользователь `gleb` и беспарольный `sudo`:
+
+  ```powershell
+  $env:SKILLCUE_ACCOUNT_API_PORT = '8789'
+  py -3.12 apps/api/deploy/deploy.py --host 192.168.2.132 --user gleb --with-account
+  ```
+
+  Перед полным передеплоем сохраните серверный `gateway.env`: он содержит
+  действующие production-ключи. Для обычных изменений предпочтителен точечный
+  rollout только затронутого сервиса с резервной копией.
 
 ## Домен + HTTPS (когда DNS `skill-cue.ru` доедет)
 

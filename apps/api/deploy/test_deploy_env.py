@@ -56,6 +56,36 @@ def test_account_env_contains_required_server_only_configuration(monkeypatch, tm
     assert "DEVICE_ID_SECRET=" in env
 
 
+def test_account_env_supports_an_explicit_free_port(monkeypatch, tmp_path):
+    monkeypatch.setenv("RESEND_API_KEY", "re_test_key")
+    monkeypatch.setenv(
+        "SKILLCUE_GOOGLE_OAUTH_CLIENT_ID",
+        "client.apps.googleusercontent.com",
+    )
+    monkeypatch.setenv("SKILLCUE_ACCOUNT_API_PORT", "8789")
+    monkeypatch.setattr(deploy, "read_yookassa_secret", lambda: "yookassa-test")
+    monkeypatch.setattr(deploy, "ACCOUNT_SECRETS_FILE", tmp_path / "account-secrets.json")
+    signing_key = tmp_path / "signing-key"
+    signing_key.write_text("ab" * 32, encoding="utf-8")
+    monkeypatch.setattr(deploy, "SIGNING_KEY_FILE", signing_key)
+
+    env = deploy.build_account_env()
+
+    assert "ACCOUNT_API_PORT=8789" in env
+
+
+def test_passwordless_sudo_wraps_only_privileged_deployment_commands():
+    wrapped, needs_pty = deploy.remote_command(
+        "bash /opt/skillcue/setup.sh",
+        use_sudo=True,
+        sudo_pass=None,
+    )
+
+    assert wrapped.startswith("sudo -n bash -c ")
+    assert "/opt/skillcue/setup.sh" in wrapped
+    assert needs_pty is False
+
+
 def test_account_env_refuses_to_deploy_without_google_or_mail(monkeypatch, tmp_path):
     monkeypatch.delenv("RESEND_API_KEY", raising=False)
     monkeypatch.delenv("SKILLCUE_GOOGLE_OAUTH_CLIENT_ID", raising=False)
@@ -89,6 +119,23 @@ def test_account_deploy_enables_public_https_route_after_service_setup():
     web_index = next(i for i, step in enumerate(steps) if "setup-web.sh" in step)
     assert account_index < web_index
     assert "DOMAIN=skill-cue.ru" in steps[web_index]
+
+
+def test_pi_account_setup_uses_configured_port_and_tunnel_nginx_route():
+    deploy_dir = Path(__file__).parent
+    account_setup = (deploy_dir / "setup-account-vps.sh").read_text(encoding="utf-8")
+    web_setup = (deploy_dir / "setup-web.sh").read_text(encoding="utf-8")
+
+    assert "ACCOUNT_API_PORT" in account_setup
+    assert "127.0.0.1:${ACCOUNT_PORT}/health" in account_setup
+    assert "CI=true pnpm install" in account_setup
+    assert "listen 127.0.0.1:8080" in web_setup
+    assert "BEGIN SKILLCUE ACCOUNT" in web_setup
+    assert "PI_NGINX_ENABLED" in web_setup
+    assert 'readlink -f "$PI_NGINX_ENABLED"' in web_setup
+    assert 'PI_NGINX_BACKUP_DIR="$APP_DIR/backups/nginx-account-route"' in web_setup
+    assert '"${PI_NGINX_CONF}.before-account"' not in web_setup
+    assert 'grep -F \'"service":"skillcue-account"\' >/dev/null' in web_setup
 
 
 def test_deploy_bundle_never_contains_local_account_or_environment_secrets(monkeypatch, tmp_path):

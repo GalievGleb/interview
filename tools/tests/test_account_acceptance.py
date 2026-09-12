@@ -1,9 +1,37 @@
+import json
+import urllib.request
+
 from tools.account_acceptance import (
+    AccountApi,
     AccountHttpError,
     extract_error_code,
     redact_report,
     run_device_acceptance,
 )
+
+
+def test_account_http_client_uses_skillcue_user_agent(monkeypatch):
+    seen: dict[str, str | None] = {}
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def read(self):
+            return json.dumps({"ok": True}).encode()
+
+    def fake_urlopen(request, timeout):
+        del timeout
+        seen["user_agent"] = request.get_header("User-agent")
+        return Response()
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+
+    assert AccountApi("https://skill-cue.ru/account").health() == {"ok": True}
+    assert seen["user_agent"] == "SkillCue-Account-Acceptance/0.1.13"
 
 
 class FakeAccountApi:

@@ -21,7 +21,7 @@ export class PrismaDeviceSessionRepository implements DeviceSessionRepository {
 
   async createIfBelowLimit(record: DeviceSessionRecord, limit: number): Promise<boolean> {
     return this.prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`skillcue-device:${record.userId}`}))`;
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`skillcue-device:${record.userId}`}))::text AS lock`;
       const active = await tx.deviceSession.count({
         where: { userId: record.userId, revokedAt: null },
       });
