@@ -143,10 +143,10 @@
       { "key": "скриншоты", "aliases": ["скриншот", "скриншоты", "screenshot", "screenshots"] },
       { "key": "Allure", "aliases": ["allure", "аллюр", "отчёт", "отчет"] },
       { "key": "ожидания", "aliases": ["ожидания", "ожидание", "wait", "waits", "explicit wait"] },
-      { "key": "retries", "aliases": ["retries", "retry", "перезапуск", "rerun"] },
+      { "key": "retries", "aliases": ["retries", "retry", "перезапуск", "повторный запуск", "rerun"] },
       { "key": "sleep", "aliases": ["sleep", "слип", "time.sleep", "пауза"] },
       { "key": "локаторы", "aliases": ["локатор", "локаторы", "selector", "selectors", "селекторы"] },
-      { "key": "изоляция", "aliases": ["изоляция", "изолировать", "isolation", "независим"] }
+      { "key": "изоляция", "aliases": ["изоляция", "изолировать", "изолировали", "isolation", "независим"] }
     ],
     "forbiddenAnswerPhrases": ["просто перезапускал", "не разбирался", "я не знаю"],
     "maxAnswerLengthWords": 150,

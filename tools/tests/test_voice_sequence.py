@@ -120,3 +120,27 @@ def test_packaged_answer_request_carries_recent_completed_turns(monkeypatch):
     }, recent_turns=prior)
     assert result[0] == 'alpha beta gamma'
     assert requests[0]['recent_turns'] == prior
+
+
+def test_case04_answer_russian_synonyms_match_isolation_and_retries(monkeypatch):
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1]))
+    import verify_dev_voice_overlay as verifier
+
+    cases = json.loads(
+        (Path(__file__).resolve().parents[2] / 'tests' / 'voice' / 'cases.json').read_text('utf-8')
+    )
+    case = next(case for case in cases if case['id'] == '04_flaky_tests')
+    answer = (
+        'В отчёт добавили логи и Allure. '
+        'В пайплайне мы изолировали зависимости между запусками, '
+        'а повторный запуск служил лишь временной диагностикой.'
+    )
+
+    matched = verifier._matches(answer, case['requiredAnswerKeywords'])
+
+    assert {'логи', 'Allure', 'retries', 'изоляция'} <= set(matched)
+    assert 'sleep' not in matched
+
+    unrelated = 'Для диагностики приложили только скриншоты и локаторы.'
+    unrelated_matches = verifier._matches(unrelated, case['requiredAnswerKeywords'])
+    assert {'retries', 'изоляция'}.isdisjoint(unrelated_matches)
