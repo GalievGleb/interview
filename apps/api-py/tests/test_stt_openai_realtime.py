@@ -3,6 +3,7 @@ import json
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
 from app.config import Settings
 from app.routers import stt as stt_router
@@ -31,9 +32,13 @@ class _LocalWebSocket:
 
 
 class _FakeGateway:
-    def __init__(self, *, complete_on_commit: bool, complete_on_bind: bool = True):
+    def __init__(
+        self, *, complete_on_commit: bool, complete_on_bind: bool = True,
+        transcript: str = "Какие виды?",
+    ):
         self.complete_on_commit = complete_on_commit
         self.complete_on_bind = complete_on_bind
+        self.transcript = transcript
         self.incoming = asyncio.Queue()
         self.sent_audio = []
         self.sent_controls = []
@@ -108,7 +113,7 @@ class _FakeGateway:
                     "item_id": item_id,
                     "client_turn_id": turn_id,
                     "force_request_id": force_request_id,
-                    "transcript": "Какие виды?",
+                    "transcript": self.transcript,
                 }
             )
         )
@@ -217,6 +222,91 @@ async def test_ctrl_enter_binds_to_unresolved_automatic_turn_instead_of_returnin
     assert [event["type"] for event in gateway.sent_controls] == ["commit", "bind_force"]
     assert transcript["force_request_id"] == "force-inflight"
     assert not any(event.get("type") == "force_empty" for event in local.sent)
+
+
+async def _wait_for_controls(gateway, count):
+    async def _wait():
+        while len(gateway.sent_controls) < count:
+            await asyncio.sleep(0)
+
+    await asyncio.wait_for(_wait(), timeout=1)
+
+
+async def _send_automatic_question_with_room_noise(local, gateway):
+    await local.messages.put({"bytes": (1200).to_bytes(2, "little") * 4800})
+    for _ in range(7):
+        await local.messages.put({"bytes": (140).to_bytes(2, "little") * 1600})
+    await _wait_for_controls(gateway, 1)
+
+
+async def test_noise_tail_does_not_steal_force_from_current_automatic_question():
+    """The real endpointer must not promote continuing room noise to a new turn."""
+    local = _LocalWebSocket()
+    gateway = _FakeGateway(
+        complete_on_commit=False,
+        transcript="Что вы делали с нестабильными автотестами в CI/CD пайплайне?",
+    )
+    task = asyncio.create_task(run_openai_realtime_stream(
+        local, sample_rate=16000, gateway_url="https://skill-cue.ru/v1",
+        license_key="license-test", connect_factory=gateway.connect,
+    ))
+    try:
+        await _wait_for_event(local, "ready")
+        await _send_automatic_question_with_room_noise(local, gateway)
+        for amplitude in (140, 126, 136, 141, 167):
+            await local.messages.put({"bytes": amplitude.to_bytes(2, "little") * 1600})
+        await local.messages.put({"text": json.dumps({
+            "type": "finalize", "request_id": "force-full-question",
+        })})
+        await _wait_for_controls(gateway, 2)
+
+        assert [event["type"] for event in gateway.sent_controls] == ["commit", "bind_force"]
+        transcript = await _wait_for_event(local, "transcript")
+        assert transcript["text"] == "Что вы делали с нестабильными автотестами в CI/CD пайплайне?"
+        assert transcript["force_request_id"] == "force-full-question"
+        assert transcript["utterance_id"] == gateway.sent_controls[0]["client_turn_id"]
+        assert not any(event["type"] in {"low_quality", "force_empty"} for event in local.sent)
+    finally:
+        await local.messages.put({"type": "websocket.disconnect"})
+        await asyncio.wait_for(task, timeout=1)
+
+
+@pytest.mark.parametrize("pause_ms, amplitude", [(100, 100), (0, 250), (0, 900)])
+async def test_new_question_after_room_noise_gets_its_own_force_not_old_question(
+    pause_ms, amplitude,
+):
+    """New quiet/loud speech must be kept, not retag the earlier in-flight turn."""
+    local = _LocalWebSocket()
+    gateway = _FakeGateway(complete_on_commit=False, complete_on_bind=False)
+    task = asyncio.create_task(run_openai_realtime_stream(
+        local, sample_rate=16000, gateway_url="https://skill-cue.ru/v1",
+        license_key="license-test", connect_factory=gateway.connect,
+    ))
+    try:
+        await _wait_for_event(local, "ready")
+        await _send_automatic_question_with_room_noise(local, gateway)
+        if pause_ms:
+            await local.messages.put({"bytes": b"\0\0" * (16 * pause_ms)})
+        await local.messages.put({"bytes": amplitude.to_bytes(2, "little") * 8000})
+        await local.messages.put({"text": json.dumps({
+            "type": "finalize", "request_id": "force-new-quiet",
+        })})
+        await _wait_for_controls(gateway, 2)
+        assert [event["type"] for event in gateway.sent_controls] == ["commit", "commit"]
+        await gateway.complete("item-2")
+        transcript = await _wait_for_event(local, "transcript")
+        assert transcript["force_request_id"] == "force-new-quiet"
+        assert transcript["utterance_id"] == gateway.sent_controls[1]["client_turn_id"]
+        # New speech plus the optional pause went to the upstream, too.
+        expected_seconds = 1.5 + pause_ms / 1000
+        assert abs(sum(map(len, gateway.sent_audio)) / (24000 * 2) - expected_seconds) < 0.01
+        await gateway.complete("item-1")
+        await _wait_for_event(local, "low_quality")
+        owned = [event for event in local.sent if event.get("force_request_id") == "force-new-quiet"]
+        assert {event["utterance_id"] for event in owned} == {transcript["utterance_id"]}
+    finally:
+        await local.messages.put({"type": "websocket.disconnect"})
+        await asyncio.wait_for(task, timeout=1)
 
 
 async def test_realtime_prompt_echo_is_rejected_instead_of_becoming_transcript():

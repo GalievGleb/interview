@@ -387,6 +387,36 @@ def test_endpointer_detects_quiet_speech_after_long_silence():
     assert endpointer.has_pending_audio() is True
 
 
+def test_endpointer_does_not_promote_automatic_question_noise_tail_to_manual_speech():
+    endpointer = Endpointer(sample_rate=16000, silence_hang_ms=700)
+    endpointer.feed((1200).to_bytes(2, "little") * 4800)
+    for _ in range(7):
+        committed = endpointer.feed((140).to_bytes(2, "little") * 1600)
+    assert committed is True
+    endpointer.take_utterance()
+    tail = b"".join(amplitude.to_bytes(2, "little") * 1600 for amplitude in (140, 126, 136, 141, 167))
+    endpointer.feed(tail)
+
+    assert endpointer.has_pending_audio() is False
+    # Classification must not erase potentially meaningful quiet PCM.
+    assert endpointer.take_utterance(forced=True) == tail
+
+
+def test_endpointer_keeps_new_loud_speech_after_automatic_question_noise_tail():
+    endpointer = Endpointer(sample_rate=16000, silence_hang_ms=700)
+    endpointer.feed((1200).to_bytes(2, "little") * 4800)
+    for _ in range(7):
+        endpointer.feed((140).to_bytes(2, "little") * 1600)
+    endpointer.take_utterance()
+    tail = (140).to_bytes(2, "little") * 6400
+    question = (900).to_bytes(2, "little") * 8000
+    endpointer.feed(tail)
+    endpointer.feed(question)
+
+    assert endpointer.has_pending_audio() is True
+    assert endpointer.take_utterance(forced=True) == tail + question
+
+
 def test_quality_gate_does_not_rewrite_transcript():
     transcript = "гейммикс си ди докер"
 

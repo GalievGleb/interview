@@ -17,6 +17,7 @@ logger = logging.getLogger("stt.openai_mini_stream")
 
 SPEECH_RMS_THRESHOLD = 280.0
 MANUAL_RMS_THRESHOLD = 50.0
+MANUAL_NOISE_FLOOR_MULT = 1.5
 NOISE_FLOOR_MULT = 2.5
 SILENCE_HANG_MS = 500
 MIN_SPEECH_MS = 250
@@ -39,7 +40,9 @@ def _rms_int16(pcm: bytes) -> float:
     return float(np.sqrt(np.mean(samples * samples)))
 
 
-def _has_sustained_signal(pcm: bytes, sample_rate: int) -> bool:
+def _has_sustained_signal(
+    pcm: bytes, sample_rate: int, *, noise_floor: float = 0.0
+) -> bool:
     """Detect quiet speech without averaging it together with a long pause."""
     frame_bytes = max(2, int(sample_rate * 2 * MANUAL_SIGNAL_FRAME_MS / 1000))
     required_frames = max(1, MIN_SPEECH_MS // MANUAL_SIGNAL_FRAME_MS)
@@ -48,7 +51,13 @@ def _has_sustained_signal(pcm: bytes, sample_rate: int) -> bool:
         frame = pcm[offset : offset + frame_bytes]
         if len(frame) < frame_bytes:
             break
-        if _rms_int16(frame) >= MANUAL_RMS_THRESHOLD:
+        rms = _rms_int16(frame)
+        # An automatic commit has already identified its trailing room noise.
+        # Continuing that same noise is not a new manually requested question.
+        # A quieter interval can lower the floor, but quiet speech itself must
+        # never raise it and make its later frames disappear.
+        noise_floor = min(noise_floor, rms)
+        if rms >= max(MANUAL_RMS_THRESHOLD, noise_floor * MANUAL_NOISE_FLOOR_MULT):
             consecutive_frames += 1
             if consecutive_frames >= required_frames:
                 return True
@@ -73,6 +82,7 @@ class Endpointer:
         self._in_speech = False
         self._silence_bytes = 0
         self._noise_floor = 0.0
+        self._manual_noise_floor = 0.0
 
     def _threshold(self) -> float:
         return max(SPEECH_RMS_THRESHOLD, self._noise_floor * NOISE_FLOOR_MULT)
@@ -125,6 +135,12 @@ class Endpointer:
 
     def take_utterance(self, *, forced: bool = False) -> bytes:
         result = bytes(self._manual) if forced else bytes(self._speech)
+        if not forced:
+            self._manual_noise_floor = (
+                _rms_int16(bytes(self._speech[-self._silence_bytes :]))
+                if self._silence_bytes >= self.silence_hang_ms * self.bytes_per_ms
+                else 0.0
+            )
         self._speech.clear()
         self._preroll.clear()
         self._manual.clear()
@@ -137,7 +153,7 @@ class Endpointer:
 
     def has_pending_audio(self) -> bool:
         return len(self._manual) >= MIN_SPEECH_MS * self.bytes_per_ms and _has_sustained_signal(
-            bytes(self._manual), self.sample_rate
+            bytes(self._manual), self.sample_rate, noise_floor=self._manual_noise_floor
         )
 
 
