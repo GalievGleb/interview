@@ -167,16 +167,16 @@
     "requiredAnswerKeywords": [
       {
         "key": "god object",
-        "aliases": ["god object", "большой page object", "слишком много методов", "толстый page object"]
+        "aliases": ["god object", "большой page object", "слишком много методов", "толстый page object", "божественных объектов"]
       },
-      { "key": "логика", "aliases": ["логика", "логики", "бизнес логика", "business logic"] },
+      { "key": "логика", "aliases": ["логика", "логики", "бизнес логика", "бизнес-логикой", "business logic"] },
       {
         "key": "assertions",
-        "aliases": ["assertions", "assert", "проверки внутри page", "ассерты", "assertion"]
+        "aliases": ["assertions", "assert", "проверки внутри page", "утверждениями внутри", "ассерты", "assertion"]
       },
       { "key": "локаторы", "aliases": ["локаторы", "локатор", "selectors", "селекторы", "selector"] },
-      { "key": "sleep", "aliases": ["sleep", "слипы", "time.sleep", "hardcoded sleep"] },
-      { "key": "waits", "aliases": ["waits", "ожидания", "explicit wait", "auto-wait", "wait"] },
+      { "key": "sleep", "aliases": ["sleep", "слипы", "фиксированных задержек", "time.sleep", "hardcoded sleep"] },
+      { "key": "waits", "aliases": ["waits", "ожидания", "явных ожиданий", "explicit wait", "auto-wait", "wait"] },
       { "key": "дубли", "aliases": ["дубли", "дублирование", "повторение", "duplicate"] }
     ],
     "forbiddenAnswerPhrases": ["ошибок не бывает", "не знаю", "не использовал"],

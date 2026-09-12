@@ -144,3 +144,29 @@ def test_case04_answer_russian_synonyms_match_isolation_and_retries(monkeypatch)
     unrelated = 'Для диагностики приложили только скриншоты и локаторы.'
     unrelated_matches = verifier._matches(unrelated, case['requiredAnswerKeywords'])
     assert {'retries', 'изоляция'}.isdisjoint(unrelated_matches)
+
+
+def test_case05_answer_russian_synonyms_match_all_pom_concepts(monkeypatch):
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1]))
+    import verify_dev_voice_overlay as verifier
+
+    cases = json.loads(
+        (Path(__file__).resolve().parents[2] / 'tests' / 'voice' / 'cases.json').read_text('utf-8')
+    )
+    case = next(case for case in cases if case['id'] == '05_page_object_mistakes')
+    answer = (
+        'Частые ошибки в Page Object Model включают создание божественных объектов '
+        'с бизнес-логикой и утверждениями внутри, что нарушает разделение ответственности. '
+        'Также встречаются дублирующиеся локаторы, использование фиксированных задержек '
+        'вместо явных ожиданий и неясные имена методов.'
+    )
+
+    matched = verifier._matches(answer, case['requiredAnswerKeywords'])
+
+    assert {
+        'god object', 'логика', 'assertions', 'локаторы', 'sleep', 'waits', 'дубли',
+    } <= set(matched)
+
+    unrelated = 'Ответ описывает только API-схемы, заголовки и статус-коды.'
+    unrelated_matches = verifier._matches(unrelated, case['requiredAnswerKeywords'])
+    assert not unrelated_matches
