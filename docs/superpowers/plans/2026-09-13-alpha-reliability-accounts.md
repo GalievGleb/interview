@@ -26,15 +26,15 @@
 
 **Interfaces:** Keep `notifyDelayedForcedTranscript` as a soft notification for late final ownership. Add `expireDelayedForcedTranscript(coordinator, generation, onExpired): boolean`, accepting coordinator snapshot/setPhase, that terminalizes only the current `finalizing-transcript` generation. Add a separately cancellable hard-deadline scheduler in the hook; preserve existing candidate follow-up behavior. Soft notice remains 3500 ms, hard deadline is 12000 ms from the original request and never extended by repeated scheduling. All cancellation/reset paths release both schedulers. Deadline must not steal a streamed answer or screen request.
 
-- [ ] Write red tests: first question done, second flush, soft notice still owns request, hard expiration gives `phase: 'error', requestId: null, pendingRequestCount: 0`; a late tagged final after expiry cannot submit; expiry of generation 1 cannot cancel generation 2; successful final before deadline is not cancelled. Example core assertion:
+- [x] Write red tests: first question done, second flush, soft notice still owns request, hard expiration gives `phase: 'error', requestId: null, pendingRequestCount: 0`; a late tagged final after expiry cannot submit; expiry of generation 1 cannot cancel generation 2; successful final before deadline is not cancelled. Example core assertion:
 ```ts
 expect(expireDelayedForcedTranscript(coordinator, generation, () => {})).toBe(true);
 expect(coordinator.snapshot()).toMatchObject({ phase: 'error', pendingRequestCount: 0, requestId: null });
 ```
-- [ ] Run `pnpm --filter @interview/desktop exec vitest run src/lib/latestForcedAnswer.test.ts`; confirm missing behavior before implementation, not a broken import harness.
-- [ ] Implement the minimal phase-guarded expiration and hook integration. On hard expiry clear candidate owner, prefix timer and current partial bookkeeping where owned; publish the phase and a retryable error. No unrelated final or last answer used as fallback. Record metadata-only diagnostics if an existing recorder fits.
-- [ ] Add a real coordinator/ledger/stream lifecycle test of ten sequential question/final/answer completions with no pending owner after each, and a lost-final interruption followed by a recoverable subsequent answer. This is deterministic orchestration evidence, not an acoustic acceptance claim.
-- [ ] Run targeted voice/coordinator/source-reliability tests and desktop typecheck. Record RED/GREEN and self-review; commit only task-owned files after checking staged diff.
+- [x] Run `pnpm --filter @interview/desktop exec vitest run src/lib/latestForcedAnswer.test.ts`; confirm missing behavior before implementation, not a broken import harness.
+- [x] Implement the minimal phase-guarded expiration and hook integration. On hard expiry clear candidate owner, prefix timer and current partial bookkeeping where owned; publish the phase and a retryable error. No unrelated final or last answer used as fallback. Record metadata-only diagnostics if an existing recorder fits.
+- [x] Add a real coordinator/ledger/stream lifecycle test of ten sequential question/final/answer completions with no pending owner after each, and a lost-final interruption followed by a recoverable subsequent answer. This is deterministic orchestration evidence, not an acoustic acceptance claim.
+- [x] Run targeted voice/coordinator/source-reliability tests and desktop typecheck. Record RED/GREEN and self-review; commit only task-owned files after checking staged diff.
 
 ## Task 2: Bounded candidate and conversation continuity
 
@@ -42,11 +42,11 @@ expect(coordinator.snapshot()).toMatchObject({ phase: 'error', pendingRequestCou
 
 **Interfaces:** A small in-memory list of the last two completed turns (`question`, `answer`) for the active interview, max 800 chars per question and 1800 per answer. Send as `recent_turns` only on live fast requests; backend validates size/count. Profile facts and conversation answers are separate prompt blocks: prior generated answers are not confirmed experience. Never persist this memory outside the active session. Build a bounded context combining selected resume and actual local profile/legend facts with explicit source labels, never letting nonempty resume suppress all project facts. Preserve the separately labelled selected resume budget (3200 chars) and project/profile budget (3200 chars); use raw legend and/or user-edited profile, never a stale generated pack as authoritative facts. A fresh generated pack may be used only when it demonstrably matches the source selection, otherwise omit it. Include personal data for a follow-up about the prior project even if this question alone classifies as general; unrelated theory should not receive it. No new profile/account UI required in this task. Any existing content-source change signal must invalidate live memory; refresh at session start and guard async preload against older session results.
 
-- [ ] RED: test 2-turn bounding/reset and exclusion of failed/partial answers; test fast payload includes history; test backend personal prompt includes project facts even with a nonempty resume and labels untrusted prior answers. Theory without a follow-up must not acquire personal context. Use synthetic resume/project fixtures only.
-- [ ] Run the new Vitest and pytest cases and observe the missing behavior.
-- [ ] Implement the bounded memory, reset on start/stop/profile switch, send context on request, and append only successful current-generation complete answers. Combine independently budgeted resume/profile blocks in fast personal/follow-up prompts without another model request.
-- [ ] GREEN: run `pnpm --filter @interview/desktop test`, desktop typecheck and `.venv/Scripts/python.exe -m pytest tests/test_chat_review.py tests/test_candidate_profile.py tests/test_fast_candidate_context.py -q` from api-py.
-- [ ] Review and commit only this task's changes. Keep user's screen pipeline changes untouched.
+- [x] RED: test 2-turn bounding/reset and exclusion of failed/partial answers; test fast payload includes history; test backend personal prompt includes project facts even with a nonempty resume and labels untrusted prior answers. Theory without a follow-up must not acquire personal context. Use synthetic resume/project fixtures only.
+- [x] Run the new Vitest and pytest cases and observe the missing behavior.
+- [x] Implement the bounded memory, reset on start/stop/profile switch, send context on request, and append only successful current-generation complete answers. Combine independently budgeted resume/profile blocks in fast personal/follow-up prompts without another model request.
+- [x] GREEN: run `pnpm --filter @interview/desktop test`, desktop typecheck and `.venv/Scripts/python.exe -m pytest tests/test_chat_review.py tests/test_candidate_profile.py tests/test_fast_candidate_context.py -q` from api-py.
+- [x] Review and commit only this task's changes. Keep user's screen pipeline changes untouched.
 
 ## Task 3: Update diagnostics and channel identity
 
@@ -54,9 +54,9 @@ expect(coordinator.snapshot()).toMatchObject({ phase: 'error', pendingRequestCou
 
 **Interfaces:** `describeUpdateError(error: unknown): string` maps DNS, connection timeout, missing manifest and integrity failures to safe Russian messages, never includes raw URL query/token. Unknown returns a generic error. Use it for updater events/check promises. Disabled Alpha updater must say Alpha and explain the separate installer, not claim Dev. No feed migration to unconfigured hosting.
 
-- [ ] RED: behavioral tests using Error('net::ERR_NAME_NOT_RESOLVED'), ENOTFOUND, timeout, checksum mismatch, 404 and an error URL with a secret; require useful retry/install guidance and absence of secret.
-- [ ] Implement helper and integrate every updater catch/event. Run focused tests, Electron compilation and desktop typecheck.
-- [ ] Update channel docs with actual Alpha metadata, existing screen features, ten-question acceptance instructions, and manual-only Alpha delivery. Distinguish build source version from installed version; do not rewrite Stable package version for Alpha.
+- [x] RED: behavioral tests using Error('net::ERR_NAME_NOT_RESOLVED'), ENOTFOUND, timeout, checksum mismatch, 404 and an error URL with a secret; require useful retry/install guidance and absence of secret.
+- [x] Implement helper and integrate every updater catch/event. Run focused tests, Electron compilation and desktop typecheck.
+- [x] Update channel docs with actual Alpha metadata, existing screen features, ten-question acceptance instructions, and manual-only Alpha delivery. Distinguish build source version from installed version; do not rewrite Stable package version for Alpha.
 
 ## Task 4: Isolated account deployment prerequisites and implementation gate
 
@@ -64,16 +64,68 @@ expect(coordinator.snapshot()).toMatchObject({ phase: 'error', pendingRequestCou
 
 **Interfaces:** Account authority needs durable PostgreSQL, verified email delivery, separately scoped Alpha endpoint/config, safe session storage and account-aware authorization on every paid route. Legacy bearer verification is synchronous today; integration must cover HTTP and both STT paths, not just checkout.
 
-- [ ] Inventory configured services by presence/names only; inspect Alpha gateway routing, local Docker availability and existing deployment entrypoints.
-- [ ] Verify whether separate Alpha account authority, database, mail delivery and test payments can run without modifying shared production. If missing a user-owned service/secret/approval, record the exact gate and ask for it; do not pretend accounts work in the installed app.
+- [x] Inventory configured services by presence/names only; inspect Alpha gateway routing, local Docker availability and existing deployment entrypoints.
+- [x] Verify whether separate Alpha account authority, database, mail delivery and test payments can run without modifying shared production. If missing a user-owned service/secret/approval, record the exact gate and ask for it; do not pretend accounts work in the installed app.
 - [ ] Once these are available, write a dedicated account subproject plan with exact endpoints/DTOs/migrations and tests before implementation. Required contract: verified-email account ownership, per-device rotating sessions, transactional two-device cap, live lease with reconnect grace, unique durable payment application, shared usage, non-destructive old purchase claim. No recurring charges without explicit enablement.
 
 ## Task 5: Alpha packaging and acceptance
 
 **Files:** `tools/verify_dev_voice_overlay.py`, `tools/install_and_verify_alpha.ps1`, associated tests, Alpha guide.
 
-- [ ] Read existing verifier and extend its actual voice suite to ten successive questions with nonempty completed answers in one session. Preserve each case's own force request identity. Verify old Alpha screen/recording fixes with their existing tests.
-- [ ] Record Dev/Stable EXE hashes before packaging and compare after installation. Backup Alpha settings/data before any migration; do not overwrite Dev/Stable data or stop their processes.
-- [ ] Build Alpha backend + Electron from the reviewed branch; installer must remain separate and monotonic. Install only the exact `SkillCue-Alpha-Setup.exe`; verify installed version and backend health.
-- [ ] Run packaged recording/hotkey smoke, ten-question voice acceptance and typed screen acceptance with synthetic fixtures. Report acoustic/live checks separately from deterministic tests, and do not silently consume unlimited provider budget on retries.
-- [ ] Final review of the actual task diff, report what is implemented/installed and what remains gated. No claim that accounts, DNS, HH student environment or Stable rollout are fixed without corresponding evidence.
+- [x] Read existing verifier and extend its actual voice suite to ten successive questions with nonempty completed answers in one session. Preserve each case's own force request identity. Verify old Alpha screen/recording fixes with their existing tests.
+- [x] Record Dev/Stable EXE hashes before packaging and compare after installation. Backup Alpha settings/data before any migration; do not overwrite Dev/Stable data or stop their processes.
+- [x] Build Alpha backend + Electron from the reviewed branch; installer must remain separate and monotonic. Install only the exact `SkillCue-Alpha-Setup.exe`; verify installed version and backend health.
+- [x] Run packaged recording/UI smoke, ten-question voice acceptance and typed screen acceptance with synthetic fixtures. Report acoustic/live checks separately from deterministic tests, and do not silently consume unlimited provider budget on retries.
+- [x] Final review of the actual task diff, report what is implemented/installed and what remains gated. No claim that accounts, DNS, HH student environment or Stable rollout are fixed without corresponding evidence.
+
+## Task 6: Final review documentation correction
+
+**Files:** `SKILLCUE_ALPHA_TEST_GUIDE.md` only.
+
+**Interface:** existing `tools/install_and_verify_alpha.ps1` runs basic smoke; the required ten-turn check is currently a separate command.
+
+- [x] Replace the claim "Полная пересборка, установка и все обязательные Alpha-smoke одной командой" with accurate wording: "Пересборка, установка и базовые Alpha-smoke одной командой".
+- [x] Immediately after that code block require running `.\apps\api-py\.venv\Scripts\python.exe tools\verify_alpha_voice_sequence.py` from the repository root. Say the update is not accepted until the separate run reports completed=10 and passed=true. Do not change the installer script, test thresholds, installed version or claim tests already ran.
+- [x] Check the documentation against the existing script, run `git diff --check`, commit only the guide. Human prose needs no automated code test. Record a concise report and leave review to the controller.
+
+## Installed acceptance follow-up, 13 September
+
+Tasks 1–3 and 6 passed source review and tests. Task 4 prerequisites were inspected:
+mail delivery and an isolated account authority remain gated. Task 5 first
+installation preserved Dev/Stable hashes and passed Electron recording smoke,
+but failed the first strict voice and screen acceptance. See the dated installed
+acceptance report for corrective builds and fresh results. Unchecked items remain
+pending or gated; checked source tasks do not substitute for installed evidence.
+
+### Task 7: Quiet trailing audio steals forced question ownership
+
+- [x] Reproduce the fourth WAV failure in production Endpointer and realtime bridge.
+- [x] Add failing deterministic regression plus valid quiet/new speech controls.
+- [x] Correct residual-noise classification without replaying old transcripts.
+- [x] Review, rebuild Alpha and rerun the same strict ten-question series.
+
+### Task 8: Asymmetric checklist identifier normalization
+
+- [x] Reproduce raw-prior versus normalized-current `payment_method` false negative.
+- [x] Add a failing full refinement/repair regression with different semantic keys.
+- [x] Preserve identical concept tokenization on both sides; keep exact-text
+  normalization and all existing acceptance thresholds.
+- [x] Review and include in the corrective Alpha build. Do not claim this proves
+  the cause of the installed checklist failure or fixes model response latency.
+
+## Final local Alpha outcome
+
+Installed `0.1.14-alpha.g1109208c`; strict voice10/10, screen3/3 and Electron
+recording/UI smoke passed. Metadata and hashes are in
+`docs/2026-09-13-alpha-installed-acceptance.md`. Fixture-only vocabulary follow-ups
+`709c63b` and `68777fa` have RED/GREEN regressions and independent review; they do
+not change installed application bytes or acceptance thresholds.
+
+- [x] Preserve existing Alpha screen work and isolate installation from Dev/Stable.
+- [x] Verify exact installed app.asar/backend hashes against packaged artifacts.
+- [x] Record previous failures as well as final passing runs.
+- [ ] Owner manual physical global-hotkey test; automated recording/UI and backend
+  tests do not prove keyboard delivery with multiple SkillCue variants open.
+- [ ] Extended nine-screen-attempt acceptance and long soak before Stable promotion.
+- [ ] Account server/mail provisioning and actual account/subscription/device work
+  from Task4; no claim of delivered login, device cap or payment migration.
