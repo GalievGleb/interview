@@ -28,6 +28,7 @@ import {
   SpeechActivityTracker,
 } from '../lib/forceLiveAnswer';
 import {
+  expireDelayedForcedTranscript,
   ForceFallbackScheduler,
   LatestForcedAnswerCoordinator,
   notifyDelayedForcedTranscript,
@@ -118,6 +119,7 @@ const FINAL_FALLBACK_MS = 450;
 const SPEECH_FINAL_DELAY_MS = 280;
 const INCOMPLETE_RETRY_MS = 700;
 const FORCE_FINALIZE_TIMEOUT_MS = 3500;
+const FORCE_FINALIZE_HARD_DEADLINE_MS = 12_000;
 const FORCE_EMPTY_GRACE_MS = 1400;
 const FORCE_PREFIX_STABILIZATION_MS = 120;
 interface LiveTimingState {
@@ -350,6 +352,7 @@ export function useLiveCopilot() {
   const candidateFollowUpOwnerRef = useRef(new CandidateFollowUpGenerationOwner());
   const activeScreenTaskContextRef = useRef(new ActiveScreenTaskContextMemory());
   const forceFallbackSchedulerRef = useRef<ForceFallbackScheduler | null>(null);
+  const forceHardDeadlineSchedulerRef = useRef<ForceFallbackScheduler | null>(null);
   const forcePrefixStabilizationTimerRef = useRef<number | null>(null);
   const speechActivityRef = useRef(new SpeechActivityTracker());
   const sttLanguageRef = useRef('ru');
@@ -488,6 +491,7 @@ export function useLiveCopilot() {
 
   const clearForceTimeout = useCallback((replacementGeneration?: number) => {
     forceFallbackSchedulerRef.current?.cancel(replacementGeneration);
+    forceHardDeadlineSchedulerRef.current?.cancel(replacementGeneration);
   }, []);
 
   const clearForcePrefixStabilization = useCallback(() => {
@@ -504,24 +508,42 @@ export function useLiveCopilot() {
             forceCoordinatorRef.current,
             scheduledGeneration,
             () => {
-              if (candidateFollowUpOwnerRef.current.isOwned(scheduledGeneration)) {
-                candidateFollowUpOwnerRef.current.clear(scheduledGeneration);
-                forceCoordinatorRef.current.setPhase(scheduledGeneration, 'error');
-                syncForceSnapshot();
-                recordCandidateHotkeyDiagnostic('candidate_hotkey_ignored', {
-                  source: 'mic',
-                  reason: 'finalization_timeout',
-                  meta: { generation: scheduledGeneration },
-                });
-              }
               setError(t('live.forceNoAudio'));
             },
           );
         });
       }
       forceFallbackSchedulerRef.current.schedule(generation, delayMs);
+      if (!forceHardDeadlineSchedulerRef.current) {
+        forceHardDeadlineSchedulerRef.current = new ForceFallbackScheduler((scheduledGeneration) => {
+          const source = forceCoordinatorRef.current.snapshot().source;
+          expireDelayedForcedTranscript(
+            forceCoordinatorRef.current,
+            scheduledGeneration,
+            () => {
+              candidateFollowUpOwnerRef.current.clear(scheduledGeneration);
+              clearForcePrefixStabilization();
+              pendingTriggerSequenceRef.current = null;
+              timeoutScreenPartialRef.current.clearGeneration(scheduledGeneration);
+              syncForceSnapshot();
+              setError(t('live.forceNoAudio'));
+              hasSessionContentRef.current = true;
+              debugRef.current.event('error', {
+                ...(source ? withAudioSource(source, {}) : {}),
+                reason: 'finalization_hard_deadline',
+                meta: { generation: scheduledGeneration },
+              });
+              enqueueDiagnosticsSnapshot();
+            },
+          );
+        });
+      }
+      forceHardDeadlineSchedulerRef.current.schedule(
+        generation,
+        FORCE_FINALIZE_HARD_DEADLINE_MS,
+      );
     },
-    [recordCandidateHotkeyDiagnostic, syncForceSnapshot],
+    [clearForcePrefixStabilization, enqueueDiagnosticsSnapshot, syncForceSnapshot],
   );
 
   const routeVisualQuestionToScreen = useCallback(

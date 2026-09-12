@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as forcedAnswerModule from './latestForcedAnswer';
 import {
+  expireDelayedForcedTranscript,
   LatestForcedAnswerCoordinator,
   notifyDelayedForcedTranscript,
 } from './latestForcedAnswer';
@@ -10,6 +11,99 @@ afterEach(() => {
 });
 
 describe('LatestForcedAnswerCoordinator', () => {
+  it('expires only the still-owned delayed transcript request', () => {
+    const coordinator = new LatestForcedAnswerCoordinator(() => 'force-2');
+    coordinator.press([{ sequence: 1, text: 'First question', source: 'system' }], 'system');
+    coordinator.setPhase(1, 'done');
+    const force = coordinator.press([], 'system', true);
+    if (force.action !== 'flush') throw new Error(`Expected flush, got ${force.action}`);
+    const expired = vi.fn();
+
+    expect(notifyDelayedForcedTranscript(coordinator, 2, () => {})).toBe(true);
+    expect(expireDelayedForcedTranscript(coordinator, 2, expired)).toBe(true);
+    expect(expired).toHaveBeenCalledWith(2);
+    expect(coordinator.snapshot()).toMatchObject({
+      phase: 'error',
+      requestId: null,
+      pendingRequestCount: 0,
+    });
+    expect(
+      coordinator.acceptFinal(
+        { sequence: 2, text: 'Late second question', source: 'system' },
+        force.requestId,
+      ),
+    ).toEqual({ action: 'store-only' });
+  });
+
+  it('cannot expire a newer transcript generation with an older deadline', () => {
+    const ids = ['force-1', 'force-2'];
+    const coordinator = new LatestForcedAnswerCoordinator(() => ids.shift()!);
+    coordinator.press([], 'system', true);
+    coordinator.press([], 'system', true);
+
+    expect(expireDelayedForcedTranscript(coordinator, 1, () => {})).toBe(false);
+    expect(coordinator.snapshot()).toMatchObject({
+      generation: 2,
+      phase: 'finalizing-transcript',
+      requestId: 'force-2',
+      pendingRequestCount: 1,
+    });
+  });
+
+  it('does not expire a successful answer that completed before the deadline', () => {
+    const coordinator = new LatestForcedAnswerCoordinator(() => 'force-1');
+    const force = coordinator.press([], 'system', true);
+    if (force.action !== 'flush') throw new Error(`Expected flush, got ${force.action}`);
+    expect(
+      coordinator.acceptFinal(
+        { sequence: 1, text: 'Completed question', source: 'system' },
+        force.requestId,
+      ),
+    ).toMatchObject({ action: 'submit', generation: 1 });
+    coordinator.setPhase(1, 'streaming');
+    coordinator.setPhase(1, 'done');
+
+    expect(expireDelayedForcedTranscript(coordinator, 1, () => {})).toBe(false);
+    expect(coordinator.snapshot()).toMatchObject({ phase: 'done', pendingRequestCount: 0 });
+  });
+
+  it('settles ten sequential answers and recovers after one lost final', () => {
+    let request = 0;
+    const coordinator = new LatestForcedAnswerCoordinator(() => `force-${++request}`);
+
+    for (let sequence = 1; sequence <= 10; sequence += 1) {
+      const decision = coordinator.press(
+        [{ sequence, text: `Question ${sequence}`, source: 'system' }],
+        'system',
+      );
+      expect(decision).toMatchObject({ action: 'submit', generation: sequence });
+      coordinator.setPhase(sequence, 'streaming');
+      coordinator.setPhase(sequence, 'done');
+      expect(coordinator.snapshot()).toMatchObject({
+        phase: 'done',
+        requestId: null,
+        pendingRequestCount: 0,
+      });
+    }
+
+    const lost = coordinator.press([], 'system', true);
+    expect(lost).toMatchObject({ action: 'flush', generation: 11 });
+    expect(expireDelayedForcedTranscript(coordinator, 11, () => {})).toBe(true);
+    expect(coordinator.snapshot()).toMatchObject({ phase: 'error', pendingRequestCount: 0 });
+
+    const recovered = coordinator.press(
+      [{ sequence: 11, text: 'Recovered question', source: 'system' }],
+      'system',
+    );
+    expect(recovered).toMatchObject({
+      action: 'submit',
+      generation: 12,
+      question: 'Recovered question',
+    });
+    coordinator.setPhase(12, 'done');
+    expect(coordinator.snapshot()).toMatchObject({ phase: 'done', pendingRequestCount: 0 });
+  });
+
   it('keeps a forced conversation request pending when the STT final is delayed', () => {
     const coordinator = new LatestForcedAnswerCoordinator(() => 'force-test-design');
     const waiting = vi.fn();
