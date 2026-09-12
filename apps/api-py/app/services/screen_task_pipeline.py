@@ -1323,7 +1323,9 @@ def _checklist_draft_issues(
     normalized_items = tuple(normalize_screen_checklist_text(item.text) for item in items)
     if len(normalized_items) != len(set(normalized_items)):
         issues.append("checklist_duplicate")
-    candidate_signatures = tuple(_checklist_concept_signature(item) for item in normalized_items)
+    # Preserve identifiers (e.g. payment_method) on both sides of concept comparisons.
+    # Exact-text normalization above remains separate from concept tokenization.
+    candidate_signatures = tuple(_checklist_concept_signature(item.text) for item in items)
     if any(
         left
         and right

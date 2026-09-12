@@ -700,6 +700,99 @@ async def test_checklist_refinement_returns_exactly_three_new_business_checks_wi
 
 
 @pytest.mark.asyncio
+async def test_checklist_refinement_repairs_identifier_paraphrase_with_renamed_key() -> None:
+    first_items = [
+        "Проверить выбор payment_method для оплаты заказа",
+        "Проверить адрес получателя",
+        "Проверить дату доставки",
+        "Проверить длину комментария",
+        "Проверить количество товара в заказе",
+    ]
+    repeated_item = "Проверить payment_method для оплаты заказа покупателем"
+    new_items = [
+        "Проверить доступность курьера вечером",
+        "Проверить скидку на доставку",
+        "Проверить отказ заблокированному получателю",
+    ]
+    responses = iter(
+        [
+            _observation(
+                task_kind="list",
+                response_kind="checklist",
+                visible_text="Составьте пять проверок создания заказа",
+                claim="Нужны пять проверок заказа",
+                evidence="Количество указано в условии",
+                finding_kind="requirement",
+                requested_item_count=5,
+                checklist_scope="business",
+            ),
+            _checklist_draft(*first_items, semantic_prefix="initial"),
+            _observation(
+                task_kind="list",
+                response_kind="checklist",
+                visible_text="Добавьте ровно три новые бизнес-проверки",
+                claim="Нужны три новые проверки без повторов",
+                evidence="Интервьюер уточнил количество и новизну",
+                finding_kind="requirement",
+                requested_item_count=3,
+                checklist_new_only=True,
+                checklist_scope="business",
+            ),
+            _checklist_draft(repeated_item, *new_items[:2], semantic_prefix="renamed"),
+            _checklist_draft(*new_items, semantic_prefix="repaired"),
+        ]
+    )
+    calls: list[dict] = []
+
+    async def complete(messages, provider, model, **kwargs):
+        calls.append({"messages": messages, **kwargs})
+        return next(responses)
+
+    first = await run_screen_task_pipeline(
+        previous_images=(),
+        current_image="data:image/jpeg;base64,Y2hlY2tsaXN0",
+        latest_correction="Дай первые пять проверок.",
+        context="",
+        prior_solution_summary=None,
+        task_action="new",
+        task_state=None,
+        provider="openai",
+        model="safe/model",
+        max_tokens=1200,
+        reasoning=None,
+        now_ms=1_000,
+        complete=complete,
+    )
+    refined = await run_screen_task_pipeline(
+        previous_images=(),
+        current_image="data:image/jpeg;base64,Y2hlY2tsaXN0",
+        latest_correction="Дай ровно три новые бизнес-проверки без повторов.",
+        context="",
+        prior_solution_summary=None,
+        task_action="continue",
+        task_state=first.serialized_task_state,
+        provider="openai",
+        model="safe/model",
+        max_tokens=1200,
+        reasoning=None,
+        now_ms=2_000,
+        complete=complete,
+    )
+
+    assert refined.answer.splitlines() == [
+        "Новые проверки:",
+        "1. Проверить доступность курьера вечером",
+        "2. Проверить скидку на доставку",
+        "3. Проверить отказ заблокированному получателю",
+    ]
+    refined_state = deserialize_screen_task_state(refined.serialized_task_state)
+    assert [item.text for item in refined_state.checklist_items] == [*first_items, *new_items]
+    assert len(calls) == 5
+    assert calls[-1]["screen_workload_phase"] == "repair"
+    assert "checklist_semantic_duplicate" in calls[-1]["messages"][-1]["content"]
+
+
+@pytest.mark.asyncio
 async def test_initial_checklist_repairs_semantic_paraphrases_with_different_keys() -> None:
     responses = iter(
         [
