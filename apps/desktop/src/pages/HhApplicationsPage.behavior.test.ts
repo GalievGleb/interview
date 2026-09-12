@@ -59,6 +59,24 @@ describe('HH applications redesign', () => {
     expect(preloadSource).toContain("ipcRenderer.invoke('hh-assistant:confirm-login-code'");
   });
 
+  it('does not leave the HH login form waiting for a code when HH is already connected', () => {
+    const requestAt = pageSource.indexOf('const requestLoginCode = async () =>');
+    const confirmAt = pageSource.indexOf('const confirmLoginCode = async () =>', requestAt);
+    const requestSource = pageSource.slice(requestAt, confirmAt);
+    expect(requestSource).toContain('const alreadyConnected =');
+    expect(requestSource).toContain('setCodeRequested(result.ok && !alreadyConnected)');
+    expect(requestSource).toContain('setState(await assistant.getState())');
+    expect(requestSource).toContain("setCode('')");
+  });
+
+  it('offers a safe HH session reset from the one-time-code step', () => {
+    const connectionAt = pageSource.indexOf('id="hh-platform-connection"');
+    const resumeAt = pageSource.indexOf('id="hh-resume-selection"', connectionAt);
+    const connectionSource = pageSource.slice(connectionAt, resumeAt);
+    expect(connectionSource).toContain('Сбросить HH');
+    expect(connectionSource).toContain('onClick={() => void logoutHhAccount()}');
+  });
+
   it('does not claim that a fresh, unchecked browser session is connected', () => {
     expect(pageSource).toContain('const connected = Boolean(state?.browserOpen && platformMatches && !state.loginRequired)');
     expect(pageSource).toContain("const hhConnected = draft.platform === 'hh' && connected");

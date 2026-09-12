@@ -654,8 +654,13 @@ export default function HhApplicationsPage() {
     setAuthMessage('');
     try {
       const result = await assistant.requestLoginCode(email);
+      const alreadyConnected = result.ok && /уже подключ[её]н/i.test(result.message);
       setAuthMessage(result.message);
-      setCodeRequested(result.ok);
+      setCodeRequested(result.ok && !alreadyConnected);
+      if (alreadyConnected) {
+        setState(await assistant.getState());
+        setCode('');
+      }
     } catch (error) {
       setAuthMessage(errorMessage(error, 'Не удалось отправить код.'));
     } finally {
@@ -1100,6 +1105,10 @@ export default function HhApplicationsPage() {
             </label>
             <button className="btn-primary self-end" disabled={busy === 'auth'} onClick={() => void confirmLoginCode()}>{busy === 'auth' && <Loader2 className="animate-spin" size={15} />}Подключить HH</button>
             <button className="btn-ghost self-end" onClick={() => { setCodeRequested(false); setCode(''); setAuthMessage(''); }}>Изменить почту</button>
+            <button className="btn-ghost self-end" disabled={busy !== ''} onClick={() => void logoutHhAccount()}>
+              {busy === 'logout' ? <Loader2 className="animate-spin" size={14} /> : <LogOut size={14} />}
+              Сбросить HH
+            </button>
           </>}
         </div>}
         <p id="hh-auth-message" className="mt-2 min-h-4 text-xs text-ink-muted" role="status" aria-live="polite">{authMessage}</p>
