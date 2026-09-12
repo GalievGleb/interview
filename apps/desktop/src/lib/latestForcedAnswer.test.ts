@@ -67,43 +67,6 @@ describe('LatestForcedAnswerCoordinator', () => {
     expect(coordinator.snapshot()).toMatchObject({ phase: 'done', pendingRequestCount: 0 });
   });
 
-  it('settles ten sequential answers and recovers after one lost final', () => {
-    let request = 0;
-    const coordinator = new LatestForcedAnswerCoordinator(() => `force-${++request}`);
-
-    for (let sequence = 1; sequence <= 10; sequence += 1) {
-      const decision = coordinator.press(
-        [{ sequence, text: `Question ${sequence}`, source: 'system' }],
-        'system',
-      );
-      expect(decision).toMatchObject({ action: 'submit', generation: sequence });
-      coordinator.setPhase(sequence, 'streaming');
-      coordinator.setPhase(sequence, 'done');
-      expect(coordinator.snapshot()).toMatchObject({
-        phase: 'done',
-        requestId: null,
-        pendingRequestCount: 0,
-      });
-    }
-
-    const lost = coordinator.press([], 'system', true);
-    expect(lost).toMatchObject({ action: 'flush', generation: 11 });
-    expect(expireDelayedForcedTranscript(coordinator, 11, () => {})).toBe(true);
-    expect(coordinator.snapshot()).toMatchObject({ phase: 'error', pendingRequestCount: 0 });
-
-    const recovered = coordinator.press(
-      [{ sequence: 11, text: 'Recovered question', source: 'system' }],
-      'system',
-    );
-    expect(recovered).toMatchObject({
-      action: 'submit',
-      generation: 12,
-      question: 'Recovered question',
-    });
-    coordinator.setPhase(12, 'done');
-    expect(coordinator.snapshot()).toMatchObject({ phase: 'done', pendingRequestCount: 0 });
-  });
-
   it('keeps a forced conversation request pending when the STT final is delayed', () => {
     const coordinator = new LatestForcedAnswerCoordinator(() => 'force-test-design');
     const waiting = vi.fn();

@@ -695,3 +695,28 @@ export function expireDelayedForcedTranscript(
   onExpired(generation);
   return true;
 }
+
+export function markForcedAnswerStreamStarted(
+  coordinator: Pick<LatestForcedAnswerCoordinator, 'snapshot' | 'setPhase'>,
+  generation: number,
+): boolean {
+  const snapshot = coordinator.snapshot();
+  if (snapshot.generation !== generation || snapshot.phase !== 'waiting-first-token') {
+    return false;
+  }
+  return coordinator.setPhase(generation, 'streaming');
+}
+
+export function completeForcedAnswerStream(
+  coordinator: Pick<LatestForcedAnswerCoordinator, 'snapshot' | 'setPhase'>,
+  generation: number,
+): boolean {
+  const snapshot = coordinator.snapshot();
+  if (
+    snapshot.generation !== generation ||
+    (snapshot.phase !== 'waiting-first-token' && snapshot.phase !== 'streaming')
+  ) {
+    return false;
+  }
+  return coordinator.setPhase(generation, 'done');
+}

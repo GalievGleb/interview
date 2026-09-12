@@ -28,9 +28,11 @@ import {
   SpeechActivityTracker,
 } from '../lib/forceLiveAnswer';
 import {
+  completeForcedAnswerStream,
   expireDelayedForcedTranscript,
   ForceFallbackScheduler,
   LatestForcedAnswerCoordinator,
+  markForcedAnswerStreamStarted,
   notifyDelayedForcedTranscript,
   type ForceAcceptDecision,
   type ForcePhase,
@@ -1001,7 +1003,7 @@ export function useLiveCopilot() {
             firstChunk = false;
             if (
               requestForceGeneration != null &&
-              forceCoordinatorRef.current.setPhase(requestForceGeneration, 'streaming')
+              markForcedAnswerStreamStarted(forceCoordinatorRef.current, requestForceGeneration)
             ) {
               syncForceSnapshot();
             }
@@ -1036,7 +1038,7 @@ export function useLiveCopilot() {
           setSuggestLoading(false);
           if (
             requestForceGeneration != null &&
-            forceCoordinatorRef.current.setPhase(requestForceGeneration, 'done')
+            completeForcedAnswerStream(forceCoordinatorRef.current, requestForceGeneration)
           ) {
             syncForceSnapshot();
           }
