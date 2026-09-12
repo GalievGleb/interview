@@ -13,4 +13,11 @@ export class SubscriptionsController {
   getMySubscription(@Request() req: { user: { id: string } }) {
     return this.subscriptionsService.getSubscriptionInfo(req.user.id);
   }
+
+  @Get('license')
+  @UseGuards(AuthGuard('jwt'))
+  @SkipSubscription()
+  getManagedLicense(@Request() req: { user: { id: string } }) {
+    return this.subscriptionsService.getManagedLicense(req.user.id);
+  }
 }

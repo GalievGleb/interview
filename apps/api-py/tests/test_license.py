@@ -119,6 +119,36 @@ def test_activate_rejects_bad_key(client, keypair):
     assert client.post("/license/activate", json={"key": "SKILLCUE-fake.key"}).status_code == 400
 
 
+def test_managed_account_license_overrides_without_destroying_manual_key(client, db_session, keypair):
+    manual = _mint(keypair, {"email": "legacy@mail.com", "plan": "basic"})
+    managed = _mint(
+        keypair,
+        {"email": "buyer@mail.com", "plan": "max", "source": "account", "account_id": "u1"},
+    )
+    client.post("/license/activate", json={"key": manual})
+
+    installed = client.post("/license/managed", json={"key": managed})
+    assert installed.status_code == 200, installed.text
+    assert installed.json()["plan"] == "max"
+
+    removed = client.delete("/license/managed")
+    assert removed.status_code == 200, removed.text
+    assert removed.json()["plan"] == "basic"
+
+    from app.db.models import AppMeta
+
+    assert db_session.get(AppMeta, "license_key").value == manual
+
+
+def test_managed_endpoint_rejects_an_ordinary_signed_license(client, keypair):
+    ordinary = _mint(keypair, {"email": "buyer@mail.com", "plan": "max"})
+
+    res = client.post("/license/managed", json={"key": ordinary})
+
+    assert res.status_code == 400
+    assert res.json()["error"]["code"] == "invalid_managed_license"
+
+
 # --- token quota -------------------------------------------------------------
 def test_quota_blocks_llm_when_budget_spent(client, db_session, keypair):
     key = _mint(keypair, {"email": "q@mail.com", "plan": "max", "tokens_month": 100})

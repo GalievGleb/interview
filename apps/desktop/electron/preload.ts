@@ -47,6 +47,36 @@ const api = {
     getState: () => ipcRenderer.invoke('app:operationalTelemetry:getState'),
     setEnabled: (enabled: boolean) => ipcRenderer.invoke('app:operationalTelemetry:setEnabled', enabled),
   },
+  account: {
+    getState: () => ipcRenderer.invoke('account:get-state'),
+    refresh: () => ipcRenderer.invoke('account:refresh'),
+    googleLogin: () => ipcRenderer.invoke('account:google-login'),
+    register: (email: string, password: string) => ipcRenderer.invoke('account:register', email, password),
+    verifyEmail: (email: string, code: string) => ipcRenderer.invoke('account:verify-email', email, code),
+    login: (email: string, password: string) => ipcRenderer.invoke('account:login', email, password),
+    requestVerification: (email: string) => ipcRenderer.invoke('account:request-verification', email),
+    requestPasswordReset: (email: string) => ipcRenderer.invoke('account:request-password-reset', email),
+    confirmPasswordReset: (email: string, code: string, password: string) =>
+      ipcRenderer.invoke('account:confirm-password-reset', email, code, password),
+    listDevices: () => ipcRenderer.invoke('account:list-devices'),
+    revokeDevice: (sessionId: string) => ipcRenderer.invoke('account:revoke-device', sessionId),
+    createCheckout: (plan: 'BASIC' | 'PRO', provider: 'stripe' | 'yookassa', period: 'monthly' | 'yearly') =>
+      ipcRenderer.invoke('account:create-checkout', plan, provider, period),
+    logout: () => ipcRenderer.invoke('account:logout'),
+    onState: (cb: (state: unknown) => void) => {
+      const handler = (_e: unknown, state: unknown) => cb(state);
+      ipcRenderer.on('account:state', handler);
+      return () => ipcRenderer.removeListener('account:state', handler);
+    },
+  },
+  backup: {
+    keys: () => ipcRenderer.invoke('backup:keys'),
+    export: (rendererStorage: Record<string, string>) => ipcRenderer.invoke('backup:export', rendererStorage),
+    preview: () => ipcRenderer.invoke('backup:preview'),
+    apply: (token: string, rendererStorage: Record<string, string>) =>
+      ipcRenderer.invoke('backup:apply', token, rendererStorage),
+    restart: () => ipcRenderer.invoke('backup:restart'),
+  },
   quit: () => ipcRenderer.invoke('app:quit'),
   collectDiagnostics: (extra: Array<{ name: string; content: string }>) =>
     ipcRenderer.invoke('app:collectDiagnostics', extra),

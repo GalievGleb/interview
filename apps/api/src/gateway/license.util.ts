@@ -31,6 +31,9 @@ export interface LicensePayload {
   plan?: string;
   expires_at?: number;
   tokens_month?: number;
+  /** Stable account identity. Present only in short-lived account entitlements. */
+  account_id?: string;
+  source?: 'account';
 }
 
 function b64urlDecode(data: string): Buffer {
@@ -58,8 +61,13 @@ export function tokenBudgetFor(payload: LicensePayload): number {
 }
 
 /** Стабильный анонимный id ключа для учёта расхода (не раскрывает email в Redis). */
-export function licenseId(payloadB64: string): string {
-  return createHash('sha256').update(payloadB64).digest('hex').slice(0, 24);
+export function licenseId(payloadB64: string, payload?: LicensePayload): string {
+  // Short-lived account keys are renewed daily. Their quota identity must not
+  // change on every renewal, otherwise reopening the app would reset usage.
+  const identity = payload?.source === 'account' && payload.account_id
+    ? `account:${payload.account_id}`
+    : payloadB64;
+  return createHash('sha256').update(identity).digest('hex').slice(0, 24);
 }
 
 export interface VerifiedLicense {
@@ -94,7 +102,7 @@ export function verifyLicenseKey(
     if (payload.expires_at != null && Date.now() / 1000 > Number(payload.expires_at)) {
       return null;
     }
-    return { payload, id: licenseId(payloadB64), budget: tokenBudgetFor(payload) };
+    return { payload, id: licenseId(payloadB64, payload), budget: tokenBudgetFor(payload) };
   } catch {
     return null;
   }
@@ -104,7 +112,11 @@ export interface MintOptions {
   email: string;
   plan?: 'trial' | 'basic' | 'max';
   days?: number;
+  issuedAt?: number;
+  expiresAt?: number;
   tokensMonth?: number;
+  accountId?: string;
+  source?: 'account';
 }
 
 /**
@@ -115,14 +127,20 @@ export interface MintOptions {
 export function mintLicenseKey(opts: MintOptions, privateKeyHex: string): string {
   const payload: LicensePayload = {
     email: opts.email,
-    issued_at: Math.floor(Date.now() / 1000),
+    issued_at: opts.issuedAt ?? Math.floor(Date.now() / 1000),
     plan: opts.plan ?? 'max',
   };
-  if (opts.days && opts.days > 0) {
+  if (opts.expiresAt && opts.expiresAt > 0) {
+    payload.expires_at = Math.floor(opts.expiresAt);
+  } else if (opts.days && opts.days > 0) {
     payload.expires_at = Math.floor(Date.now() / 1000) + opts.days * 86_400;
   }
   if (opts.tokensMonth && opts.tokensMonth > 0) {
     payload.tokens_month = Math.floor(opts.tokensMonth);
+  }
+  if (opts.source === 'account' && opts.accountId?.trim()) {
+    payload.source = 'account';
+    payload.account_id = opts.accountId.trim();
   }
   const body = Buffer.from(JSON.stringify(payload), 'utf-8');
   const privateKey = createPrivateKey({

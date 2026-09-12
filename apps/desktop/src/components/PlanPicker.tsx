@@ -1,13 +1,17 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { useI18n } from '../lib/i18n';
 import {
   PLANS,
   checkoutUrl,
   formatRub,
+  planPurchaseAction,
   type BillingPeriod,
   type PlanId,
 } from '../lib/billing';
+import { accountApi } from '../lib/accountApi';
+import type { AccountState } from '../types/electron';
 
 /**
  * Выбор тарифа (по мотивам «Choose your plan» Cluely, в нашем стиле).
@@ -19,10 +23,45 @@ export default function PlanPicker() {
   const { t } = useI18n();
   const [period, setPeriod] = useState<BillingPeriod>('monthly');
   const [confirmPlan, setConfirmPlan] = useState<PlanId | null>(null);
+  const [account, setAccount] = useState<AccountState | null>(null);
+  const [checkoutError, setCheckoutError] = useState('');
+  const [checkoutBusy, setCheckoutBusy] = useState(false);
+  const navigate = useNavigate();
 
-  const currentPlan = license?.status === 'active' ? license.plan : null;
+  useEffect(() => {
+    let active = true;
+    void accountApi.getState().then((state) => { if (active) setAccount(state); });
+    const unsubscribe = accountApi.onState((state) => { if (active) setAccount(state); });
+    return () => { active = false; unsubscribe(); };
+  }, []);
 
-  const openCheckout = (plan: PlanId) => {
+  const accountPlan = account?.authenticated && account.subscription?.status === 'ACTIVE'
+    ? (account.subscription.plan === 'PRO' ? 'max' : account.subscription.plan === 'BASIC' ? 'basic' : null)
+    : null;
+  const legacyPlan: PlanId | null = license?.status === 'active'
+    && (license.plan === 'basic' || license.plan === 'max')
+    ? license.plan
+    : null;
+  const currentPlan: PlanId | null = accountPlan ?? legacyPlan;
+
+  const openCheckout = async (plan: PlanId) => {
+    setCheckoutError('');
+    if (account?.available) {
+      if (!account.authenticated) {
+        navigate('/settings?tab=account');
+        return;
+      }
+      setCheckoutBusy(true);
+      try {
+        await accountApi.createCheckout(plan === 'max' ? 'PRO' : 'BASIC', 'yookassa', period);
+        setConfirmPlan(null);
+      } catch {
+        setCheckoutError(t('account.error'));
+      } finally {
+        setCheckoutBusy(false);
+      }
+      return;
+    }
     const url = checkoutUrl(plan, period);
     if (window.electronAPI) void window.electronAPI.openExternal(url);
     else window.open(url, '_blank', 'noopener');
@@ -62,6 +101,7 @@ export default function PlanPicker() {
       <div className="grid gap-4 sm:grid-cols-2">
         {PLANS.map((plan) => {
           const isCurrent = currentPlan === plan.id;
+          const purchaseAction = planPurchaseAction(currentPlan, plan.id);
           const price = period === 'monthly' ? plan.monthlyRub : plan.yearlyRub;
           return (
             <div
@@ -105,9 +145,9 @@ export default function PlanPicker() {
                 ))}
               </ul>
 
-              {isCurrent ? (
+              {purchaseAction === 'blocked' ? (
                 <button type="button" className="btn-secondary btn-sm w-full" disabled>
-                  {t('plan.yourCurrent')}
+                  {t('plan.downgradeUnavailable')}
                 </button>
               ) : confirmPlan === plan.id ? (
                 <div className="rounded-xl border border-surface-border bg-surface-panel p-3">
@@ -118,7 +158,8 @@ export default function PlanPicker() {
                     <button
                       type="button"
                       className="btn-primary btn-sm flex-1"
-                      onClick={() => openCheckout(plan.id)}
+                      disabled={checkoutBusy}
+                      onClick={() => void openCheckout(plan.id)}
                     >
                       {t('plan.goToCheckout')}
                     </button>
@@ -137,13 +178,18 @@ export default function PlanPicker() {
                   className={`btn-sm w-full ${plan.popular ? 'btn-primary' : 'btn-secondary'}`}
                   onClick={() => setConfirmPlan(plan.id)}
                 >
-                  {currentPlan ? t('plan.switch') : t('plan.subscribe')}
+                  {purchaseAction === 'renew'
+                    ? t('plan.renew')
+                    : purchaseAction === 'upgrade'
+                      ? t('plan.upgrade')
+                      : t('plan.subscribe')}
                 </button>
               )}
             </div>
           );
         })}
       </div>
+      {checkoutError && <p className="mt-3 text-xs text-red-400" role="alert">{checkoutError}</p>}
     </div>
   );
 }

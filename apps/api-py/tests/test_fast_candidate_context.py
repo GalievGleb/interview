@@ -1,7 +1,12 @@
 import pytest
 from pydantic import ValidationError
+
 from app.routers.chat import InterviewPayload
-from app.services.fast_candidate_context import build_candidate_context, build_recent_turns_context, needs_personal_context
+from app.services.fast_candidate_context import (
+    build_candidate_context,
+    build_recent_turns_context,
+    needs_personal_context,
+)
 
 
 def test_independent_source_budgets_keep_projects_with_long_resume():

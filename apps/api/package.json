@@ -7,6 +7,7 @@
     "dev": "nest start --watch",
     "start": "node dist/main.js",
     "start:gateway": "node dist/gateway-main.js",
+    "start:account": "node dist/account-main.js",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push"
@@ -26,6 +27,7 @@
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
     "express": "^5.2.1",
+    "google-auth-library": "^11.0.2",
     "ioredis": "^5.4.2",
     "openai": "^4.78.1",
     "passport": "^0.7.0",
@@ -47,6 +49,7 @@
     "@types/uuid": "^10.0.0",
     "@types/ws": "^8.5.14",
     "prisma": "^6.3.1",
+    "tsx": "^4.23.13",
     "typescript": "^5.7.3"
   }
 }

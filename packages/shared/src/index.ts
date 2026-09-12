@@ -25,6 +25,11 @@ export enum BillingProvider {
   YOOKASSA = 'yookassa',
 }
 
+export enum BillingPeriod {
+  MONTHLY = 'monthly',
+  YEARLY = 'yearly',
+}
+
 export interface PlanLimits {
   sttMinutesPerMonth: number;
   llmTokensPerMonth: number;
@@ -52,7 +57,8 @@ export interface AuthTokens {
 export interface UserProfile {
   id: string;
   email: string;
-  hwid: string | null;
+  displayName: string | null;
+  avatarUrl: string | null;
 }
 
 export interface SubscriptionInfo {
@@ -64,22 +70,57 @@ export interface SubscriptionInfo {
   limits: PlanLimits | null;
 }
 
+export interface ManagedLicenseResponse {
+  active: boolean;
+  key: string | null;
+  expiresAt: string | null;
+}
+
 export interface AuthResponse {
   user: UserProfile;
   tokens: AuthTokens;
   subscription: SubscriptionInfo;
 }
 
+export interface RegistrationPendingResponse {
+  verificationRequired: true;
+  email: string;
+}
+
+export interface AcceptedResponse {
+  accepted: true;
+}
+
+export interface PasswordChangedResponse {
+  changed: true;
+}
+
 export interface RegisterRequest {
   email: string;
   password: string;
-  hwid?: string;
+  deviceId: string;
+  deviceName?: string;
 }
 
 export interface LoginRequest {
   email: string;
   password: string;
-  hwid?: string;
+  deviceId: string;
+  deviceName?: string;
+}
+
+export interface GoogleLoginRequest {
+  idToken: string;
+  deviceId: string;
+  deviceName?: string;
+}
+
+export interface DeviceInfo {
+  id: string;
+  name: string;
+  createdAt: string;
+  lastSeenAt: string;
+  current: boolean;
 }
 
 export interface RefreshRequest {
@@ -89,6 +130,7 @@ export interface RefreshRequest {
 export interface CheckoutRequest {
   plan: Plan;
   provider: BillingProvider;
+  period: BillingPeriod;
   successUrl?: string;
   cancelUrl?: string;
 }

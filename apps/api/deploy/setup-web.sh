@@ -17,12 +17,15 @@ set -euo pipefail
 DOMAIN="${DOMAIN:?Укажи DOMAIN=skill-cue.ru}"
 APP_DIR="${APP_DIR:-/opt/skillcue}"
 GW_PORT="$(grep -oP '(?<=^GATEWAY_PORT=)\d+' "$APP_DIR/gateway.env" || echo 8787)"
+ACCOUNT_PORT="$(grep -oP '(?<=^ACCOUNT_API_PORT=)\d+' "$APP_DIR/account.env" 2>/dev/null || echo 8788)"
 
 holder="$(ss -ltnp 2>/dev/null | awk '$4 ~ /:80$/{print $6; exit}')"
 
 if command -v nginx >/dev/null && [[ "${holder:-}" == *nginx* ]]; then
   echo "== :80 держит nginx — добавляю vhost $DOMAIN (магазин не трогаю)"
   cat > "/etc/nginx/sites-available/skillcue.conf" <<NGINX
+limit_req_zone \$binary_remote_addr zone=skillcue_account:10m rate=30r/m;
+
 server {
     listen 80;
     server_name $DOMAIN www.$DOMAIN;
@@ -41,6 +44,19 @@ server {
     location /gateway/ {
         proxy_pass http://127.0.0.1:$GW_PORT;
         proxy_set_header Host \$host;
+    }
+    location /account/billing/webhooks/ {
+        proxy_pass http://127.0.0.1:$ACCOUNT_PORT/billing/webhooks/;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 60s;
+    }
+    location /account/ {
+        limit_req zone=skillcue_account burst=20 nodelay;
+        proxy_pass http://127.0.0.1:$ACCOUNT_PORT/;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 60s;
     }
     location / {
         # \$uri.html — чтобы «чистые» URL без .html работали (напр. /requisites).
@@ -68,6 +84,9 @@ $DOMAIN, www.$DOMAIN {
     encode gzip
     @api path /v1/* /gateway/*
     reverse_proxy @api 127.0.0.1:$GW_PORT
+    handle_path /account/* {
+        reverse_proxy 127.0.0.1:$ACCOUNT_PORT
+    }
     root * $APP_DIR/landing
     file_server
 }

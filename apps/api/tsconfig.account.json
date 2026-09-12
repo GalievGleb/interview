@@ -1,0 +1,20 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "declaration": false,
+    "incremental": false,
+    "outDir": "./dist"
+  },
+  "include": [
+    "src/account-main.ts",
+    "src/auth/**/*",
+    "src/billing/**/*",
+    "src/config/**/*",
+    "src/gateway/http-body-parser.ts",
+    "src/mail/**/*",
+    "src/prisma/**/*",
+    "src/subscriptions/**/*",
+    "src/users/**/*"
+  ],
+  "exclude": ["src/**/*.test.ts"]
+}

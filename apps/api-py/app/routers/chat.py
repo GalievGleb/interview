@@ -34,16 +34,18 @@ from app.prompts.meeting import (
 )
 from app.prompts.system import SYSTEM_PROMPT
 from app.services import model_router, provider_adapter, rag_service
-from app.services.candidate_profile import get_pack_content, get_profile_block
-from app.services.candidate_profile import pack_status
-from app.services.fast_candidate_context import (
-    build_candidate_context, build_recent_turns_context, needs_personal_context, is_conversation_followup,
-)
+from app.services.candidate_profile import get_pack_content, get_profile_block, pack_status
 from app.services.domain_answer_hints import (
     resolve_domain_answer_hints,
     resolve_fast_domain_answer_hints,
     resolve_fast_question_alias,
     resolve_required_output_contract,
+)
+from app.services.fast_candidate_context import (
+    build_candidate_context,
+    build_recent_turns_context,
+    is_conversation_followup,
+    needs_personal_context,
 )
 from app.services.hedged_stream import select_first_stream, select_hedged_stream
 from app.services.knowledge_pack import build_injection as build_python_pack_injection

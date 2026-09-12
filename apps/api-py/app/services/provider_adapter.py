@@ -180,14 +180,22 @@ def _stored_gateway_license_key() -> str:
     try:
         from app.db.models import AppMeta
         from app.db.session import SessionLocal
-        from app.services.license import verify_license_key
+        from app.services.license import select_effective_license
 
         with SessionLocal() as db:
-            row = db.get(AppMeta, "license_key")
-            stored = (row.value if row else "").strip()
-        return stored if stored and verify_license_key(stored) else ""
+            managed_row = db.get(AppMeta, "managed_license_key")
+            legacy_row = db.get(AppMeta, "license_key")
+            managed = (managed_row.value if managed_row else "").strip()
+            legacy = (legacy_row.value if legacy_row else "").strip()
+        key, _ = select_effective_license(managed, legacy)
+        return key
     except Exception:  # noqa: BLE001
         return ""
+
+
+def invalidate_gateway_license_cache() -> None:
+    _gateway_cache["at"] = 0.0
+    _gateway_cache["key"] = ""
 
 
 def _gateway_root_url(gateway_url: str) -> str:

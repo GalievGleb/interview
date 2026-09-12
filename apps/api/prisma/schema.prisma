@@ -24,16 +24,72 @@ enum PaymentProvider {
   YOOKASSA
 }
 
+enum EmailChallengePurpose {
+  VERIFY_EMAIL
+  RESET_PASSWORD
+}
+
+enum AuthProvider {
+  GOOGLE
+}
+
 model User {
   id           String        @id @default(uuid())
   email        String        @unique
-  passwordHash String
+  passwordHash String?
+  displayName  String?
+  avatarUrl    String?
+  emailVerifiedAt DateTime?
+  passwordChangedAt DateTime?
   hwid         String?
   hwidChangedAt DateTime?
   refreshToken String?
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
   subscription Subscription?
+  deviceSessions DeviceSession[]
+  authIdentities AuthIdentity[]
+}
+
+model AuthIdentity {
+  id        String       @id @default(uuid())
+  userId    String
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider  AuthProvider
+  subject   String
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@unique([provider, subject])
+  @@unique([userId, provider])
+}
+
+model EmailChallenge {
+  id         String                @id @default(uuid())
+  email      String
+  purpose    EmailChallengePurpose
+  codeHash   String
+  expiresAt  DateTime
+  attempts   Int                   @default(0)
+  consumedAt DateTime?
+  createdAt  DateTime              @default(now())
+
+  @@index([email, purpose, createdAt])
+}
+
+model DeviceSession {
+  id               String   @id @default(uuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  installationHash String
+  deviceName       String
+  refreshTokenHash String
+  createdAt        DateTime @default(now())
+  lastSeenAt       DateTime @default(now())
+  revokedAt        DateTime?
+
+  @@unique([userId, installationHash])
+  @@index([userId, revokedAt, lastSeenAt])
 }
 
 model Subscription {
@@ -57,7 +113,23 @@ model PaymentEvent {
   externalId String
   payload    Json
   processed  Boolean  @default(false)
+  processingAt DateTime?
   createdAt  DateTime @default(now())
 
   @@unique([provider, externalId])
+}
+
+model PendingEntitlement {
+  id              String          @id @default(uuid())
+  email           String
+  plan            Plan
+  provider        PaymentProvider
+  externalId      String
+  durationDays    Int
+  claimedAt       DateTime?
+  claimedByUserId String?
+  createdAt       DateTime        @default(now())
+
+  @@unique([provider, externalId])
+  @@index([email, claimedAt, createdAt])
 }

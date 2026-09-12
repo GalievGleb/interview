@@ -6,6 +6,7 @@ monkeypatched, so we test the routing, prompt wiring, and SSE framing only.
 
 import asyncio
 import json
+
 import pytest
 
 from app.core import local_auth
@@ -1230,8 +1231,9 @@ def test_interview_fast_core_does_not_send_resume_to_theory_model(client, monkey
 ])
 def test_fast_followup_keeps_project_sources_separate_from_generated_history(client, monkeypatch, db_session, unrelated_question):
     from conftest import TestingSessionLocal
+
+    from app.db.models import AppMeta, Document
     from app.routers import chat as chat_router
-    from app.db.models import Document, AppMeta
     from app.services.candidate_profile import META_KEY
     db_session.add(Document(kind='legend', title='Synthetic legend', raw_text='Project Orion: maintained API checks.'))
     db_session.add(AppMeta(key=META_KEY, value=json.dumps({'hash': 'stale', 'content': 'STALE INVENTED OWNERSHIP'})))

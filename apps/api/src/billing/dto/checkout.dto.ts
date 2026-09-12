@@ -1,5 +1,5 @@
-import { IsEnum, IsOptional, IsString } from 'class-validator';
-import { Plan, BillingProvider } from '@interview/shared';
+import { IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
+import { Plan, BillingPeriod, BillingProvider } from '@interview/shared';
 
 export class CheckoutDto {
   @IsEnum(Plan)
@@ -8,11 +8,16 @@ export class CheckoutDto {
   @IsEnum(BillingProvider)
   provider!: BillingProvider;
 
+  @IsEnum(BillingPeriod)
+  period!: BillingPeriod;
+
   @IsOptional()
   @IsString()
+  @MaxLength(500)
   successUrl?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(500)
   cancelUrl?: string;
 }

@@ -355,6 +355,34 @@ export interface InterviewCalendarState {
   scheduling: InterviewSchedulingThread[];
 }
 
+export interface AccountState {
+  available: boolean;
+  authenticated: boolean;
+  user: {
+    id: string;
+    email: string;
+    displayName: string | null;
+    avatarUrl: string | null;
+  } | null;
+  subscription: {
+    plan: 'BASIC' | 'PRO' | null;
+    status: 'ACTIVE' | 'EXPIRED' | 'CANCELLED' | 'PENDING';
+    currentPeriodEnd: string | null;
+    sttMinutesUsed: number;
+    llmTokensUsed: number;
+    limits: { sttMinutesPerMonth: number; llmTokensPerMonth: number; modes: string[] } | null;
+  } | null;
+  error: string | null;
+}
+
+export interface AccountDevice {
+  id: string;
+  name: string;
+  createdAt: string;
+  lastSeenAt: string;
+  current: boolean;
+}
+
 export interface ElectronAPI {
   getApiUrl: () => Promise<string>;
   getApiToken?: () => Promise<string>;
@@ -364,6 +392,43 @@ export interface ElectronAPI {
   setAutoLaunch?: (enable: boolean) => Promise<void>;
   openExternal: (url: string) => Promise<void>;
   notifyReadinessFailure?: (code: 'provider_unavailable') => Promise<boolean>;
+  account?: {
+    getState: () => Promise<AccountState>;
+    refresh: () => Promise<AccountState>;
+    googleLogin: () => Promise<AccountState>;
+    register: (email: string, password: string) => Promise<{ verificationRequired: true; email: string }>;
+    verifyEmail: (email: string, code: string) => Promise<AccountState>;
+    login: (email: string, password: string) => Promise<AccountState>;
+    requestVerification: (email: string) => Promise<{ accepted: true }>;
+    requestPasswordReset: (email: string) => Promise<{ accepted: true }>;
+    confirmPasswordReset: (email: string, code: string, password: string) => Promise<{ changed: true }>;
+    listDevices: () => Promise<AccountDevice[]>;
+    revokeDevice: (sessionId: string) => Promise<{ revoked: true }>;
+    createCheckout: (plan: 'BASIC' | 'PRO', provider: 'stripe' | 'yookassa', period: 'monthly' | 'yearly') => Promise<{ opened: true }>;
+    logout: () => Promise<AccountState>;
+    onState: (cb: (state: AccountState) => void) => () => void;
+  };
+  backup?: {
+    keys: () => Promise<string[]>;
+    export: (rendererStorage: Record<string, string>) => Promise<{
+      canceled: boolean;
+      path?: string;
+      fileCount?: number;
+      rendererKeyCount?: number;
+    }>;
+    preview: () => Promise<{
+      canceled: boolean;
+      token?: string;
+      createdAt?: string;
+      fileCount?: number;
+      rendererKeyCount?: number;
+    }>;
+    apply: (token: string, rendererStorage: Record<string, string>) => Promise<{
+      rollbackPath: string;
+      rendererStorage: Record<string, string>;
+    }>;
+    restart: () => Promise<{ restarting: true }>;
+  };
   operationalTelemetry?: {
     getState: () => Promise<{ enabled: boolean; events: Array<{ at: string; version: string; category: string; code: string; count: number }> }>;
     setEnabled: (enabled: boolean) => Promise<{ enabled: boolean; events: Array<{ at: string; version: string; category: string; code: string; count: number }> }>;

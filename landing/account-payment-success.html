@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex" />
+  <title>Возврат после оплаты — SkillCue</title>
+  <style>
+    body { min-height: 100vh; margin: 0; display: grid; place-items: center; padding: 24px; box-sizing: border-box; background: #07101d; color: #f2f7ff; font-family: Inter, system-ui, sans-serif; }
+    main { width: min(480px, 100%); padding: 30px; border: 1px solid #26364b; border-radius: 22px; background: #101c2c; text-align: center; }
+    h1 { margin: 0 0 10px; font-size: 24px; } p { color: #a9b8cb; line-height: 1.55; }
+    a { display: inline-block; margin-top: 12px; padding: 13px 18px; border-radius: 12px; background: #42d77d; color: #052014; font-weight: 700; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Возвращаем в SkillCue</h1>
+    <p>Платёж проверяется на сервере. Подписка появится в профиле сразу после подтверждения ЮKassa.</p>
+    <a id="returnToApp" hidden>Открыть SkillCue</a>
+  </main>
+  <script>
+    const channel = new URLSearchParams(location.search).get('channel');
+    const target = channel === 'alpha'
+      ? 'skillcue-alpha://payment-success'
+      : channel === 'dev'
+        ? 'skillcue-dev://payment-success'
+        : '';
+    const link = document.getElementById('returnToApp');
+    if (target) {
+      link.href = target;
+      link.hidden = false;
+      setTimeout(() => { location.href = target; }, 300);
+    }
+  </script>
+</body>
+</html>

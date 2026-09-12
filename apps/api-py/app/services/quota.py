@@ -19,13 +19,14 @@ from app.db.models import ApiUsage, AppMeta
 from app.services.license import (
     PLAN_FEATURES,
     normalize_plan,
+    select_effective_license,
     token_budget_for,
     trial_live_seconds_left,
-    verify_license_key,
 )
 
 _FIRST_RUN_KEY = "first_run_at"
 _LICENSE_KEY = "license_key"
+_MANAGED_LICENSE_KEY = "managed_license_key"
 _LIVE_SECONDS_KEY = "live_seconds_used"
 
 
@@ -88,8 +89,10 @@ def current_entitlements(db: Session) -> dict:
             "tokens_left_month": max(1, budget - used),
         }
 
-    stored_key = _meta(db, _LICENSE_KEY)
-    payload = verify_license_key(stored_key) if stored_key else None
+    _, payload = select_effective_license(
+        _meta(db, _MANAGED_LICENSE_KEY),
+        _meta(db, _LICENSE_KEY),
+    )
 
     if payload:
         plan = normalize_plan(str(payload.get("plan", "")))

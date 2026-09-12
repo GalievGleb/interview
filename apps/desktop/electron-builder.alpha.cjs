@@ -60,5 +60,11 @@ module.exports = {
     name: 'skillcue-alpha',
     version: alphaVersion,
     buildChannel: 'alpha',
+    ...(process.env.SKILLCUE_ACCOUNT_API_URL
+      ? { accountApiUrl: process.env.SKILLCUE_ACCOUNT_API_URL }
+      : {}),
+    ...(process.env.SKILLCUE_GOOGLE_OAUTH_CLIENT_ID
+      ? { googleOAuthClientId: process.env.SKILLCUE_GOOGLE_OAUTH_CLIENT_ID }
+      : {}),
   },
 };

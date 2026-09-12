@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import io
 import secrets as pysecrets
+import shlex
 import sys
 import tarfile
 import time
@@ -29,6 +30,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[3]
 DEPLOY_DIR = Path(__file__).resolve().parent
 ADMIN_SECRET_FILE = DEPLOY_DIR / ".admin_secret"
+ACCOUNT_SECRETS_FILE = DEPLOY_DIR / ".account_secrets.json"
 SIGNING_KEY_FILE = REPO / "apps" / "api-py" / ".license_signing_key"
 APP_DIR = "/opt/skillcue"
 
@@ -42,12 +44,19 @@ BUNDLE_INCLUDE = [
     "landing",
 ]
 EXCLUDE_PARTS = {"node_modules", "dist", "dist-crosscheck", "__pycache__", ".turbo"}
+EXCLUDE_NAMES = {
+    ".account_secrets.json",
+    ".admin_secret",
+    ".env",
+    ".env.local",
+    ".env.production",
+}
 # Секреты бота (config.json с токеном) нужны на сервере, поэтому НЕ исключаются.
 
 
 def _tar_filter(info: tarfile.TarInfo) -> tarfile.TarInfo | None:
     parts = set(Path(info.name).parts)
-    if parts & EXCLUDE_PARTS:
+    if parts & EXCLUDE_PARTS or Path(info.name).name in EXCLUDE_NAMES:
         return None
     return info
 
@@ -156,6 +165,73 @@ def admin_secret() -> str:
     return value
 
 
+def account_secrets() -> dict[str, str]:
+    import json
+
+    if ACCOUNT_SECRETS_FILE.exists():
+        values = json.loads(ACCOUNT_SECRETS_FILE.read_text(encoding="utf-8"))
+    else:
+        values = {
+            "jwt_access_secret": pysecrets.token_urlsafe(48),
+            "auth_code_secret": pysecrets.token_urlsafe(48),
+            "device_id_secret": pysecrets.token_urlsafe(48),
+            "database_password": pysecrets.token_urlsafe(32),
+        }
+        ACCOUNT_SECRETS_FILE.write_text(json.dumps(values), encoding="utf-8")
+    required = {
+        "jwt_access_secret", "auth_code_secret", "device_id_secret", "database_password"
+    }
+    if not required.issubset(values) or any(len(str(values[key])) < 32 for key in required):
+        raise RuntimeError("account secret store is incomplete")
+    return {key: str(value) for key, value in values.items()}
+
+
+def build_account_env() -> str:
+    import os
+    from urllib.parse import quote
+
+    resend_key = os.environ.get("RESEND_API_KEY", "").strip()
+    google_client_id = os.environ.get("SKILLCUE_GOOGLE_OAUTH_CLIENT_ID", "").strip()
+    if not resend_key:
+        raise RuntimeError("RESEND_API_KEY is required for account deployment")
+    if not google_client_id:
+        raise RuntimeError("SKILLCUE_GOOGLE_OAUTH_CLIENT_ID is required for account deployment")
+    signing = (
+        SIGNING_KEY_FILE.read_text(encoding="utf-8").strip()
+        if SIGNING_KEY_FILE.exists()
+        else ""
+    )
+    if not signing:
+        raise RuntimeError(".license_signing_key is required for account deployment")
+    if len(signing) != 64 or any(char not in "0123456789abcdefABCDEF" for char in signing):
+        raise RuntimeError(".license_signing_key must contain a 32-byte hex Ed25519 seed")
+    secrets = account_secrets()
+    database_password = secrets["database_password"]
+    lines = [
+        "ACCOUNT_API_HOST=127.0.0.1",
+        "ACCOUNT_API_PORT=8788",
+        "PG_ACCOUNT_USER=skillcue_account",
+        f"PG_ACCOUNT_PASSWORD={database_password}",
+        (
+            "DATABASE_URL=postgresql://skillcue_account:"
+            f"{quote(database_password, safe='')}@127.0.0.1:5432/skillcue_account?schema=public"
+        ),
+        f"JWT_ACCESS_SECRET={secrets['jwt_access_secret']}",
+        "JWT_ACCESS_EXPIRES_SEC=900",
+        f"AUTH_CODE_SECRET={secrets['auth_code_secret']}",
+        f"DEVICE_ID_SECRET={secrets['device_id_secret']}",
+        f"RESEND_API_KEY={resend_key}",
+        'AUTH_MAIL_FROM="SkillCue <no-reply@skill-cue.ru>"',
+        f"GOOGLE_OAUTH_CLIENT_ID={google_client_id}",
+        f"LICENSE_PRIVATE_KEY_HEX={signing}",
+        "YOOKASSA_SHOP_ID=1402744",
+        f"YOOKASSA_SECRET_KEY={read_yookassa_secret()}",
+        "DESKTOP_PROTOCOL=skillcue-alpha",
+        "CORS_ORIGIN=https://skill-cue.ru",
+    ]
+    return "\n".join(lines) + "\n"
+
+
 def build_env() -> str:
     signing = (
         SIGNING_KEY_FILE.read_text(encoding="utf-8").strip()
@@ -194,6 +270,11 @@ def build_env() -> str:
             "openai/o1,openai/o3,openai/gpt-4.5,openai/gpt-5.5-pro,openai/gpt-5.4-pro,"
             "anthropic/claude-3-opus,anthropic/claude-opus,google/gemini-2.5-pro"
         ),
+        # A broad emergency block (for example openai/gpt-5) may otherwise also
+        # catch the exact Max-only structured-screen models.  This narrower list
+        # is consulted only after the signed Max plan and strict workload shape
+        # have been verified; it never authorizes ordinary chat traffic.
+        ("GATEWAY_STRUCTURED_SCREEN_ALLOWED_MODELS=openai/gpt-5.6-sol,openai/gpt-5.6"),
         # Managed STT: all licensed clients use gpt-4o-mini-transcribe through
         # the HTTP gateway endpoint.
         f"OPENAI_API_KEY={openai_stt_key}",
@@ -256,12 +337,37 @@ def run(
     return code, text
 
 
+def deployment_steps(*, with_account: bool, domain: str) -> list[str]:
+    steps = [
+        (
+            f"mkdir -p {APP_DIR} && tar -xzf /tmp/skillcue-bundle.tgz -C {APP_DIR} "
+            f"&& mv /tmp/gateway.env {APP_DIR}/gateway.env && chmod 600 {APP_DIR}/gateway.env"
+        ),
+        f"bash {APP_DIR}/apps/api/deploy/setup-vps.sh",
+    ]
+    if with_account:
+        steps.insert(
+            1,
+            (
+                f"mv /tmp/account.env {APP_DIR}/account.env "
+                f"&& chmod 600 {APP_DIR}/account.env"
+            ),
+        )
+        steps.append(f"bash {APP_DIR}/apps/api/deploy/setup-account-vps.sh")
+        steps.append(
+            f"DOMAIN={shlex.quote(domain)} bash {APP_DIR}/apps/api/deploy/setup-web.sh"
+        )
+    return steps
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--host", required=True)
     ap.add_argument("--user", default="root")
     ap.add_argument("--password", default=None)
     ap.add_argument("--port", type=int, default=22)
+    ap.add_argument("--with-account", action="store_true")
+    ap.add_argument("--domain", default="skill-cue.ru")
     args = ap.parse_args()
 
     import os
@@ -319,17 +425,14 @@ def main() -> None:
         f.write(bundle)
     with sftp.open("/tmp/gateway.env", "w") as f:
         f.write(build_env())
+    if args.with_account:
+        with sftp.open("/tmp/account.env", "w") as f:
+            f.write(build_account_env())
     sftp.close()
     print("бандл и env залиты")
 
     # 3) Распаковка + установка.
-    steps = [
-        (
-            f"mkdir -p {APP_DIR} && tar -xzf /tmp/skillcue-bundle.tgz -C {APP_DIR} "
-            f"&& mv /tmp/gateway.env {APP_DIR}/gateway.env && chmod 600 {APP_DIR}/gateway.env"
-        ),
-        f"bash {APP_DIR}/apps/api/deploy/setup-vps.sh",
-    ]
+    steps = deployment_steps(with_account=args.with_account, domain=args.domain)
     for step in steps:
         print(f"$ {step[:90]}…")
         code, out = run(ssh, step, sudo_pass=sudo_pass)

@@ -11,6 +11,7 @@ import {
   nativeImage,
   Notification,
   dialog,
+  safeStorage,
 } from 'electron';
 import path from 'path';
 import fs from 'fs';
@@ -77,6 +78,10 @@ import {
   showOverlayWindowPrivately,
   type OverlayShowMode,
 } from './overlayWindowPrivacy';
+import { AccountClient, resolveAccountApiUrl, type PublicAccountState } from './accountClient';
+import { AccountSessionStore, createAccountSessionFiles } from './accountSessionStore';
+import { runGoogleDesktopOAuth } from './googleOAuth';
+import { BackupService, rendererBackupKeys } from './backupService';
 
 const isDev = !app.isPackaged;
 
@@ -96,6 +101,24 @@ function readPackagedBuildChannel(): unknown {
 const BUILD_CHANNEL = resolveBuildChannel(app.isPackaged, readPackagedBuildChannel());
 const APP_IDENTITY = getAppIdentity(BUILD_CHANNEL);
 const isDeveloperBuild = BUILD_CHANNEL === 'dev' || BUILD_CHANNEL === 'alpha';
+
+function readPackagedAccountMetadata(): { accountApiUrl?: string; googleOAuthClientId?: string } {
+  if (!app.isPackaged) return {};
+  try {
+    return JSON.parse(fs.readFileSync(path.join(app.getAppPath(), 'package.json'), 'utf8'));
+  } catch {
+    return {};
+  }
+}
+
+const ACCOUNT_METADATA = readPackagedAccountMetadata();
+const ACCOUNT_API_URL = resolveAccountApiUrl(
+  BUILD_CHANNEL,
+  process.env.SKILLCUE_ACCOUNT_API_URL ?? ACCOUNT_METADATA.accountApiUrl,
+);
+const GOOGLE_OAUTH_CLIENT_ID = (
+  process.env.SKILLCUE_GOOGLE_OAUTH_CLIENT_ID ?? ACCOUNT_METADATA.googleOAuthClientId ?? ''
+).trim();
 // The first macOS release is distributed as architecture-specific DMGs. Keep
 // the Windows updater quiet until a signed macOS ZIP/update manifest is shipped.
 const isAutoUpdateSupported = !isDeveloperBuild && process.platform === 'win32';
@@ -174,6 +197,10 @@ let hhOAuthService: HhOAuthService | null = null;
 let hhChatBrowser: HhChatBrowser | null = null;
 let interviewCalendar: InterviewCalendarStore | null = null;
 let operationalTelemetry: OperationalTelemetryStore | null = null;
+let accountClient: AccountClient | null = null;
+let googleLoginPromise: Promise<PublicAccountState> | null = null;
+let backupService: BackupService | null = null;
+let pendingBackupImport: { token: string; path: string } | null = null;
 let activeInterviewEventId: string | null = null;
 let closingHhBrowserForQuit = false;
 let quitting = false;
@@ -206,6 +233,90 @@ function sendToWindows(channel: string, payload: unknown): void {
 
 function backendLogPath(): string {
   return path.join(app.getPath('userData'), 'backend.log');
+}
+
+function initializeAccountClient(): void {
+  if (!ACCOUNT_API_URL || !isDeveloperBuild) return;
+  const store = new AccountSessionStore(
+    createAccountSessionFiles(path.join(app.getPath('userData'), 'account-session.json')),
+    {
+      isAvailable: () => safeStorage.isEncryptionAvailable(),
+      encrypt: (value) => safeStorage.encryptString(value),
+      decrypt: (value) => safeStorage.decryptString(value),
+    },
+    () => crypto.randomUUID(),
+  );
+  accountClient = new AccountClient({
+    baseUrl: ACCOUNT_API_URL,
+    installationId: store.getInstallationId(),
+    deviceName: `${os.hostname()} (${process.platform})`,
+    deepLinkProtocol: APP_IDENTITY.deepLinkProtocol,
+    loadRefreshToken: () => store.loadRefreshToken(),
+    saveRefreshToken: (token) => store.saveRefreshToken(token),
+    clearRefreshToken: () => store.clearRefreshToken(),
+    installManagedLicense: (key) => updateLocalManagedLicense(key),
+    clearManagedLicense: () => updateLocalManagedLicense(null),
+  });
+  void accountClient.restore().then((state) => sendToWindows('account:state', state));
+}
+
+async function updateLocalManagedLicense(key: string | null): Promise<void> {
+  const response = await fetch(`${API_URL}/license/managed`, {
+    method: key ? 'POST' : 'DELETE',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-SkillCue-Token': API_TOKEN,
+    },
+    ...(key ? { body: JSON.stringify({ key }) } : {}),
+    signal: AbortSignal.timeout(5_000),
+  });
+  if (!response.ok) throw new Error(`MANAGED_LICENSE_SYNC_FAILED_${response.status}`);
+}
+
+async function stopBackendForBackupImport(): Promise<void> {
+  quitting = true;
+  const processToStop = backendProcess;
+  if (!processToStop?.pid) return;
+  await new Promise<void>((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      backendProcess = null;
+      resolve();
+    };
+    processToStop.once('exit', finish);
+    if (process.platform === 'win32') {
+      const killer = spawn('taskkill', ['/pid', String(processToStop.pid), '/T', '/F'], {
+        windowsHide: true,
+      });
+      killer.once('error', finish);
+      killer.once('exit', () => setTimeout(finish, 100));
+    } else {
+      processToStop.kill();
+    }
+    setTimeout(finish, 5_000).unref?.();
+  });
+}
+
+function unavailableAccountState(): PublicAccountState {
+  return {
+    available: false,
+    authenticated: false,
+    user: null,
+    subscription: null,
+    error: 'ACCOUNT_SERVICE_UNAVAILABLE',
+  };
+}
+
+function requireAccountClient(): AccountClient {
+  if (!accountClient) throw new Error('ACCOUNT_SERVICE_UNAVAILABLE');
+  return accountClient;
+}
+
+function publishAccountState(state: PublicAccountState): PublicAccountState {
+  sendToWindows('account:state', state);
+  return state;
 }
 
 /** Пишем stdout/stderr бэкенда в файл — основа диагностического отчёта. */
@@ -350,6 +461,9 @@ async function confirmBackendUp(): Promise<void> {
     if (await pingBackendHealth()) {
       backendRestartAttempts = 0;
       sendToWindows('backend:status', { state: 'ok' });
+      void accountClient?.syncManagedLicense().catch((error) => {
+        logMain('warn', 'managed account license sync failed', error);
+      });
       return;
     }
     await new Promise((r) => setTimeout(r, 1500));
@@ -441,7 +555,7 @@ function setupContentSecurityPolicy(): void {
             "default-src 'self'",
             "script-src 'self'",
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-            "img-src 'self' data: blob:",
+            "img-src 'self' data: blob: https://*.googleusercontent.com",
             "font-src 'self' data: https://fonts.gstatic.com",
             "media-src 'self' blob:",
             `connect-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com ${localApiSources}`,
@@ -660,6 +774,11 @@ function registerIpc(): void {
     'interview-calendar:get-state', 'interview-calendar:save-settings', 'interview-calendar:upsert-event',
     'interview-calendar:remove-event', 'interview-calendar:attach-session', 'interview-calendar:save-outcome',
     'interview-calendar:dismiss-thread', 'overlay:move', 'overlay:resize', 'app:getAutoLaunch', 'app:setAutoLaunch',
+    'account:get-state', 'account:google-login', 'account:register', 'account:verify-email', 'account:login',
+    'account:request-verification', 'account:request-password-reset', 'account:confirm-password-reset',
+    'account:list-devices', 'account:revoke-device', 'account:create-checkout', 'account:logout',
+    'account:refresh',
+    'backup:keys', 'backup:export', 'backup:preview', 'backup:apply', 'backup:restart',
   ]);
   const originalHandle = ipcMain.handle.bind(ipcMain);
   type IpcHandler = Parameters<typeof ipcMain.handle>[1];
@@ -700,6 +819,97 @@ function registerIpc(): void {
     });
     notification.show();
     return true;
+  });
+
+  handle('account:get-state', () => accountClient?.getState() ?? unavailableAccountState());
+  handle('account:refresh', async () =>
+    publishAccountState(await requireAccountClient().refreshAccount()));
+  handle('account:google-login', () => {
+    if (!googleLoginPromise) {
+      const client = requireAccountClient();
+      googleLoginPromise = runGoogleDesktopOAuth({
+        clientId: GOOGLE_OAUTH_CLIENT_ID,
+        openExternal: (url) => shell.openExternal(url),
+      })
+        .then(({ idToken }) => client.loginWithGoogle(idToken))
+        .then(publishAccountState)
+        .finally(() => { googleLoginPromise = null; });
+    }
+    return googleLoginPromise;
+  });
+  handle('account:register', (_event, email: string, password: string) =>
+    requireAccountClient().register(email, password));
+  handle('account:verify-email', async (_event, email: string, code: string) =>
+    publishAccountState(await requireAccountClient().verifyEmail(email, code)));
+  handle('account:login', async (_event, email: string, password: string) =>
+    publishAccountState(await requireAccountClient().login(email, password)));
+  handle('account:request-verification', (_event, email: string) =>
+    requireAccountClient().requestVerification(email));
+  handle('account:request-password-reset', (_event, email: string) =>
+    requireAccountClient().requestPasswordReset(email));
+  handle('account:confirm-password-reset', (_event, email: string, code: string, password: string) =>
+    requireAccountClient().confirmPasswordReset(email, code, password));
+  handle('account:list-devices', () => requireAccountClient().listDevices());
+  handle('account:revoke-device', (_event, sessionId: string) =>
+    requireAccountClient().revokeDevice(sessionId));
+  handle('account:create-checkout', async (_event, plan: 'BASIC' | 'PRO', provider: 'stripe' | 'yookassa', period: 'monthly' | 'yearly') => {
+    const result = await requireAccountClient().createCheckout(plan, provider, period);
+    safeOpenExternal(result.checkoutUrl);
+    return { opened: true };
+  });
+  handle('account:logout', async () => publishAccountState(await requireAccountClient().logout()));
+  handle('backup:keys', () => rendererBackupKeys());
+  handle('backup:export', async (_event, rendererStorage: Record<string, string>) => {
+    if (!backupService) throw new Error('BACKUP_UNAVAILABLE');
+    const date = new Date().toISOString().slice(0, 10);
+    const selected = await dialog.showSaveDialog({
+      title: 'Сохранить резервную копию SkillCue',
+      defaultPath: path.join(app.getPath('documents'), `SkillCue-backup-${date}.skillcue-backup`),
+      filters: [{ name: 'Резервная копия SkillCue', extensions: ['skillcue-backup'] }],
+    });
+    if (selected.canceled || !selected.filePath) return { canceled: true as const };
+    await stopBackendForBackupImport();
+    try {
+      return { canceled: false as const, ...backupService.exportTo(selected.filePath, rendererStorage) };
+    } finally {
+      quitting = false;
+      void ensureBackend();
+    }
+  });
+  handle('backup:preview', async () => {
+    if (!backupService) throw new Error('BACKUP_UNAVAILABLE');
+    const selected = await dialog.showOpenDialog({
+      title: 'Выбрать резервную копию SkillCue',
+      properties: ['openFile'],
+      filters: [{ name: 'Резервная копия SkillCue', extensions: ['skillcue-backup'] }],
+    });
+    if (selected.canceled || !selected.filePaths[0]) return { canceled: true as const };
+    const token = crypto.randomBytes(24).toString('base64url');
+    const preview = backupService.preview(selected.filePaths[0]);
+    pendingBackupImport = { token, path: selected.filePaths[0] };
+    return { canceled: false as const, token, ...preview };
+  });
+  handle('backup:apply', async (_event, token: string, currentRendererStorage: Record<string, string>) => {
+    if (!backupService || !pendingBackupImport || token !== pendingBackupImport.token) {
+      throw new Error('BACKUP_IMPORT_NOT_CONFIRMED');
+    }
+    const source = pendingBackupImport.path;
+    pendingBackupImport = null;
+    await stopBackendForBackupImport();
+    try {
+      return backupService.apply(source, currentRendererStorage);
+    } catch (error) {
+      quitting = false;
+      void ensureBackend();
+      throw error;
+    }
+  });
+  handle('backup:restart', () => {
+    setTimeout(() => {
+      app.relaunch();
+      app.exit(0);
+    }, 100);
+    return { restarting: true as const };
   });
 
   handle('hh-assistant:get-state', () => hhBrowserAssistant?.getState());
@@ -1538,6 +1748,16 @@ function extractActivationKey(url: string | undefined): string | null {
   }
 }
 
+function extractDeepLinkAction(url: string | undefined): string | null {
+  if (!url || !url.startsWith(`${DEEP_LINK_PROTOCOL}://`)) return null;
+  try {
+    const parsed = new URL(url);
+    return parsed.hostname || parsed.pathname.replace(/\//g, '') || null;
+  } catch {
+    return null;
+  }
+}
+
 function flushDeepLink(): void {
   if (!pendingDeepLinkKey || !mainWindow || mainWindow.isDestroyed()) return;
   if (mainWindow.webContents.isLoading()) return; // окно грузится — дошлём на did-finish-load
@@ -1550,9 +1770,30 @@ function flushDeepLink(): void {
 
 function deliverDeepLink(url: string | undefined): void {
   const key = extractActivationKey(url);
-  if (!key) return;
-  pendingDeepLinkKey = key;
-  flushDeepLink();
+  if (key) {
+    pendingDeepLinkKey = key;
+    flushDeepLink();
+    return;
+  }
+  if (extractDeepLinkAction(url) !== 'payment-success' || !accountClient) return;
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  }
+  const refreshAfterWebhook = async () => {
+    for (const delayMs of [500, 1_000, 2_000, 4_000, 6_000]) {
+      await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+      try {
+        const state = await accountClient?.refreshAccount();
+        if (state) publishAccountState(state);
+        if (state?.subscription?.status === 'ACTIVE') return;
+      } catch {
+        // The payment provider may redirect before its verified webhook arrives.
+      }
+    }
+  };
+  void refreshAfterWebhook();
 }
 
 // Одна копия приложения: повторный запуск (в т.ч. по ссылке активации)
@@ -1582,6 +1823,8 @@ if (!hasSingleInstanceLock) {
   app.whenReady().then(() => {
     Menu.setApplicationMenu(null);
     operationalTelemetry = new OperationalTelemetryStore(app.getPath('userData'), app.getVersion());
+    backupService = new BackupService(app.getPath('userData'));
+    initializeAccountClient();
     void ensureBackend();
     setupContentSecurityPolicy();
     setupDisplayMedia();

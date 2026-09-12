@@ -3,15 +3,28 @@ import {
   UnauthorizedException,
   ConflictException,
   ForbiddenException,
+  BadRequestException,
+  HttpException,
+  HttpStatus,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
-import { LoginDto, RegisterDto } from './dto/auth.dto';
-import { AuthResponse } from '@interview/shared';
-
-const HWID_CHANGE_COOLDOWN_DAYS = 30;
+import { EmailCodeDto, GoogleLoginDto, LoginDto, RegisterDto, ResetPasswordDto } from './dto/auth.dto';
+import {
+  AcceptedResponse,
+  AuthResponse,
+  PasswordChangedResponse,
+  RegistrationPendingResponse,
+} from '@interview/shared';
+import {
+  AuthCodeError,
+  AuthCodeService,
+  normalizeAccountEmail,
+} from './auth-code.service';
+import { DeviceLimitError, DeviceSessionService } from './device-session.service';
+import { GoogleIdentityService } from './google-identity.service';
 
 /**
  * Fail-closed: never fall back to a hardcoded dev secret. If the environment
@@ -26,153 +39,226 @@ function accessSecretOrThrow(): string {
   return secret;
 }
 
-function refreshSecretOrThrow(): string {
-  const secret = process.env.JWT_REFRESH_SECRET;
-  if (!secret || !secret.length) {
-    throw new Error('JWT_REFRESH_SECRET is not configured');
-  }
-  return secret;
-}
-
 @Injectable()
 export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly subscriptionsService: SubscriptionsService,
+    private readonly authCodes: AuthCodeService,
+    private readonly deviceSessions: DeviceSessionService,
+    private readonly googleIdentities: GoogleIdentityService,
   ) {}
 
-  async register(dto: RegisterDto): Promise<AuthResponse> {
-    const existing = await this.prisma.user.findUnique({ where: { email: dto.email } });
-    if (existing) {
+  async register(dto: RegisterDto): Promise<RegistrationPendingResponse> {
+    const email = normalizeAccountEmail(dto.email);
+    const existing = await this.prisma.user.findUnique({ where: { email } });
+    if (existing?.emailVerifiedAt) {
       throw new ConflictException('Email already registered');
     }
 
     const passwordHash = await bcrypt.hash(dto.password, 12);
-    const user = await this.prisma.user.create({
-      data: {
-        email: dto.email,
-        passwordHash,
-        hwid: dto.hwid ?? null,
-      },
-    });
-
-    const tokens = await this.issueTokens(user.id, user.email);
-    await this.saveRefreshToken(user.id, tokens.refreshToken);
-
-    return this.buildAuthResponse(user, tokens);
+    if (existing) {
+      await this.prisma.user.update({
+        where: { id: existing.id },
+        data: { passwordHash },
+      });
+    } else {
+      await this.prisma.user.create({
+        data: { email, passwordHash },
+      });
+    }
+    await this.issueCode(email, 'verify_email');
+    return { verificationRequired: true, email };
   }
 
   async login(dto: LoginDto): Promise<AuthResponse> {
-    const user = await this.prisma.user.findUnique({ where: { email: dto.email } });
+    const email = normalizeAccountEmail(dto.email);
+    const user = await this.prisma.user.findUnique({ where: { email } });
     if (!user) {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    const valid = await bcrypt.compare(dto.password, user.passwordHash);
+    const valid = user.passwordHash
+      ? await bcrypt.compare(dto.password, user.passwordHash)
+      : false;
     if (!valid) {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    if (dto.hwid) {
-      await this.bindHwid(user.id, user.hwid, user.hwidChangedAt, dto.hwid);
+    if (!user.emailVerifiedAt) {
+      throw new ForbiddenException('Email verification required');
     }
 
-    const tokens = await this.issueTokens(user.id, user.email);
-    await this.saveRefreshToken(user.id, tokens.refreshToken);
+    await this.subscriptionsService.claimPending(user.id, user.email);
+    const session = await this.openDeviceSession(user.id, dto.deviceId, dto.deviceName);
+    return this.buildAuthResponse(user, {
+      accessToken: this.issueAccessToken(user.id, user.email, session.sessionId),
+      refreshToken: session.refreshToken,
+    });
+  }
 
-    const updatedUser = await this.prisma.user.findUniqueOrThrow({ where: { id: user.id } });
-    return this.buildAuthResponse(updatedUser, tokens);
+  async loginWithGoogle(dto: GoogleLoginDto): Promise<AuthResponse> {
+    let user;
+    try {
+      user = await this.googleIdentities.resolve(dto.idToken);
+    } catch (error) {
+      if (error instanceof Error && error.message === 'GOOGLE_OAUTH_CLIENT_ID is not configured') {
+        throw error;
+      }
+      throw new UnauthorizedException('GOOGLE_IDENTITY_INVALID');
+    }
+    await this.subscriptionsService.claimPending(user.id, user.email);
+    const session = await this.openDeviceSession(user.id, dto.deviceId, dto.deviceName);
+    return this.buildAuthResponse(user, {
+      accessToken: this.issueAccessToken(user.id, user.email, session.sessionId),
+      refreshToken: session.refreshToken,
+    });
+  }
+
+  async verifyEmail(dto: EmailCodeDto): Promise<AuthResponse> {
+    const email = normalizeAccountEmail(dto.email);
+    await this.verifyCode(email, dto.code, 'verify_email');
+    const user = await this.prisma.user.findUnique({ where: { email } });
+    if (!user) throw new BadRequestException('CODE_INVALID');
+    const verified = await this.prisma.user.update({
+      where: { id: user.id },
+      data: { emailVerifiedAt: new Date() },
+    });
+    await this.subscriptionsService.claimPending(verified.id, verified.email);
+    const session = await this.openDeviceSession(verified.id, dto.deviceId, dto.deviceName);
+    return this.buildAuthResponse(verified, {
+      accessToken: this.issueAccessToken(verified.id, verified.email, session.sessionId),
+      refreshToken: session.refreshToken,
+    });
+  }
+
+  async requestVerification(rawEmail: string): Promise<AcceptedResponse> {
+    const email = normalizeAccountEmail(rawEmail);
+    const user = await this.prisma.user.findUnique({ where: { email } });
+    if (user && !user.emailVerifiedAt) {
+      await this.issueCode(email, 'verify_email');
+    }
+    return { accepted: true };
+  }
+
+  async requestPasswordReset(rawEmail: string): Promise<AcceptedResponse> {
+    const email = normalizeAccountEmail(rawEmail);
+    const user = await this.prisma.user.findUnique({ where: { email } });
+    if (user?.emailVerifiedAt) {
+      await this.issueCode(email, 'reset_password');
+    }
+    return { accepted: true };
+  }
+
+  async resetPassword(dto: ResetPasswordDto): Promise<PasswordChangedResponse> {
+    const email = normalizeAccountEmail(dto.email);
+    await this.verifyCode(email, dto.code, 'reset_password');
+    const user = await this.prisma.user.findUnique({ where: { email } });
+    if (!user?.emailVerifiedAt) throw new BadRequestException('CODE_INVALID');
+    const passwordHash = await bcrypt.hash(dto.password, 12);
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { passwordHash, passwordChangedAt: new Date(), refreshToken: null },
+    });
+    await this.deviceSessions.revokeAll(user.id);
+    return { changed: true };
+  }
+
+  private async verifyCode(
+    email: string,
+    code: string,
+    purpose: 'verify_email' | 'reset_password',
+  ): Promise<void> {
+    try {
+      await this.authCodes.verify(email, code, purpose);
+    } catch (error) {
+      if (error instanceof AuthCodeError) throw new BadRequestException(error.code);
+      throw error;
+    }
+  }
+
+  private async issueCode(email: string, purpose: 'verify_email' | 'reset_password'): Promise<void> {
+    try {
+      await this.authCodes.issue(email, purpose);
+    } catch (error) {
+      if (error instanceof AuthCodeError && error.code === 'CODE_RATE_LIMITED') {
+        throw new HttpException('CODE_RATE_LIMITED', HttpStatus.TOO_MANY_REQUESTS);
+      }
+      throw error;
+    }
   }
 
   async refresh(refreshToken: string): Promise<AuthResponse> {
-    let payload: { sub: string; email: string };
     try {
-      payload = this.jwtService.verify(refreshToken, {
-        secret: refreshSecretOrThrow(),
+      const session = await this.deviceSessions.refresh(refreshToken);
+      const user = await this.prisma.user.findUnique({ where: { id: session.userId } });
+      if (!user?.emailVerifiedAt) throw new UnauthorizedException('Invalid refresh token');
+      return this.buildAuthResponse(user, {
+        accessToken: this.issueAccessToken(user.id, user.email, session.sessionId),
+        refreshToken: session.refreshToken,
       });
-    } catch {
+    } catch (error) {
+      if (error instanceof UnauthorizedException) throw error;
       throw new UnauthorizedException('Invalid refresh token');
     }
-
-    const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
-    if (!user || user.refreshToken !== refreshToken) {
-      throw new UnauthorizedException('Invalid refresh token');
-    }
-
-    const tokens = await this.issueTokens(user.id, user.email);
-    await this.saveRefreshToken(user.id, tokens.refreshToken);
-    return this.buildAuthResponse(user, tokens);
   }
 
-  async logout(userId: string) {
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { refreshToken: null },
-    });
+  async logout(userId: string, sessionId: string) {
+    await this.deviceSessions.revoke(userId, sessionId);
   }
 
-  private async bindHwid(
-    userId: string,
-    currentHwid: string | null,
-    hwidChangedAt: Date | null,
-    newHwid: string,
-  ) {
-    if (!currentHwid) {
-      await this.prisma.user.update({ where: { id: userId }, data: { hwid: newHwid } });
-      return;
-    }
-
-    if (currentHwid === newHwid) {
-      return;
-    }
-
-    const cooldownMs = HWID_CHANGE_COOLDOWN_DAYS * 24 * 60 * 60 * 1000;
-    if (hwidChangedAt && Date.now() - hwidChangedAt.getTime() < cooldownMs) {
-      throw new ForbiddenException('Device change allowed once every 30 days');
-    }
-
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { hwid: newHwid, hwidChangedAt: new Date() },
-    });
+  async listDevices(userId: string, currentSessionId: string) {
+    return (await this.deviceSessions.list(userId)).map((device) => ({
+      ...device,
+      current: device.id === currentSessionId,
+    }));
   }
 
-  private async issueTokens(userId: string, email: string) {
+  async revokeDevice(userId: string, sessionId: string) {
+    await this.deviceSessions.revoke(userId, sessionId);
+    return { revoked: true as const };
+  }
+
+  private issueAccessToken(userId: string, email: string, sessionId: string): string {
     const accessExpiresSec = Number(process.env.JWT_ACCESS_EXPIRES_SEC ?? 900);
-    const refreshExpiresSec = Number(process.env.JWT_REFRESH_EXPIRES_SEC ?? 604800);
-
-    const accessToken = this.jwtService.sign(
-      { sub: userId, email },
+    return this.jwtService.sign(
+      { sub: userId, email, sid: sessionId },
       {
         secret: accessSecretOrThrow(),
         expiresIn: accessExpiresSec,
       },
     );
-    const refreshToken = this.jwtService.sign(
-      { sub: userId, email },
-      {
-        secret: refreshSecretOrThrow(),
-        expiresIn: refreshExpiresSec,
-      },
-    );
-    return { accessToken, refreshToken };
   }
 
-  private async saveRefreshToken(userId: string, refreshToken: string) {
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { refreshToken },
-    });
+  private async openDeviceSession(userId: string, deviceId: string, deviceName?: string) {
+    try {
+      return await this.deviceSessions.open(userId, deviceId, deviceName ?? 'Устройство SkillCue');
+    } catch (error) {
+      if (error instanceof DeviceLimitError) {
+        throw new ConflictException({ code: 'DEVICE_LIMIT_REACHED', devices: error.devices });
+      }
+      throw error;
+    }
   }
 
   private async buildAuthResponse(
-    user: { id: string; email: string; hwid: string | null },
+    user: {
+      id: string;
+      email: string;
+      displayName?: string | null;
+      avatarUrl?: string | null;
+    },
     tokens: { accessToken: string; refreshToken: string },
   ): Promise<AuthResponse> {
     const subscription = await this.subscriptionsService.getSubscriptionInfo(user.id);
     return {
-      user: { id: user.id, email: user.email, hwid: user.hwid },
+      user: {
+        id: user.id,
+        email: user.email,
+        displayName: user.displayName ?? null,
+        avatarUrl: user.avatarUrl ?? null,
+      },
       tokens,
       subscription,
     };
