@@ -143,12 +143,20 @@ try {
 
 Первый тест проверяет, что кнопка доступна, переходит в live-состояние и корректно останавливает запись. Второй воспроизводит реальный WAV через установленный Alpha backend, STT WebSocket и модель.
 
-Полная пересборка, установка и все обязательные Alpha-smoke одной командой:
+Пересборка, установка и базовые Alpha-smoke одной командой:
 
 ```powershell
 Set-Location C:\Users\gleb\Projects\SkillCue
 .\tools\install_and_verify_alpha.ps1
 ```
+
+После этого отдельно из корня репозитория запустите:
+
+```powershell
+.\apps\api-py\.venv\Scripts\python.exe tools\verify_alpha_voice_sequence.py
+```
+
+Обновление не принимается, пока отдельный прогон не сообщит `completed=10` и `passed=true`.
 
 Скрипт затрагивает только `skillcue-alpha`; установленный `SkillCue Dev` не заменяет и не останавливает.
 
