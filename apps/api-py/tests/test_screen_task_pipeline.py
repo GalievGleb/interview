@@ -177,6 +177,11 @@ async def test_analysis_result_unifies_prior_and_current_through_a_grounded_draf
                 claim="Секрет хранится открытым текстом",
                 evidence="Во втором фрагменте виден строковый литерал секрета",
             ),
+            _analysis_draft(
+                images,
+                "Ошибка сети на первом экране остаётся частью общего ответа.",
+                "Открытый секрет на втором экране усиливает общий риск.",
+            ),
         ]
     )
     calls: list[dict] = []
@@ -203,12 +208,13 @@ async def test_analysis_result_unifies_prior_and_current_through_a_grounded_draf
 
     assert "Не обработана ошибка сети" in result.answer
     assert "Секрет хранится открытым текстом" in result.answer
-    assert len(calls) == 2
+    assert len(calls) == 3
     assert [call["screen_workload_phase"] for call in calls] == [
         "observation",
         "observation",
+        "answer",
     ]
-    assert [call["reasoning"]["effort"] for call in calls] == ["low", "low"]
+    assert [call["reasoning"]["effort"] for call in calls] == ["low", "low", "medium"]
     assert all(call["response_format"]["type"] == "json_schema" for call in calls)
     schema = calls[0]["response_format"]["json_schema"]["schema"]
     _assert_every_json_object_is_openai_strict(schema)
@@ -243,6 +249,16 @@ async def test_analysis_result_cannot_hide_prior_ledger_fact_behind_unrelated_ci
                 claim="Регрессионные тесты не запускаются",
                 evidence="script содержит только echo regression",
             ),
+            _analysis_draft(
+                images,
+                "Первый идентификатор формально учтён без повторения вывода.",
+                "Текущий дефект требует внимания.",
+            ),
+            _analysis_draft(
+                images,
+                "build_job не выполняет реальную сборку.",
+                "regression_test_job не запускает регрессионные тесты.",
+            ),
         ]
     )
     calls: list[dict] = []
@@ -273,9 +289,17 @@ async def test_analysis_result_cannot_hide_prior_ledger_fact_behind_unrelated_ci
     assert "- Регрессионные тесты не запускаются — script содержит только echo regression" in (
         result.answer
     )
-    assert "Дополнительный анализ по сохранённым фактам" not in result.answer
+    assert "Сводный анализ по сохранённым фактам" in result.answer
+    assert "Первый идентификатор формально учтён" not in result.answer
+    assert "build_job не выполняет реальную сборку" in result.answer
     assert result.answer.count("Регрессионные тесты не запускаются") == 1
-    assert len(calls) == 2
+    assert len(calls) == 4
+    assert [call["screen_workload_phase"] for call in calls] == [
+        "observation",
+        "observation",
+        "answer",
+        "repair",
+    ]
 
 
 @pytest.mark.asyncio
@@ -289,6 +313,7 @@ async def test_observation_role_derives_grounded_task_facts_without_writing_fina
                 claim="Job не выполняет реальную работу",
                 evidence="В script видна только команда echo",
             ),
+            _analysis_draft((image,), "Job содержит подтверждённый дефект."),
         ]
     )
     calls: list[dict] = []
@@ -345,6 +370,7 @@ async def test_observation_role_derives_grounded_task_facts_without_writing_fina
 
 @pytest.mark.asyncio
 async def test_find_defect_observation_retries_when_it_returns_only_general_facts() -> None:
+    image = "data:image/jpeg;base64,ZGVmZWN0LXJldHJ5"
     responses = iter(
         [
             _observation(
@@ -361,6 +387,7 @@ async def test_find_defect_observation_retries_when_it_returns_only_general_fact
                 evidence="В теле виден только placeholder-вывод",
                 finding_kind="defect",
             ),
+            _analysis_draft((image,), "Worker не выполняет заявленную работу."),
         ]
     )
     calls: list[dict] = []
@@ -371,7 +398,7 @@ async def test_find_defect_observation_retries_when_it_returns_only_general_fact
 
     result = await run_screen_task_pipeline(
         previous_images=(),
-        current_image="data:image/jpeg;base64,ZGVmZWN0LXJldHJ5",
+        current_image=image,
         latest_correction="Найди дефекты.",
         context="",
         prior_solution_summary=None,
@@ -385,12 +412,122 @@ async def test_find_defect_observation_retries_when_it_returns_only_general_fact
         complete=complete,
     )
 
-    assert len(calls) == 2
-    assert all(call["screen_workload_phase"] == "observation" for call in calls)
+    assert len(calls) == 3
+    assert [call["screen_workload_phase"] for call in calls] == [
+        "observation",
+        "observation",
+        "answer",
+    ]
     assert "Worker не выполняет заявленную работу" in result.answer
     retry_system = calls[1]["messages"][0]["content"]
     assert "complete, schema-valid observation" in retry_system
     assert "build_job" not in retry_system
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("job_name", "command"),
+    (("build_job", "echo build"), ("regression_test_job", "echo regression")),
+)
+async def test_find_defect_observation_derives_a_defect_for_scalar_echo_only_job(
+    job_name: str,
+    command: str,
+) -> None:
+    image = "data:image/jpeg;base64,eWFtbC1ub29wLWpvYg=="
+    finding_id, source_id = _grounding_ids(image)
+    visible = f"stages: [build, test]; {job_name}: stage: build; script: {command}"
+    grounded_analysis = json.dumps(
+        {
+            "items": [
+                {
+                    "text": (f"{job_name} только {command}; реальная операция job не выполняется."),
+                    "finding_ids": [finding_id],
+                    "source_ids": [source_id],
+                },
+            ]
+        },
+        ensure_ascii=False,
+    )
+    responses = iter(
+        [
+            _observation(
+                task_kind="find_defect",
+                visible_text=visible,
+                claim=f"{job_name} не использует отдельный файл сценария",
+                evidence=f"В script видна команда {command}",
+                finding_kind="defect",
+            ),
+            grounded_analysis,
+            grounded_analysis,
+        ]
+    )
+
+    async def complete(messages, provider, model, **kwargs):
+        return next(responses)
+
+    result = await run_screen_task_pipeline(
+        previous_images=(),
+        current_image=image,
+        latest_correction="Найди дефекты конфигурации.",
+        context="",
+        prior_solution_summary=None,
+        task_action="new",
+        task_state=None,
+        provider="openai",
+        model="safe/model",
+        max_tokens=1200,
+        reasoning={"effort": "medium"},
+        now_ms=1_000,
+        complete=complete,
+    )
+
+    assert f"{job_name} только {command}; реальная операция этого job не выполняется" in (
+        result.answer
+    )
+    assert len(deserialize_screen_task_state(result.serialized_task_state).ledger) == 1
+
+
+@pytest.mark.asyncio
+async def test_find_defect_observation_does_not_treat_echo_plus_real_command_as_noop() -> None:
+    image = "data:image/jpeg;base64,eWFtbC1yZWFsLWpvYg=="
+    visible = """build_job:
+  stage: build
+  script: echo build && make build"""
+    responses = iter(
+        [
+            _observation(
+                task_kind="find_defect",
+                visible_text=visible,
+                claim="build_job требует проверки кода возврата make build",
+                evidence="Команда make build выполняется после echo",
+                finding_kind="defect",
+            ),
+            _analysis_draft((image,), "build_job должен проверять результат make build."),
+        ]
+    )
+
+    async def complete(messages, provider, model, **kwargs):
+        return next(responses)
+
+    result = await run_screen_task_pipeline(
+        previous_images=(),
+        current_image=image,
+        latest_correction="Найди дефекты конфигурации.",
+        context="",
+        prior_solution_summary=None,
+        task_action="new",
+        task_state=None,
+        provider="openai",
+        model="safe/model",
+        max_tokens=1200,
+        reasoning=None,
+        now_ms=1_000,
+        complete=complete,
+    )
+
+    state = deserialize_screen_task_state(result.serialized_task_state)
+    assert len(state.ledger) == 1
+    assert "только echo build" not in result.answer
 
 
 @pytest.mark.asyncio
@@ -619,6 +756,124 @@ async def test_initial_checklist_repairs_semantic_paraphrases_with_different_key
     repair_prompt = calls[-1]["messages"][-1]["content"]
     assert "checklist_duplicate" in repair_prompt
     assert "checklist_semantic_duplicate" in repair_prompt
+
+
+@pytest.mark.asyncio
+async def test_checklist_refinement_salvages_only_valid_unique_items_from_both_drafts() -> None:
+    first_items = [
+        "Проверить успешное создание заказа с валидными данными",
+        "Проверить отказ при пустом обязательном поле",
+        "Проверить недоступный товар",
+        "Проверить превышение доступного остатка",
+        "Проверить повторную отправку одинакового запроса",
+    ]
+    responses = iter(
+        [
+            _observation(
+                task_kind="list",
+                response_kind="checklist",
+                visible_text="Нужны пять бизнес-проверок создания заказа",
+                claim="Нужны пять бизнес-проверок",
+                evidence="Количество и область видны на экране",
+                finding_kind="requirement",
+                requested_item_count=5,
+                checklist_scope="business",
+            ),
+            _checklist_draft(*first_items, semantic_prefix="initial"),
+            _observation(
+                task_kind="list",
+                response_kind="checklist",
+                visible_text="Добавьте три новые бизнес-проверки",
+                claim="Нужны три новые бизнес-проверки",
+                evidence="Требование уточнено интервьюером",
+                finding_kind="requirement",
+                requested_item_count=3,
+                checklist_new_only=True,
+                checklist_scope="business",
+            ),
+            json.dumps(
+                {
+                    "items": [
+                        {
+                            "text": "Проверить применение действующей скидки к заказу",
+                            "semantic_key": "discount.applied",
+                        },
+                        {
+                            "text": "Проверить запись заказа в базе данных",
+                            "semantic_key": "database.write",
+                        },
+                        {
+                            "text": first_items[0],
+                            "semantic_key": "initial-1",
+                        },
+                    ]
+                },
+                ensure_ascii=False,
+            ),
+            json.dumps(
+                {
+                    "items": [
+                        {
+                            "text": "Проверить запрет заказа заблокированным клиентом",
+                            "semantic_key": "customer.blocked",
+                        },
+                        {
+                            "text": "Проверить перенос даты доставки на допустимый день",
+                            "semantic_key": "delivery.reschedule",
+                        },
+                        {
+                            "text": "Проверить HTTP 201 после создания заказа",
+                            "semantic_key": "http.created",
+                        },
+                    ]
+                },
+                ensure_ascii=False,
+            ),
+        ]
+    )
+
+    async def complete(messages, provider, model, **kwargs):
+        return next(responses)
+
+    first = await run_screen_task_pipeline(
+        previous_images=(),
+        current_image="data:image/jpeg;base64,Y2hlY2tsaXN0LXNhbHZhZ2U=",
+        latest_correction="Дай пять бизнес-проверок.",
+        context="",
+        prior_solution_summary=None,
+        task_action="new",
+        task_state=None,
+        provider="openai",
+        model="safe/model",
+        max_tokens=1200,
+        reasoning=None,
+        now_ms=1_000,
+        complete=complete,
+    )
+    refined = await run_screen_task_pipeline(
+        previous_images=(),
+        current_image="data:image/jpeg;base64,Y2hlY2tsaXN0LXNhbHZhZ2U=",
+        latest_correction="Дай ровно три новые бизнес-проверки.",
+        context="",
+        prior_solution_summary=None,
+        task_action="continue",
+        task_state=first.serialized_task_state,
+        provider="openai",
+        model="safe/model",
+        max_tokens=1200,
+        reasoning=None,
+        now_ms=2_000,
+        complete=complete,
+    )
+
+    assert refined.answer.splitlines() == [
+        "Новые проверки:",
+        "1. Проверить запрет заказа заблокированным клиентом",
+        "2. Проверить перенос даты доставки на допустимый день",
+        "3. Проверить применение действующей скидки к заказу",
+    ]
+    assert "базе данных" not in refined.answer
+    assert "HTTP" not in refined.answer
 
 
 @pytest.mark.asyncio
@@ -938,6 +1193,7 @@ async def test_evicted_frame_digest_is_still_seen_in_the_independent_ledger() ->
                 )
                 for index in range(1, 4)
             ),
+            _analysis_draft(images[:3], "Факт 1", "Факт 2", "Факт 3"),
             _observation(
                 task_kind="analysis",
                 visible_text="Фрагмент 4",
@@ -945,6 +1201,8 @@ async def test_evicted_frame_digest_is_still_seen_in_the_independent_ledger() ->
                 evidence="Доказательство 4",
                 finding_kind="fact",
             ),
+            _analysis_draft(images, "Факт 1", "Факт 2", "Факт 3", "Факт 4"),
+            _analysis_draft(images, "Факт 1", "Факт 2", "Факт 3", "Факт 4"),
         ]
     )
     calls = 0
@@ -1002,8 +1260,8 @@ async def test_evicted_frame_digest_is_still_seen_in_the_independent_ledger() ->
         complete=complete,
     )
 
-    assert calls_after_four_unique_frames == 4
-    assert calls == calls_after_four_unique_frames
+    assert calls_after_four_unique_frames == 6
+    assert calls == calls_after_four_unique_frames + 1
     assert "Факт 1" in replay.answer
     assert "Факт 4" in replay.answer
 
@@ -1164,6 +1422,73 @@ async def test_simple_typed_select_lookup_is_composed_and_validated_without_gene
             latest_correction="Верни минимальный полный код.",
         )
     ).valid
+
+
+@pytest.mark.asyncio
+async def test_simple_typed_select_lookup_ignores_redundant_bound_variable_identifier() -> None:
+    signature = "def get_order(conn, order_id: int) -> list[dict[str, Any]]:"
+    generated_fallback = f"""Сначала выполню один параметризованный запрос по идентификатору.
+
+```python
+from typing import Any
+# Сохраняю видимую аннотацию результата.
+
+{signature}
+    # Сохраняю точную публичную сигнатуру.
+    rows = conn.execute('SELECT * FROM "Order" WHERE id = ?', (order_id,))
+    # Передаю идентификатор отдельно от текста SQL.
+    return [dict(row) for row in rows]
+    # Возвращаю найденные строки как список словарей.
+```"""
+    responses = iter(
+        [
+            _observation(
+                task_kind="code",
+                visible_text=f'{signature}\nSELECT * FROM "Order" WHERE id = ?',
+                claim="Вернуть заказ по order_id",
+                evidence="На экране видны таблица Order и столбец id",
+                finding_kind="requirement",
+                code_language="python",
+                response_kind="code_solution",
+                python_shape="function",
+                expected_sql_statement_kind="select",
+                required_python_signatures=(signature,),
+                required_sql_identifiers=("Order", "id", "order_id"),
+                required_sql_clauses=("select", "from", "where"),
+                required_sql_bound_ids=("order_id",),
+            ),
+            generated_fallback,
+        ]
+    )
+    calls: list[dict] = []
+
+    async def complete(messages, provider, model, **kwargs):
+        calls.append({"messages": messages, **kwargs})
+        return next(responses)
+
+    result = await run_screen_task_pipeline(
+        previous_images=(),
+        current_image="data:image/jpeg;base64,cmVkdW5kYW50LWlk",
+        latest_correction="Верни минимальный полный код.",
+        context="",
+        prior_solution_summary=None,
+        task_action="new",
+        task_state=None,
+        provider="openai",
+        model="safe/model",
+        max_tokens=4200,
+        reasoning={"effort": "medium", "exclude": True},
+        now_ms=1_000,
+        complete=complete,
+    )
+
+    assert len(calls) == 1
+    assert 'SELECT * FROM "Order" WHERE id = ?' in result.answer
+    assert "(order_id,)" in result.answer
+    assert "return [dict(row) for row in rows]" in result.answer
+    assert deserialize_screen_task_state(
+        result.serialized_task_state
+    ).requirements.required_sql_identifiers == ("Order", "id")
 
 
 @pytest.mark.asyncio
@@ -1969,7 +2294,9 @@ FROM orders;
 
 
 @pytest.mark.asyncio
-async def test_analysis_composition_uses_every_active_finding_without_second_model_call() -> None:
+async def test_analysis_composition_keeps_every_ledger_fact_and_appends_grounded_synthesis() -> (
+    None
+):
     images = (
         "data:image/jpeg;base64,YW5hbHlzaXMtb25l",
         "data:image/jpeg;base64,YW5hbHlzaXMtdHdv",
@@ -1990,6 +2317,11 @@ async def test_analysis_composition_uses_every_active_finding_without_second_mod
                 claim="fact two",
                 evidence="frame two",
                 finding_kind="defect",
+            ),
+            _analysis_draft(
+                images,
+                "fact one влияет на ранний этап.",
+                "fact two подтверждает общий риск.",
             ),
         ]
     )
@@ -2015,10 +2347,18 @@ async def test_analysis_composition_uses_every_active_finding_without_second_mod
         complete=complete,
     )
 
-    assert len(calls) == 2
-    assert all(call["screen_workload_phase"] == "observation" for call in calls)
+    assert len(calls) == 3
+    assert [call["screen_workload_phase"] for call in calls] == [
+        "observation",
+        "observation",
+        "answer",
+    ]
     assert result.answer.splitlines() == [
         "Единый результат по всем сохранённым фрагментам экрана:",
         "- fact one — frame one",
         "- fact two — frame two",
+        "",
+        "Сводный анализ по сохранённым фактам:",
+        "- fact one влияет на ранний этап.",
+        "- fact two подтверждает общий риск.",
     ]

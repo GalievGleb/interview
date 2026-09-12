@@ -47,6 +47,9 @@ def test_alpha_installer_is_bounded_to_the_private_alpha_product() -> None:
     assert "Programs\\skillcue-alpha\\SkillCue Alpha.exe" in source
     assert "$env:SKILLCUE_E2E_CHANNEL = 'alpha'" in source
     assert "verify:dev:overlay" in source
+    assert "verify:dev:ui" in source
+    assert "verify:dev:voice" in source
+    assert "verify:alpha:screen" in source
     assert "dist:alpha" in source
     assert "SkillCue-Dev-Setup.exe" not in source
     assert "SkillCue-Setup.exe" not in source
@@ -78,3 +81,23 @@ def test_alpha_installer_does_not_mutate_current_process_environment() -> None:
     assert "Remove-Item Env:SKILLCUE_E2E_CHANNEL" in source
     assert "Remove-Item Env:SKILLCUE_E2E_BACKEND" in source
     assert os.environ.get("SKILLCUE_E2E_CHANNEL") is None
+
+
+def test_installed_electron_ui_verifier_can_target_alpha_without_changing_default() -> (
+    None
+):
+    source = (
+        ROOT / "apps" / "desktop" / "tools" / "verify-installed-dev-ui.mjs"
+    ).read_text("utf-8")
+
+    assert "process.env.SKILLCUE_E2E_CHANNEL" in source
+    assert "channel === 'alpha' ? 'skillcue-alpha' : 'skillcue-dev'" in source
+    assert "channel === 'alpha' ? 'SkillCue Alpha.exe' : 'SkillCue Dev.exe'" in source
+
+
+def test_installed_voice_verifier_can_target_alpha_without_changing_default() -> None:
+    source = (ROOT / "tools" / "verify_dev_voice_overlay.py").read_text("utf-8")
+
+    assert 'os.environ.get("SKILLCUE_E2E_CHANNEL", "dev")' in source
+    assert 'f"skillcue-{channel}"' in source
+    assert '"SKILLCUE_BUILD_CHANNEL": channel' in source

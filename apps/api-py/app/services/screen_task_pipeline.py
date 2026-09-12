@@ -497,6 +497,57 @@ def _low_reasoning_effort(reasoning: dict | None) -> dict | None:
     return reasoning
 
 
+_YAML_SCALAR_ECHO_JOB_RE = re.compile(
+    r"(?ims)\b(?P<job>[a-z_][\w.-]*job[\w.-]*)\s*:\s*"
+    r"(?:(?!\b[a-z_][\w.-]*job[\w.-]*\s*:).){0,300}?"
+    r"\bscript\s*:\s*(?P<command>echo(?:[ \t]+[a-z0-9_.:/-]+)?)"
+    r"[ \t]*(?:\#[^\r\n]*)?(?=\r?$|\r?\n)"
+)
+
+
+def _derive_scalar_echo_job_defects(observation: _ScreenObservation) -> _ScreenObservation:
+    if observation.task_kind != TaskKind.FIND_DEFECT:
+        return observation
+    corpus = "\n".join((observation.visible_text, *(source.text for source in observation.sources)))
+    findings = list(observation.findings)
+    changed = False
+    seen_jobs: set[str] = set()
+    for match in _YAML_SCALAR_ECHO_JOB_RE.finditer(corpus):
+        job_name = match.group("job")
+        normalized_job = job_name.casefold()
+        if normalized_job in seen_jobs:
+            continue
+        command = match.group("command").strip()
+        related_index = next(
+            (
+                index
+                for index, finding in enumerate(findings)
+                if normalized_job in f"{finding.claim} {finding.evidence}".casefold()
+                and "echo" in f"{finding.claim} {finding.evidence}".casefold()
+            ),
+            None,
+        )
+        canonical = _ObservedFinding(
+            claim=f"{job_name} только {command}; реальная операция этого job не выполняется",
+            evidence=f"{job_name}: script: {command}",
+            kind=FindingKind.DEFECT,
+            supersedes=(findings[related_index].supersedes if related_index is not None else None),
+        )
+        if related_index is not None:
+            if findings[related_index] != canonical:
+                findings[related_index] = canonical
+                changed = True
+        elif len(findings) < MAX_FRAME_FINDINGS:
+            findings.append(canonical)
+            changed = True
+        seen_jobs.add(normalized_job)
+        if len(findings) >= MAX_FRAME_FINDINGS:
+            break
+    if not changed:
+        return observation
+    return observation.model_copy(update={"findings": findings}).checked()
+
+
 async def _extract_observation(
     *,
     image: str,
@@ -550,7 +601,8 @@ async def _extract_observation(
                 response_format=_observation_response_format(),
                 screen_workload_phase="observation",
             )
-            return _ScreenObservation.model_validate_json(raw, strict=True).checked()
+            observation = _ScreenObservation.model_validate_json(raw, strict=True).checked()
+            return _derive_scalar_echo_job_defects(observation)
         except ScreenTaskPipelineError:
             raise
         except (TypeError, ValueError, ValidationError, json.JSONDecodeError) as exc:
@@ -657,6 +709,7 @@ def _normalized_frame(
 
 
 def _new_state(observation: _ScreenObservation, *, now_ms: int) -> ScreenTaskState:
+    sql_identifiers = _normalized_observation_sql_identifiers(observation)
     return ScreenTaskState(
         task_kind=observation.task_kind,
         response_kind=observation.response_kind,
@@ -673,9 +726,7 @@ def _new_state(observation: _ScreenObservation, *, now_ms: int) -> ScreenTaskSta
                 item.strip() for item in observation.required_python_signatures
             ),
             required_python_calls=tuple(item.strip() for item in observation.required_python_calls),
-            required_sql_identifiers=tuple(
-                item.strip() for item in observation.required_sql_identifiers
-            ),
+            required_sql_identifiers=sql_identifiers,
             required_sql_clauses=tuple(item.strip() for item in observation.required_sql_clauses),
             required_sql_bound_ids=tuple(
                 item.strip() for item in observation.required_sql_bound_ids
@@ -699,6 +750,21 @@ def _new_state(observation: _ScreenObservation, *, now_ms: int) -> ScreenTaskSta
             updated_at_ms=now_ms,
             expires_at_ms=now_ms + SCREEN_TASK_STATE_TTL_MS,
         ),
+    )
+
+
+def _normalized_observation_sql_identifiers(
+    observation: _ScreenObservation,
+) -> tuple[str, ...]:
+    identifiers = tuple(item.strip() for item in observation.required_sql_identifiers)
+    terminal_names = {identifier.rsplit(".", 1)[-1] for identifier in identifiers}
+    redundant_bound_names = {
+        bound_id
+        for bound_id in observation.required_sql_bound_ids
+        if bound_id.rsplit("_", 1)[-1] != bound_id and bound_id.rsplit("_", 1)[-1] in terminal_names
+    }
+    return tuple(
+        identifier for identifier in identifiers if identifier not in redundant_bound_names
     )
 
 
@@ -800,7 +866,8 @@ def _refine_state_metadata(
             state.requirements.required_python_calls, observation.required_python_calls
         ),
         required_sql_identifiers=merge_requirement(
-            state.requirements.required_sql_identifiers, observation.required_sql_identifiers
+            state.requirements.required_sql_identifiers,
+            _normalized_observation_sql_identifiers(observation),
         ),
         required_sql_clauses=merge_requirement(
             state.requirements.required_sql_clauses, observation.required_sql_clauses
@@ -840,6 +907,16 @@ def _render_unified_findings(state: ScreenTaskState) -> str:
     return "\n".join(lines)
 
 
+def _render_grounded_analysis(state: ScreenTaskState, draft: _AnalysisDraft) -> str:
+    lines = [
+        _render_unified_findings(state),
+        "",
+        "Сводный анализ по сохранённым фактам:",
+    ]
+    lines.extend(f"- {' '.join(item.text.split())}" for item in draft.items)
+    return "\n".join(lines)
+
+
 def _grounding_issues(
     *,
     finding_ids: Sequence[str],
@@ -863,6 +940,26 @@ def _grounding_issues(
     return tuple(issues)
 
 
+def _grounding_terms(text: str) -> frozenset[str]:
+    tokens = re.findall(r"[a-zа-яё][a-zа-яё0-9_]{2,}", text.casefold())
+    return frozenset(token if "_" in token or len(token) <= 5 else token[:5] for token in tokens)
+
+
+def _analysis_expresses_cited_findings(
+    draft: _AnalysisDraft,
+    *,
+    state: ScreenTaskState,
+) -> bool:
+    for finding in active_screen_findings(state):
+        expected_terms = _grounding_terms(f"{finding.claim} {finding.evidence}")
+        cited_items = [item for item in draft.items if finding.id in item.finding_ids]
+        if not expected_terms or not any(
+            _grounding_terms(item.text) & expected_terms for item in cited_items
+        ):
+            return False
+    return True
+
+
 def _analysis_draft_issues(
     raw: str,
     *,
@@ -874,12 +971,17 @@ def _analysis_draft_issues(
         return None, ("analysis_schema_invalid",)
     finding_ids = [finding_id for item in draft.items for finding_id in item.finding_ids]
     source_ids = [source_id for item in draft.items for source_id in item.source_ids]
-    return draft, _grounding_issues(
-        finding_ids=finding_ids,
-        source_ids=source_ids,
-        state=state,
-        require_all=True,
+    issues = list(
+        _grounding_issues(
+            finding_ids=finding_ids,
+            source_ids=source_ids,
+            state=state,
+            require_all=True,
+        )
     )
+    if not _analysis_expresses_cited_findings(draft, state=state):
+        issues.append("grounding_unexpressed")
+    return draft, tuple(issues)
 
 
 async def _generate_analysis_answer(
@@ -893,10 +995,15 @@ async def _generate_analysis_answer(
     complete: CompleteCall,
 ) -> str:
     prompt = (
-        "Reason over every active typed finding and exact source fragment below. Return one "
-        "unified analysis in the strict JSON schema. Every item must cite at least one active "
-        "finding/source id, and the complete draft must cite every active id. Do not invent "
-        "facts outside the cited sources.\n\n"
+        "Answer the latest correction directly by reasoning over every active typed finding "
+        "and exact source fragment below. Return one unified analysis in the strict JSON "
+        "schema. Every item must cite at least one active finding/source id, and the complete "
+        "draft must cite every active id. The text itself, not merely its ids, must express "
+        "the specific subject and conclusion of each cited finding. For a defect task, state "
+        "the exact visible subject and the faulty or missing behavior; do not merely repeat a "
+        "configuration line. If the question asks to identify a platform or system, name it "
+        "explicitly when the sources support it. Do not invent facts outside the cited "
+        "sources.\n\n"
         f"{render_screen_task_context(state, include_all_findings=True)}\n\n"
         f"LATEST CORRECTION (highest priority):\n{latest_correction or '[none]'}"
     )
@@ -938,11 +1045,10 @@ async def _generate_analysis_answer(
             "invalid_screen_answer",
             "Анализ не прошёл проверку полноты. Повторите запрос.",
         )
-    # The model draft proves that every active typed id was considered, but it
-    # is not allowed to restate or contradict the application-owned ledger.
-    # The visible answer is therefore composed solely from the validated,
-    # omission-preserving findings accumulated across frames.
-    return _render_unified_findings(state)
+    # The immutable application-owned ledger stays first and can never be
+    # replaced by model prose. The validated synthesis follows it so the model
+    # can derive a useful cross-frame conclusion from every retained source.
+    return _render_grounded_analysis(state, draft)
 
 
 def _validation_input(
@@ -1262,6 +1368,44 @@ def _checklist_draft_issues(
     return items, tuple(dict.fromkeys(issues))
 
 
+def _checklist_draft_json(items: Sequence[_ChecklistDraftItem]) -> str:
+    return json.dumps(
+        {"items": [{"text": item.text, "semantic_key": item.semantic_key} for item in items]},
+        ensure_ascii=False,
+    )
+
+
+def _salvage_checklist_items(
+    *drafts: Sequence[_ChecklistDraftItem],
+    state: ScreenTaskState,
+) -> tuple[_ChecklistDraftItem, ...] | None:
+    """Select an exact strict subset from already-paid answer and repair drafts."""
+
+    requested_count = state.requirements.requested_item_count
+    if requested_count is None:
+        return None
+    selected: list[_ChecklistDraftItem] = []
+    seen: set[tuple[str, str]] = set()
+    for draft in drafts:
+        for item in draft:
+            key = (normalize_screen_checklist_text(item.text), item.semantic_key)
+            if key in seen:
+                continue
+            seen.add(key)
+            candidate = (*selected, item)
+            _, issues = _checklist_draft_issues(_checklist_draft_json(candidate), state=state)
+            if any(issue != "checklist_count_mismatch" for issue in issues):
+                continue
+            selected.append(item)
+            if len(selected) == requested_count:
+                validated, final_issues = _checklist_draft_issues(
+                    _checklist_draft_json(selected),
+                    state=state,
+                )
+                return validated if not final_issues else None
+    return None
+
+
 def _checklist_prompt(state: ScreenTaskState, latest_correction: str) -> str:
     requirements = state.requirements
     if requirements.checklist_scope is None:
@@ -1270,7 +1414,8 @@ def _checklist_prompt(state: ScreenTaskState, latest_correction: str) -> str:
         scope_instruction = {
             ChecklistScope.BUSINESS: (
                 "Return only observable business-behaviour checks. Do not include databases, "
-                "SQL, tables, indexes, storage, implementation, or infrastructure."
+                "SQL, tables, indexes, storage, implementation, infrastructure, API, endpoint, "
+                "HTTP, JSON, protocol, status code, headers, queues, caches, or logs."
             ),
             ChecklistScope.TECHNICAL: "Return only technical implementation-level checks.",
             ChecklistScope.MIXED: "Return a purposeful mix of business and technical checks.",
@@ -1359,6 +1504,7 @@ async def _generate_checklist_answer(
         screen_workload_phase="answer",
     )
     items, issues = _checklist_draft_issues(draft, state=state)
+    original_items = items or ()
     if issues:
         repair_prompt = (
             f"{prompt}\n\nRepair the draft exactly once. Deterministic issue codes: "
@@ -1380,7 +1526,17 @@ async def _generate_checklist_answer(
             response_format=response_format,
             screen_workload_phase="repair",
         )
-        items, issues = _checklist_draft_issues(repaired, state=state)
+        repaired_items, issues = _checklist_draft_issues(repaired, state=state)
+        items = repaired_items
+        if issues:
+            salvaged = _salvage_checklist_items(
+                repaired_items or (),
+                original_items,
+                state=state,
+            )
+            if salvaged is not None:
+                items = salvaged
+                issues = ()
     if issues or items is None:
         raise ScreenTaskPipelineError(
             "invalid_screen_answer",
@@ -1645,10 +1801,15 @@ async def run_screen_task_pipeline(
         )
 
     if state.response_kind == ScreenResponseKind.ANALYSIS_FINDINGS:
-        # The observation stage already produced strict, bounded findings. The
-        # application owns their lossless composition, so a second model call
-        # cannot omit, rewrite, or merely pretend to cite an earlier finding.
-        answer = _render_unified_findings(state)
+        answer = await _generate_analysis_answer(
+            state=state,
+            latest_correction=latest_correction,
+            provider=provider,
+            model=model,
+            max_tokens=max_tokens,
+            reasoning=reasoning,
+            complete=complete,
+        )
     elif state.response_kind == ScreenResponseKind.CODE_SOLUTION:
         answer = await _generate_code_answer(
             state=state,

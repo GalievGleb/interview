@@ -1,8 +1,41 @@
 # SkillCue Alpha — как проверить typed screen
 
+## Обновление 13 сентября: голос и понятные каналы
+
+Новая Alpha готовится отдельно от Dev/Stable. Существующая память экрана остаётся
+включённой только в Alpha. Аккаунты с общей подпиской не считаются готовыми до
+подключения отдельного сервера аккаунтов и доставки кодов на email.
+
+Новая проверка: **10 голосовых запросов с завершёнными ответами в одном соединении**.
+Используются шесть тестовых WAV из репозитория и четыре повторных запроса — всего
+десять, без перезапуска backend/STT. Это проверка установленного backend и моделей,
+а не доказательство доставки физических горячих клавиш; проверка Electron ниже
+выполняется отдельно.
+
+```powershell
+Set-Location C:\Users\gleb\Projects\SkillCue
+.\apps\api-py\.venv\Scripts\python.exe tools\verify_alpha_voice_sequence.py
+```
+
+Результат должен содержать `"completed": 10, "passed": true`. В отчёт попадают
+только номера сценариев и времена, без аудио, расшифровок и ответов. Прогон обращается
+к действующим STT/LLM-провайдерам и расходует лимит используемой лицензии.
+
+Для ручной проверки: откройте только оверлей Alpha, начните запись, задайте десять
+вопросов и после каждого нажмите `Ctrl+Enter`, дождавшись ответа. Между первым и
+вторым задайте уточнение про тот же проект. При пропавшей расшифровке запрос должен
+завершиться ошибкой с возможностью повтора, а не ждать бесконечно. Поздний ответ
+старого запроса не должен заменять новый.
+
+Alpha обновляется **отдельным установщиком**, публичная кнопка обновления Stable
+не устанавливает Alpha. Сообщение в Alpha теперь должно называть именно Alpha.
+Проверьте версию в «О программе» после установки; исторические результаты ниже
+относятся к прежней сборке и не заменяют новый приёмочный прогон.
+
 ## Что установлено
 
 - Приложение: `C:\Users\gleb\AppData\Local\Programs\skillcue-alpha\SkillCue Alpha.exe`
+- Версия Alpha: `0.1.13-alpha.gc22a6e18`
 - Данные: `C:\Users\gleb\AppData\Roaming\SkillCue Alpha`
 - Локальный backend: `http://127.0.0.1:8002`
 - Установщик: `C:\Users\gleb\Projects\SkillCue\apps\desktop\release-alpha\SkillCue-Alpha-Setup.exe`
@@ -95,13 +128,39 @@ Set-Location C:\Users\gleb\Projects\SkillCue
 
 Проходной результат: `SCREEN REGRESSION SUITE PASS`, 9 попыток, 0 failed, все semantic checks `true`, без retry/provider/truncation ошибок.
 
+Проверка настоящей кнопки записи в установленном Electron-приложении:
+
+```powershell
+Set-Location C:\Users\gleb\Projects\SkillCue
+$env:SKILLCUE_E2E_CHANNEL = 'alpha'
+try {
+  pnpm --filter @interview/desktop verify:dev:ui
+  pnpm --filter @interview/desktop verify:dev:voice
+} finally {
+  Remove-Item Env:SKILLCUE_E2E_CHANNEL -ErrorAction SilentlyContinue
+}
+```
+
+Первый тест проверяет, что кнопка доступна, переходит в live-состояние и корректно останавливает запись. Второй воспроизводит реальный WAV через установленный Alpha backend, STT WebSocket и модель.
+
+Полная пересборка, установка и все обязательные Alpha-smoke одной командой:
+
+```powershell
+Set-Location C:\Users\gleb\Projects\SkillCue
+.\tools\install_and_verify_alpha.ps1
+```
+
+Скрипт затрагивает только `skillcue-alpha`; установленный `SkillCue Dev` не заменяет и не останавливает.
+
 ## Текущий честный статус
 
-- Локальная архитектура, схемы, merge, validators, desktop lifecycle и Alpha-channel проходят автоматические тесты.
-- Alpha собрана, установлена, запускает свой backend на порту 8002 и отвечает `health=ok`.
-- Первый installed live-screen прогон сейчас останавливается на внешнем managed gateway с `provider_error` до наблюдения кадра. Это означает: локальная Alpha установлена правильно, но реальный AI-контур ещё нельзя считать готовым.
-- Серверные gateway-изменения намеренно не выкладывались, потому что запрос был сделать только локальную Alpha. До отдельного разрешения на gateway deploy или настройки отдельного рабочего BYOK нельзя обещать успешный live screen.
-- Последний полноценный live 3×3 до Alpha проходил только 5/9, поэтому Alpha — тестовый канал, не готовый Stable-релиз.
+- Локальная архитектура, typed ledger, validators, desktop lifecycle, backend и Alpha-channel проходят автоматические тесты.
+- Alpha `0.1.13-alpha.gc22a6e18` собрана и установлена отдельно; её backend на порту 8002 отвечает `health=ok`.
+- Managed gateway обновлён узко: только подписанная Max-лицензия, строгий structured-screen workload и exact `openai/gpt-5.6-sol` получают прямой экранный маршрут. Обычный чат, Basic/Trial и похожие model ID не получили обход блоклиста.
+- Installed Alpha screen acceptance прошёл **9/9**: GitLab multi-frame memory 3/3, минимальный SQL 3/3, checklist novelty 3/3; failed=0.
+- Installed Alpha voice acceptance прошёл **3/3**, первый ответ появлялся за 2625–3328 мс. Отдельный Electron E2E подтвердил `record-enabled`, переход в `record-live` и остановку записи.
+- Рабочий `SkillCue Dev` остался на версии `0.1.13.0`; его exe-хэш после Alpha-установки не изменился.
+- Это проверенная Alpha/Bravo-сборка для ручного тестирования. Формальный 95-минутный soak в этой серии не запускался, поэтому Alpha пока не следует публиковать как Stable для всех пользователей.
 
 ## Как удалить Alpha
 

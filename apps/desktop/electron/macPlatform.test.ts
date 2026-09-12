@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { browserCandidatePaths } from './hhBrowserAssistant';
+import { unsupportedUpdateMessage } from './updateError';
 
 const desktopRoot = path.resolve(__dirname, '..');
 const repoRoot = path.resolve(desktopRoot, '..', '..');
@@ -65,7 +66,7 @@ describe('macOS desktop distribution', () => {
     expect(mainSource).toContain("titleBarStyle: 'hiddenInset'");
     expect(mainSource).toContain("process.platform === 'win32'");
     expect(mainSource).toContain('if (!isAutoUpdateSupported) return;');
-    expect(mainSource).toContain('Обновления macOS пока устанавливаются новой версией с сайта');
+    expect(unsupportedUpdateMessage('stable')).toMatch(/macOS.*сайта/iu);
   });
 
   it('offers both macOS architectures on the Russian and English landing pages', () => {

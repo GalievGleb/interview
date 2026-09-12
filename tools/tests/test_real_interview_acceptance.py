@@ -335,6 +335,23 @@ def test_source_backend_launch_uses_workspace_uvicorn() -> None:
     assert cwd == root / "apps" / "api-py"
 
 
+def test_installed_backend_path_and_cli_select_the_isolated_alpha_channel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", r"C:\Users\tester\AppData\Local")
+
+    assert acceptance_module._installed_backend_path("dev") == Path(
+        r"C:\Users\tester\AppData\Local\Programs\skillcue-dev\resources\backend\skillcue-backend.exe"
+    )
+    assert acceptance_module._installed_backend_path("alpha") == Path(
+        r"C:\Users\tester\AppData\Local\Programs\skillcue-alpha\resources\backend\skillcue-backend.exe"
+    )
+    args = acceptance_module._parse_args(
+        ["--manifest", "cases.json", "--channel", "alpha"]
+    )
+    assert args.channel == "alpha"
+
+
 def test_source_backend_launch_uses_only_managed_gateway_identity(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -357,7 +374,7 @@ def test_source_backend_launch_uses_only_managed_gateway_identity(
     monkeypatch.setattr(
         acceptance_module,
         "_installed_backend_path",
-        lambda: tmp_path / "not-used-for-source.exe",
+        lambda _channel="dev": tmp_path / "not-used-for-source.exe",
     )
 
     with pytest.raises(OSError, match="environment capture"):
@@ -406,14 +423,17 @@ def test_installed_backend_launch_keeps_existing_environment_contract(
         acceptance_module, "seed_installed_gateway_identity", lambda _path: None
     )
     monkeypatch.setattr(acceptance_module.subprocess, "Popen", launch)
-    monkeypatch.setattr(acceptance_module, "_installed_backend_path", lambda: backend)
+    monkeypatch.setattr(
+        acceptance_module, "_installed_backend_path", lambda _channel="dev": backend
+    )
 
     with pytest.raises(OSError, match="environment capture"):
-        InstalledBackendSession(source_backend=False).__enter__()
+        InstalledBackendSession(source_backend=False, channel="alpha").__enter__()
 
     assert captured_env["OPENAI_API_KEY"] == "installed-openai"
     assert captured_env["OPENROUTER_API_KEY"] == "installed-openrouter"
     assert captured_env["PYTHON_KEYRING_BACKEND"] == "installed.backend"
+    assert captured_env["SKILLCUE_BUILD_CHANNEL"] == "alpha"
 
 
 def test_voice_request_uses_managed_openrouter_auto_route_without_model_override(
