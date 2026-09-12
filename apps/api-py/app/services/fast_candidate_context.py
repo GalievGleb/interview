@@ -28,7 +28,11 @@ def build_recent_turns_context(turns):
 
 
 def is_conversation_followup(question: str, intent: str) -> bool:
-    # An independently classified theory question introduces its own topic.
+    # Explicit project/team references carry stronger evidence than a surface
+    # "what is" classification (e.g. "What is your role on that project?").
+    if re.search(r'\b(that project|that team|этом проекте|той команде)\b', question, re.I):
+        return True
+    # Without an explicit reference, a theory question introduces its own topic.
     # Politeness/expansion verbs are not references to the previous project.
     if intent in {'technical_definition', 'technical_comparison'}:
         return False
@@ -41,8 +45,7 @@ def is_conversation_followup(question: str, intent: str) -> bool:
     if action_there:
         return True
     return bool(re.search(
-        r'\b(that project|your role|that team|why so|'
-        r'там|тогда|этом проекте|той команде|почему так)\b', question, re.I,
+        r'\b(your role|why so|там|тогда|почему так)\b', question, re.I,
     ))
 
 

@@ -1249,6 +1249,7 @@ def test_fast_followup_keeps_project_sources_separate_from_generated_history(cli
         'What did you do there?',
         'А какие техники тест-дизайна ты там применял?',
         'А почему там выбрали это?',
+        'What is your role on that project?',
         unrelated_question,
     ]:
         response = client.post('/chat/interview/stream', json={
@@ -1256,15 +1257,15 @@ def test_fast_followup_keeps_project_sources_separate_from_generated_history(cli
             'recent_turns': turns, 'fast_answer': True,
         })
         assert response.status_code == 200
-    for prompt in prompts[:3]:
+    for prompt in prompts[:4]:
         assert 'Project Orion' in prompt
         assert 'Synthetic selected resume' in prompt
         assert 'not confirmed experience' in prompt
         assert 'UNVERIFIED generated claim' in prompt
         assert 'STALE INVENTED OWNERSHIP' not in prompt
-    assert 'Project Orion' not in prompts[3]
-    assert 'Synthetic selected resume' not in prompts[3]
-    assert 'UNVERIFIED generated claim' not in prompts[3]
+    assert 'Project Orion' not in prompts[4]
+    assert 'Synthetic selected resume' not in prompts[4]
+    assert 'UNVERIFIED generated claim' not in prompts[4]
 
 
 def test_interview_fast_core_resolves_known_report_asr_alias_before_prompt(client, monkeypatch):
