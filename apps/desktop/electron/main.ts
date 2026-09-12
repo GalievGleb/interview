@@ -39,6 +39,7 @@ import {
 } from './shortcutPolicy';
 import { createAutoUpdateCoordinator } from './autoUpdateCoordinator';
 import { createUpdaterStatusStore } from './updaterStatusStore';
+import { describeUpdateError, unsupportedUpdateMessage } from './updateError';
 import {
   createBackendResponseError,
   type BackendErrorEnvelope,
@@ -1216,9 +1217,7 @@ function registerIpc(): void {
     if (!isAutoUpdateSupported) {
       const status = {
         state: 'none' as const,
-        message: isDeveloperBuild
-          ? 'SkillCue Dev: обновления отключены'
-          : 'Обновления macOS пока устанавливаются новой версией с сайта',
+        message: unsupportedUpdateMessage(BUILD_CHANNEL),
       };
       updaterStatusStore.publish(status);
       return status;
@@ -1227,7 +1226,7 @@ function registerIpc(): void {
       await updateCoordinator.check();
       return updaterStatusStore.get();
     } catch (err) {
-      const message = String(err instanceof Error ? err.message : err);
+      const message = describeUpdateError(err);
       if (updaterStatusStore.get().state !== 'error') {
         updateCoordinator.resetAfterError(message);
       }
@@ -1317,7 +1316,7 @@ function registerToggleShortcut(acc: string, retry = false): boolean {
 
 function deliverForcedAnswerToOverlay(): void {
   const existingOverlay = isLiveWindow(overlayWindow) ? overlayWindow : null;
-  if (isDeveloperBuild && (!existingOverlay || !existingOverlay.isVisible())) return;
+  if (BUILD_CHANNEL === 'alpha' && (!existingOverlay || !existingOverlay.isVisible())) return;
   const win = existingOverlay ?? getOrCreateOverlayWindow();
   if (!win.isVisible()) showOverlayWindow(win, 'inactive');
   const send = () => {
@@ -1354,7 +1353,7 @@ function registerForceAnswerShortcut(): void {
 
 function deliverForcedScreenAnswerToOverlay(): void {
   const existingOverlay = isLiveWindow(overlayWindow) ? overlayWindow : null;
-  if (isDeveloperBuild && (!existingOverlay || !existingOverlay.isVisible())) return;
+  if (BUILD_CHANNEL === 'alpha' && (!existingOverlay || !existingOverlay.isVisible())) return;
   const win = existingOverlay ?? getOrCreateOverlayWindow();
   if (!win.isVisible()) showOverlayWindow(win, 'inactive');
   const send = () => {
@@ -1487,7 +1486,7 @@ function setupAutoUpdater(): void {
     updateCoordinator.markDownloaded(info.version),
   );
   autoUpdater.on('error', (err) =>
-    updateCoordinator.resetAfterError(String(err?.message ?? err)),
+    updateCoordinator.resetAfterError(describeUpdateError(err)),
   );
   // Backwards compatibility for renderer bundles from before automatic install.
   // (Вне области видимости локальной обёртки handle() из setupIpc* — канал без
@@ -1495,7 +1494,7 @@ function setupAutoUpdater(): void {
   ipcMain.handle('updater:install', () => updateCoordinator.requestInstall());
   void updateCoordinator.check().catch((err: unknown) => {
     if (updaterStatusStore.get().state !== 'error') {
-      updateCoordinator.resetAfterError(String(err instanceof Error ? err.message : err));
+      updateCoordinator.resetAfterError(describeUpdateError(err));
     }
   });
 }
