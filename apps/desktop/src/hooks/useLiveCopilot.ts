@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../lib/api';
+import { LiveAnswerMemory, CANDIDATE_SOURCES_EPOCH_KEY } from '../lib/liveAnswerMemory';
 import { decideAnswerAction } from '../lib/liveAnswerMachine';
 import {
   startLiveSession,
@@ -90,6 +91,7 @@ import {
   type TranscriptLine,
 } from '../lib/interviewSessionExport';
 import { resolvePreferredResume } from '../lib/resumeContext';
+import { RESUME_SOURCE_STORAGE_KEY } from '../lib/resumeContext';
 import {
   ActiveScreenTaskContextMemory,
   CandidateFollowUpGenerationOwner,
@@ -315,6 +317,7 @@ export function useLiveCopilot() {
 
   const sessionRef = useRef<string | null>(null);
   const candidateContextRef = useRef('');
+  const liveAnswerMemoryRef = useRef(new LiveAnswerMemory());
   const candidateContextLoadRef = useRef<Promise<void> | null>(null);
   const reusedSessionRef = useRef(false);
   const liveRef = useRef<LiveEntry[]>([]);
@@ -372,23 +375,45 @@ export function useLiveCopilot() {
 
   const preloadCandidateContext = useCallback(() => {
     if (!candidateContextLoadRef.current) {
+      const epoch = liveAnswerMemoryRef.current.epoch;
       candidateContextLoadRef.current = resolvePreferredResume()
         .then(({ text }) => {
+          if (epoch !== liveAnswerMemoryRef.current.epoch) return;
           candidateContextRef.current = text.trim().slice(0, 3200);
         })
         .catch(() => {
           // Live остаётся доступным без резюме; модель не должна выдумывать факты.
         })
         .finally(() => {
-          candidateContextLoadRef.current = null;
+          if (epoch === liveAnswerMemoryRef.current.epoch) candidateContextLoadRef.current = null;
         });
     }
     return candidateContextLoadRef.current;
   }, []);
 
+  const resetLiveMemory = useCallback(() => {
+    liveAnswerMemoryRef.current.reset();
+    candidateContextRef.current = '';
+    candidateContextLoadRef.current = null;
+  }, []);
+
   useEffect(() => {
     void preloadCandidateContext();
-  }, [preloadCandidateContext]);
+    const refresh = () => {
+      resetLiveMemory();
+      sessionContextRef.current = createEmptySessionContext();
+      void preloadCandidateContext();
+    };
+    const storage = (event: StorageEvent) => {
+      if (event.key === RESUME_SOURCE_STORAGE_KEY || event.key === CANDIDATE_SOURCES_EPOCH_KEY || event.key === null) refresh();
+    };
+    window.addEventListener('skillcue:candidate-sources-updated', refresh);
+    window.addEventListener('storage', storage);
+    return () => {
+      window.removeEventListener('skillcue:candidate-sources-updated', refresh);
+      window.removeEventListener('storage', storage);
+    };
+  }, [preloadCandidateContext, resetLiveMemory]);
   const endingSessionRef = useRef<Promise<void> | null>(null);
 
   const buildDiagnosticsSnapshot = useCallback((): DebugBundle => {
@@ -775,6 +800,7 @@ export function useLiveCopilot() {
   );
 
   const endInterviewSession = useCallback((): Promise<void> => {
+    resetLiveMemory();
     if (endingSessionRef.current) return endingSessionRef.current;
     const sid = sessionRef.current;
     const epoch = diagnosticsEpochRef.current;
@@ -809,7 +835,7 @@ export function useLiveCopilot() {
       if (endingSessionRef.current === ending) endingSessionRef.current = null;
     }).catch(() => undefined);
     return ending;
-  }, [buildDiagnosticsSnapshot]);
+  }, [buildDiagnosticsSnapshot, resetLiveMemory]);
 
   const removeStream = useCallback(
     (source: 'mic' | 'system', msg?: string) => {
@@ -882,6 +908,7 @@ export function useLiveCopilot() {
     streamLockRef.current = true;
     lastQuestionRef.current = q;
     const gen = ++streamGenRef.current;
+    const memoryEpoch = liveAnswerMemoryRef.current.epoch;
     const answerStartedAt = performance.now();
     timingRef.current.llmRequestStartAt = answerStartedAt;
     knowledgeMetaRef.current = null;
@@ -1031,7 +1058,7 @@ export function useLiveCopilot() {
           setStreamText(preserveCode ? accumulated : sanitizeLiveAnswer(accumulated));
           setSuggestLoading(false);
         },
-        onDone: (spoken: string, answerId?: string, responseMeta?: { model?: string; modelSource?: string }) => {
+        onDone: (spoken: string, answerId?: string, responseMeta?: { model?: string; modelSource?: string; completed?: boolean }) => {
           if (gen !== streamGenRef.current) return;
           streamLockRef.current = false;
           setStreaming(false);
@@ -1049,6 +1076,9 @@ export function useLiveCopilot() {
           const preserveCode =
             ['technical_task', 'api_test_task'].includes(prepared.answerStrategy.questionIntent) || rawAnswer.includes('```');
           const text = preserveCode ? rawAnswer : trimSpokenAnswer(sanitizeLiveAnswer(rawAnswer));
+          if (sessionRef.current) {
+            liveAnswerMemoryRef.current.complete(memoryEpoch, q, text, responseMeta?.completed === true);
+          }
           if (requestTaskContextUpdate && text) {
             activeScreenTaskContextRef.current.settleCandidateStream({
               completed: true,
@@ -1156,6 +1186,7 @@ export function useLiveCopilot() {
         sessionId: sessionRef.current ?? undefined,
         rawQuestion: q,
         candidateContext: candidateContextRef.current,
+        recentTurns: liveAnswerMemoryRef.current.snapshot(),
         activeScreenTask: requestActiveScreenTask ?? undefined,
         fastAnswer: true,
         onMeta: (correctionMeta) => {
@@ -1940,14 +1971,15 @@ export function useLiveCopilot() {
       stt: SttSessionOptions = {},
       link: LiveSessionLink = {},
     ): Promise<string | null> => {
-      // Обновляем выбранное резюме в фоне заранее; захват звука из-за этого не ждёт сеть.
-      void preloadCandidateContext();
+      resetLiveMemory();
       try {
         if (endingSessionRef.current) await endingSessionRef.current;
         if (sessionRef.current) await endInterviewSession();
       } catch {
         return null;
       }
+      // Refresh for this session; audio capture does not wait on resume loading.
+      void preloadCandidateContext();
       // A standalone screen request has no sessionRef, so endInterviewSession
       // cannot own it. Invalidate its generation/transport synchronously before
       // the diagnostic recorder is reset for the new live epoch.
@@ -2386,6 +2418,7 @@ export function useLiveCopilot() {
   }, [active, paused]);
 
   const stop = useCallback(async () => {
+    resetLiveMemory();
     if (finalDebounceRef.current) clearTimeout(finalDebounceRef.current);
     clearSourceHealthTimer();
     resetForceCoordinator();
@@ -2410,7 +2443,7 @@ export function useLiveCopilot() {
         // Keep the durable session ID and diagnostics in memory for an explicit retry.
       }
     }
-  }, [clearSourceHealthTimer, endInterviewSession, resetForceCoordinator]);
+  }, [clearSourceHealthTimer, endInterviewSession, resetForceCoordinator, resetLiveMemory]);
 
   // Уход со страницы во время записи обязан выключить микрофон и закрыть сокеты —
   // иначе mic «горит» в фоне (приватность) и trial-минуты не фиксируются на закрытии

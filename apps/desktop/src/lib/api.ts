@@ -1,4 +1,5 @@
 import type { SttProviderDiagnostics } from '@interview/shared';
+import { notifyCandidateSourcesChanged } from './liveAnswerMemory';
 import {
   AiSettings,
   ChatMode,
@@ -389,6 +390,7 @@ export interface StreamInterviewOpts {
   sessionId?: string;
   rawQuestion?: string;
   candidateContext?: string;
+  recentTurns?: Array<{ question: string; answer: string }>;
   activeScreenTask?: {
     rootQuestion: string;
     currentQuestion: string;
@@ -680,7 +682,7 @@ export const api = {
     request<{ id: string; kind: string; title: string; chunks: number }>('/documents/text', {
       method: 'POST',
       body: JSON.stringify({ kind, title, text }),
-    }),
+    }).then(notifyCandidateSourcesChanged),
 
   uploadFile: async (kind: string, file: File, title?: string) => {
     const form = new FormData();
@@ -696,11 +698,12 @@ export const api = {
       const data = await resp.json().catch(() => null);
       throw new Error(data?.error?.message ?? `Ошибка ${resp.status}`);
     }
-    return resp.json() as Promise<{ id: string; kind: string; title: string; chunks: number }>;
+    const result = await resp.json() as { id: string; kind: string; title: string; chunks: number };
+    return notifyCandidateSourcesChanged(result);
   },
 
   deleteDocument: (id: string) =>
-    request<{ deleted: string }>(`/documents/${id}`, { method: 'DELETE' }),
+    request<{ deleted: string }>(`/documents/${id}`, { method: 'DELETE' }).then(notifyCandidateSourcesChanged),
 
   createSession: (mode: 'interview' | 'meeting', title?: string) =>
     request<SessionItem>('/sessions', {
@@ -937,7 +940,7 @@ export const api = {
       onDone: (
         spoken: string,
         answerId?: string,
-        meta?: { model?: string; modelSource?: string },
+        meta?: { model?: string; modelSource?: string; completed?: boolean },
       ) => void;
       onError: (msg: string) => void;
     },
@@ -955,12 +958,12 @@ export const api = {
     const finish = (
       text: string,
       answerId?: string,
-      meta?: { model?: string; modelSource?: string },
+      meta?: { model?: string; modelSource?: string; completed?: boolean },
     ) => {
       if (finished) return;
       finished = true;
       disarmIdle();
-      handlers.onDone(text, answerId, meta);
+      handlers.onDone(text, answerId, { completed: false, ...meta });
     };
 
     void (async () => {
@@ -971,6 +974,7 @@ export const api = {
           question,
           raw_question: opts.rawQuestion ?? question,
           candidate_context: opts.candidateContext?.trim() || null,
+          recent_turns: fastAnswer ? opts.recentTurns ?? [] : undefined,
           active_screen_task: opts.activeScreenTask
             ? {
                 root_question: opts.activeScreenTask.rootQuestion,
@@ -1035,6 +1039,7 @@ export const api = {
             } else if (evt.type === 'done') {
               if (evt.correction) opts.onMeta?.(evt.correction);
               finish(evt.spoken ?? spoken, evt.id, {
+                completed: true,
                 model: evt.model,
                 modelSource: evt.modelSource,
               });
@@ -1433,14 +1438,14 @@ export const api = {
     request<{ exists: boolean; userEdited?: boolean }>('/documents/profile-pack', {
       method: 'PUT',
       body: JSON.stringify({ content }),
-    }),
+    }).then(notifyCandidateSourcesChanged),
 
   /** Пересобрать профиль-пак из текущих документов (ручной триггер). */
   profilePackRefresh: () =>
     request<{ exists: boolean; stale: boolean }>('/documents/profile-pack/refresh', {
       method: 'POST',
       timeoutMs: LONG_REQUEST_TIMEOUT_MS,
-    }),
+    }).then(notifyCandidateSourcesChanged),
 
   // --- Speech-to-text: fixed OpenAI Mini provider ---
   sttProviders: () => request<SttProviderDiagnostics>('/stt/providers'),

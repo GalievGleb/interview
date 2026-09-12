@@ -35,6 +35,10 @@ from app.prompts.meeting import (
 from app.prompts.system import SYSTEM_PROMPT
 from app.services import model_router, provider_adapter, rag_service
 from app.services.candidate_profile import get_pack_content, get_profile_block
+from app.services.candidate_profile import pack_status
+from app.services.fast_candidate_context import (
+    build_candidate_context, build_recent_turns_context, needs_personal_context, is_conversation_followup,
+)
 from app.services.domain_answer_hints import (
     resolve_domain_answer_hints,
     resolve_fast_domain_answer_hints,
@@ -61,7 +65,6 @@ router = APIRouter(tags=["chat"])
 logger = logging.getLogger("chat")
 
 FAST_CONTEXT_LIMIT = 350
-FAST_CANDIDATE_CONTEXT_LIMIT = 3200
 LIVE_THEORY_HEDGE_AFTER_SECONDS = 0.8
 LIVE_UNCLEAR_HEDGE_AFTER_SECONDS = 0.5
 LIVE_PRACTICAL_HEDGE_AFTER_SECONDS = 0.8
@@ -226,7 +229,13 @@ class ActiveScreenTaskPayload(BaseModel):
     updated_at_ms: int = Field(ge=0)
 
 
+class RecentLiveTurn(BaseModel):
+    question: str = Field(min_length=1, max_length=800)
+    answer: str = Field(min_length=1, max_length=1800)
+
+
 class InterviewPayload(BaseModel):
+    recent_turns: list[RecentLiveTurn] = Field(default_factory=list, max_length=2)
     question: str
     # Предзагруженное выбранное резюме: используется только для ответов про
     # личный опыт/практику и не попадает в быстрые теоретические запросы.
@@ -564,8 +573,8 @@ async def _interview_event_stream(
 
         if payload.fast_answer:
             # Ctrl+Enter hot path: one compact provider request. No transcript
-            # correction, follow-up resolution, resume/RAG reads, weak topics,
-            # or personal facts. Deterministic local facts remain in-process.
+            # correction or additional model calls. Personal sources are bounded
+            # local reads and remain separate from generated conversation history.
             raw_question = final_question
             prompt_question = resolve_fast_question_alias(final_question)
             strategy = classify_interview_question_intent(prompt_question)
@@ -599,16 +608,17 @@ async def _interview_event_stream(
                 )
             personal_context = ""
             personal_context_reason = ""
-            if intent in {"experience", "practical_usage"}:
-                personal_context = _clip(
-                    payload.candidate_context or "", FAST_CANDIDATE_CONTEXT_LIMIT
-                )
+            recent_turns = [turn.model_dump() for turn in payload.recent_turns]
+            history_context = build_recent_turns_context(recent_turns) if is_conversation_followup(prompt_question) else ""
+            if history_context:
+                enrichment_blocks.append(history_context)
+            if needs_personal_context(prompt_question, intent, recent_turns):
+                legend = rag_service.get_context_text(db, "legend") if db is not None else ""
+                # A generated pack cannot prove it matches the renderer's selected HH/local resume.
+                profile = get_pack_content(db) if db is not None and pack_status(db)["userEdited"] else ""
+                personal_context = build_candidate_context(payload.candidate_context or "", legend, profile)
                 if personal_context:
                     personal_context_reason = "fast_core_preloaded_candidate_context"
-                elif db is not None:
-                    personal_context = _clip(get_pack_content(db), FAST_CANDIDATE_CONTEXT_LIMIT)
-                    if personal_context:
-                        personal_context_reason = "fast_core_cached_candidate_profile"
                 if personal_context:
                     enrichment_blocks.append(
                         "CONFIRMED CANDIDATE CONTEXT (authoritative; use only relevant "

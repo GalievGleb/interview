@@ -1112,6 +1112,8 @@ def test_interview_fast_core_uses_preloaded_resume_only_for_personal_answer(clie
     monkeypatch.setattr(chat_router, "SessionLocal", TestingSessionLocal)
     monkeypatch.setattr(provider_adapter, "stream_chat", fake_stream)
 
+    monkeypatch.setattr(chat_router.rag_service, 'get_context_text', lambda db, kind: 'Synthetic project Orion' if kind == 'legend' else '')
+
     candidate_context = (
         "QA Automation Engineer. Основной стек: Python, pytest, Playwright, "
         "REST API, Allure и CI/CD. Поддерживал UI- и API-автотесты."
@@ -1131,6 +1133,7 @@ def test_interview_fast_core_uses_preloaded_resume_only_for_personal_answer(clie
     assert captured["model"] == "qwen/qwen3.5-flash-02-23"
     user_prompt = captured["messages"][-1]["content"]
     assert candidate_context in user_prompt
+    assert 'Synthetic project Orion' in user_prompt
     assert "CONFIRMED CANDIDATE CONTEXT" in user_prompt
 
     done = next(
@@ -1216,6 +1219,39 @@ def test_interview_fast_core_does_not_send_resume_to_theory_model(client, monkey
     assert response.status_code == 200, response.text
     assert captured["model"] == "qwen/qwen3.5-flash-02-23"
     assert private_marker not in captured["messages"][-1]["content"]
+
+
+def test_fast_followup_keeps_project_sources_separate_from_generated_history(client, monkeypatch, db_session):
+    from conftest import TestingSessionLocal
+    from app.routers import chat as chat_router
+    from app.db.models import Document, AppMeta
+    from app.services.candidate_profile import META_KEY
+    db_session.add(Document(kind='legend', title='Synthetic legend', raw_text='Project Orion: maintained API checks.'))
+    db_session.add(AppMeta(key=META_KEY, value=json.dumps({'hash': 'stale', 'content': 'STALE INVENTED OWNERSHIP'})))
+    db_session.commit()
+    prompts = []
+
+    async def fake_stream(messages, provider=None, model=None, **kwargs):
+        prompts.append(messages[-1]['content'])
+        yield 'I maintained API checks on the project.'
+
+    monkeypatch.setattr(chat_router, 'SessionLocal', TestingSessionLocal)
+    monkeypatch.setattr(provider_adapter, 'stream_chat', fake_stream)
+    turns = [{'question': 'Tell me about your last project', 'answer': 'UNVERIFIED generated claim'}]
+    for question in ['What did you do there?', 'What is TCP?']:
+        response = client.post('/chat/interview/stream', json={
+            'question': question, 'candidate_context': 'Synthetic selected resume',
+            'recent_turns': turns, 'fast_answer': True,
+        })
+        assert response.status_code == 200
+    assert 'Project Orion' in prompts[0]
+    assert 'Synthetic selected resume' in prompts[0]
+    assert 'not confirmed experience' in prompts[0]
+    assert 'UNVERIFIED generated claim' in prompts[0]
+    assert 'STALE INVENTED OWNERSHIP' not in prompts[0]
+    assert 'Project Orion' not in prompts[1]
+    assert 'Synthetic selected resume' not in prompts[1]
+    assert 'UNVERIFIED generated claim' not in prompts[1]
 
 
 def test_interview_fast_core_resolves_known_report_asr_alias_before_prompt(client, monkeypatch):
