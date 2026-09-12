@@ -17,6 +17,41 @@ afterEach(() => {
 });
 
 describe('HH account logout', () => {
+  it('marks HH as the active platform when an existing HH cookie answers the login-code request', async () => {
+    const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skillcue-hh-existing-cookie-'));
+    directories.push(userDataDir);
+    const assistant = new HhBrowserAssistant(userDataDir, () => undefined);
+    const internal = assistant as unknown as {
+      state: HhAssistantState;
+      openFreshHhLoginPage: () => Promise<{ url: () => string }>;
+      hasHhAuthCookie: () => Promise<boolean>;
+    };
+    internal.state = {
+      ...internal.state,
+      browserOpen: true,
+      loginRequired: false,
+      config: {
+        ...internal.state.config,
+        platform: 'linkedin',
+        query: 'QA Automation Engineer',
+      },
+    };
+    internal.openFreshHhLoginPage = async () => ({ url: () => 'https://hh.ru/applicant/resumes' });
+    internal.hasHhAuthCookie = async () => true;
+
+    const result = await assistant.requestLoginCode('student@example.com');
+
+    expect(result).toEqual({ ok: true, message: 'HH уже подключён.' });
+    expect(assistant.getState()).toMatchObject({
+      browserOpen: true,
+      loginRequired: false,
+      config: {
+        platform: 'hh',
+        query: 'QA Automation Engineer',
+      },
+    });
+  });
+
   it('clears the HH browser session and pauses retained work before another account signs in', async () => {
     const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skillcue-hh-logout-'));
     directories.push(userDataDir);

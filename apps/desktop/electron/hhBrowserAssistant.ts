@@ -3042,6 +3042,7 @@ export class HhBrowserAssistant {
       // In that state there is no login DOM to automate: the durable auth cookie
       // and the successful redirect are the connection confirmation.
       if (!page.url().includes('/account/login') && await this.hasHhAuthCookie()) {
+        this.state.config = normalizeHhAssistantConfig({ ...this.state.config, platform: 'hh' });
         this.update({
           phase: 'browser_open',
           browserOpen: true,
@@ -3105,6 +3106,7 @@ export class HhBrowserAssistant {
       // visually hidden. Waiting for that input to be visible causes a false
       // timeout even though the code screen is already ready.
       await waitForHhOtpReady(page);
+      this.state.config = normalizeHhAssistantConfig({ ...this.state.config, platform: 'hh' });
       this.update({
         browserOpen: true,
         loginRequired: true,
@@ -3204,6 +3206,7 @@ export class HhBrowserAssistant {
           timeout: 30_000,
         });
       }
+      this.state.config = normalizeHhAssistantConfig({ ...this.state.config, platform: 'hh' });
       this.update({ phase: 'ready', browserOpen: true, loginRequired: false, message: 'HH подключён.' });
       return { ok: true, message: 'HH подключён.' };
     } catch (error) {

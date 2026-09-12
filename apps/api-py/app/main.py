@@ -112,7 +112,7 @@ class ScreenAssistRequestSizeLimitMiddleware:
                 await _screen_request_too_large_response()(scope, receive, send)
 
 
-app = FastAPI(title="SkillCue API", version="0.1.12")
+app = FastAPI(title="SkillCue API", version="0.1.13")
 
 app.add_middleware(
     CORSMiddleware,
@@ -194,4 +194,4 @@ async def on_shutdown() -> None:
 
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok", "version": "0.1.12"}
+    return {"status": "ok", "version": "0.1.13"}
