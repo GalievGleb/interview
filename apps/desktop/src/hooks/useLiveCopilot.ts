@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../lib/api';
+import { CrossChannelEchoGate } from '../lib/crossChannelEcho';
 import { LiveAnswerMemory, CANDIDATE_SOURCES_EPOCH_KEY } from '../lib/liveAnswerMemory';
 import { decideAnswerAction } from '../lib/liveAnswerMachine';
 import {
@@ -712,6 +713,11 @@ export function useLiveCopilot() {
     });
   }, []);
 
+  const echoGateRef = useRef(new CrossChannelEchoGate());
+  const isCandidateTranscriptPending = useCallback(() => (
+    echoGateRef.current.hasPendingMicrophone() || speechActivityRef.current.snapshot().mic
+  ), []);
+
   const patchSttDebug = useCallback((patch: Partial<SttDebugInfo>) => {
     setSttDebug((prev) => ({
       rawTranscript: '',
@@ -800,6 +806,7 @@ export function useLiveCopilot() {
   );
 
   const endInterviewSession = useCallback((): Promise<void> => {
+    echoGateRef.current.finish();
     resetLiveMemory();
     if (endingSessionRef.current) return endingSessionRef.current;
     const sid = sessionRef.current;
@@ -2068,110 +2075,119 @@ export function useLiveCopilot() {
         const live = await startLiveSession(
           {
             onTranscript: (text, isFinal, _speechFinal, metadata) => {
-              const trimmed = text.trim();
-              if (!trimmed) return;
-              const forceRequestId = metadata?.forceRequestId;
+              if (diagnosticsEpochRef.current !== diagnosticsEpoch) return;
+              if (isFinal) speechActivityRef.current.finished(source);
+              const deliver = () => {
+                if (diagnosticsEpochRef.current !== diagnosticsEpoch) return;
+                const trimmed = text.trim();
+                if (!trimmed) return;
+                const forceRequestId = metadata?.forceRequestId;
 
-              if (!isFinal) {
-                speechActivityRef.current.partial(source);
-                const partialQuality = evaluateForcedTranscript(trimmed, language);
-                timeoutScreenPartialRef.current.observe({
-                  text: trimmed,
-                  source,
-                  receivedAtMs: Date.now(),
-                  capturedAtMs: metadata?.capturedAtMs,
-                  active: true,
-                  rejected: !partialQuality.eligible,
+                if (!isFinal) {
+                  speechActivityRef.current.partial(source);
+                  const partialQuality = evaluateForcedTranscript(trimmed, language);
+                  timeoutScreenPartialRef.current.observe({
+                    text: trimmed,
+                    source,
+                    receivedAtMs: Date.now(),
+                    capturedAtMs: metadata?.capturedAtMs,
+                    active: true,
+                    rejected: !partialQuality.eligible,
+                  });
+                  if (!timingRef.current.speechDetectedAt) {
+                    timingRef.current.speechDetectedAt = performance.now();
+                  }
+                  return;
+                }
+
+                // A later successful fragment clears a recoverable upstream STT
+                // notice without requiring the user to restart the microphone.
+                setError('');
+
+                timingRef.current.finalTranscriptionStartAt =
+                  timingRef.current.finalTranscriptionStartAt ?? performance.now();
+                timingRef.current.finalTranscriptionEndAt = performance.now();
+                timingRef.current.speechEndedAt = performance.now();
+                timeoutScreenPartialRef.current.clearCandidate(source);
+                appendLine(trimmed, true, speaker);
+                persistTranscriptLine(trimmed, speaker);
+                debugRef.current.event(
+                  'final',
+                  withAudioSource(source, {
+                    text: trimmed,
+                    speaker,
+                    meta: toSttDiagnosticMeta(metadata),
+                  }),
+                );
+                patchSttDebug({
+                  finalTranscript: trimmed,
+                  rawTranscript: trimmed,
+                  normalizedTranscript: normalizeTranscript(trimmed),
+                  waitReason: undefined,
                 });
-                if (!timingRef.current.speechDetectedAt) {
-                  timingRef.current.speechDetectedAt = performance.now();
-                }
-                return;
-              }
 
-              // A later successful fragment clears a recoverable upstream STT
-              // notice without requiring the user to restart the microphone.
-              setError('');
-
-              timingRef.current.finalTranscriptionStartAt =
-                timingRef.current.finalTranscriptionStartAt ?? performance.now();
-              timingRef.current.finalTranscriptionEndAt = performance.now();
-              timingRef.current.speechEndedAt = performance.now();
-              speechActivityRef.current.finished(source);
-              timeoutScreenPartialRef.current.clearCandidate(source);
-              appendLine(trimmed, true, speaker);
-              persistTranscriptLine(trimmed, speaker);
-              debugRef.current.event(
-                'final',
-                withAudioSource(source, {
-                  text: trimmed,
-                  speaker,
-                  meta: toSttDiagnosticMeta(metadata),
-                }),
-              );
-              patchSttDebug({
-                finalTranscript: trimmed,
-                rawTranscript: trimmed,
-                normalizedTranscript: normalizeTranscript(trimmed),
-                waitReason: undefined,
-              });
-
-              const ledgerLine = appendForcedFinal(trimmed, source, metadata);
-              const forceSnapshot = forceCoordinatorRef.current.snapshot();
-              if (
-                forceRequestId ||
-                forceSnapshot.phase === 'finalizing-transcript' ||
-                forceSnapshot.phase === 'screen-fallback'
-              ) {
-                const forcedTextPolicy = evaluateForcedFinalTranscript(
-                  trimmed,
-                  language,
-                  forceRequestId,
-                  forceSnapshot.requestId,
-                  source,
-                  forceSnapshot.source,
-                  metadata?.capturedAtMs,
-                  Date.now(),
-                );
-                if (forcedTextPolicy.action === 'reject') {
-                  rejectForcedTranscript(
+                const ledgerLine = appendForcedFinal(trimmed, source, metadata);
+                const forceSnapshot = forceCoordinatorRef.current.snapshot();
+                if (
+                  forceRequestId ||
+                  forceSnapshot.phase === 'finalizing-transcript' ||
+                  forceSnapshot.phase === 'screen-fallback'
+                ) {
+                  const forcedTextPolicy = evaluateForcedFinalTranscript(
                     trimmed,
-                    forceSnapshot.generation,
-                    forcedTextPolicy.reason,
+                    language,
+                    forceRequestId,
+                    forceSnapshot.requestId,
+                    source,
+                    forceSnapshot.source,
+                    metadata?.capturedAtMs,
+                    Date.now(),
                   );
-                  return;
-                }
-                const decision = forceCoordinatorRef.current.acceptFinal(
-                  ledgerLine,
-                  forceRequestId,
-                );
-                if (decision.action !== 'submit') {
-                  if (decision.action === 'wait') {
-                    syncForceSnapshot();
-                    scheduleForceTranscriptNotice(decision.generation);
+                  if (forcedTextPolicy.action === 'reject') {
+                    rejectForcedTranscript(
+                      trimmed,
+                      forceSnapshot.generation,
+                      forcedTextPolicy.reason,
+                    );
+                    return;
                   }
-                  if (speaker !== triggerSpeakerRef.current) {
-                    recordUtterance(trimmed, true, speaker);
+                  const decision = forceCoordinatorRef.current.acceptFinal(
+                    ledgerLine,
+                    forceRequestId,
+                  );
+                  if (decision.action !== 'submit') {
+                    if (decision.action === 'wait') {
+                      syncForceSnapshot();
+                      scheduleForceTranscriptNotice(decision.generation);
+                    }
+                    if (speaker !== triggerSpeakerRef.current) {
+                      recordUtterance(trimmed, true, speaker);
+                    }
+                    return;
                   }
+
+                  dispatchAcceptedForceDecision(decision);
                   return;
                 }
 
-                dispatchAcceptedForceDecision(decision);
-                return;
-              }
+                // Собственная речь кандидата (не-триггерный канал) идёт в контекст
+                // обычного auto-flow, но остаётся доступной явному Ctrl+Enter выше.
+                if (speaker !== triggerSpeakerRef.current) {
+                  recordUtterance(trimmed, true, speaker);
+                  return;
+                }
 
-              // Собственная речь кандидата (не-триггерный канал) идёт в контекст
-              // обычного auto-flow, но остаётся доступной явному Ctrl+Enter выше.
-              if (speaker !== triggerSpeakerRef.current) {
+                // Manual-only policy: final transcripts are persisted and kept in
+                // the Ctrl+Enter ledger, but recognition alone never starts the LLM.
+                // This also keeps the candidate's own speech available for the
+                // post-session assessment without turning it into a new request.
                 recordUtterance(trimmed, true, speaker);
-                return;
+              };
+              if (isFinal && sources.mic && sources.system) {
+                echoGateRef.current.accept(source, text, speechActivityRef.current.snapshot().system, deliver);
+              } else {
+                deliver();
               }
-
-              // Manual-only policy: final transcripts are persisted and kept in
-              // the Ctrl+Enter ledger, but recognition alone never starts the LLM.
-              // This also keeps the candidate's own speech available for the
-              // post-session assessment without turning it into a new request.
-              recordUtterance(trimmed, true, speaker);
             },
             onSpeechStarted: (captureEpoch) => {
               speechActivityRef.current.started(source);
@@ -2584,6 +2600,7 @@ export function useLiveCopilot() {
     askQuestion,
     forceAnswer,
     forceCandidateFollowUp,
+    isCandidateTranscriptPending,
     forceScreenAnswer,
     start,
     pause,

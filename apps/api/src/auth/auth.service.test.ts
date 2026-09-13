@@ -96,6 +96,15 @@ function fixture(user: FakeUser | null = null) {
   return { authCodes, claimedSubscriptions, get user() { return stored; }, issued, verified, service };
 }
 
+test('re-verifying email preserves the original free-trial start', async () => {
+  process.env.JWT_ACCESS_SECRET = 'test-access-secret';
+  const firstVerifiedAt = new Date('2026-09-01T00:00:00Z');
+  const state = fixture({ id: 'user-1', email: 'person@example.com', passwordHash: '',
+    emailVerifiedAt: firstVerifiedAt, hwid: null, hwidChangedAt: null, refreshToken: null });
+  await state.service.verifyEmail({ email: 'person@example.com', code: '123456', deviceId: 'installation-111111' });
+  assert.equal(state.user?.emailVerifiedAt?.getTime(), firstVerifiedAt.getTime());
+});
+
 test('registration normalizes email and waits for verification before issuing a session', async () => {
   const state = fixture();
 

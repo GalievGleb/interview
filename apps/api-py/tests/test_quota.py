@@ -6,6 +6,45 @@ from app.core.errors import AppError
 from app.services import quota
 
 
+def test_alpha_does_not_reuse_legacy_gateway_key(monkeypatch, db_session):
+    from app.db import session
+    from app.db.models import AppMeta
+    from app.services import license, provider_adapter
+
+    monkeypatch.setenv("SKILLCUE_BUILD_CHANNEL", "alpha")
+    db_session.add(AppMeta(key="license_key", value="legacy-key"))
+    db_session.commit()
+    monkeypatch.setattr(session, "SessionLocal", lambda: db_session)
+    calls = []
+
+    def select(managed, legacy):
+        calls.append((managed, legacy))
+        return legacy, {"plan": "trial"} if legacy else None
+
+    monkeypatch.setattr(license, "select_effective_license", select)
+    assert provider_adapter._stored_gateway_license_key() == ""
+    assert calls == [("", "")]
+
+
+@pytest.mark.asyncio
+async def test_alpha_never_claims_anonymous_trial(monkeypatch):
+    from app.services import provider_adapter
+
+    monkeypatch.setenv("SKILLCUE_BUILD_CHANNEL", "alpha")
+    with pytest.raises(AppError, match="Google"):
+        await provider_adapter._claim_gateway_trial_key("https://invalid.example")
+
+
+def test_alpha_requires_account_before_free_tokens_or_live(monkeypatch, db_session):
+    monkeypatch.setenv("SKILLCUE_BUILD_CHANNEL", "alpha")
+    entitlements = quota.current_entitlements(db_session)
+    assert entitlements["status"] == "auth_required"
+    assert entitlements["tokens_left_month"] == 0
+    for check in (quota.check_token_quota, quota.check_live_allowed):
+        with pytest.raises(AppError, match="Google"):
+            check(db_session)
+
+
 def test_developer_build_bypasses_commercial_token_counter(monkeypatch) -> None:
     monkeypatch.setenv("SKILLCUE_BUILD_CHANNEL", "dev")
     monkeypatch.setattr(

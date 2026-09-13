@@ -261,8 +261,8 @@ export default function OverlayPage() {
     error,
     sessionId,
     forceAnswer,
-    forceCandidateFollowUp,
     forceScreenAnswer,
+    isCandidateTranscriptPending,
     start,
     pause,
     resume,
@@ -339,7 +339,7 @@ export default function OverlayPage() {
         title: 'Как пользоваться',
         record: 'Нажмите красную кнопку — начнутся запись и транскрипция.',
         answer: 'Ctrl+Enter — ответ по разговору.',
-        candidate: 'Ctrl+\\ — учесть вашу последнюю фразу и продолжить решение.',
+        candidate: 'Ctrl+\\ — подставить вашу последнюю фразу в поле задания.',
         screen: 'Ctrl+Shift+Enter — снимок экрана. Можно сказать «покажу решение» и нажать Ctrl+Enter.',
         newScreenTask: 'Новая задача с экрана',
         move: 'Ctrl+Shift+H скрывает панель, Ctrl+стрелки перемещают её.',
@@ -349,7 +349,7 @@ export default function OverlayPage() {
         title: 'How it works',
         record: 'Press the red button to start recording and transcription.',
         answer: 'Ctrl+Enter answers from the conversation.',
-        candidate: 'Ctrl+\\ uses your latest phrase to continue the solution.',
+        candidate: 'Ctrl+\\ inserts your latest microphone phrase into the task field.',
         screen: 'Ctrl+Shift+Enter captures the screen. You can also say “I’ll show my solution” and press Ctrl+Enter.',
         newScreenTask: 'New screen task',
         move: 'Ctrl+Shift+H hides the panel; Ctrl+arrows move it.',
@@ -530,6 +530,9 @@ export default function OverlayPage() {
       const diagnosticId = `${sessionId ?? 'local'}:${requestGeneration}:${crypto.randomUUID()}`;
       const capture = window.electronAPI?.overlay.captureScreen;
       const request = customText || t('overlay.whatOnScreen');
+      const displayRequest = trigger === 'visual_question'
+        ? 'Снимок экрана сделан'
+        : request;
       const effectiveTrigger = trigger ?? 'manual';
       const effectiveQuestion = `${modeInstructionPrefix()}${request}`.trim();
       const conversationContext = transcriptContext();
@@ -558,7 +561,7 @@ export default function OverlayPage() {
           stagedFrame = screenTaskRuntime.frames.stage(capturedImage);
           previousImages = stagedFrame.previousFrames;
           screenAssistDiagnostics.captured(diagnosticId, image);
-          setExchange({ label: t('overlay.action.screen'), request, text: '', streaming: true, image });
+          setExchange({ label: t('overlay.action.screen'), request: displayRequest, text: '', streaming: true, image });
         },
         onChunk: (chunk) => {
           if (chunk.trim()) screenAssistDiagnostics.firstOutput(diagnosticId, chunk);
@@ -658,7 +661,7 @@ export default function OverlayPage() {
             setExchange((prev) => (prev ? { ...prev, ...presentation } : prev));
             setUsageLog((log) => [
               ...log,
-              { label: t('overlay.action.screen'), request, text: terminalResult.answer, image },
+              { label: t('overlay.action.screen'), request: displayRequest, text: terminalResult.answer, image },
             ]);
           } else {
             screenAssistDiagnostics.error(diagnosticId, message);
@@ -1098,7 +1101,7 @@ export default function OverlayPage() {
 
   const startSession = async () => {
     if (liveBlocked) {
-      setNotice(t('overlay.rec.needLicense'));
+      setNotice(license?.status === 'auth_required' ? 'Войдите через Google, чтобы получить бесплатный доступ.' : t('overlay.rec.needLicense'));
       void window.electronAPI?.overlay.openSettings?.('billing');
       return;
     }
@@ -1137,7 +1140,7 @@ export default function OverlayPage() {
     resetScreenTaskContext();
     closeRecap();
     if (liveBlocked) {
-      setNotice(t('overlay.rec.needLicense'));
+      setNotice(license?.status === 'auth_required' ? 'Войдите через Google, чтобы получить бесплатный доступ.' : t('overlay.rec.needLicense'));
       void window.electronAPI?.overlay.openSettings?.('billing');
       return;
     }
@@ -1218,12 +1221,18 @@ export default function OverlayPage() {
     lastCandidateHotkeyRef.current = event;
 
     setNotice('');
-    const status = forceCandidateFollowUp(source);
-    if (status === 'unavailable') {
-      setNotice(t('overlay.forceUnavailable'));
+    if (isCandidateTranscriptPending()) {
+      setNotice('Твоя фраза ещё распознаётся. Через пару секунд повтори Ctrl+\\.');
       return;
     }
-  }, [forceCandidateFollowUp, t]);
+    const phrase = [...lines].reverse().find((line) => line.isFinal && line.speaker === 'me')?.text.trim();
+    if (!phrase) {
+      setNotice('Пока нет распознанной фразы с микрофона. Скажи задание и повтори Ctrl+\\.');
+      return;
+    }
+    setInput(phrase);
+    setNotice('Твоя последняя фраза подставлена в задание.');
+  }, [lines, isCandidateTranscriptPending]);
 
   const scrollOverlayContent = useCallback((direction: -1 | 1) => {
     const candidates = [

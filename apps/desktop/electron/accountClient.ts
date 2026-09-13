@@ -110,13 +110,19 @@ export class AccountClient {
 
   async restore(): Promise<PublicAccountState> {
     const refreshToken = this.options.loadRefreshToken();
-    if (!refreshToken) return this.setSignedOut(null);
+    if (!refreshToken) {
+      this.setSignedOut(null);
+      await this.trySyncManagedLicense();
+      return this.getState();
+    }
     try {
       return this.consumeAuth(await this.post('/auth/refresh', { refreshToken }));
     } catch (error) {
       if (error instanceof AccountApiError && error.status === 401) {
         this.options.clearRefreshToken();
-        return this.setSignedOut(null);
+        this.setSignedOut(null);
+        await this.trySyncManagedLicense();
+        return this.getState();
       }
       this.state = { ...this.state, error: safeErrorCode(error) };
       return this.getState();
@@ -144,7 +150,10 @@ export class AccountClient {
   }
 
   async syncManagedLicense(): Promise<boolean> {
-    if (!this.accessToken) return false;
+    if (!this.accessToken) {
+      if (!this.options.loadRefreshToken()) await this.options.clearManagedLicense?.();
+      return false;
+    }
     const entitlement = await this.authorized<ManagedLicenseResponse>(
       '/subscriptions/license', {}, false,
     );

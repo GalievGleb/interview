@@ -187,7 +187,14 @@ def _stored_gateway_license_key() -> str:
             legacy_row = db.get(AppMeta, "license_key")
             managed = (managed_row.value if managed_row else "").strip()
             legacy = (legacy_row.value if legacy_row else "").strip()
-        key, _ = select_effective_license(managed, legacy)
+        import os
+
+        alpha = os.environ.get("SKILLCUE_BUILD_CHANNEL", "").strip().lower() == "alpha"
+        key, payload = select_effective_license(managed, "" if alpha else legacy)
+        if alpha and not (
+            payload and payload.get("source") == "account" and payload.get("account_id")
+        ):
+            return ""
         return key
     except Exception:  # noqa: BLE001
         return ""
@@ -235,6 +242,10 @@ def _store_gateway_license_key(key: str, email: str = "") -> None:
 
 
 async def _claim_gateway_trial_key(gateway_url: str) -> str:
+    import os
+
+    if os.environ.get("SKILLCUE_BUILD_CHANNEL", "").strip().lower() == "alpha":
+        raise AppError("Войдите через Google в Настройках → Аккаунт.", 401, "account_auth_required")
     try:
         install_id = _get_or_create_install_id()
         root = _gateway_root_url(gateway_url)

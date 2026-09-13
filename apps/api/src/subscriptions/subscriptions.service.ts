@@ -152,14 +152,18 @@ export class SubscriptionsService {
     });
     const subscription = user?.subscription;
     const devPlan = isDevSkipSubscription() ? Plan.PRO : null;
-    const plan = devPlan ?? subscription?.plan ?? null;
+    const trialUntil = user?.emailVerifiedAt && !subscription
+      ? new Date(user.emailVerifiedAt.getTime() + 14 * 86_400_000)
+      : null;
+    const freeTrial = Boolean(trialUntil && trialUntil > now);
+    const plan = devPlan ?? subscription?.plan ?? (freeTrial ? 'TRIAL' : null);
     const activeUntil = devPlan
       ? new Date(now.getTime() + 24 * 60 * 60 * 1000)
-      : subscription?.currentPeriodEnd ?? null;
+      : subscription?.currentPeriodEnd ?? trialUntil;
     const active = Boolean(
       user
       && plan
-      && (devPlan || subscription?.status === SubStatus.ACTIVE)
+      && (devPlan || freeTrial || subscription?.status === SubStatus.ACTIVE)
       && activeUntil
       && activeUntil.getTime() > now.getTime(),
     );
@@ -181,10 +185,10 @@ export class SubscriptionsService {
     const sharedPlan = plan as unknown as SharedPlan;
     const key = mintLicenseKey({
       email: user.email,
-      plan: plan === Plan.BASIC ? 'basic' : 'max',
+      plan: plan === 'TRIAL' ? 'trial' : plan === Plan.BASIC ? 'basic' : 'max',
       issuedAt: Math.floor(now.getTime() / 1000),
       expiresAt: Math.floor(expiresAt.getTime() / 1000),
-      tokensMonth: PLAN_LIMITS[sharedPlan].llmTokensPerMonth,
+      tokensMonth: plan === 'TRIAL' ? 300_000 : PLAN_LIMITS[sharedPlan].llmTokensPerMonth,
       accountId: user.id,
       source: 'account',
     }, privateKeyHex);

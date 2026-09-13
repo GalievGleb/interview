@@ -91,8 +91,24 @@ def current_entitlements(db: Session) -> dict:
 
     _, payload = select_effective_license(
         _meta(db, _MANAGED_LICENSE_KEY),
-        _meta(db, _LICENSE_KEY),
+        ""
+        if os.environ.get("SKILLCUE_BUILD_CHANNEL", "").strip().lower() == "alpha"
+        else _meta(db, _LICENSE_KEY),
     )
+
+    if os.environ.get("SKILLCUE_BUILD_CHANNEL", "").strip().lower() == "alpha" and not (
+        payload and payload.get("source") == "account" and payload.get("account_id")
+    ):
+        return {
+            "status": "auth_required",
+            "plan": "trial",
+            "licensed_to": None,
+            "live_allowed": False,
+            "live_seconds_left": 0,
+            "tokens_used_month": 0,
+            "tokens_budget_month": 0,
+            "tokens_left_month": 0,
+        }
 
     if payload:
         plan = normalize_plan(str(payload.get("plan", "")))
@@ -129,6 +145,12 @@ def check_token_quota(db: Session) -> None:
     if os.environ.get("SKILLCUE_BUILD_CHANNEL", "").strip().lower() == "dev":
         return
     ent = current_entitlements(db)
+    if ent.get("status") == "auth_required":
+        raise AppError(
+            "Войдите через Google в Настройках → Аккаунт, чтобы получить бесплатный доступ.",
+            401,
+            "account_auth_required",
+        )
     if ent["tokens_left_month"] <= 0:
         raise AppError(
             "Месячный лимит токенов тарифа исчерпан. Лимит обновится 1-го числа; "
@@ -141,6 +163,12 @@ def check_token_quota(db: Session) -> None:
 def check_live_allowed(db: Session) -> None:
     """Гейт live-режима: 403 если тариф не включает live или trial-минуты сгорели."""
     ent = current_entitlements(db)
+    if ent.get("status") == "auth_required":
+        raise AppError(
+            "Войдите через Google в Настройках → Аккаунт, чтобы получить бесплатный доступ.",
+            401,
+            "account_auth_required",
+        )
     if not ent["live_allowed"]:
         if ent["plan"] == "basic":
             raise AppError(

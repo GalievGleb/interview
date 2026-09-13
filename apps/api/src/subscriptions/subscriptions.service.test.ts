@@ -161,6 +161,33 @@ test('does not issue a managed license for an expired subscription', async () =>
   });
 });
 
+test('verified accounts receive a bounded trial shared across renewals', async () => {
+  const keys = rawKeyPair();
+  let now = new Date();
+  const verifiedAt = new Date(now);
+  const user = { id: 'trial-account', email: 'trial@example.com', emailVerifiedAt: verifiedAt, subscription: null };
+  const service = new SubscriptionsService({ user: { findUnique: async () => user } } as never, {
+    privateKeyHex: keys.privateKeyHex, now: () => now,
+  });
+  const first = await service.getManagedLicense(user.id);
+  now = new Date(now.getTime() + 86_400_000);
+  const second = await service.getManagedLicense(user.id);
+  const one = verifyLicenseKey(first.key!, keys.publicKeyHex)!;
+  const two = verifyLicenseKey(second.key!, keys.publicKeyHex)!;
+  assert.equal(one.payload.plan, 'trial');
+  assert.equal(one.budget, 300_000);
+  assert.equal(one.id, two.id);
+  now = new Date(verifiedAt.getTime() + 15 * 86_400_000);
+  assert.equal((await service.getManagedLicense(user.id)).active, false);
+});
+
+test('an unverified account cannot obtain a free license', async () => {
+  const service = new SubscriptionsService({ user: { findUnique: async () => ({
+    id: 'unverified', email: 'trial@example.com', emailVerifiedAt: null, subscription: null,
+  }) } } as never, { privateKeyHex: '', now: () => new Date() });
+  assert.equal((await service.getManagedLicense('unverified')).active, false);
+});
+
 test('reports a stale active database row as expired after its paid period ends', async () => {
   const prisma = {
     subscription: {

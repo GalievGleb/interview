@@ -1268,14 +1268,20 @@ async def _generate_code_answer(
         return draft.strip()
 
     issue_codes = ", ".join(code.value for code in validation.issue_codes)
+    repair_shape = (
+        "Emit exactly one SQL statement in a sql fenced block, not a Python function. "
+        "Preserve the required SQL identifiers, clauses and visible literals. "
+        if state.requirements.code_language == ScreenCodeLanguage.SQL
+        else "Emit exactly one target function and no helper or setup layer. Keep the "
+        "control and SQL dataflow straight-line: assign the single trusted execute result, "
+        "bind each required scalar value separately (a one-element tuple for positional "
+        "placeholders), then return the required result. "
+    )
     repair_prompt = (
         f"{_answer_prompt(state, latest_correction)}\n\n"
         "Repair the draft exactly once. The deterministic validator returned only these "
         f"stable issue codes: {issue_codes}. Fix every listed issue without adding unrelated "
-        "layers. Emit exactly one target function and no helper or setup layer. Keep the "
-        "control and SQL dataflow straight-line: assign the single trusted execute result, "
-        "bind each required scalar value separately (a one-element tuple for positional "
-        "placeholders), then return the required result. Return the full answer, not a diff.\n\n"
+        f"layers. {repair_shape}Return the full answer, not a diff.\n\n"
         f"INVALID DRAFT:\n{draft[:MAX_REPAIR_DRAFT_CHARS]}"
     )
     repaired = await complete(

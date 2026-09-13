@@ -219,7 +219,7 @@ export function buildSessionDebugReport(input: {
       const slowest = maxLlm != null && (maxStt == null || maxLlm >= maxStt) ? 'LLM' : 'STT';
       parts.push(`- Самый медленный этап: ${slowest} (STT max ${ms(maxStt)}, LLM max ${ms(maxLlm)}).`);
     }
-    parts.push(`- Ошибок: ${errorEvents.length}; переподключений: ${reconnectEvents.length}; low_quality: ${lowQualityEvents.length}; предупреждений источника: ${warningEvents.length}.`);
+    parts.push(`- Ошибок live: ${errorEvents.length}; ошибок снимка экрана: ${screens.filter((screen) => screen.status === 'error').length}; переподключений: ${reconnectEvents.length}; low_quality: ${lowQualityEvents.length}; предупреждений источника: ${warningEvents.length}.`);
     degradedSources.forEach(([source]) => {
       parts.push(`- Запрошенный канал ${escapeCell(source)} не показал сигнал или речь; источник деградирован или не подтверждён.`);
     });

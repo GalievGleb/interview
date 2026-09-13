@@ -67,7 +67,8 @@ export function licenseId(payloadB64: string, payload?: LicensePayload): string 
   const identity = payload?.source === 'account' && payload.account_id
     ? `account:${payload.account_id}`
     : payloadB64;
-  return createHash('sha256').update(identity).digest('hex').slice(0, 24);
+  const id = createHash('sha256').update(identity).digest('hex').slice(0, 24);
+  return payload?.source === 'account' && payload.plan === 'trial' ? `trial-${id}` : id;
 }
 
 export interface VerifiedLicense {

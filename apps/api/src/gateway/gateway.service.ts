@@ -535,6 +535,14 @@ export class GatewayService {
         },
       });
     }
+    if (process.env.GATEWAY_REQUIRE_ACCOUNT_TRIAL === '1'
+      && license.payload.plan === 'trial'
+      && (!license.payload.account_id || license.payload.source !== 'account')) {
+      throw new UnauthorizedException({ error: {
+        message: 'Обновите SkillCue и войдите через Google для бесплатного доступа.',
+        code: 'account_auth_required',
+      } });
+    }
     return license;
   }
 
@@ -578,6 +586,12 @@ export class GatewayService {
     clientId: string | undefined,
     ip = 'unknown',
   ): Promise<{ key: string; email: string; plan: 'trial' }> {
+    if (process.env.GATEWAY_REQUIRE_ACCOUNT_TRIAL === '1') {
+      throw new UnauthorizedException({ error: {
+        message: 'Обновите SkillCue и войдите через Google для бесплатного доступа.',
+        code: 'account_auth_required',
+      } });
+    }
     const normalized = (clientId ?? '').trim().slice(0, 200);
     if (!normalized) {
       throw new UnauthorizedException({
@@ -608,7 +622,7 @@ export class GatewayService {
   }
 
   private usageKey(licenseId: string): string {
-    return `gw:tok:${licenseId}:${monthStamp()}`;
+    return `gw:tok:${licenseId}:${licenseId.startsWith('trial-') ? 'lifetime' : monthStamp()}`;
   }
 
   async usedTokens(licenseId: string): Promise<number> {

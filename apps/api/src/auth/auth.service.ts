@@ -123,7 +123,7 @@ export class AuthService {
     if (!user) throw new BadRequestException('CODE_INVALID');
     const verified = await this.prisma.user.update({
       where: { id: user.id },
-      data: { emailVerifiedAt: new Date() },
+      data: { emailVerifiedAt: user.emailVerifiedAt ?? new Date() },
     });
     await this.subscriptionsService.claimPending(verified.id, verified.email);
     const session = await this.openDeviceSession(verified.id, dto.deviceId, dto.deviceName);

@@ -27,7 +27,7 @@ describe('overlay request behavior', () => {
 
   it('blocks live before opening sockets when the licence has no live entitlement', () => {
     expect(overlaySource).toContain("const liveBlocked = license?.live_allowed === false");
-    expect(overlaySource).toContain("setNotice(t('overlay.rec.needLicense'))");
+    expect(overlaySource).toContain("license?.status === 'auth_required'");
     expect(overlaySource).toContain("overlay.openSettings?.('billing')");
   });
 
@@ -338,11 +338,13 @@ describe('overlay request behavior', () => {
     expect(apiSource).toContain('active_screen_task: opts.activeScreenTask');
   });
 
-  it('cancels an active screen request only after the hook selects a candidate utterance', () => {
+  it('pastes a finalized candidate utterance without submitting or cancelling the screen request', () => {
     const submitAt = overlaySource.indexOf('const submitCandidateFollowUp');
     const endAt = overlaySource.indexOf('const scrollOverlayContent', submitAt);
     const body = overlaySource.slice(submitAt, endAt);
-    expect(body).toContain('forceCandidateFollowUp');
+    expect(body).toContain('setInput(phrase)');
+    expect(body).toContain("line.speaker === 'me'");
+    expect(body).not.toContain('forceCandidateFollowUp(source)');
     expect(body).not.toContain('cancelActiveScreenAssist()');
     const selectedAt = hookSource.indexOf("recordCandidateHotkeyDiagnostic('candidate_hotkey_selected'");
     const cancelAt = hookSource.lastIndexOf(

@@ -24,6 +24,17 @@ describe('account API configuration', () => {
 });
 
 describe('account client', () => {
+  it('retries clearing guest entitlements after the local backend becomes ready', async () => {
+    const clearManagedLicense = vi.fn().mockRejectedValueOnce(new Error('backend starting')).mockResolvedValue(undefined);
+    const client = new AccountClient({
+      baseUrl: 'https://skill-cue.ru/account', installationId: 'installation-111111', deviceName: 'PC',
+      loadRefreshToken: () => null, saveRefreshToken: () => {}, clearRefreshToken: () => {},
+      clearManagedLicense,
+    });
+    expect((await client.restore()).authenticated).toBe(false);
+    expect(await client.syncManagedLicense()).toBe(false);
+    expect(clearManagedLicense).toHaveBeenCalledTimes(2);
+  });
   it('stores refresh credentials outside the renderer-facing result', async () => {
     let stored: string | null = null;
     const client = new AccountClient({

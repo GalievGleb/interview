@@ -461,7 +461,9 @@ async function confirmBackendUp(): Promise<void> {
     if (await pingBackendHealth()) {
       backendRestartAttempts = 0;
       sendToWindows('backend:status', { state: 'ok' });
-      void accountClient?.syncManagedLicense().catch((error) => {
+      void accountClient?.syncManagedLicense().then(() => {
+        sendToWindows('account:state', accountClient?.getState());
+      }).catch((error) => {
         logMain('warn', 'managed account license sync failed', error);
       });
       return;

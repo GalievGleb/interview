@@ -139,7 +139,7 @@ export function createMockAnswerTranscriptionForm(
 }
 
 export interface LicenseStatusDto {
-  status: 'trial' | 'active' | 'expired';
+  status: 'trial' | 'active' | 'expired' | 'auth_required';
   plan: 'trial' | 'basic' | 'max';
   licensed_to: string | null;
   live_allowed: boolean;
