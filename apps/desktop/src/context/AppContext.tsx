@@ -83,6 +83,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
   }, [refreshKeys, refreshLicense]);
 
+  useEffect(() => window.electronAPI?.account?.onState?.(() => {
+    void refreshLicense();
+    void refreshKeys();
+  }), [refreshLicense, refreshKeys]);
+
   // Падение/перезапуск бэкенда main сообщает мгновенно — не ждём 10-сек поллинг.
   useEffect(() => {
     const unsub = window.electronAPI?.onBackendStatus?.((status) => {

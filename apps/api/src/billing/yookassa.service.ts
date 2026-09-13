@@ -1,18 +1,20 @@
 import { Injectable } from '@nestjs/common';
-import { Plan } from '@interview/shared';
+import { BillingPeriod, Plan } from '@interview/shared';
 import { v4 as uuidv4 } from 'uuid';
 
 interface YooKassaPaymentResponse {
   id: string;
   status: string;
+  paid?: boolean;
+  metadata?: { userId?: string; email?: string; plan?: string; durationDays?: string };
   confirmation?: { confirmation_url?: string };
 }
 
 // Prices mirror yookassa.util.ts (the active billing module). The old billing
 // module is kept for Stripe compatibility; these values must stay in sync.
-const PLAN_PRICES_RUB: Record<Plan, number> = {
-  [Plan.BASIC]: 1490,
-  [Plan.PRO]: 2990,
+const PLAN_PRICES_RUB: Record<Plan, Record<BillingPeriod, number>> = {
+  [Plan.BASIC]: { [BillingPeriod.MONTHLY]: 1490, [BillingPeriod.YEARLY]: 14900 },
+  [Plan.PRO]: { [BillingPeriod.MONTHLY]: 2990, [BillingPeriod.YEARLY]: 29900 },
 };
 
 @Injectable()
@@ -30,6 +32,7 @@ export class YookassaService {
     userId: string,
     email: string,
     plan: Plan,
+    period: BillingPeriod,
     returnUrl: string,
   ): Promise<string> {
     const idempotenceKey = uuidv4();
@@ -41,18 +44,18 @@ export class YookassaService {
         'Idempotence-Key': idempotenceKey,
       },
       body: JSON.stringify({
-        amount: { value: PLAN_PRICES_RUB[plan].toFixed(2), currency: 'RUB' },
+        amount: { value: PLAN_PRICES_RUB[plan][period].toFixed(2), currency: 'RUB' },
         capture: true,
         confirmation: { type: 'redirect', return_url: returnUrl },
-        description: `Interview Assistant ${plan} subscription`,
-        metadata: { userId, plan },
+        description: `SkillCue ${plan} ${period} subscription`,
+        metadata: { userId, email, plan, durationDays: period === BillingPeriod.YEARLY ? '365' : '30' },
         receipt: {
           customer: { email },
           items: [
             {
-              description: `Interview Assistant ${plan}`,
+              description: `SkillCue ${plan} ${period}`,
               quantity: '1.00',
-              amount: { value: PLAN_PRICES_RUB[plan].toFixed(2), currency: 'RUB' },
+              amount: { value: PLAN_PRICES_RUB[plan][period].toFixed(2), currency: 'RUB' },
               vat_code: 1,
             },
           ],
@@ -78,7 +81,11 @@ export class YookassaService {
    * truth about whether a payment really succeeded — the webhook body is
    * unsigned and must never be trusted on its own.
    */
-  async getPayment(paymentId: string): Promise<{ status: string; paid: boolean }> {
+  async getPayment(paymentId: string): Promise<{
+    status: string;
+    paid: boolean;
+    metadata?: { userId?: string; email?: string; plan?: string; durationDays?: string };
+  }> {
     const response = await fetch(
       `https://api.yookassa.ru/v3/payments/${encodeURIComponent(paymentId)}`,
       { headers: { Authorization: this.getAuthHeader() } },
@@ -86,8 +93,8 @@ export class YookassaService {
     if (!response.ok) {
       throw new Error(`YooKassa getPayment ${response.status}`);
     }
-    const data = (await response.json()) as { status?: string; paid?: boolean };
-    return { status: data.status ?? '', paid: Boolean(data.paid) };
+    const data = (await response.json()) as YooKassaPaymentResponse;
+    return { status: data.status ?? '', paid: Boolean(data.paid), metadata: data.metadata };
   }
 
   verifyWebhookIp(_ip: string): boolean {

@@ -2,10 +2,17 @@ import { describe, expect, it, vi } from 'vitest';
 import type { SessionDetail } from './api';
 import { evaluateForcedFinalTranscript } from './forcedTranscriptQuality';
 import {
+  completeForcedAnswerStream,
+  expireDelayedForcedTranscript,
   LatestForcedAnswerCoordinator,
+  markForcedAnswerStreamStarted,
   notifyDelayedForcedTranscript,
   type ForceAcceptDecision,
 } from './latestForcedAnswer';
+import {
+  dispatchForcedSttAcceptDecision,
+  ForcedFinalMetadataLedger,
+} from '../hooks/useLiveCopilot';
 import {
   selectForceTargetSource,
   SpeechActivityTracker,
@@ -20,6 +27,64 @@ import {
 import { buildSessionDebugReport } from './sessionDebugReport';
 
 describe('live session reliability integration', () => {
+  it('releases coordinator, ledger, and stream ownership across ten answers and lost-final recovery', () => {
+    let request = 0;
+    const coordinator = new LatestForcedAnswerCoordinator(() => `force-${++request}`);
+    const ledger = new ForcedFinalMetadataLedger();
+    const completedQuestions: string[] = [];
+    const dispatch = (decision: ForceAcceptDecision) =>
+      dispatchForcedSttAcceptDecision(decision, 'ru', {
+        prepare: () => {},
+        reject: (_question, _generation, reason) => { throw new Error(reason); },
+        routeVisualToScreen: () => false,
+        askQuestion: (question, generation) => {
+          expect(markForcedAnswerStreamStarted(coordinator, generation)).toBe(true);
+          completedQuestions.push(question);
+          expect(completeForcedAnswerStream(coordinator, generation)).toBe(true);
+        },
+      });
+
+    for (let sequence = 1; sequence <= 10; sequence += 1) {
+      const force = coordinator.press([], 'system', true);
+      if (force.action !== 'flush') throw new Error(`Expected flush, got ${force.action}`);
+      const line = ledger.append(
+        `Вопрос номер ${sequence}?`,
+        'system',
+        { forceRequestId: force.requestId, utteranceId: `utterance-${sequence}` },
+        sequence * 1_000,
+      );
+      expect(dispatch(coordinator.acceptFinal(line, force.requestId))).toBe('text');
+      expect(coordinator.snapshot()).toMatchObject({
+        phase: 'done', requestId: null, pendingRequestCount: 0,
+      });
+    }
+
+    const lost = coordinator.press([], 'system', true);
+    if (lost.action !== 'flush') throw new Error(`Expected flush, got ${lost.action}`);
+    expect(expireDelayedForcedTranscript(coordinator, lost.generation, () => {})).toBe(true);
+    expect(coordinator.snapshot()).toMatchObject({
+      phase: 'error', requestId: null, pendingRequestCount: 0,
+    });
+
+    const recovered = coordinator.press([], 'system', true);
+    if (recovered.action !== 'flush') throw new Error(`Expected flush, got ${recovered.action}`);
+    const recoveredLine = ledger.append(
+      'Восстановленный вопрос?',
+      'system',
+      { forceRequestId: recovered.requestId, utteranceId: 'utterance-recovered' },
+      12_000,
+    );
+    expect(dispatch(coordinator.acceptFinal(recoveredLine, recovered.requestId))).toBe('text');
+    expect(coordinator.snapshot()).toMatchObject({
+      phase: 'done', requestId: null, pendingRequestCount: 0,
+    });
+    expect(ledger.snapshot()).toHaveLength(11);
+    expect(completedQuestions).toEqual([
+      ...Array.from({ length: 10 }, (_, index) => `Вопрос номер ${index + 1}?`),
+      'Восстановленный вопрос?',
+    ]);
+  });
+
   it('answers consecutive interviewer questions without candidate speech stealing the cursor', () => {
     const coordinator = new LatestForcedAnswerCoordinator(() => 'unused');
     const sources = { mic: true, system: true };

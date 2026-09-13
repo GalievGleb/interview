@@ -30,6 +30,10 @@ describe('candidate flow across every primary tab', () => {
     expect(home).not.toContain("navigate('/onboarding')");
   });
 
+  it('does not flash the start-path chooser while candidate sources are loading', () => {
+    expect(home).toContain('const pathChooserVisible = !candidateSources.loading && candidateJourney.path === null;');
+  });
+
   it('keeps vacancy analysis focused and carries the saved goal into a new review', () => {
     expect(prepare).not.toContain('<CandidateJourneyStrip');
     expect(prepare).toContain("pathname === '/practice/new'");
@@ -50,7 +54,8 @@ describe('candidate flow across every primary tab', () => {
   });
 
   it('opens the automatic queue from the home command instead of silently staying on home', () => {
-    expect(home).toContain("if (hhCommand.action === 'queue')");
+    expect(home).toContain("hhCommand.action === 'queue'");
+    expect(home).toContain('resumeHomeQueue');
     expect(home).toContain("navigate('/applications?view=active')");
   });
 

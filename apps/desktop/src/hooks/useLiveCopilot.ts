@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../lib/api';
+import { CrossChannelEchoGate } from '../lib/crossChannelEcho';
+import { LiveAnswerMemory, CANDIDATE_SOURCES_EPOCH_KEY } from '../lib/liveAnswerMemory';
 import { decideAnswerAction } from '../lib/liveAnswerMachine';
 import {
   startLiveSession,
@@ -28,8 +30,11 @@ import {
   SpeechActivityTracker,
 } from '../lib/forceLiveAnswer';
 import {
+  completeForcedAnswerStream,
+  expireDelayedForcedTranscript,
   ForceFallbackScheduler,
   LatestForcedAnswerCoordinator,
+  markForcedAnswerStreamStarted,
   notifyDelayedForcedTranscript,
   type ForceAcceptDecision,
   type ForcePhase,
@@ -87,6 +92,7 @@ import {
   type TranscriptLine,
 } from '../lib/interviewSessionExport';
 import { resolvePreferredResume } from '../lib/resumeContext';
+import { RESUME_SOURCE_STORAGE_KEY } from '../lib/resumeContext';
 import {
   ActiveScreenTaskContextMemory,
   CandidateFollowUpGenerationOwner,
@@ -118,6 +124,7 @@ const FINAL_FALLBACK_MS = 450;
 const SPEECH_FINAL_DELAY_MS = 280;
 const INCOMPLETE_RETRY_MS = 700;
 const FORCE_FINALIZE_TIMEOUT_MS = 3500;
+const FORCE_FINALIZE_HARD_DEADLINE_MS = 12_000;
 const FORCE_EMPTY_GRACE_MS = 1400;
 const FORCE_PREFIX_STABILIZATION_MS = 120;
 interface LiveTimingState {
@@ -311,6 +318,7 @@ export function useLiveCopilot() {
 
   const sessionRef = useRef<string | null>(null);
   const candidateContextRef = useRef('');
+  const liveAnswerMemoryRef = useRef(new LiveAnswerMemory());
   const candidateContextLoadRef = useRef<Promise<void> | null>(null);
   const reusedSessionRef = useRef(false);
   const liveRef = useRef<LiveEntry[]>([]);
@@ -350,6 +358,7 @@ export function useLiveCopilot() {
   const candidateFollowUpOwnerRef = useRef(new CandidateFollowUpGenerationOwner());
   const activeScreenTaskContextRef = useRef(new ActiveScreenTaskContextMemory());
   const forceFallbackSchedulerRef = useRef<ForceFallbackScheduler | null>(null);
+  const forceHardDeadlineSchedulerRef = useRef<ForceFallbackScheduler | null>(null);
   const forcePrefixStabilizationTimerRef = useRef<number | null>(null);
   const speechActivityRef = useRef(new SpeechActivityTracker());
   const sttLanguageRef = useRef('ru');
@@ -367,23 +376,45 @@ export function useLiveCopilot() {
 
   const preloadCandidateContext = useCallback(() => {
     if (!candidateContextLoadRef.current) {
+      const epoch = liveAnswerMemoryRef.current.epoch;
       candidateContextLoadRef.current = resolvePreferredResume()
         .then(({ text }) => {
+          if (epoch !== liveAnswerMemoryRef.current.epoch) return;
           candidateContextRef.current = text.trim().slice(0, 3200);
         })
         .catch(() => {
           // Live остаётся доступным без резюме; модель не должна выдумывать факты.
         })
         .finally(() => {
-          candidateContextLoadRef.current = null;
+          if (epoch === liveAnswerMemoryRef.current.epoch) candidateContextLoadRef.current = null;
         });
     }
     return candidateContextLoadRef.current;
   }, []);
 
+  const resetLiveMemory = useCallback(() => {
+    liveAnswerMemoryRef.current.reset();
+    candidateContextRef.current = '';
+    candidateContextLoadRef.current = null;
+  }, []);
+
   useEffect(() => {
     void preloadCandidateContext();
-  }, [preloadCandidateContext]);
+    const refresh = () => {
+      resetLiveMemory();
+      sessionContextRef.current = createEmptySessionContext();
+      void preloadCandidateContext();
+    };
+    const storage = (event: StorageEvent) => {
+      if (event.key === RESUME_SOURCE_STORAGE_KEY || event.key === CANDIDATE_SOURCES_EPOCH_KEY || event.key === null) refresh();
+    };
+    window.addEventListener('skillcue:candidate-sources-updated', refresh);
+    window.addEventListener('storage', storage);
+    return () => {
+      window.removeEventListener('skillcue:candidate-sources-updated', refresh);
+      window.removeEventListener('storage', storage);
+    };
+  }, [preloadCandidateContext, resetLiveMemory]);
   const endingSessionRef = useRef<Promise<void> | null>(null);
 
   const buildDiagnosticsSnapshot = useCallback((): DebugBundle => {
@@ -488,6 +519,7 @@ export function useLiveCopilot() {
 
   const clearForceTimeout = useCallback((replacementGeneration?: number) => {
     forceFallbackSchedulerRef.current?.cancel(replacementGeneration);
+    forceHardDeadlineSchedulerRef.current?.cancel(replacementGeneration);
   }, []);
 
   const clearForcePrefixStabilization = useCallback(() => {
@@ -504,24 +536,42 @@ export function useLiveCopilot() {
             forceCoordinatorRef.current,
             scheduledGeneration,
             () => {
-              if (candidateFollowUpOwnerRef.current.isOwned(scheduledGeneration)) {
-                candidateFollowUpOwnerRef.current.clear(scheduledGeneration);
-                forceCoordinatorRef.current.setPhase(scheduledGeneration, 'error');
-                syncForceSnapshot();
-                recordCandidateHotkeyDiagnostic('candidate_hotkey_ignored', {
-                  source: 'mic',
-                  reason: 'finalization_timeout',
-                  meta: { generation: scheduledGeneration },
-                });
-              }
               setError(t('live.forceNoAudio'));
             },
           );
         });
       }
       forceFallbackSchedulerRef.current.schedule(generation, delayMs);
+      if (!forceHardDeadlineSchedulerRef.current) {
+        forceHardDeadlineSchedulerRef.current = new ForceFallbackScheduler((scheduledGeneration) => {
+          const source = forceCoordinatorRef.current.snapshot().source;
+          expireDelayedForcedTranscript(
+            forceCoordinatorRef.current,
+            scheduledGeneration,
+            () => {
+              candidateFollowUpOwnerRef.current.clear(scheduledGeneration);
+              clearForcePrefixStabilization();
+              pendingTriggerSequenceRef.current = null;
+              timeoutScreenPartialRef.current.clearGeneration(scheduledGeneration);
+              syncForceSnapshot();
+              setError(t('live.forceNoAudio'));
+              hasSessionContentRef.current = true;
+              debugRef.current.event('error', {
+                ...(source ? withAudioSource(source, {}) : {}),
+                reason: 'finalization_hard_deadline',
+                meta: { generation: scheduledGeneration },
+              });
+              enqueueDiagnosticsSnapshot();
+            },
+          );
+        });
+      }
+      forceHardDeadlineSchedulerRef.current.schedule(
+        generation,
+        FORCE_FINALIZE_HARD_DEADLINE_MS,
+      );
     },
-    [recordCandidateHotkeyDiagnostic, syncForceSnapshot],
+    [clearForcePrefixStabilization, enqueueDiagnosticsSnapshot, syncForceSnapshot],
   );
 
   const routeVisualQuestionToScreen = useCallback(
@@ -663,6 +713,11 @@ export function useLiveCopilot() {
     });
   }, []);
 
+  const echoGateRef = useRef(new CrossChannelEchoGate());
+  const isCandidateTranscriptPending = useCallback(() => (
+    echoGateRef.current.hasPendingMicrophone() || speechActivityRef.current.snapshot().mic
+  ), []);
+
   const patchSttDebug = useCallback((patch: Partial<SttDebugInfo>) => {
     setSttDebug((prev) => ({
       rawTranscript: '',
@@ -751,6 +806,8 @@ export function useLiveCopilot() {
   );
 
   const endInterviewSession = useCallback((): Promise<void> => {
+    echoGateRef.current.finish();
+    resetLiveMemory();
     if (endingSessionRef.current) return endingSessionRef.current;
     const sid = sessionRef.current;
     const epoch = diagnosticsEpochRef.current;
@@ -785,7 +842,7 @@ export function useLiveCopilot() {
       if (endingSessionRef.current === ending) endingSessionRef.current = null;
     }).catch(() => undefined);
     return ending;
-  }, [buildDiagnosticsSnapshot]);
+  }, [buildDiagnosticsSnapshot, resetLiveMemory]);
 
   const removeStream = useCallback(
     (source: 'mic' | 'system', msg?: string) => {
@@ -858,6 +915,7 @@ export function useLiveCopilot() {
     streamLockRef.current = true;
     lastQuestionRef.current = q;
     const gen = ++streamGenRef.current;
+    const memoryEpoch = liveAnswerMemoryRef.current.epoch;
     const answerStartedAt = performance.now();
     timingRef.current.llmRequestStartAt = answerStartedAt;
     knowledgeMetaRef.current = null;
@@ -979,7 +1037,7 @@ export function useLiveCopilot() {
             firstChunk = false;
             if (
               requestForceGeneration != null &&
-              forceCoordinatorRef.current.setPhase(requestForceGeneration, 'streaming')
+              markForcedAnswerStreamStarted(forceCoordinatorRef.current, requestForceGeneration)
             ) {
               syncForceSnapshot();
             }
@@ -1007,14 +1065,14 @@ export function useLiveCopilot() {
           setStreamText(preserveCode ? accumulated : sanitizeLiveAnswer(accumulated));
           setSuggestLoading(false);
         },
-        onDone: (spoken: string, answerId?: string, responseMeta?: { model?: string; modelSource?: string }) => {
+        onDone: (spoken: string, answerId?: string, responseMeta?: { model?: string; modelSource?: string; completed?: boolean }) => {
           if (gen !== streamGenRef.current) return;
           streamLockRef.current = false;
           setStreaming(false);
           setSuggestLoading(false);
           if (
             requestForceGeneration != null &&
-            forceCoordinatorRef.current.setPhase(requestForceGeneration, 'done')
+            completeForcedAnswerStream(forceCoordinatorRef.current, requestForceGeneration)
           ) {
             syncForceSnapshot();
           }
@@ -1025,6 +1083,9 @@ export function useLiveCopilot() {
           const preserveCode =
             ['technical_task', 'api_test_task'].includes(prepared.answerStrategy.questionIntent) || rawAnswer.includes('```');
           const text = preserveCode ? rawAnswer : trimSpokenAnswer(sanitizeLiveAnswer(rawAnswer));
+          if (sessionRef.current) {
+            liveAnswerMemoryRef.current.complete(memoryEpoch, q, text, responseMeta?.completed === true);
+          }
           if (requestTaskContextUpdate && text) {
             activeScreenTaskContextRef.current.settleCandidateStream({
               completed: true,
@@ -1132,6 +1193,7 @@ export function useLiveCopilot() {
         sessionId: sessionRef.current ?? undefined,
         rawQuestion: q,
         candidateContext: candidateContextRef.current,
+        recentTurns: liveAnswerMemoryRef.current.snapshot(),
         activeScreenTask: requestActiveScreenTask ?? undefined,
         fastAnswer: true,
         onMeta: (correctionMeta) => {
@@ -1916,14 +1978,15 @@ export function useLiveCopilot() {
       stt: SttSessionOptions = {},
       link: LiveSessionLink = {},
     ): Promise<string | null> => {
-      // Обновляем выбранное резюме в фоне заранее; захват звука из-за этого не ждёт сеть.
-      void preloadCandidateContext();
+      resetLiveMemory();
       try {
         if (endingSessionRef.current) await endingSessionRef.current;
         if (sessionRef.current) await endInterviewSession();
       } catch {
         return null;
       }
+      // Refresh for this session; audio capture does not wait on resume loading.
+      void preloadCandidateContext();
       // A standalone screen request has no sessionRef, so endInterviewSession
       // cannot own it. Invalidate its generation/transport synchronously before
       // the diagnostic recorder is reset for the new live epoch.
@@ -2012,110 +2075,119 @@ export function useLiveCopilot() {
         const live = await startLiveSession(
           {
             onTranscript: (text, isFinal, _speechFinal, metadata) => {
-              const trimmed = text.trim();
-              if (!trimmed) return;
-              const forceRequestId = metadata?.forceRequestId;
+              if (diagnosticsEpochRef.current !== diagnosticsEpoch) return;
+              if (isFinal) speechActivityRef.current.finished(source);
+              const deliver = () => {
+                if (diagnosticsEpochRef.current !== diagnosticsEpoch) return;
+                const trimmed = text.trim();
+                if (!trimmed) return;
+                const forceRequestId = metadata?.forceRequestId;
 
-              if (!isFinal) {
-                speechActivityRef.current.partial(source);
-                const partialQuality = evaluateForcedTranscript(trimmed, language);
-                timeoutScreenPartialRef.current.observe({
-                  text: trimmed,
-                  source,
-                  receivedAtMs: Date.now(),
-                  capturedAtMs: metadata?.capturedAtMs,
-                  active: true,
-                  rejected: !partialQuality.eligible,
+                if (!isFinal) {
+                  speechActivityRef.current.partial(source);
+                  const partialQuality = evaluateForcedTranscript(trimmed, language);
+                  timeoutScreenPartialRef.current.observe({
+                    text: trimmed,
+                    source,
+                    receivedAtMs: Date.now(),
+                    capturedAtMs: metadata?.capturedAtMs,
+                    active: true,
+                    rejected: !partialQuality.eligible,
+                  });
+                  if (!timingRef.current.speechDetectedAt) {
+                    timingRef.current.speechDetectedAt = performance.now();
+                  }
+                  return;
+                }
+
+                // A later successful fragment clears a recoverable upstream STT
+                // notice without requiring the user to restart the microphone.
+                setError('');
+
+                timingRef.current.finalTranscriptionStartAt =
+                  timingRef.current.finalTranscriptionStartAt ?? performance.now();
+                timingRef.current.finalTranscriptionEndAt = performance.now();
+                timingRef.current.speechEndedAt = performance.now();
+                timeoutScreenPartialRef.current.clearCandidate(source);
+                appendLine(trimmed, true, speaker);
+                persistTranscriptLine(trimmed, speaker);
+                debugRef.current.event(
+                  'final',
+                  withAudioSource(source, {
+                    text: trimmed,
+                    speaker,
+                    meta: toSttDiagnosticMeta(metadata),
+                  }),
+                );
+                patchSttDebug({
+                  finalTranscript: trimmed,
+                  rawTranscript: trimmed,
+                  normalizedTranscript: normalizeTranscript(trimmed),
+                  waitReason: undefined,
                 });
-                if (!timingRef.current.speechDetectedAt) {
-                  timingRef.current.speechDetectedAt = performance.now();
-                }
-                return;
-              }
 
-              // A later successful fragment clears a recoverable upstream STT
-              // notice without requiring the user to restart the microphone.
-              setError('');
-
-              timingRef.current.finalTranscriptionStartAt =
-                timingRef.current.finalTranscriptionStartAt ?? performance.now();
-              timingRef.current.finalTranscriptionEndAt = performance.now();
-              timingRef.current.speechEndedAt = performance.now();
-              speechActivityRef.current.finished(source);
-              timeoutScreenPartialRef.current.clearCandidate(source);
-              appendLine(trimmed, true, speaker);
-              persistTranscriptLine(trimmed, speaker);
-              debugRef.current.event(
-                'final',
-                withAudioSource(source, {
-                  text: trimmed,
-                  speaker,
-                  meta: toSttDiagnosticMeta(metadata),
-                }),
-              );
-              patchSttDebug({
-                finalTranscript: trimmed,
-                rawTranscript: trimmed,
-                normalizedTranscript: normalizeTranscript(trimmed),
-                waitReason: undefined,
-              });
-
-              const ledgerLine = appendForcedFinal(trimmed, source, metadata);
-              const forceSnapshot = forceCoordinatorRef.current.snapshot();
-              if (
-                forceRequestId ||
-                forceSnapshot.phase === 'finalizing-transcript' ||
-                forceSnapshot.phase === 'screen-fallback'
-              ) {
-                const forcedTextPolicy = evaluateForcedFinalTranscript(
-                  trimmed,
-                  language,
-                  forceRequestId,
-                  forceSnapshot.requestId,
-                  source,
-                  forceSnapshot.source,
-                  metadata?.capturedAtMs,
-                  Date.now(),
-                );
-                if (forcedTextPolicy.action === 'reject') {
-                  rejectForcedTranscript(
+                const ledgerLine = appendForcedFinal(trimmed, source, metadata);
+                const forceSnapshot = forceCoordinatorRef.current.snapshot();
+                if (
+                  forceRequestId ||
+                  forceSnapshot.phase === 'finalizing-transcript' ||
+                  forceSnapshot.phase === 'screen-fallback'
+                ) {
+                  const forcedTextPolicy = evaluateForcedFinalTranscript(
                     trimmed,
-                    forceSnapshot.generation,
-                    forcedTextPolicy.reason,
+                    language,
+                    forceRequestId,
+                    forceSnapshot.requestId,
+                    source,
+                    forceSnapshot.source,
+                    metadata?.capturedAtMs,
+                    Date.now(),
                   );
-                  return;
-                }
-                const decision = forceCoordinatorRef.current.acceptFinal(
-                  ledgerLine,
-                  forceRequestId,
-                );
-                if (decision.action !== 'submit') {
-                  if (decision.action === 'wait') {
-                    syncForceSnapshot();
-                    scheduleForceTranscriptNotice(decision.generation);
+                  if (forcedTextPolicy.action === 'reject') {
+                    rejectForcedTranscript(
+                      trimmed,
+                      forceSnapshot.generation,
+                      forcedTextPolicy.reason,
+                    );
+                    return;
                   }
-                  if (speaker !== triggerSpeakerRef.current) {
-                    recordUtterance(trimmed, true, speaker);
+                  const decision = forceCoordinatorRef.current.acceptFinal(
+                    ledgerLine,
+                    forceRequestId,
+                  );
+                  if (decision.action !== 'submit') {
+                    if (decision.action === 'wait') {
+                      syncForceSnapshot();
+                      scheduleForceTranscriptNotice(decision.generation);
+                    }
+                    if (speaker !== triggerSpeakerRef.current) {
+                      recordUtterance(trimmed, true, speaker);
+                    }
+                    return;
                   }
+
+                  dispatchAcceptedForceDecision(decision);
                   return;
                 }
 
-                dispatchAcceptedForceDecision(decision);
-                return;
-              }
+                // Собственная речь кандидата (не-триггерный канал) идёт в контекст
+                // обычного auto-flow, но остаётся доступной явному Ctrl+Enter выше.
+                if (speaker !== triggerSpeakerRef.current) {
+                  recordUtterance(trimmed, true, speaker);
+                  return;
+                }
 
-              // Собственная речь кандидата (не-триггерный канал) идёт в контекст
-              // обычного auto-flow, но остаётся доступной явному Ctrl+Enter выше.
-              if (speaker !== triggerSpeakerRef.current) {
+                // Manual-only policy: final transcripts are persisted and kept in
+                // the Ctrl+Enter ledger, but recognition alone never starts the LLM.
+                // This also keeps the candidate's own speech available for the
+                // post-session assessment without turning it into a new request.
                 recordUtterance(trimmed, true, speaker);
-                return;
+              };
+              if (isFinal && sources.mic && sources.system) {
+                echoGateRef.current.accept(source, text, speechActivityRef.current.snapshot().system, deliver);
+              } else {
+                deliver();
               }
-
-              // Manual-only policy: final transcripts are persisted and kept in
-              // the Ctrl+Enter ledger, but recognition alone never starts the LLM.
-              // This also keeps the candidate's own speech available for the
-              // post-session assessment without turning it into a new request.
-              recordUtterance(trimmed, true, speaker);
             },
             onSpeechStarted: (captureEpoch) => {
               speechActivityRef.current.started(source);
@@ -2362,6 +2434,7 @@ export function useLiveCopilot() {
   }, [active, paused]);
 
   const stop = useCallback(async () => {
+    resetLiveMemory();
     if (finalDebounceRef.current) clearTimeout(finalDebounceRef.current);
     clearSourceHealthTimer();
     resetForceCoordinator();
@@ -2386,7 +2459,7 @@ export function useLiveCopilot() {
         // Keep the durable session ID and diagnostics in memory for an explicit retry.
       }
     }
-  }, [clearSourceHealthTimer, endInterviewSession, resetForceCoordinator]);
+  }, [clearSourceHealthTimer, endInterviewSession, resetForceCoordinator, resetLiveMemory]);
 
   // Уход со страницы во время записи обязан выключить микрофон и закрыть сокеты —
   // иначе mic «горит» в фоне (приватность) и trial-минуты не фиксируются на закрытии
@@ -2527,6 +2600,7 @@ export function useLiveCopilot() {
     askQuestion,
     forceAnswer,
     forceCandidateFollowUp,
+    isCandidateTranscriptPending,
     forceScreenAnswer,
     start,
     pause,

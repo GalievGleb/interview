@@ -65,4 +65,25 @@ describe('deriveLiveExchange', () => {
       text: 'готовый ответ',
     });
   });
+
+  it('does not replace a completed screenshot solution with the retained voice answer', () => {
+    expect(deriveLiveExchange('старый ответ про Python', false, 'старый ответ про Python', 'done', '', {
+      screenGeneration: 6, currentGeneration: 6, screenLastAnswerId: 'voice-5', lastAnswerId: 'voice-5',
+    })).toEqual({show:false,text:''});
+  });
+
+  it('retains a screen failure instead of hiding it with the previous voice answer', () => {
+    expect(deriveLiveExchange('старый ответ', false, 'старый ответ', 'error', '', {
+      screenGeneration: 6, currentGeneration: 6, screenLastAnswerId: 'voice-5', lastAnswerId: 'voice-5',
+    }).show).toBe(false);
+  });
+
+  it('lets the next voice generation replace the screenshot normally', () => {
+    expect(deriveLiveExchange('', false, 'старый ответ', 'waiting-first-token', '', {
+      screenGeneration: 6, currentGeneration: 7, screenLastAnswerId: 'voice-5', lastAnswerId: 'voice-5',
+    })).toEqual({show:true,text:''});
+    expect(deriveLiveExchange('новый ответ', true, 'новый ответ', 'idle', '', {
+      screenGeneration: 6, currentGeneration: 6, screenLastAnswerId: 'voice-5', lastAnswerId: 'voice-6',
+    })).toEqual({show:true,text:'новый ответ'});
+  });
 });

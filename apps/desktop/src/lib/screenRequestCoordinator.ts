@@ -10,7 +10,7 @@ export type ScreenRequestErrorReason =
 export interface ScreenRequestStreamHandlers<TMeta = unknown> {
   onChunk: (text: string) => void;
   onDone: (meta?: TMeta) => void;
-  onError: (message: string, code?: string) => void;
+  onError: (message: string, code?: string, meta?: TMeta) => void;
 }
 
 export interface ScreenRequestTerminal<TMeta = unknown> {
@@ -131,12 +131,13 @@ export class ScreenRequestCoordinator {
               }
               this.settle(token, { status: 'done', answer: active.answer, meta });
             },
-            onError: (message, errorCode) => {
+            onError: (message, errorCode, meta) => {
               this.settle(token, {
                 status: 'error',
                 answer: active.answer,
                 reason: 'stream_error',
                 message,
+                ...(meta ? { meta } : {}),
                 ...(errorCode ? { errorCode } : {}),
               });
             },

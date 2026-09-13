@@ -677,3 +677,46 @@ export function notifyDelayedForcedTranscript(
   onWaiting(generation);
   return true;
 }
+
+/** Terminalizes a forced transcript only while its original generation still owns finalization. */
+export function expireDelayedForcedTranscript(
+  coordinator: Pick<LatestForcedAnswerCoordinator, 'snapshot' | 'setPhase'>,
+  generation: number,
+  onExpired: (generation: number) => void,
+): boolean {
+  const snapshot = coordinator.snapshot();
+  if (
+    snapshot.generation !== generation ||
+    snapshot.phase !== 'finalizing-transcript'
+  ) {
+    return false;
+  }
+  if (!coordinator.setPhase(generation, 'error')) return false;
+  onExpired(generation);
+  return true;
+}
+
+export function markForcedAnswerStreamStarted(
+  coordinator: Pick<LatestForcedAnswerCoordinator, 'snapshot' | 'setPhase'>,
+  generation: number,
+): boolean {
+  const snapshot = coordinator.snapshot();
+  if (snapshot.generation !== generation || snapshot.phase !== 'waiting-first-token') {
+    return false;
+  }
+  return coordinator.setPhase(generation, 'streaming');
+}
+
+export function completeForcedAnswerStream(
+  coordinator: Pick<LatestForcedAnswerCoordinator, 'snapshot' | 'setPhase'>,
+  generation: number,
+): boolean {
+  const snapshot = coordinator.snapshot();
+  if (
+    snapshot.generation !== generation ||
+    (snapshot.phase !== 'waiting-first-token' && snapshot.phase !== 'streaming')
+  ) {
+    return false;
+  }
+  return coordinator.setPhase(generation, 'done');
+}

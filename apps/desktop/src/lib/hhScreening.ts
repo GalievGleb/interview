@@ -16,17 +16,20 @@ const GENERIC_LOCAL_EXPERIENCE_DRAFT_RE =
 /**
  * The queue may contain a last-resort local sentence after a batched provider
  * call failed or omitted one item. It is safe to replace that sentence with a
- * single-question review draft as soon as the question becomes visible. A
- * useful model/user answer and every closed or sensitive factual fallback stay
- * untouched.
+ * single-question review draft before navigation reaches that question.
+ * Empty fields are prepared too; useful text and user edits stay untouched.
  */
 export function shouldAutomaticallyPrepareHhScreeningDraft(
   question: HhScreeningQuestion,
   draft: HhScreeningLocalDraft | undefined,
-): draft is HhScreeningLocalDraft {
-  if (question.kind !== 'text' || !draft || draft.confirmedByUser) return false;
+): boolean {
+  if (draft?.confirmedByUser) return false;
+  if (!draft) return true;
   if (draft.promptKey !== hhScreeningPromptKey(question.prompt)) return false;
-  return GENERIC_LOCAL_EXPERIENCE_DRAFT_RE.test(draft.answer.trim());
+  if (question.kind !== 'text') return draft.selectedOptions.length === 0;
+  return !draft.answer.trim() || GENERIC_LOCAL_EXPERIENCE_DRAFT_RE.test(draft.answer.trim())
+    || /^(?:Готов дать предметный ответ|Актуальный статус по этому пункту)/i.test(draft.answer.trim())
+    || /(?:не указан[аоы]?|отсутствует|не отраж[её]н[аоы]?).{0,35}(?:резюме|источник)|(?:резюме|источник).{0,35}(?:не указан|не содерж)|не могу подтвердить/i.test(draft.answer);
 }
 
 export function isSensitiveHhScreeningChoice(prompt: string): boolean {
@@ -57,7 +60,7 @@ export function reconcileHhScreeningLocalDraft(
   const currentUsable = question.kind === 'text'
     ? Boolean(current?.answer.trim())
     : Boolean(current?.selectedOptions.length || current?.answer.trim());
-  if (current && currentMatchesPrompt && !sensitiveDraft && currentUsable) return current;
+  if (current && currentMatchesPrompt && (question.kind === 'text' || !sensitiveDraft) && currentUsable) return current;
 
   const sensitiveClosed = question.kind !== 'text' && sensitiveDraft;
   const validSuggestedOptions = (question.suggestedOptions ?? []).filter(

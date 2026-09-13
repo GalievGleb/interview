@@ -13,6 +13,7 @@ import type { I18nKey } from './i18n';
 
 export type PlanId = 'basic' | 'max';
 export type BillingPeriod = 'monthly' | 'yearly';
+export type PlanPurchaseAction = 'subscribe' | 'renew' | 'upgrade' | 'blocked';
 
 export interface PlanInfo {
   id: PlanId;
@@ -56,6 +57,16 @@ export const PLANS: PlanInfo[] = [
     ],
   },
 ];
+
+export function planPurchaseAction(
+  currentPlan: PlanId | null,
+  targetPlan: PlanId,
+): PlanPurchaseAction {
+  if (!currentPlan) return 'subscribe';
+  if (currentPlan === targetPlan) return 'renew';
+  if (currentPlan === 'basic' && targetPlan === 'max') return 'upgrade';
+  return 'blocked';
+}
 
 /**
  * Автоотклики HH продаются только в тарифе «Максимум» (как заявлено на

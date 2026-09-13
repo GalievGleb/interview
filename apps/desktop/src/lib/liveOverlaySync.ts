@@ -16,13 +16,27 @@ export interface LiveExchangeView {
   text: string;
 }
 
+export interface ScreenExchangeOwnership {
+  screenGeneration: number;
+  currentGeneration: number;
+  screenLastAnswerId: string | undefined;
+  lastAnswerId: string | undefined;
+}
+
 export function deriveLiveExchange(
   streamText: string,
   streaming: boolean,
   lastSpoken: string | undefined,
   forcePhase: ForcePhase = 'idle',
   forcedError = '',
+  screenOwner?: ScreenExchangeOwnership,
 ): LiveExchangeView {
+  // Completing a forced screenshot changes forcePhase to done/error but does
+  // not create a voice answer. Do not let that render resurrect stale speech.
+  if (screenOwner && screenOwner.screenGeneration === screenOwner.currentGeneration
+    && screenOwner.screenLastAnswerId === screenOwner.lastAnswerId) {
+    return {show:false,text:''};
+  }
   const awaitingForcedAnswer =
     forcePhase === 'finalizing-transcript' || forcePhase === 'waiting-first-token';
   const pending = streaming || awaitingForcedAnswer || forcePhase === 'streaming';

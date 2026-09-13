@@ -7,6 +7,50 @@
   background: transparent;
 }
 
+.ovl-shell {
+  display: flex;
+  flex-direction: column;
+  width: 94vw;
+  max-height: calc(100vh - 16px);
+  border: 1px solid var(--surface-border-strong);
+  border-radius: 16px;
+  background: rgb(15 17 23 / 0.97);
+  overflow: hidden;
+}
+
+.ovl-shell .ovl-pill {
+  position: relative;
+  justify-content: center;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+
+.ovl-settings-anchor {
+  position: relative;
+  order: 4;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  -webkit-app-region: no-drag;
+}
+
+.ovl-pill > span { order: 2; }
+.ovl-pill > .ovl-rec { order: 3; }
+.ovl-pill > .ovl-finish { order: 5; }
+
+.ovl-shell .ovl-card {
+  width: 100%;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  margin-top: 0;
+}
+
+.ovl-status { padding: 6px 16px; font-size: 12px; color: #fde68a; }
+
 /* Response, controls and transcript share one bounded viewport. Their combined
    height used to exceed the transparent window, clipping the transcript below
    the edge with no outer scrollbar. */
@@ -47,6 +91,7 @@
 
 .ovl-logo {
   @apply overlay-no-drag flex h-8 w-8 items-center justify-center rounded-full transition-transform;
+  order: 1;
   background: transparent;
   border: 0;
   box-shadow: none;
@@ -157,7 +202,7 @@
 }
 
 .ovl-actions {
-  @apply flex flex-wrap items-center gap-0.5 px-1 pb-2;
+  @apply flex flex-nowrap items-center gap-0.5 px-1 pb-2;
 }
 
 .ovl-action {
@@ -360,6 +405,14 @@
 
 .overlay-icon-btn {
   @apply overlay-no-drag rounded-lg p-1.5 text-ink-faint transition-colors hover:bg-surface-hover hover:text-ink;
+}
+.ovl-menu-button {
+  @apply flex h-9 w-9 items-center justify-center rounded-full;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.ovl-menu-button:hover {
+  background: rgba(255, 255, 255, 0.16);
 }
 .overlay-icon-btn:disabled {
   opacity: 0.4;

@@ -1,6 +1,7 @@
 const { execFileSync } = require('node:child_process');
 const path = require('node:path');
 const packageJson = require('./package.json');
+const { loadGoogleOAuthMetadata } = require('./build/googleOAuthMetadata.cjs');
 
 function gitShortSha() {
   if (process.env.GITHUB_SHA) return process.env.GITHUB_SHA.slice(0, 8);
@@ -23,6 +24,10 @@ function nextPatchVersion(version) {
 
 const base = packageJson.build;
 const alphaVersion = `${nextPatchVersion(packageJson.version)}-alpha.g${gitShortSha()}`;
+const googleOAuthMetadata = loadGoogleOAuthMetadata();
+if (!googleOAuthMetadata.googleOAuthClientId || !googleOAuthMetadata.googleOAuthClientSecret) {
+  throw new Error('Alpha requires complete Desktop OAuth config (.google_oauth_client.json or SKILLCUE_GOOGLE_OAUTH_CONFIG)');
+}
 
 module.exports = {
   ...base,
@@ -60,5 +65,7 @@ module.exports = {
     name: 'skillcue-alpha',
     version: alphaVersion,
     buildChannel: 'alpha',
+    accountApiUrl: process.env.SKILLCUE_ACCOUNT_API_URL?.trim() || 'https://skill-cue.ru/account',
+    ...googleOAuthMetadata,
   },
 };

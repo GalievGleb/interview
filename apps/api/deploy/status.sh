@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Быстрая проверка «всё ли живо» на VPS SkillCue. Ничего не меняет, только читает.
-# Запуск: ssh root@109.172.47.103 'bash /opt/skillcue/apps/api/deploy/status.sh'
+# Быстрая проверка «всё ли живо» на Raspberry Pi SkillCue. Только чтение.
+# Запуск: ssh skillcue-pi 'sudo bash /opt/skillcue/apps/api/deploy/status.sh'
 set -uo pipefail
 
 APP_DIR="${APP_DIR:-/opt/skillcue}"

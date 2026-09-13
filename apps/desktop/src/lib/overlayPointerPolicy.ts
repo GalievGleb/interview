@@ -11,6 +11,8 @@ export function shouldCaptureOverlayPointer(
 export class OverlayPointerController {
   private captures = false;
   private modalCapture = false;
+  private forceClickThrough = false;
+  private recoveringCapture = false;
   private point: { x: number; y: number } | null = null;
 
   constructor(
@@ -21,11 +23,13 @@ export class OverlayPointerController {
   initialize(): void {
     this.captures = false;
     this.modalCapture = false;
+    this.recoveringCapture = false;
     this.setClickThrough(true);
   }
 
   move(x: number, y: number): void {
     this.point = { x, y };
+    this.recoveringCapture = false;
     this.refresh();
   }
 
@@ -35,11 +39,30 @@ export class OverlayPointerController {
     this.refresh();
   }
 
+  setForceClickThrough(enabled: boolean): void {
+    if (enabled === this.forceClickThrough) return;
+    this.forceClickThrough = enabled;
+    if (!enabled) {
+      // The escape shortcut must recover the controls even when Electron has
+      // not forwarded a mouse position yet. The next real mouse move restores
+      // transparent-pixel passthrough according to the hit region.
+      this.recoveringCapture = true;
+      if (!this.captures) {
+        this.captures = true;
+        this.setClickThrough(false);
+      }
+      return;
+    }
+    this.recoveringCapture = false;
+    this.refresh();
+  }
+
   refresh(): void {
-    const next = this.modalCapture || Boolean(
+    if (this.recoveringCapture) return;
+    const next = !this.forceClickThrough && (this.modalCapture || Boolean(
       this.point
       && shouldCaptureOverlayPointer(this.elementFromPoint(this.point.x, this.point.y)),
-    );
+    ));
     if (next === this.captures) return;
     this.captures = next;
     this.setClickThrough(!next);
@@ -49,6 +72,7 @@ export class OverlayPointerController {
     this.point = null;
     this.captures = false;
     this.modalCapture = false;
+    this.recoveringCapture = false;
     this.setClickThrough(true);
   }
 }

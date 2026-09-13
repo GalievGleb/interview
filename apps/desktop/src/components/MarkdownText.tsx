@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react';
+import { writeClipboardText } from '../lib/clipboard';
 
 /** Разбивает сплошной текст LLM на абзацы (без форсирования «во-первых»). */
 export function formatLiveMarkdown(text: string): string {
@@ -103,11 +104,14 @@ function isStandaloneCodeComment(language: string, line: string): boolean {
 function CodeBlock({ language, code }: { language: string; code: string }) {
   const clean = formatCodeForCompactDisplay(language, code);
   const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
   const copy = () => {
-    void navigator.clipboard.writeText(clean).then(() => {
+    setCopied(false);
+    setCopyFailed(false);
+    void writeClipboardText(clean).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1600);
-    });
+    }).catch(() => setCopyFailed(true));
   };
   return (
     <div className="group relative min-w-0 max-w-full overflow-hidden rounded-xl border border-surface-border bg-surface-elevated">
@@ -145,6 +149,7 @@ function CodeBlock({ language, code }: { language: string; code: string }) {
           {copied ? 'Скопировано' : 'Копировать'}
         </button>
       </div>
+      {copyFailed && <p role="alert" className="px-3 text-xs text-amber-300">Не удалось скопировать. Попробуйте ещё раз.</p>}
       <pre className="max-w-full overflow-x-hidden px-3.5 py-3">
         <code className="sc-mono block min-w-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-[13px] leading-relaxed">
           {clean.split('\n').map((line, index) => (

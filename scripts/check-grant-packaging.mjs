@@ -99,6 +99,16 @@ for (const file of publicFiles) {
 const landingIndex = path.join(landingRoot, 'index.html');
 const landingContent = fs.readFileSync(landingIndex, 'utf8');
 const englishLanding = path.join(landingRoot, 'en', 'index.html');
+
+if (!/<html\b[^>]*\bdata-theme=["']light["']/iu.test(landingContent)) {
+  failures.push('landing/index.html: публичный лендинг должен открываться в светлой теме');
+}
+if (!/href=["']\/assets\/landing\.css(?:\?[^"']*)?["']/iu.test(landingContent)) {
+  failures.push('landing/index.html: не подключен канонический светлый дизайн assets/landing.css');
+}
+if (!/src=["']\/assets\/landing\.js(?:\?[^"']*)?["']/iu.test(landingContent)) {
+  failures.push('landing/index.html: не подключена интерактивность канонического лендинга assets/landing.js');
+}
 for (const requirement of requiredLandingPhrases) {
   if (!requirement.pattern.test(landingContent)) {
     failures.push(`landing/index.html: отсутствует обязательный смысловой блок «${requirement.label}»`);
@@ -133,10 +143,10 @@ if (!fs.existsSync(englishLanding)) {
 
 for (const file of listTextFiles(landingRoot).filter((candidate) => candidate.endsWith('.html'))) {
   const content = fs.readFileSync(file, 'utf8');
-  for (const match of content.matchAll(/href\s*=\s*["']([^"']+)["']/giu)) {
+  for (const match of content.matchAll(/(?:href|src|poster)\s*=\s*["']([^"']+)["']/giu)) {
     const target = resolveLandingTarget(file, match[1]);
     if (target && !fs.existsSync(target)) {
-      failures.push(`${relative(file)}: не найдена локальная ссылка ${match[1]}`);
+      failures.push(`${relative(file)}: не найден локальный ресурс ${match[1]}`);
     }
   }
 }

@@ -1,0 +1,13 @@
+<!doctype html><html lang="ru"><meta charset="utf-8"><title>SQL — проверка снимка SkillCue</title>
+<style>body{margin:60px;background:#fff;color:#15212d;font:22px/1.6 Arial;max-width:1200px}h1{font-size:34px}code,pre{font:21px/1.7 Consolas,monospace}section{padding:20px;border:1px solid #aab9c6;margin:20px 0}small{color:#506070}</style>
+<small>Локальная тестовая задача · без персональных данных</small>
+<h1>SQL: страна города Salzburg</h1>
+<p>Выведите название страны, в которой находится город Salzburg.
+Назовите столбец результата <code>country_name</code>. Напишите один SELECT-запрос.</p>
+<section><b>Схема базы данных</b><pre>Countries(id INTEGER PRIMARY KEY, name TEXT)
+Regions(id INTEGER PRIMARY KEY, name TEXT, countryid INTEGER → Countries.id)
+Cities(id INTEGER PRIMARY KEY, name TEXT, regionid INTEGER → Regions.id)</pre></section>
+<p>Город связан с регионом через Cities.regionid, регион — со страной через Regions.countryid.</p>
+<section><b>Редактор решения</b><pre>SELECT ...</pre></section>
+<button id="play-question" onclick="document.getElementById('question-audio').play()">Проиграть контрольный вопрос</button>
+<audio id="question-audio" src="../voice/audio/03_api_testing.wav"></audio></html>

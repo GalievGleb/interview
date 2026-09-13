@@ -639,6 +639,35 @@ def _screening_answers_runtime_budget(model: str) -> tuple[float, int, float]:
     return request_timeout, max_attempts, deadline
 
 
+def _validate_screening_review_answers(data: dict, questions: list[dict[str, Any]]) -> None:
+    """Reject syntactically valid completions that contain no usable draft."""
+    items = data.get("answers", [])
+    by_id = (
+        {str(item.get("id", "")): item for item in items if isinstance(item, dict)}
+        if isinstance(items, list)
+        else {}
+    )
+    for question in questions:
+        if question["kind"] != "text":
+            continue
+        answer = str(by_id.get(question["id"], {}).get("answer") or "").strip()
+        if (
+            not answer
+            or re.search(
+                r"^(?:Подтвержд[её]нный релевантный опыт и инструменты перечислены|"
+                r"Готов дать предметный ответ|Актуальный статус по этому пункту)",
+                answer,
+                re.IGNORECASE,
+            )
+            or re.search(
+                r"(?:не указан[аоы]?|отсутствует|не отраж[её]н[аоы]?).{0,35}(?:резюме|источник)|(?:резюме|источник).{0,35}(?:не указан|не содерж)|не могу подтвердить",
+                answer,
+                re.IGNORECASE,
+            )
+        ):
+            raise HTTPException(status_code=502, detail="Empty or evasive screening review answer")
+
+
 def _screening_review_fallback(
     question: dict[str, Any],
     *,
@@ -1183,11 +1212,18 @@ async def screening_answers(payload: ScreeningAnswersPayload, db=Depends(get_db)
 - If the draft is already good, make only minimal edits. Do not replace it with a generic template or unrelated hypothesis."""
         if existing_draft
         else """INTERACTIVE DRAFT MODE — the result is shown in an editor and is never submitted without explicit user confirmation.
-- Prefer supported résumé facts. Never invent a plausible personal preference, history, game, tool, employer, status, or commitment merely to make a draft sound complete.
-- When a personal fact is unknown, return honest review guidance with canAutoFill=false and reason saying exactly what the user needs to verify.
-- Do not invent employers, commercial projects, dates, duration, metrics, credentials, legal status, location, salary, work authorization, or contractual commitments.
-- Always return a finished non-empty draft for every text question. For an unknown legal, location, compensation, schedule, relocation, or contract fact, answer honestly that the current value must be confirmed. For a closed option question, select an exact option only when a source supports it or the form provides a neutral option; otherwise leave selectedOptions empty and explain that the user must choose.
-- Keep a hypothetical draft natural and specific enough to edit; do not use placeholders or coaching instructions inside the answer."""
+- Write a concise, confident, ready-to-edit first-person answer tailored to this vacancy, not instructions about how to answer.
+- Prefer supported résumé facts and preserve user-confirmed facts, limitations and positions. Do not overwrite a known fact with a vacancy requirement.
+- When a non-sensitive personal fact is missing, you may propose a vacancy-aligned hypothetical answer for the user to review. For example, a required English level may inform a proposed draft, but is never candidate evidence.
+- Every hypothetical answer MUST have canAutoFill=false, sourceType=none, evidenceQuote="", and a specific reason stating which claim is unconfirmed. Put all verification guidance in reason, NEVER in answer.
+- Never invent named employers, projects, dates, metrics, credentials, legal status, citizenship or work authorization. If no meaningful draft is possible, leave answer empty and explain the missing fact in reason.
+- Do not write evasions such as 'уточню перед следующим этапом', 'готов дать предметный ответ', or 'актуальный статус готов подтвердить'. Answer the question itself in 1-2 short sentences.
+- For compound questions, address the individual parts. Missing years or project names must NOT erase supported details about logs, traffic, tools or test approaches. Use specific transferable experience; put missing facts in reason, not a generic evasion in answer.
+- Prefer a useful partial answer over an empty answer. Do not equate 'not mentioned in resume' with 'zero experience'. Never invent a number of years or a named application. Distinguish a proposed testing approach from past personal work.
+- Never discuss the résumé, source documents or missing source information in the employer-facing answer (no 'в резюме не указан', 'имеется подтверждённый опыт'). Speak naturally in first person: 'Разрабатываю API-автотесты...', 'Для проверки аналитики сопоставил бы события с...'. Missing duration or application names belong only in reason.
+- Compound questions may use 3-5 concise sentences. Cover logs, traffic and analytics separately when asked, using past/present personal work only where supported and a clearly prospective approach elsewhere. Do not silently drop subquestions just because one personal fact is missing.
+- For closed option questions, select an exact option only when supported by a source or neutral; otherwise leave selectedOptions empty.
+- Always set canAutoFill=false in this mode. A proposed answer is not a saved personal fact until explicitly confirmed by the user."""
         if payload.draftMode
         else """AUTOMATIC MODE — every answer may be sent without another review.
 - Return a useful finished answer for every text question, even when it cannot be submitted automatically. For a closed option question, select an exact option only from evidence or a neutral choice; an unknown legal/status yes-no question must remain unselected with a clear review reason.
@@ -1221,13 +1257,17 @@ async def screening_answers(payload: ScreeningAnswersPayload, db=Depends(get_db)
             reason=quota_error.message,
         )
     request_timeout, max_attempts, deadline = _screening_answers_runtime_budget(model)
+    started_at = time.monotonic()
+    output_budget = min(16000, max(SCREENING_ANSWERS_MAX_TOKENS, 600 * len(normalized_questions)))
+    _, reasoning = provider_adapter.live_stream_options(model)
     try:
         raw, model = await asyncio.wait_for(
             _complete_or_fallback(
                 [{"role": "user", "content": prompt}],
                 provider,
                 model,
-                max_tokens=SCREENING_ANSWERS_MAX_TOKENS,
+                max_tokens=output_budget,
+                reasoning=reasoning,
                 temperature=0.1,
                 response_format={"type": "json_object"},
                 fallback_model=FEEDBACK_FALLBACK_MODEL,
@@ -1271,14 +1311,46 @@ async def screening_answers(payload: ScreeningAnswersPayload, db=Depends(get_db)
 
     try:
         data = _parse_json(raw)
+        if payload.draftMode:
+            _validate_screening_review_answers(data, normalized_questions)
     except HTTPException:
-        logger.warning("Screening answer model returned invalid JSON; using local review drafts")
-        return _screening_fallback_response(
-            normalized_questions,
-            vacancy_title=payload.vacancyTitle,
-            vacancy_company=payload.vacancyCompany,
-            reason="Онлайн-модель вернула повреждённый ответ.",
-        )
+        # Malformed output is not a successful completion. Retry once with the
+        # alternate online model, within the SAME desktop request deadline.
+        remaining = deadline - (time.monotonic() - started_at)
+        try:
+            if model == FEEDBACK_FALLBACK_MODEL or remaining < 0.75:
+                raise TimeoutError("No screening repair budget remains")
+            raw = await asyncio.wait_for(
+                provider_adapter.complete(
+                    [
+                        {
+                            "role": "user",
+                            "content": prompt
+                            + "\n\nREPAIR: The previous completion was malformed, empty or evasive. Produce useful concrete answers to the actual questions, not promises to clarify later. Address supported parts even if other facts are missing. Put uncertainty ONLY in reason; do not invent years or project names. Keep every answer review-only.",
+                        }
+                    ],
+                    provider,
+                    FEEDBACK_FALLBACK_MODEL,
+                    max_tokens=output_budget,
+                    temperature=0.1,
+                    response_format={"type": "json_object"},
+                    request_timeout_seconds=min(request_timeout, remaining),
+                    max_attempts=1,
+                ),
+                timeout=remaining,
+            )
+            data = _parse_json(raw)
+            if payload.draftMode:
+                _validate_screening_review_answers(data, normalized_questions)
+            model = FEEDBACK_FALLBACK_MODEL
+        except Exception:  # noqa: BLE001 — preserve review on exhausted repair
+            logger.warning("Screening JSON repair failed; using local review drafts")
+            return _screening_fallback_response(
+                normalized_questions,
+                vacancy_title=payload.vacancyTitle,
+                vacancy_company=payload.vacancyCompany,
+                reason="Онлайн-модель вернула повреждённый ответ.",
+            )
     raw_answers_value: Any = data.get("answers")
     raw_answers: list[Any] = raw_answers_value if isinstance(raw_answers_value, list) else []
     by_id: dict[str, dict[str, Any]] = {}
@@ -1366,6 +1438,11 @@ async def screening_answers(payload: ScreeningAnswersPayload, db=Depends(get_db)
         if normalized_question["kind"] != "text" and not selected:
             can_auto_fill = False
         reason = str(answer_item.get("reason", "")).strip()[:300]
+        if payload.draftMode and source_type == "none" and answer_text:
+            evidence_quote = ""
+            reason = "Не подтверждено: вариант ответа для проверки перед отправкой." + (
+                f" {reason}" if reason else " Сверьте личные сведения с вашим реальным опытом."
+            )
         if (
             not can_auto_fill
             and answer_item.get("canAutoFill") is True

@@ -101,6 +101,19 @@ def verify_license_key(key: str) -> dict | None:
     return payload
 
 
+def select_effective_license(
+    managed_key: str | None, legacy_key: str | None
+) -> tuple[str, dict | None]:
+    """Prefer a valid account entitlement without overwriting a manual key."""
+    managed = verify_license_key(managed_key or "")
+    if managed and managed.get("source") == "account" and managed.get("account_id"):
+        return (managed_key or "").strip(), managed
+    legacy = verify_license_key(legacy_key or "")
+    if legacy:
+        return (legacy_key or "").strip(), legacy
+    return "", None
+
+
 def token_budget_for(plan: str, payload: dict | None = None) -> int:
     """Месячный токен-бюджет тарифа (с переопределением из ключа)."""
     if payload:

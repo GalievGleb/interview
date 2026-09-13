@@ -45,9 +45,22 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
+def _e2e_channel() -> str:
+    requested = os.environ.get("SKILLCUE_E2E_CHANNEL", "dev").strip().lower()
+    return "alpha" if requested == "alpha" else "dev"
+
+
 def _installed_backend() -> Path:
     local = Path(os.environ["LOCALAPPDATA"])
-    return local / "Programs" / "skillcue-dev" / "resources" / "backend" / "skillcue-backend.exe"
+    channel = _e2e_channel()
+    return (
+        local
+        / "Programs"
+        / f"skillcue-{channel}"
+        / "resources"
+        / "backend"
+        / "skillcue-backend.exe"
+    )
 
 
 def _free_port() -> int:
@@ -69,7 +82,9 @@ def _wait_for_health(port: int, deadline: float) -> None:
 
 
 def _load_case() -> dict:
-    cases = json.loads((_repo_root() / "tests" / "voice" / "cases.json").read_text("utf-8"))
+    cases = json.loads(
+        (_repo_root() / "tests" / "voice" / "cases.json").read_text("utf-8")
+    )
     return next(case for case in cases if case["id"] == CASE_ID)
 
 
@@ -149,8 +164,7 @@ async def _wait_for_terminal_noise(ws, deadline: float) -> None:
             raise RuntimeError(f"STT startup error: {event.get('message')}")
         if event.get("type") == "transcript":
             raise RuntimeError(
-                "Synthetic non-speech became a saved transcript: "
-                f"{event.get('text')}"
+                f"Synthetic non-speech became a saved transcript: {event.get('text')}"
             )
         if event.get("type") == "transcription_error":
             raise RuntimeError(
@@ -226,10 +240,7 @@ async def _transcribe(port: int, token: str, case: dict) -> tuple[str, int, dict
                 raise RuntimeError(
                     "Ctrl+Enter lost the unresolved automatic turn before the final transcript."
                 )
-            if (
-                REQUIRE_CORRELATED_FORCE
-                and event.get("force_request_id") != request_id
-            ):
+            if REQUIRE_CORRELATED_FORCE and event.get("force_request_id") != request_id:
                 raise RuntimeError(
                     "Ctrl+Enter transcript was not correlated with its force request."
                 )
@@ -237,13 +248,16 @@ async def _transcribe(port: int, token: str, case: dict) -> tuple[str, int, dict
             return text, elapsed_ms, event
 
 
-def _ask_overlay(port: int, token: str, question: str, case: dict) -> tuple[str, int, int, dict]:
+def _ask_overlay(
+    port: int, token: str, question: str, case: dict, *, recent_turns: list[dict] | None = None
+) -> tuple[str, int, int, dict]:
     payload = {
         "question": question,
         "raw_question": question,
         # Имитируем выбранное пользователем резюме. Без этого проверка вопроса
         # про личный опыт тестировала бы выдумывание фактов, а не live-маршрут.
         "candidate_context": E2E_CANDIDATE_CONTEXT,
+        "recent_turns": recent_turns or [],
         "mode": "fast",
         "fast_answer": True,
         "answer_language": "ru",
@@ -298,8 +312,11 @@ def main() -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
     backend = _installed_backend()
+    channel = _e2e_channel()
     if not backend.exists():
-        raise RuntimeError(f"Installed SkillCue Dev backend was not found: {backend}")
+        raise RuntimeError(
+            f"Installed SkillCue {channel} backend was not found: {backend}"
+        )
 
     port = _free_port()
     token = uuid.uuid4().hex
@@ -309,7 +326,7 @@ def main() -> int:
         **os.environ,
         "SKILLCUE_PORT": str(port),
         "SKILLCUE_API_TOKEN": token,
-        "SKILLCUE_BUILD_CHANNEL": "dev",
+        "SKILLCUE_BUILD_CHANNEL": channel,
         "SKILLCUE_GATEWAY_URL": "https://skill-cue.ru/v1",
         "DATABASE_URL": f"sqlite:///{db_path.as_posix()}",
     }

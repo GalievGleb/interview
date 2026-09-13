@@ -10,6 +10,160 @@ from app.routers import vacancy as vacancy_router
 from app.services import provider_adapter, rag_service
 
 
+@pytest.mark.parametrize(
+    "bad_answer",
+    [
+        "",
+        "Подтверждённый релевантный опыт и инструменты перечислены в моём резюме; готов предметно уточнить глубину опыта.",
+        "Готов дать предметный ответ с учётом контекста вакансии; перед отправкой уточню личные факты.",
+        "Мой опыт не указан в резюме, поэтому я не могу подтвердить проекты или сроки. Работал с API.",
+    ],
+)
+def test_empty_or_evasive_review_answer_retries_online(client, monkeypatch, bad_answer):
+    monkeypatch.setattr(rag_service, "get_context_text", lambda *_args: "")
+    monkeypatch.setattr(vacancy_router, "_resolve", lambda _: ("openrouter", "primary"))
+    concrete = "Основной опыт — web и API. Настраивал сохранение логов и отчётов; при проверке трафика сопоставляю запросы и ответы API."
+
+    async def complete(messages, provider=None, model=None, **kwargs):
+        return json.dumps(
+            {
+                "answers": [
+                    {
+                        "id": "mobile",
+                        "answer": bad_answer if model == "primary" else concrete,
+                        "canAutoFill": False,
+                        "sourceType": "none",
+                        "selectedOptions": [],
+                    }
+                ]
+            }
+        )
+
+    monkeypatch.setattr(provider_adapter, "complete", complete)
+    response = client.post(
+        "/vacancy/screening-answers",
+        json={
+            "vacancyTitle": "Fullstack QA",
+            "resumeText": "Web и API. Настраивал сохранение логов и отчётов.",
+            "draftMode": True,
+            "questions": [
+                {
+                    "id": "mobile",
+                    "prompt": "Сколько лет тестировали мобильные приложения? Логи, трафик, аналитика?",
+                    "kind": "text",
+                    "options": [],
+                    "required": False,
+                }
+            ],
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["answers"][0]["answer"] == concrete
+    assert response.json()["answers"][0]["canAutoFill"] is False
+    assert response.json()["model"] == "openai/gpt-4o-mini"
+
+
+def test_review_hypothesis_has_separate_warning_and_cannot_autofill(client, monkeypatch):
+    monkeypatch.setattr(rag_service, "get_context_text", lambda *_args: "")
+
+    async def complete(*_args, **_kwargs):
+        return json.dumps(
+            {
+                "answers": [
+                    {
+                        "id": "english",
+                        "answer": "Английский — B2.",
+                        "sourceType": "none",
+                        "canAutoFill": True,
+                        "selectedOptions": [],
+                    }
+                ]
+            }
+        )
+
+    monkeypatch.setattr(provider_adapter, "complete", complete)
+    response = client.post(
+        "/vacancy/screening-answers",
+        json={
+            "vacancyTitle": "QA",
+            "vacancyDescription": "English B2",
+            "draftMode": True,
+            "questions": [
+                {
+                    "id": "english",
+                    "prompt": "Ваш уровень английского?",
+                    "kind": "text",
+                    "required": True,
+                    "options": [],
+                }
+            ],
+        },
+    )
+    assert response.status_code == 200, response.text
+    answer = response.json()["answers"][0]
+    assert answer["answer"] == "Английский — B2."
+    assert answer["canAutoFill"] is False
+    assert "Не подтверждено" in answer["reason"]
+    assert answer["evidenceQuote"] == ""
+
+
+def test_malformed_screening_primary_recovers_with_online_fallback(client, monkeypatch):
+    monkeypatch.setattr(rag_service, "get_context_text", lambda *_args: "")
+    monkeypatch.setattr(vacancy_router, "_resolve", lambda _: ("openrouter", "primary"))
+
+    async def complete(messages, provider=None, model=None, **kwargs):
+        if model == "primary":
+            return '{"answers": ['
+        return json.dumps(
+            {
+                "answers": [
+                    {
+                        "id": "parallel-projects",
+                        "answer": "Разделить задачи по приоритетам и отслеживать зависимости.",
+                        "canAutoFill": False,
+                        "sourceType": "knowledge",
+                        "selectedOptions": [],
+                    }
+                ]
+            }
+        )
+
+    monkeypatch.setattr(provider_adapter, "complete", complete)
+    response = client.post("/vacancy/screening-answers", json=_payload())
+    assert response.status_code == 200, response.text
+    assert response.json()["model"] == "openai/gpt-4o-mini"
+    assert response.json()["answers"][0]["answer"].startswith("Разделить задачи")
+
+
+def test_large_screening_form_has_room_for_complete_json(client, monkeypatch):
+    monkeypatch.setattr(rag_service, "get_context_text", lambda *_args: "")
+    payload = _payload()
+    payload["questions"] = [dict(payload["questions"][0], id=str(i)) for i in range(11)]
+
+    async def complete(*_args, **kwargs):
+        # Eleven answers with provenance cannot fit in the old fixed budget.
+        if kwargs.get("max_tokens", 0) < 5500:
+            return '{"answers": ['
+        return json.dumps(
+            {
+                "answers": [
+                    {
+                        "id": str(i),
+                        "answer": "Готовый ответ.",
+                        "canAutoFill": False,
+                        "sourceType": "none",
+                    }
+                    for i in range(11)
+                ]
+            }
+        )
+
+    monkeypatch.setattr(provider_adapter, "complete", complete)
+    response = client.post("/vacancy/screening-answers", json=payload)
+    assert response.status_code == 200, response.text
+    assert [a["answer"] for a in response.json()["answers"]] == ["Готовый ответ."] * 11
+
+
 def _payload() -> dict:
     return {
         "vacancyTitle": "IT Project Manager",

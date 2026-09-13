@@ -2,12 +2,18 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
+import sqlite3
+from pathlib import Path
 
 import pytest
 
 from app.services.screen_answer_validator import validate_screen_answer
 from app.services.screen_task_pipeline import (
     ScreenTaskPipelineError,
+    _format_sql_line_comments,
+    _ground_sql_observation,
+    _ScreenObservation,
     _validation_input,
     run_screen_task_pipeline,
 )
@@ -177,6 +183,11 @@ async def test_analysis_result_unifies_prior_and_current_through_a_grounded_draf
                 claim="Секрет хранится открытым текстом",
                 evidence="Во втором фрагменте виден строковый литерал секрета",
             ),
+            _analysis_draft(
+                images,
+                "Ошибка сети на первом экране остаётся частью общего ответа.",
+                "Открытый секрет на втором экране усиливает общий риск.",
+            ),
         ]
     )
     calls: list[dict] = []
@@ -203,12 +214,13 @@ async def test_analysis_result_unifies_prior_and_current_through_a_grounded_draf
 
     assert "Не обработана ошибка сети" in result.answer
     assert "Секрет хранится открытым текстом" in result.answer
-    assert len(calls) == 2
+    assert len(calls) == 3
     assert [call["screen_workload_phase"] for call in calls] == [
         "observation",
         "observation",
+        "answer",
     ]
-    assert [call["reasoning"]["effort"] for call in calls] == ["low", "low"]
+    assert [call["reasoning"]["effort"] for call in calls] == ["low", "low", "medium"]
     assert all(call["response_format"]["type"] == "json_schema" for call in calls)
     schema = calls[0]["response_format"]["json_schema"]["schema"]
     _assert_every_json_object_is_openai_strict(schema)
@@ -243,6 +255,16 @@ async def test_analysis_result_cannot_hide_prior_ledger_fact_behind_unrelated_ci
                 claim="Регрессионные тесты не запускаются",
                 evidence="script содержит только echo regression",
             ),
+            _analysis_draft(
+                images,
+                "Первый идентификатор формально учтён без повторения вывода.",
+                "Текущий дефект требует внимания.",
+            ),
+            _analysis_draft(
+                images,
+                "build_job не выполняет реальную сборку.",
+                "regression_test_job не запускает регрессионные тесты.",
+            ),
         ]
     )
     calls: list[dict] = []
@@ -273,9 +295,17 @@ async def test_analysis_result_cannot_hide_prior_ledger_fact_behind_unrelated_ci
     assert "- Регрессионные тесты не запускаются — script содержит только echo regression" in (
         result.answer
     )
-    assert "Дополнительный анализ по сохранённым фактам" not in result.answer
+    assert "Сводный анализ по сохранённым фактам" in result.answer
+    assert "Первый идентификатор формально учтён" not in result.answer
+    assert "build_job не выполняет реальную сборку" in result.answer
     assert result.answer.count("Регрессионные тесты не запускаются") == 1
-    assert len(calls) == 2
+    assert len(calls) == 4
+    assert [call["screen_workload_phase"] for call in calls] == [
+        "observation",
+        "observation",
+        "answer",
+        "repair",
+    ]
 
 
 @pytest.mark.asyncio
@@ -289,6 +319,7 @@ async def test_observation_role_derives_grounded_task_facts_without_writing_fina
                 claim="Job не выполняет реальную работу",
                 evidence="В script видна только команда echo",
             ),
+            _analysis_draft((image,), "Job содержит подтверждённый дефект."),
         ]
     )
     calls: list[dict] = []
@@ -345,6 +376,7 @@ async def test_observation_role_derives_grounded_task_facts_without_writing_fina
 
 @pytest.mark.asyncio
 async def test_find_defect_observation_retries_when_it_returns_only_general_facts() -> None:
+    image = "data:image/jpeg;base64,ZGVmZWN0LXJldHJ5"
     responses = iter(
         [
             _observation(
@@ -361,6 +393,7 @@ async def test_find_defect_observation_retries_when_it_returns_only_general_fact
                 evidence="В теле виден только placeholder-вывод",
                 finding_kind="defect",
             ),
+            _analysis_draft((image,), "Worker не выполняет заявленную работу."),
         ]
     )
     calls: list[dict] = []
@@ -371,7 +404,7 @@ async def test_find_defect_observation_retries_when_it_returns_only_general_fact
 
     result = await run_screen_task_pipeline(
         previous_images=(),
-        current_image="data:image/jpeg;base64,ZGVmZWN0LXJldHJ5",
+        current_image=image,
         latest_correction="Найди дефекты.",
         context="",
         prior_solution_summary=None,
@@ -385,12 +418,122 @@ async def test_find_defect_observation_retries_when_it_returns_only_general_fact
         complete=complete,
     )
 
-    assert len(calls) == 2
-    assert all(call["screen_workload_phase"] == "observation" for call in calls)
+    assert len(calls) == 3
+    assert [call["screen_workload_phase"] for call in calls] == [
+        "observation",
+        "observation",
+        "answer",
+    ]
     assert "Worker не выполняет заявленную работу" in result.answer
     retry_system = calls[1]["messages"][0]["content"]
     assert "complete, schema-valid observation" in retry_system
     assert "build_job" not in retry_system
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("job_name", "command"),
+    (("build_job", "echo build"), ("regression_test_job", "echo regression")),
+)
+async def test_find_defect_observation_derives_a_defect_for_scalar_echo_only_job(
+    job_name: str,
+    command: str,
+) -> None:
+    image = "data:image/jpeg;base64,eWFtbC1ub29wLWpvYg=="
+    finding_id, source_id = _grounding_ids(image)
+    visible = f"stages: [build, test]; {job_name}: stage: build; script: {command}"
+    grounded_analysis = json.dumps(
+        {
+            "items": [
+                {
+                    "text": (f"{job_name} только {command}; реальная операция job не выполняется."),
+                    "finding_ids": [finding_id],
+                    "source_ids": [source_id],
+                },
+            ]
+        },
+        ensure_ascii=False,
+    )
+    responses = iter(
+        [
+            _observation(
+                task_kind="find_defect",
+                visible_text=visible,
+                claim=f"{job_name} не использует отдельный файл сценария",
+                evidence=f"В script видна команда {command}",
+                finding_kind="defect",
+            ),
+            grounded_analysis,
+            grounded_analysis,
+        ]
+    )
+
+    async def complete(messages, provider, model, **kwargs):
+        return next(responses)
+
+    result = await run_screen_task_pipeline(
+        previous_images=(),
+        current_image=image,
+        latest_correction="Найди дефекты конфигурации.",
+        context="",
+        prior_solution_summary=None,
+        task_action="new",
+        task_state=None,
+        provider="openai",
+        model="safe/model",
+        max_tokens=1200,
+        reasoning={"effort": "medium"},
+        now_ms=1_000,
+        complete=complete,
+    )
+
+    assert f"{job_name} только {command}; реальная операция этого job не выполняется" in (
+        result.answer
+    )
+    assert len(deserialize_screen_task_state(result.serialized_task_state).ledger) == 1
+
+
+@pytest.mark.asyncio
+async def test_find_defect_observation_does_not_treat_echo_plus_real_command_as_noop() -> None:
+    image = "data:image/jpeg;base64,eWFtbC1yZWFsLWpvYg=="
+    visible = """build_job:
+  stage: build
+  script: echo build && make build"""
+    responses = iter(
+        [
+            _observation(
+                task_kind="find_defect",
+                visible_text=visible,
+                claim="build_job требует проверки кода возврата make build",
+                evidence="Команда make build выполняется после echo",
+                finding_kind="defect",
+            ),
+            _analysis_draft((image,), "build_job должен проверять результат make build."),
+        ]
+    )
+
+    async def complete(messages, provider, model, **kwargs):
+        return next(responses)
+
+    result = await run_screen_task_pipeline(
+        previous_images=(),
+        current_image=image,
+        latest_correction="Найди дефекты конфигурации.",
+        context="",
+        prior_solution_summary=None,
+        task_action="new",
+        task_state=None,
+        provider="openai",
+        model="safe/model",
+        max_tokens=1200,
+        reasoning=None,
+        now_ms=1_000,
+        complete=complete,
+    )
+
+    state = deserialize_screen_task_state(result.serialized_task_state)
+    assert len(state.ledger) == 1
+    assert "только echo build" not in result.answer
 
 
 @pytest.mark.asyncio
@@ -563,6 +706,99 @@ async def test_checklist_refinement_returns_exactly_three_new_business_checks_wi
 
 
 @pytest.mark.asyncio
+async def test_checklist_refinement_repairs_identifier_paraphrase_with_renamed_key() -> None:
+    first_items = [
+        "Проверить выбор payment_method для оплаты заказа",
+        "Проверить адрес получателя",
+        "Проверить дату доставки",
+        "Проверить длину комментария",
+        "Проверить количество товара в заказе",
+    ]
+    repeated_item = "Проверить payment_method для оплаты заказа покупателем"
+    new_items = [
+        "Проверить доступность курьера вечером",
+        "Проверить скидку на доставку",
+        "Проверить отказ заблокированному получателю",
+    ]
+    responses = iter(
+        [
+            _observation(
+                task_kind="list",
+                response_kind="checklist",
+                visible_text="Составьте пять проверок создания заказа",
+                claim="Нужны пять проверок заказа",
+                evidence="Количество указано в условии",
+                finding_kind="requirement",
+                requested_item_count=5,
+                checklist_scope="business",
+            ),
+            _checklist_draft(*first_items, semantic_prefix="initial"),
+            _observation(
+                task_kind="list",
+                response_kind="checklist",
+                visible_text="Добавьте ровно три новые бизнес-проверки",
+                claim="Нужны три новые проверки без повторов",
+                evidence="Интервьюер уточнил количество и новизну",
+                finding_kind="requirement",
+                requested_item_count=3,
+                checklist_new_only=True,
+                checklist_scope="business",
+            ),
+            _checklist_draft(repeated_item, *new_items[:2], semantic_prefix="renamed"),
+            _checklist_draft(*new_items, semantic_prefix="repaired"),
+        ]
+    )
+    calls: list[dict] = []
+
+    async def complete(messages, provider, model, **kwargs):
+        calls.append({"messages": messages, **kwargs})
+        return next(responses)
+
+    first = await run_screen_task_pipeline(
+        previous_images=(),
+        current_image="data:image/jpeg;base64,Y2hlY2tsaXN0",
+        latest_correction="Дай первые пять проверок.",
+        context="",
+        prior_solution_summary=None,
+        task_action="new",
+        task_state=None,
+        provider="openai",
+        model="safe/model",
+        max_tokens=1200,
+        reasoning=None,
+        now_ms=1_000,
+        complete=complete,
+    )
+    refined = await run_screen_task_pipeline(
+        previous_images=(),
+        current_image="data:image/jpeg;base64,Y2hlY2tsaXN0",
+        latest_correction="Дай ровно три новые бизнес-проверки без повторов.",
+        context="",
+        prior_solution_summary=None,
+        task_action="continue",
+        task_state=first.serialized_task_state,
+        provider="openai",
+        model="safe/model",
+        max_tokens=1200,
+        reasoning=None,
+        now_ms=2_000,
+        complete=complete,
+    )
+
+    assert refined.answer.splitlines() == [
+        "Новые проверки:",
+        "1. Проверить доступность курьера вечером",
+        "2. Проверить скидку на доставку",
+        "3. Проверить отказ заблокированному получателю",
+    ]
+    refined_state = deserialize_screen_task_state(refined.serialized_task_state)
+    assert [item.text for item in refined_state.checklist_items] == [*first_items, *new_items]
+    assert len(calls) == 5
+    assert calls[-1]["screen_workload_phase"] == "repair"
+    assert "checklist_semantic_duplicate" in calls[-1]["messages"][-1]["content"]
+
+
+@pytest.mark.asyncio
 async def test_initial_checklist_repairs_semantic_paraphrases_with_different_keys() -> None:
     responses = iter(
         [
@@ -619,6 +855,124 @@ async def test_initial_checklist_repairs_semantic_paraphrases_with_different_key
     repair_prompt = calls[-1]["messages"][-1]["content"]
     assert "checklist_duplicate" in repair_prompt
     assert "checklist_semantic_duplicate" in repair_prompt
+
+
+@pytest.mark.asyncio
+async def test_checklist_refinement_salvages_only_valid_unique_items_from_both_drafts() -> None:
+    first_items = [
+        "Проверить успешное создание заказа с валидными данными",
+        "Проверить отказ при пустом обязательном поле",
+        "Проверить недоступный товар",
+        "Проверить превышение доступного остатка",
+        "Проверить повторную отправку одинакового запроса",
+    ]
+    responses = iter(
+        [
+            _observation(
+                task_kind="list",
+                response_kind="checklist",
+                visible_text="Нужны пять бизнес-проверок создания заказа",
+                claim="Нужны пять бизнес-проверок",
+                evidence="Количество и область видны на экране",
+                finding_kind="requirement",
+                requested_item_count=5,
+                checklist_scope="business",
+            ),
+            _checklist_draft(*first_items, semantic_prefix="initial"),
+            _observation(
+                task_kind="list",
+                response_kind="checklist",
+                visible_text="Добавьте три новые бизнес-проверки",
+                claim="Нужны три новые бизнес-проверки",
+                evidence="Требование уточнено интервьюером",
+                finding_kind="requirement",
+                requested_item_count=3,
+                checklist_new_only=True,
+                checklist_scope="business",
+            ),
+            json.dumps(
+                {
+                    "items": [
+                        {
+                            "text": "Проверить применение действующей скидки к заказу",
+                            "semantic_key": "discount.applied",
+                        },
+                        {
+                            "text": "Проверить запись заказа в базе данных",
+                            "semantic_key": "database.write",
+                        },
+                        {
+                            "text": first_items[0],
+                            "semantic_key": "initial-1",
+                        },
+                    ]
+                },
+                ensure_ascii=False,
+            ),
+            json.dumps(
+                {
+                    "items": [
+                        {
+                            "text": "Проверить запрет заказа заблокированным клиентом",
+                            "semantic_key": "customer.blocked",
+                        },
+                        {
+                            "text": "Проверить перенос даты доставки на допустимый день",
+                            "semantic_key": "delivery.reschedule",
+                        },
+                        {
+                            "text": "Проверить HTTP 201 после создания заказа",
+                            "semantic_key": "http.created",
+                        },
+                    ]
+                },
+                ensure_ascii=False,
+            ),
+        ]
+    )
+
+    async def complete(messages, provider, model, **kwargs):
+        return next(responses)
+
+    first = await run_screen_task_pipeline(
+        previous_images=(),
+        current_image="data:image/jpeg;base64,Y2hlY2tsaXN0LXNhbHZhZ2U=",
+        latest_correction="Дай пять бизнес-проверок.",
+        context="",
+        prior_solution_summary=None,
+        task_action="new",
+        task_state=None,
+        provider="openai",
+        model="safe/model",
+        max_tokens=1200,
+        reasoning=None,
+        now_ms=1_000,
+        complete=complete,
+    )
+    refined = await run_screen_task_pipeline(
+        previous_images=(),
+        current_image="data:image/jpeg;base64,Y2hlY2tsaXN0LXNhbHZhZ2U=",
+        latest_correction="Дай ровно три новые бизнес-проверки.",
+        context="",
+        prior_solution_summary=None,
+        task_action="continue",
+        task_state=first.serialized_task_state,
+        provider="openai",
+        model="safe/model",
+        max_tokens=1200,
+        reasoning=None,
+        now_ms=2_000,
+        complete=complete,
+    )
+
+    assert refined.answer.splitlines() == [
+        "Новые проверки:",
+        "1. Проверить запрет заказа заблокированным клиентом",
+        "2. Проверить перенос даты доставки на допустимый день",
+        "3. Проверить применение действующей скидки к заказу",
+    ]
+    assert "базе данных" not in refined.answer
+    assert "HTTP" not in refined.answer
 
 
 @pytest.mark.asyncio
@@ -938,6 +1292,7 @@ async def test_evicted_frame_digest_is_still_seen_in_the_independent_ledger() ->
                 )
                 for index in range(1, 4)
             ),
+            _analysis_draft(images[:3], "Факт 1", "Факт 2", "Факт 3"),
             _observation(
                 task_kind="analysis",
                 visible_text="Фрагмент 4",
@@ -945,6 +1300,8 @@ async def test_evicted_frame_digest_is_still_seen_in_the_independent_ledger() ->
                 evidence="Доказательство 4",
                 finding_kind="fact",
             ),
+            _analysis_draft(images, "Факт 1", "Факт 2", "Факт 3", "Факт 4"),
+            _analysis_draft(images, "Факт 1", "Факт 2", "Факт 3", "Факт 4"),
         ]
     )
     calls = 0
@@ -1002,8 +1359,8 @@ async def test_evicted_frame_digest_is_still_seen_in_the_independent_ledger() ->
         complete=complete,
     )
 
-    assert calls_after_four_unique_frames == 4
-    assert calls == calls_after_four_unique_frames
+    assert calls_after_four_unique_frames == 6
+    assert calls == calls_after_four_unique_frames + 1
     assert "Факт 1" in replay.answer
     assert "Факт 4" in replay.answer
 
@@ -1167,6 +1524,73 @@ async def test_simple_typed_select_lookup_is_composed_and_validated_without_gene
 
 
 @pytest.mark.asyncio
+async def test_simple_typed_select_lookup_ignores_redundant_bound_variable_identifier() -> None:
+    signature = "def get_order(conn, order_id: int) -> list[dict[str, Any]]:"
+    generated_fallback = f"""Сначала выполню один параметризованный запрос по идентификатору.
+
+```python
+from typing import Any
+# Сохраняю видимую аннотацию результата.
+
+{signature}
+    # Сохраняю точную публичную сигнатуру.
+    rows = conn.execute('SELECT * FROM "Order" WHERE id = ?', (order_id,))
+    # Передаю идентификатор отдельно от текста SQL.
+    return [dict(row) for row in rows]
+    # Возвращаю найденные строки как список словарей.
+```"""
+    responses = iter(
+        [
+            _observation(
+                task_kind="code",
+                visible_text=f'{signature}\nSELECT * FROM "Order" WHERE id = ?',
+                claim="Вернуть заказ по order_id",
+                evidence="На экране видны таблица Order и столбец id",
+                finding_kind="requirement",
+                code_language="python",
+                response_kind="code_solution",
+                python_shape="function",
+                expected_sql_statement_kind="select",
+                required_python_signatures=(signature,),
+                required_sql_identifiers=("Order", "id", "order_id"),
+                required_sql_clauses=("select", "from", "where"),
+                required_sql_bound_ids=("order_id",),
+            ),
+            generated_fallback,
+        ]
+    )
+    calls: list[dict] = []
+
+    async def complete(messages, provider, model, **kwargs):
+        calls.append({"messages": messages, **kwargs})
+        return next(responses)
+
+    result = await run_screen_task_pipeline(
+        previous_images=(),
+        current_image="data:image/jpeg;base64,cmVkdW5kYW50LWlk",
+        latest_correction="Верни минимальный полный код.",
+        context="",
+        prior_solution_summary=None,
+        task_action="new",
+        task_state=None,
+        provider="openai",
+        model="safe/model",
+        max_tokens=4200,
+        reasoning={"effort": "medium", "exclude": True},
+        now_ms=1_000,
+        complete=complete,
+    )
+
+    assert len(calls) == 1
+    assert 'SELECT * FROM "Order" WHERE id = ?' in result.answer
+    assert "(order_id,)" in result.answer
+    assert "return [dict(row) for row in rows]" in result.answer
+    assert deserialize_screen_task_state(
+        result.serialized_task_state
+    ).requirements.required_sql_identifiers == ("Order", "id")
+
+
+@pytest.mark.asyncio
 async def test_python_return_annotation_keeps_signature_and_identifier_validation() -> None:
     signature = "def get_order(conn, order_id: int) -> list[dict[str, Any]]:"
     answer = f"""Сначала выполню параметризованный запрос по идентификатору заказа.
@@ -1225,7 +1649,11 @@ async def test_python_return_annotation_keeps_signature_and_identifier_validatio
 
 
 @pytest.mark.asyncio
-async def test_explicit_pure_sql_task_validates_without_a_python_signature() -> None:
+@pytest.mark.parametrize('needs_repair', [False, True])
+@pytest.mark.parametrize('model', ['safe/model', 'deepseek/deepseek-v4.1-flash'])
+async def test_explicit_pure_sql_task_validates_without_a_python_signature(needs_repair, model) -> None:
+    from app.services.provider_adapter import screen_stream_options
+    tokens, reasoning = screen_stream_options(model)
     answer = """Сначала проверю доступность соединения простым запросом.
 
 ```sql
@@ -1246,14 +1674,14 @@ SELECT 1;
                 required_sql_clauses=("select",),
                 required_literals=("1",),
             ),
+            *(['```sql\nSELECT 2;\n```'] if needs_repair else []),
             answer,
         ]
     )
-    calls = 0
+    calls = []
 
     async def complete(messages, provider, model, **kwargs):
-        nonlocal calls
-        calls += 1
+        calls.append(kwargs)
         return next(responses)
 
     result = await run_screen_task_pipeline(
@@ -1265,15 +1693,24 @@ SELECT 1;
         task_action="new",
         task_state=None,
         provider="openai",
-        model="safe/model",
-        max_tokens=1200,
-        reasoning=None,
+        model=model,
+        max_tokens=tokens,
+        reasoning=reasoning,
         now_ms=1_000,
         complete=complete,
     )
 
     assert result.answer == answer
-    assert calls == 2
+    if model == 'deepseek/deepseek-v4.1-flash':
+        assert calls[0]['reasoning'] == {'enabled': False, 'exclude': True}
+        assert calls[0]['max_tokens'] == 1800
+        for call in calls[1:]:
+            assert call['reasoning'] == {'effort': 'medium', 'exclude': True}
+            assert call['max_tokens'] == 4200
+    assert [call['screen_workload_phase'] for call in calls] == (
+        ['observation', 'answer']
+        + (['repair'] if needs_repair else [])
+    )
 
 
 @pytest.mark.asyncio
@@ -1297,6 +1734,7 @@ def wrong(value):
                 required_python_signatures=("def load(conn, order_id):",),
                 required_sql_bound_ids=("order_id",),
             ),
+            invalid,
             invalid,
             invalid,
         ]
@@ -1436,6 +1874,65 @@ async def test_requirement_capabilities_refine_monotonically_and_new_resets_them
     assert reset_requirements.code_language == ScreenCodeLanguage.OTHER
 
 
+@pytest.mark.parametrize('alias_spelling', ['owner_id', 'OWNER_ID'])
+def test_sql_output_aliases_are_identifiers_not_string_literals(alias_spelling: str) -> None:
+    task = ('Вывести всех владельцев и сумму заработка. Используйте конструкцию '
+            '"as owner_id" и "as total_earn". Поля: owner_id, total_earn. '
+            'Оставить записи со статусом "Paid".')
+    payload = json.loads(_observation(
+        task_kind='code', visible_text=task, claim=task, evidence=task,
+        code_language='sql', response_kind='code_solution',
+        required_sql_identifiers=('Rooms.owner_id',),
+        required_literals=(alias_spelling, 'total_earn', 'as owner_id', 'Paid'),
+        expected_sql_statement_kind='select',
+    ))
+    payload['sources'][0]['kind'] = 'task_text'
+    grounded = _ground_sql_observation(_ScreenObservation.model_validate_json(json.dumps(payload)))
+    assert grounded.required_literals == ['Paid']
+    assert {'owner_id', 'total_earn'} <= set(grounded.required_sql_identifiers)
+
+
+@pytest.mark.asyncio
+async def test_owner_screen_alias_misclassification_accepts_correct_sql_without_retries() -> None:
+    payload = json.loads((Path(__file__).parent / 'fixtures/screen_owner_observation.json').read_text(encoding='utf-8'))
+    payload['required_literals'] = ['owner_id', 'total_earn']
+    payload['required_sql_identifiers'] = ['Rooms.owner_id', 'Reservations.total']
+    answer = '''Соединить комнаты с бронированиями и посчитать заработок всех владельцев.
+
+```sql
+SELECT r.owner_id AS owner_id, COALESCE(SUM(res.total), 0) AS total_earn
+FROM Rooms r
+LEFT JOIN Reservations res ON res.room_id = r.id
+GROUP BY r.owner_id
+```'''
+    phases = []
+
+    async def complete(messages, *args, **kwargs):
+        phase = kwargs['screen_workload_phase']
+        phases.append(phase)
+        return json.dumps(payload) if phase == 'observation' else answer
+
+    for index in range(3):
+        result = await run_screen_task_pipeline(
+            previous_images=(), current_image=f'data:image/jpeg;base64,c3Fs{index}',
+            latest_correction='', context='', prior_solution_summary=None,
+            task_action='new', task_state=None, provider='openrouter', model='test',
+            max_tokens=4000, reasoning=None, now_ms=1000, complete=complete,
+        )
+        state = deserialize_screen_task_state(result.serialized_task_state)
+        assert state.requirements.required_literals == ()
+        assert {'owner_id', 'total_earn'} <= set(state.requirements.required_sql_identifiers)
+        code = re.search(r'```sql\n(.*?)```', result.answer, re.S).group(1)
+        with sqlite3.connect(':memory:') as db:
+            db.executescript('''CREATE TABLE Rooms(id INTEGER, owner_id INTEGER);
+                CREATE TABLE Reservations(room_id INTEGER, total INTEGER);
+                INSERT INTO Rooms VALUES(1,10),(2,10),(3,20),(4,30);
+                INSERT INTO Reservations VALUES(1,100),(1,50),(2,20),(3,40);''')
+            rows = db.execute(code).fetchall()
+            assert sorted(rows) == [(10,170), (20,40), (30,0)]
+    assert phases == ['observation', 'answer'] * 3
+
+
 def test_validation_uses_only_typed_capability_flags_and_structural_requirements() -> None:
     state = ScreenTaskState(
         task_kind=TaskKind.CODE,
@@ -1467,13 +1964,84 @@ def test_validation_uses_only_typed_capability_flags_and_structural_requirements
     assert validation_input.required_sql_identifiers == ("dual",)
     assert validation_input.required_sql_clauses == ("select", "from")
     assert validation_input.visible_literals == ("1",)
-    assert validation_input.require_russian_line_comments is True
+    assert validation_input.require_russian_line_comments is False
     assert [item.stable_id for item in validation_input.stable_requirements] == [
         "required-sql-identifier-1",
         "required-sql-clause-1",
         "required-sql-clause-2",
         "required-literal-1",
     ]
+
+
+def test_validation_accepts_sql_suffix_pattern_for_visible_literal() -> None:
+    state = ScreenTaskState(
+        task_kind=TaskKind.CODE,
+        requirements=ScreenTaskRequirements(
+            objective="Вывести имена людей, которые заканчиваются на 'man'",
+            required_sql_identifiers=("name",),
+            required_sql_clauses=("select", "from", "where"),
+            required_literals=("man",),
+            code_language=ScreenCodeLanguage.SQL,
+            expected_sql_statement_kind=SqlStatementKind.SELECT,
+        ),
+        response_kind=ScreenResponseKind.CODE_SOLUTION,
+        ttl=ScreenTaskTtl(created_at_ms=1_000, updated_at_ms=1_000, expires_at_ms=61_000),
+    )
+    answer = """Нужно выбрать имена, которые заканчиваются на man.
+
+```sql
+SELECT name
+-- выбираем имя пассажира
+FROM Passenger
+-- читаем строки из таблицы пассажиров
+WHERE name LIKE '%man';
+-- оставляем имена с окончанием man
+```"""
+
+    result = validate_screen_answer(
+        _validation_input(answer, state=state, latest_correction="")
+    )
+
+    assert result.valid is True, result.issue_codes
+
+
+@pytest.mark.parametrize(
+    ("objective", "pattern"),
+    (
+        ("Вывести имена людей, которые начинаются на 'Ann'", "Ann%"),
+        ("Вывести имена людей, которые содержат 'ann'", "%ann%"),
+    ),
+)
+def test_validation_accepts_sql_prefix_and_contains_patterns_for_visible_literal(
+    objective: str,
+    pattern: str,
+) -> None:
+    state = ScreenTaskState(
+        task_kind=TaskKind.CODE,
+        requirements=ScreenTaskRequirements(
+            objective=objective,
+            required_sql_identifiers=("name",),
+            required_sql_clauses=("select", "from", "where"),
+            required_literals=(pattern.strip("%"),),
+            code_language=ScreenCodeLanguage.SQL,
+            expected_sql_statement_kind=SqlStatementKind.SELECT,
+        ),
+        response_kind=ScreenResponseKind.CODE_SOLUTION,
+        ttl=ScreenTaskTtl(created_at_ms=1_000, updated_at_ms=1_000, expires_at_ms=61_000),
+    )
+    answer = f"""Нужно отфильтровать имена по заданному шаблону.
+
+```sql
+SELECT name
+FROM Passenger
+WHERE name LIKE '{pattern}';
+```"""
+
+    result = validate_screen_answer(
+        _validation_input(answer, state=state, latest_correction="")
+    )
+
+    assert result.valid is True, result.issue_codes
 
 
 def test_missing_python_signature_never_reclassifies_the_task_as_sql() -> None:
@@ -1968,8 +2536,49 @@ FROM orders;
     assert "JOIN" not in refined.answer
 
 
+def test_formats_sql_keywords_as_uppercase_without_touching_literals_or_comments() -> None:
+    answer = """Соединить таблицы и посчитать среднее.
+
+```sql
+select round(avg_ms, 2) as avg_ms
+-- select from должны остаться текстом комментария
+from logs
+join applications on applications.id = logs.application_id
+where status = 'select'
+order by avg_ms desc;
+```"""
+
+    formatted = _format_sql_line_comments(answer)
+
+    assert "SELECT ROUND(avg_ms, 2) AS avg_ms" in formatted
+    assert "FROM logs" in formatted
+    assert "JOIN applications ON applications.id = logs.application_id" in formatted
+    assert "WHERE status = 'select'" in formatted
+    assert "ORDER BY avg_ms DESC" in formatted
+    assert "-- select from должны остаться текстом комментария" in formatted
+
+
+def test_formats_sql_explanation_as_infinitive_actions() -> None:
+    answer = """Запрос соединяет таблицу logs с applications по application_id, для каждого приложения вычисляет среднее время отклика, округляет его до двух знаков и сортирует по avg_ms по возрастанию.
+
+```sql
+select logs.id from logs;
+```"""
+
+    formatted = _format_sql_line_comments(answer)
+    explanation = formatted.split("```sql", 1)[0]
+
+    assert "Соединить таблицу logs с applications" in explanation
+    assert "вычислить среднее время отклика" in explanation
+    assert "округлить его до двух знаков" in explanation
+    assert "сортировать по avg_ms" in explanation
+    assert "Запрос соединяет" not in explanation
+
+
 @pytest.mark.asyncio
-async def test_analysis_composition_uses_every_active_finding_without_second_model_call() -> None:
+async def test_analysis_composition_keeps_every_ledger_fact_and_appends_grounded_synthesis() -> (
+    None
+):
     images = (
         "data:image/jpeg;base64,YW5hbHlzaXMtb25l",
         "data:image/jpeg;base64,YW5hbHlzaXMtdHdv",
@@ -1990,6 +2599,11 @@ async def test_analysis_composition_uses_every_active_finding_without_second_mod
                 claim="fact two",
                 evidence="frame two",
                 finding_kind="defect",
+            ),
+            _analysis_draft(
+                images,
+                "fact one влияет на ранний этап.",
+                "fact two подтверждает общий риск.",
             ),
         ]
     )
@@ -2015,10 +2629,18 @@ async def test_analysis_composition_uses_every_active_finding_without_second_mod
         complete=complete,
     )
 
-    assert len(calls) == 2
-    assert all(call["screen_workload_phase"] == "observation" for call in calls)
+    assert len(calls) == 3
+    assert [call["screen_workload_phase"] for call in calls] == [
+        "observation",
+        "observation",
+        "answer",
+    ]
     assert result.answer.splitlines() == [
         "Единый результат по всем сохранённым фрагментам экрана:",
         "- fact one — frame one",
         "- fact two — frame two",
+        "",
+        "Сводный анализ по сохранённым фактам:",
+        "- fact one влияет на ранний этап.",
+        "- fact two подтверждает общий риск.",
     ]

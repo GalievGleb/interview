@@ -13,6 +13,33 @@ import {
 } from './hhScreening';
 import type { HhQueueItem } from '../types/electron';
 
+it('prepares an empty location answer before the question is opened', () => {
+  const question = { id: 'location', prompt: 'Из какой локации планируешь работать, какой у тебя часовой пояс?', kind: 'text' as const, options: [], required: true };
+  expect(shouldAutomaticallyPrepareHhScreeningDraft(question, undefined)).toBe(true);
+  expect(shouldAutomaticallyPrepareHhScreeningDraft(question, {
+    answer: '', selectedOptions: [], confirmedByUser: false,
+    promptKey: hhScreeningPromptKey(question.prompt),
+  })).toBe(true);
+  expect(shouldAutomaticallyPrepareHhScreeningDraft(question, {
+    answer: '', selectedOptions: [], confirmedByUser: true,
+    promptKey: hhScreeningPromptKey(question.prompt),
+  })).toBe(false);
+});
+
+it('keeps a prepared location draft when background queue state refreshes', () => {
+  const question = { id: 'city', prompt: 'В каком городе вы живёте?', kind: 'text' as const, options: [], required: true };
+  const draft = { answer: 'Москва, UTC+3.', selectedOptions: [], confirmedByUser: false, promptKey: hhScreeningPromptKey(question.prompt) };
+  expect(reconcileHhScreeningLocalDraft(question, draft)).toBe(draft);
+});
+
+it('regenerates a persisted source-disclaimer instead of treating it as a ready answer', () => {
+  const prompt = 'Какой опыт мобильного тестирования?';
+  expect(shouldAutomaticallyPrepareHhScreeningDraft({ id: 'mobile', prompt, kind: 'text', options: [], required: false }, {
+    answer: 'Мой опыт не указан в резюме, поэтому я не могу подтвердить проекты.',
+    selectedOptions: [], confirmedByUser: false, promptKey: hhScreeningPromptKey(prompt),
+  })).toBe(true);
+});
+
 function vacancy(id: string, prompt: string, assistantReason?: string): HhQueueItem {
   return {
     key: `hh:${id}`,

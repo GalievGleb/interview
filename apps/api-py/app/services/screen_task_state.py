@@ -41,6 +41,7 @@ MAX_SERIALIZED_STATE_CHARS = 400_000
 
 _DATA_URL_RE = re.compile(r"data:[^\s,]{0,160},", re.IGNORECASE)
 _BASE64_ALPHABET_RE = re.compile(r"[A-Za-z0-9+/_-]{256,}={0,2}")
+_WRAPPED_BASE64_RE = re.compile(r"[A-Za-z0-9+/_-]{32,}={0,2}(?:\s+[A-Za-z0-9+/_-]{32,}={0,2})+")
 _DOTTED_IDENTIFIER_RE = re.compile(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*")
 _CHECKLIST_NORMALIZE_RE = re.compile(r"[\W_]+", re.UNICODE)
 _SQL_CLAUSE_ALLOWLIST = frozenset(
@@ -98,7 +99,13 @@ def _contains_binary_payload(value: Any) -> bool:
             or "base64," in stripped.lower()
             or _DATA_URL_RE.search(whitespace_unwrapped)
             or "base64," in whitespace_unwrapped.lower()
-            or _BASE64_ALPHABET_RE.search(whitespace_unwrapped)
+            # Removing every space turns ordinary English schema/prose into a
+            # fake base64 blob. Only unwrap runs of long encoded-looking chunks.
+            or _BASE64_ALPHABET_RE.search(stripped)
+            or any(
+                _BASE64_ALPHABET_RE.search(re.sub(r"\s+", "", match.group(0)))
+                for match in _WRAPPED_BASE64_RE.finditer(stripped)
+            )
         )
     if isinstance(value, Mapping):
         return any(_contains_binary_payload(item) for item in value.values())

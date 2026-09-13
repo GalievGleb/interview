@@ -2074,7 +2074,13 @@ export class HhBrowserAssistant {
 
   /** Пересчитывает таймер при изменении конфига (час запуска мог смениться). */
   saveConfig(value: HhAssistantConfigUpdate): HhAssistantState {
+    if (this.automationRunInFlight || this.applyInFlight || this.state.phase === 'scanning') {
+      this.update({ message: 'Поиск и отклики ещё выполняются. Остановите прогон перед изменением настроек.' });
+      return this.getState();
+    }
     const { resumeSelectionExplicitlyConfirmed, ...configValue } = value;
+    const platformChanged = configValue.platform !== undefined
+      && normalizePlatform(configValue.platform) !== this.state.config.platform;
     if (resumeSelectionExplicitlyConfirmed === true) {
       this.resumeSelectionConfirmed = Array.isArray(configValue.resumeTitles)
         && configValue.resumeTitles.some((title) => String(title).trim());
@@ -2107,7 +2113,10 @@ export class HhBrowserAssistant {
       this.clearQueueResumeTimer();
       this.clearVerificationResumeTimer();
     }
-    this.update({ message: 'Настройки сохранены.' });
+    this.update({
+      ...(platformChanged ? { browserOpen: false, loginRequired: false, phase: 'idle' as const } : {}),
+      message: 'Настройки сохранены.',
+    });
     return this.getState();
   }
 
@@ -3427,6 +3436,34 @@ export class HhBrowserAssistant {
 
   async scan(platformValue?: JobPlatform, runId?: string): Promise<HhAssistantState> {
     const platform = normalizePlatform(platformValue ?? this.state.config.platform);
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        return await this.scanAttempt(platform, runId);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const browserClosed = /target (?:page, context or browser|closed)|browser has been closed|browser.*disconnected|session closed/i.test(message);
+        if (!browserClosed || this.stopApplyRequested) {
+          this.fail(error);
+          return this.getState();
+        }
+        if (attempt === 1) {
+          this.fail(new Error('Не удалось восстановить браузер поиска после повторного закрытия. Проверьте состояние браузера и повторите поиск.'));
+          return this.getState();
+        }
+        this.update({ phase: 'scanning', message: 'Браузер поиска закрылся. Восстанавливаю подключение и повторяю поиск…' });
+        try {
+          await this.resetBrowserConnection();
+        } catch (recoveryError) {
+          this.fail(recoveryError);
+          return this.getState();
+        }
+      }
+    }
+    return this.getState();
+  }
+
+  private async scanAttempt(platformValue?: JobPlatform, runId?: string): Promise<HhAssistantState> {
+    const platform = normalizePlatform(platformValue ?? this.state.config.platform);
     const info = PLATFORM_INFO[platform];
     this.lastScanFoundCount = 0;
     if (!this.state.config.query) {
@@ -3767,7 +3804,7 @@ export class HhBrowserAssistant {
           : summaryMessage,
       });
     } catch (error) {
-      this.fail(error);
+      throw error;
     }
     return this.getState();
   }

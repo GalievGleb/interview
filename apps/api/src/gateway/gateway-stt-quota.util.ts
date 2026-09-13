@@ -34,7 +34,7 @@ export class GatewaySttQuotaService {
   constructor(private readonly redis: RedisService) {}
 
   private usageKey(licenseId: string): string {
-    return `gw:stt:${licenseId}:${monthStamp()}`;
+    return `gw:stt:${licenseId}:${licenseId.startsWith('trial-') ? 'lifetime' : monthStamp()}`;
   }
 
   async secondsUsed(licenseId: string): Promise<number> {

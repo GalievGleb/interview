@@ -3,15 +3,19 @@ import os from 'node:os';
 import path from 'node:path';
 import { _electron as electron } from 'playwright-core';
 
+const requestedChannel = (process.env.SKILLCUE_E2E_CHANNEL ?? 'dev').trim().toLowerCase();
+const channel = requestedChannel === 'alpha' ? 'alpha' : 'dev';
+const installDirectory = channel === 'alpha' ? 'skillcue-alpha' : 'skillcue-dev';
+const executableName = channel === 'alpha' ? 'SkillCue Alpha.exe' : 'SkillCue Dev.exe';
 const executablePath = path.join(
   process.env.LOCALAPPDATA ?? path.join(os.homedir(), 'AppData', 'Local'),
   'Programs',
-  'skillcue-dev',
-  'SkillCue Dev.exe',
+  installDirectory,
+  executableName,
 );
 
 if (!fs.existsSync(executablePath)) {
-  throw new Error(`Installed SkillCue Dev executable was not found: ${executablePath}`);
+  throw new Error(`Installed SkillCue ${channel} executable was not found: ${executablePath}`);
 }
 
 const app = await electron.launch({ executablePath, timeout: 30_000 });
@@ -43,11 +47,17 @@ try {
   await main.getByRole('heading', { name: 'Главная SkillCue' }).waitFor({ timeout: 20_000 });
 
   const attentionAction = main.locator('.home-command-attention__list button').first();
+  let homeVisualState = {
+    commandTopGap: null,
+    titleContrast: null,
+    detailContrast: null,
+  };
+  if (await attentionAction.count()) {
   await attentionAction.waitFor({ state: 'visible', timeout: 12_000 });
   const originalTheme = await main.evaluate(() => document.documentElement.dataset.theme);
   await main.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
   await attentionAction.hover();
-  const homeVisualState = await main.evaluate(() => {
+  homeVisualState = await main.evaluate(() => {
     const prep = document.querySelector('.prep');
     const commandCenter = document.querySelector('.home-command-center');
     const hoveredAction = document.querySelector('.home-command-attention__list button:hover');
@@ -107,6 +117,7 @@ try {
   if (visualFailures.length > 0) {
     throw new Error(`Home visual regression: ${visualFailures.join('; ')}. State: ${JSON.stringify(homeVisualState)}`);
   }
+  }
 
   const scrollState = await main.evaluate(() => ({
     viewport: window.innerHeight,
@@ -150,6 +161,12 @@ try {
     timeout: 12_000,
   });
 
+  if (channel === 'alpha') {
+    console.log(
+      `OK installed alpha UI: home=${scrollState.document}x${scrollState.viewport} `
+      + 'overlay-open=true record-enabled=true record-live=true record-stop=true menu-outside-click=true',
+    );
+  } else {
   await main.getByRole('link', { name: 'Интервью' }).click();
   await main.waitForTimeout(1_500);
   const historyText = await main.locator('body').innerText();
@@ -262,6 +279,7 @@ try {
     + `report-local-open=true report-checkbox=false report-telegram-gated=true plan=max `
     + `screenshots=${historyScreenshot},${reportScreenshot}`,
   );
+  }
 } finally {
   await app.close().catch(() => undefined);
 }

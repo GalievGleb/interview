@@ -180,14 +180,29 @@ def _stored_gateway_license_key() -> str:
     try:
         from app.db.models import AppMeta
         from app.db.session import SessionLocal
-        from app.services.license import verify_license_key
+        from app.services.license import select_effective_license
 
         with SessionLocal() as db:
-            row = db.get(AppMeta, "license_key")
-            stored = (row.value if row else "").strip()
-        return stored if stored and verify_license_key(stored) else ""
+            managed_row = db.get(AppMeta, "managed_license_key")
+            legacy_row = db.get(AppMeta, "license_key")
+            managed = (managed_row.value if managed_row else "").strip()
+            legacy = (legacy_row.value if legacy_row else "").strip()
+        import os
+
+        alpha = os.environ.get("SKILLCUE_BUILD_CHANNEL", "").strip().lower() == "alpha"
+        key, payload = select_effective_license(managed, "" if alpha else legacy)
+        if alpha and not (
+            payload and payload.get("source") == "account" and payload.get("account_id")
+        ):
+            return ""
+        return key
     except Exception:  # noqa: BLE001
         return ""
+
+
+def invalidate_gateway_license_cache() -> None:
+    _gateway_cache["at"] = 0.0
+    _gateway_cache["key"] = ""
 
 
 def _gateway_root_url(gateway_url: str) -> str:
@@ -227,6 +242,10 @@ def _store_gateway_license_key(key: str, email: str = "") -> None:
 
 
 async def _claim_gateway_trial_key(gateway_url: str) -> str:
+    import os
+
+    if os.environ.get("SKILLCUE_BUILD_CHANNEL", "").strip().lower() == "alpha":
+        raise AppError("Войдите через Google в Настройках → Аккаунт.", 401, "account_auth_required")
     try:
         install_id = _get_or_create_install_id()
         root = _gateway_root_url(gateway_url)
@@ -520,6 +539,10 @@ def screen_stream_options(model_id: str) -> tuple[int, dict | None]:
     code. Unlike continuous voice answers, the user can tolerate a little
     reasoning time here while reading the task.
     """
+    if model_id.lower() == "deepseek/deepseek-v4.1-flash":
+        # Reason through the solution; the typed extractor independently
+        # disables thinking to protect its smaller OCR budget.
+        return 4200, {"effort": "medium", "exclude": True}
     if "gpt-5.6" in model_id.lower():
         return 4200, {"effort": "medium", "exclude": True}
     if is_thinking_model(model_id):

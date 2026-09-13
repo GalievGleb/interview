@@ -3,6 +3,7 @@ dist/
 dist-electron/
 release/
 release-dev/
+release-alpha/
 .env
 .env.local
 *.log
@@ -44,6 +45,9 @@ tools/leadbot/state.json
 
 # Deploy secrets (apps/api/deploy)
 .admin_secret
+.account_secrets.json
+.google_oauth_client.json
+client_secret*.json
 
 # Graphify knowledge-graph caches (regenerate with: graphify update .)
 graphify-out/

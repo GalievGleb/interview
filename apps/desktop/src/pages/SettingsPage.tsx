@@ -3,6 +3,7 @@ import { useLocation, useSearchParams } from 'react-router-dom';
 import MicrophoneSettings from '../components/MicrophoneSettings';
 import LicenseCard from '../components/LicenseCard';
 import PlanPicker from '../components/PlanPicker';
+import AccountCard from '../components/AccountCard';
 import AnswerModesSettings from '../components/AnswerModesSettings';
 import { useTheme, type ThemePref } from '../lib/theme';
 import { RELEASE_NOTES } from '../lib/releaseNotes';
@@ -26,6 +27,7 @@ import type { HhAssistantState, UpdaterStatus } from '../types/electron';
 
 type SettingsTab =
   | 'general'
+  | 'account'
   | 'speech'
   | 'modes'
   | 'keybinds'
@@ -34,6 +36,7 @@ type SettingsTab =
 
 const SECTIONS: Array<{ id: SettingsTab; labelKey: I18nKey; d: string }> = [
   { id: 'general', labelKey: 'settings.section.general', d: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z|M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.09a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.09a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z' },
+  { id: 'account', labelKey: 'settings.section.account', d: 'M20 21a8 8 0 0 0-16 0|M12 13a4 4 0 1 0 0-8 4 4 0 0 0 0 8z' },
   { id: 'speech', labelKey: 'settings.section.speech', d: 'M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z|M19 10v1a7 7 0 0 1-14 0v-1|M12 18v4' },
   { id: 'modes', labelKey: 'settings.section.modes', d: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z' },
   { id: 'keybinds', labelKey: 'settings.section.keybinds', d: 'M2 6h20v12H2z|M6 10h.01M10 10h.01M14 10h.01M18 10h.01|M7 14h10' },
@@ -703,6 +706,114 @@ function AiQuotaNotice() {
   );
 }
 
+function BackupCard() {
+  const { t, lang } = useI18n();
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+  const [preview, setPreview] = useState<{
+    token: string;
+    createdAt: string;
+    fileCount: number;
+    rendererKeyCount: number;
+  } | null>(null);
+  const backup = window.electronAPI?.backup;
+
+  const collectRendererStorage = async () => {
+    if (!backup) return {};
+    const keys = await backup.keys();
+    return Object.fromEntries(keys.flatMap((key) => {
+      const value = localStorage.getItem(key);
+      return value === null ? [] : [[key, value]];
+    }));
+  };
+
+  const save = async () => {
+    if (!backup) return;
+    setBusy(true); setError(''); setMessage('');
+    try {
+      const result = await backup.export(await collectRendererStorage());
+      if (!result.canceled) setMessage(t('backup.saved'));
+    } catch {
+      setError(t('backup.error'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const choose = async () => {
+    if (!backup) return;
+    setBusy(true); setError(''); setMessage('');
+    try {
+      const result = await backup.preview();
+      if (!result.canceled && result.token && result.createdAt) {
+        setPreview({
+          token: result.token,
+          createdAt: result.createdAt,
+          fileCount: result.fileCount ?? 0,
+          rendererKeyCount: result.rendererKeyCount ?? 0,
+        });
+      }
+    } catch {
+      setError(t('backup.error'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const apply = async () => {
+    if (!backup || !preview) return;
+    setBusy(true); setError('');
+    try {
+      const restored = await backup.apply(preview.token, await collectRendererStorage());
+      const allowedKeys = await backup.keys();
+      for (const key of allowedKeys) localStorage.removeItem(key);
+      for (const [key, value] of Object.entries(restored.rendererStorage)) {
+        localStorage.setItem(key, value);
+      }
+      setMessage(t('backup.restarting'));
+      setPreview(null);
+      await backup.restart();
+    } catch {
+      setError(t('backup.error'));
+      setBusy(false);
+    }
+  };
+
+  const previewText = preview
+    ? t('backup.preview')
+      .replace('{date}', new Date(preview.createdAt).toLocaleString(lang === 'ru' ? 'ru-RU' : 'en-US'))
+      .replace('{files}', String(preview.fileCount))
+      .replace('{settings}', String(preview.rendererKeyCount))
+    : '';
+
+  return (
+    <div className="sc-card mb-5 p-5">
+      <h3 className="text-sm font-semibold text-ink">{t('backup.title')}</h3>
+      <p className="mt-1 text-xs leading-relaxed text-ink-muted">{t('backup.desc')}</p>
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button type="button" className="btn-primary btn-sm" disabled={busy || !backup} onClick={() => void save()}>
+          {t('backup.export')}
+        </button>
+        <button type="button" className="btn-secondary btn-sm" disabled={busy || !backup} onClick={() => void choose()}>
+          {t('backup.import')}
+        </button>
+      </div>
+      {preview && (
+        <div className="mt-4 rounded-xl border border-amber-400/30 bg-amber-400/[0.06] p-3">
+          <p className="text-xs leading-relaxed text-ink-muted">{previewText}</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button type="button" className="btn-primary btn-sm" disabled={busy} onClick={() => void apply()}>{t('backup.confirm')}</button>
+            <button type="button" className="btn-secondary btn-sm" disabled={busy} onClick={() => setPreview(null)}>{t('backup.cancel')}</button>
+          </div>
+        </div>
+      )}
+      {message && <p className="mt-3 text-xs text-emerald-400" role="status">{message}</p>}
+      {error && <p className="mt-3 text-xs text-red-400" role="alert">{error}</p>}
+    </div>
+  );
+}
+
 /* ---------------- Страница ---------------- */
 
 export default function SettingsPage() {
@@ -772,6 +883,8 @@ export default function SettingsPage() {
         <p className="mb-5 text-sm text-ink-faint">{t(`settings.sub.${tab}` as I18nKey)}</p>
 
         {tab === 'general' && <GeneralSection />}
+
+        {tab === 'account' && <><AccountCard /><BackupCard /></>}
 
         {tab === 'speech' && <MicrophoneSettings />}
 

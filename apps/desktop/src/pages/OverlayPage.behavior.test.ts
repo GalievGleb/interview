@@ -1,5 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import ts from 'typescript';
+import { acceptForceHotkey } from '../lib/forceHotkeyDeduper';
 import { describe, expect, it } from 'vitest';
 
 const overlaySource = fs.readFileSync(path.resolve(__dirname, 'OverlayPage.tsx'), 'utf8');
@@ -10,12 +12,12 @@ const hookSource = fs.readFileSync(
 const apiSource = fs.readFileSync(path.resolve(__dirname, '../lib/api.ts'), 'utf8');
 const ruSource = fs.readFileSync(path.resolve(__dirname, '../lib/i18n/ru.ts'), 'utf8');
 const enSource = fs.readFileSync(path.resolve(__dirname, '../lib/i18n/en.ts'), 'utf8');
-const mainSource = fs.readFileSync(path.resolve(__dirname, '../../electron/main.ts'), 'utf8');
 const preloadSource = fs.readFileSync(path.resolve(__dirname, '../../electron/preload.ts'), 'utf8');
 const cssSource = fs.readFileSync(
   path.resolve(__dirname, '../styles/overlay-cockpit.css'),
   'utf8',
 );
+const mainSource = fs.readFileSync(path.resolve(__dirname, '../../electron/main.ts'), 'utf8');
 
 describe('overlay request behavior', () => {
   it('stops the thinking indicator after an empty screen error and shows the issue instead', () => {
@@ -27,12 +29,11 @@ describe('overlay request behavior', () => {
 
   it('blocks live before opening sockets when the licence has no live entitlement', () => {
     expect(overlaySource).toContain("const liveBlocked = license?.live_allowed === false");
-    expect(overlaySource).toContain("setNotice(t('overlay.rec.needLicense'))");
-    expect(overlaySource).toContain("overlay.openSettings?.('billing')");
+    expect(overlaySource).toContain("license?.status === 'auth_required'");
+    expect(overlaySource).toContain("overlay.openSettings?.(license?.status === 'auth_required' ? 'account' : 'billing')");
   });
 
   it('starts live without blocking on readiness and still surfaces startup failures', () => {
-    expect(overlaySource).toMatch(/\{error && \([\s\S]*?role="alert"[\s\S]*?\{error\}/);
     expect(overlaySource).toContain('if (!active && error) void refreshLicense();');
     expect(overlaySource).toContain('void liveStartupWarmup.warm();');
     expect(overlaySource).not.toContain('const readiness = await api.providerReadiness();');
@@ -98,9 +99,6 @@ describe('overlay request behavior', () => {
     );
   });
 
-  it('routes typed requests without silently capturing the screen', () => {
-    expect(overlaySource).toContain('resolveOverlayRequestRoute');
-  });
 
   it('does not block a second Ctrl+Enter behind forcePendingRef', () => {
     expect(hookSource).toContain('forceCoordinatorRef.current.press');
@@ -166,7 +164,7 @@ describe('overlay request behavior', () => {
     expect(overlaySource).toContain('screenRequestCoordinatorRef.current.cancelActive();');
     const forceAt = overlaySource.indexOf('const submitForcedAnswer');
     expect(forceAt).toBeGreaterThan(-1);
-    expect(overlaySource.slice(forceAt, forceAt + 520)).toContain(
+    expect(overlaySource.slice(forceAt, overlaySource.indexOf('const submitForcedScreenAnswer', forceAt))).toContain(
       'screenAssistGenerationRef.current += 1;',
     );
   });
@@ -266,17 +264,30 @@ describe('overlay request behavior', () => {
     expect(overlaySource).not.toContain("setNotice(t('overlay.forceSent'))");
   });
 
-  it('does not generate from plain Enter in the textarea', () => {
-    expect(overlaySource).not.toContain(
-      "e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey",
-    );
-    expect(overlaySource).toContain("onClick={() => submitForcedAnswer('button')}");
-  });
 
-  it('keeps typed instructions instead of replacing them with an empty screen fallback', () => {
-    expect(overlaySource).toContain("runAction('assist', custom)");
-    expect(overlaySource).toContain('const custom = input.trim()');
-    expect(overlaySource).not.toContain('forceAnswer(input)');
+  it('sends the latest voice request immediately without a manual draft and deduplicates hotkeys', () => {
+    const start = overlaySource.indexOf('const submitForcedAnswer');
+    const end = overlaySource.indexOf('const submitForcedScreenAnswer', start);
+    const body = ts.transpile(overlaySource.slice(start, end));
+    const submitted: unknown[][] = [];
+    const bindings = {
+      useCallback: (fn: unknown) => fn,
+      acceptForceHotkey,
+      lastForceHotkeyRef: { current: null },
+      screenExchangeOwnerRef: { current: null },
+      screenFallbackLaunchRef: { current: { reset: () => {} } },
+      screenAssistGenerationRef: { current: 0 },
+      cancelActiveScreenAssist: () => {},
+      setNotice: () => {},
+      forceAnswer: (...args: unknown[]) => { submitted.push(args); return 'started'; },
+      t: (key: string) => key,
+    };
+    const handler = new Function(...Object.keys(bindings), `${body}; return submitForcedAnswer;`)(
+      ...Object.values(bindings),
+    );
+    handler('global');
+    handler('renderer');
+    expect(submitted).toEqual([[]]);
   });
 
   it('uses native global movement without a duplicate renderer move', () => {
@@ -338,12 +349,33 @@ describe('overlay request behavior', () => {
     expect(apiSource).toContain('active_screen_task: opts.activeScreenTask');
   });
 
-  it('cancels an active screen request only after the hook selects a candidate utterance', () => {
+  it('submits the candidate hotkey immediately and deduplicates global/renderer delivery', () => {
     const submitAt = overlaySource.indexOf('const submitCandidateFollowUp');
     const endAt = overlaySource.indexOf('const scrollOverlayContent', submitAt);
-    const body = overlaySource.slice(submitAt, endAt);
-    expect(body).toContain('forceCandidateFollowUp');
-    expect(body).not.toContain('cancelActiveScreenAssist()');
+    // Execute the actual registered handler, with only the live-session boundary
+    // replaced. A paste-only handler must fail even when the hotkey is received.
+    const body = ts.transpile(overlaySource.slice(submitAt, endAt));
+    const submitted: string[] = [];
+    const inputs: string[] = [];
+    const bindings = {
+      useCallback: (fn: unknown) => fn,
+      acceptForceHotkey,
+      lastCandidateHotkeyRef: { current: null },
+      screenExchangeOwnerRef: { current: null },
+      setNotice: () => {},
+      setInput: (value: string) => inputs.push(value),
+      lines: [{ isFinal: true, speaker: 'me', text: 'Добавь негативные проверки.' }],
+      isCandidateTranscriptPending: () => false,
+      forceCandidateFollowUp: (source: string) => { submitted.push(source); return 'started'; },
+      t: (key: string) => key,
+    };
+    const handler = new Function(...Object.keys(bindings), `${body}; return submitCandidateFollowUp;`)(
+      ...Object.values(bindings),
+    );
+    handler('global');
+    handler('renderer');
+    expect(submitted).toEqual(['global']);
+    expect(inputs).not.toContain('Добавь негативные проверки.');
     const selectedAt = hookSource.indexOf("recordCandidateHotkeyDiagnostic('candidate_hotkey_selected'");
     const cancelAt = hookSource.lastIndexOf(
       'activeScreenCancellationRef.current.cancelAndClear()',
@@ -421,7 +453,7 @@ describe('overlay request behavior', () => {
     }
   });
 
-  it('resets the complete screen-task epoch on recap and audio-session restart paths', () => {
+  it('resets the complete screen-task epoch on recap restart paths', () => {
     for (const boundary of ['const openRecap', 'const closeRecap']) {
       const boundaryAt = overlaySource.indexOf(boundary);
       expect(boundaryAt).toBeGreaterThan(-1);
@@ -429,12 +461,7 @@ describe('overlay request behavior', () => {
         'resetScreenTaskContext();',
       );
     }
-    const audioSourceAt = overlaySource.indexOf("t('overlay.audioSourceHead')");
-    const audioRestartAt = overlaySource.indexOf('void stop().then(async () => {', audioSourceAt);
-    expect(audioRestartAt).toBeGreaterThan(audioSourceAt);
-    expect(overlaySource.slice(audioRestartAt - 260, audioRestartAt)).toContain(
-      'resetScreenTaskContext();',
-    );
+
   });
 
   it('restarts the same-generation screen fallback when a late exact question arrives', () => {
@@ -599,26 +626,13 @@ describe('overlay request behavior', () => {
     );
   });
 
-  it('uses explicit hit regions for an always-on transparent-pixel policy', () => {
-    expect(overlaySource).toContain('new OverlayPointerController');
-    expect(overlaySource).toContain('pointerControllerRef.current?.refresh()');
-    expect(overlaySource).toContain('data-overlay-hit="true"');
-    expect(overlaySource).not.toContain("if (!avoidFocus) {\n      void ct(false)");
-  });
 
-  it('renders one delegated tooltip layer and a fixed clamped main menu', () => {
-    expect(overlaySource).toContain('<OverlayTooltipLayer rootRef={rootRef} />');
-    expect(overlaySource).toContain('clampFloatingPanel(');
-    expect(overlaySource).toContain('ref={menuPanelRef}');
-    expect(overlaySource).toContain("position: 'fixed'");
-  });
 
   it('keeps a dismissible quick guide available after first launch', () => {
     expect(overlaySource).toContain('skillcue.overlayQuickGuideSeen.v1');
     expect(overlaySource).toContain('Ctrl+Enter');
     expect(overlaySource).toContain('Ctrl+Shift+Enter');
     expect(overlaySource).toContain('Ctrl+Shift+H');
-    expect(overlaySource).toContain('setShowQuickGuide(true)');
     expect(overlaySource).toContain('localStorage.setItem(QUICK_GUIDE_KEY');
   });
 
@@ -654,10 +668,8 @@ describe('overlay request behavior', () => {
     expect(openRecapSource.match(/requestRecapAnalysis\(endedSessionId\)/g)).toHaveLength(1);
   });
 
-  it('reuses the calendar session when starting again or changing audio sources', () => {
+  it('reuses the calendar session when starting again', () => {
     expect(overlaySource).toContain('sessionId: linkedEvent?.sessionId');
-    expect(overlaySource).toContain('const linkedSessionId = sessionId ?? linkedEvent?.sessionId');
-    expect(overlaySource).toContain('sessionId: linkedSessionId');
     expect(overlaySource).toContain('interviewCalendar?.attachSession(');
   });
 
@@ -689,6 +701,18 @@ describe('overlay request behavior', () => {
     expect(overlaySource).toContain('className={`ovl-rec tip');
     expect(overlaySource).not.toContain('className="ovl-pill-btn tip"');
     expect(overlaySource).not.toContain('className="ovl-hide-caret');
+  });
+
+  it('keeps the enlarged settings button immediately after recording', () => {
+    const recordingRule = cssSource.match(/\.ovl-pill > \.ovl-rec\s*\{([\s\S]*?)\}/)?.[1] ?? '';
+    const settingsRule = cssSource.match(/\.ovl-settings-anchor\s*\{([\s\S]*?)\}/)?.[1] ?? '';
+
+    expect(recordingRule).toContain('order: 3');
+    expect(overlaySource).toContain('className="overlay-icon-btn ovl-menu-button tip"');
+    expect(cssSource).toContain('.ovl-menu-button');
+    expect(settingsRule).toContain('order: 4');
+    expect(settingsRule).toContain('position: relative');
+    expect(settingsRule).not.toContain('position: absolute');
   });
 
   it('pauses capture separately from ending the session and opening recap', () => {

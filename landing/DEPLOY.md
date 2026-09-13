@@ -1,5 +1,9 @@
 # Деплой лендинга SkillCue
 
+> Единственный актуальный исходник сайта — папка `landing/` в этом репозитории.
+> Не деплоить копии из других папок: перед деплоем проверка
+> `node scripts/check-grant-packaging.mjs` должна завершиться без ошибок.
+
 Лендинг — статика, папка `landing/` целиком (index.html, oferta.html, privacy.html,
 robots.txt, sitemap.xml). Два пути на выбор.
 

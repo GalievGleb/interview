@@ -97,6 +97,27 @@ describe('overlay shortcut lifecycle', () => {
     expect(shortcuts.unregister).not.toHaveBeenCalledWith('CommandOrControl+\\');
   });
 
+  it.each(['CommandOrControl+Alt+0', 'CommandOrControl+Alt+O'])('toggles click-through via %s and releases it on hide', (accelerator) => {
+    const callbacks = new Map<string, () => void>();
+    const shortcuts = {
+      register: vi.fn((accelerator: string, callback: () => void) => {
+        callbacks.set(accelerator, callback);
+        return true;
+      }),
+      unregister: vi.fn(),
+    };
+    const toggle = vi.fn();
+    const overlay = fakeOverlayWindow();
+
+    bindOverlayShortcutLifecycle(overlay, shortcuts, vi.fn(), undefined, { toggle });
+    overlay.emit('show');
+    callbacks.get(accelerator)?.();
+
+    expect(toggle).toHaveBeenCalledOnce();
+    overlay.emit('hide');
+    expect(shortcuts.unregister).toHaveBeenCalledWith(accelerator);
+  });
+
   it('enables global movement and scrolling in every build while the overlay is visible', () => {
     expect(mainSource).toContain(
       "win.webContents.send('overlay:scroll', direction)",

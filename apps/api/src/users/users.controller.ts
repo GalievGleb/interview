@@ -7,11 +7,17 @@ export class UsersController {
   @Get('me')
   @UseGuards(AuthGuard('jwt'))
   @SkipSubscription()
-  getProfile(@Request() req: { user: { id: string; email: string; hwid: string | null } }) {
+  getProfile(@Request() req: { user: {
+    id: string;
+    email: string;
+    displayName: string | null;
+    avatarUrl: string | null;
+  } }) {
     return {
       id: req.user.id,
       email: req.user.email,
-      hwid: req.user.hwid,
+      displayName: req.user.displayName,
+      avatarUrl: req.user.avatarUrl,
     };
   }
 }

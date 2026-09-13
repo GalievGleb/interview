@@ -1,0 +1,20 @@
+[Unit]
+Description=SkillCue account and subscription API
+After=network-online.target postgresql.service
+Wants=network-online.target postgresql.service
+
+[Service]
+WorkingDirectory=/opt/skillcue/apps/api
+EnvironmentFile=/opt/skillcue/account.env
+ExecStart=/usr/bin/node dist/account-main.js
+Restart=always
+RestartSec=3
+User=skillcue
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/skillcue
+
+[Install]
+WantedBy=multi-user.target

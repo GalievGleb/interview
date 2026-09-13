@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PLANS, hhAutomationAllowed, shouldDisableHhDailySchedule } from './billing';
+import { PLANS, hhAutomationAllowed, planPurchaseAction, shouldDisableHhDailySchedule } from './billing';
 
 describe('billing plans (skill-cue.ru terms)', () => {
   it('keeps site prices: 1490/2990 monthly, year = 10 months', () => {
@@ -16,6 +16,16 @@ describe('billing plans (skill-cue.ru terms)', () => {
     const max = PLANS.find((p) => p.id === 'max');
     expect(basic?.features.find((f) => f.textKey === 'billing.feat.hhAuto')?.included).toBe(false);
     expect(max?.features.find((f) => f.textKey === 'billing.feat.hhAuto')?.included).toBe(true);
+  });
+});
+
+describe('planPurchaseAction', () => {
+  it('allows renewal and upgrades but never offers a paid downgrade', () => {
+    expect(planPurchaseAction(null, 'basic')).toBe('subscribe');
+    expect(planPurchaseAction('basic', 'basic')).toBe('renew');
+    expect(planPurchaseAction('basic', 'max')).toBe('upgrade');
+    expect(planPurchaseAction('max', 'max')).toBe('renew');
+    expect(planPurchaseAction('max', 'basic')).toBe('blocked');
   });
 });
 

@@ -1,0 +1,113 @@
+"""Manual, paid screen benchmark using an existing Alpha account (no trial claims)."""
+from __future__ import annotations
+
+import argparse
+from contextlib import closing
+import asyncio
+import json
+import os
+from pathlib import Path
+import sqlite3
+import sys
+import tempfile
+import time
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / 'apps' / 'api-py'))
+sys.path.insert(0, str(ROOT / 'tools'))
+
+
+async def benchmark(args):
+    from app.services import provider_adapter
+    from app.services.screen_task_pipeline import run_screen_task_pipeline
+    from verify_screen_code_task import render_sql_solution_png, _data_url
+
+    calls = []
+    if args.diagnostics:
+        from app.services import screen_task_pipeline as pipeline
+        original_validate = pipeline.validate_screen_answer
+        def diagnostic_validate(value):
+            result = original_validate(value)
+            print(json.dumps({'validation': [x.value for x in result.issue_codes]}), flush=True)
+            return result
+        pipeline.validate_screen_answer = diagnostic_validate
+    original_post = provider_adapter._post_with_retry
+    async def diagnostic_post(*positional, **kwargs):
+        response = await original_post(*positional, **kwargs)
+        if args.diagnostics and response.status_code < 400:
+            data = response.json()
+            print(json.dumps({'usage': data.get('usage'), 'choices': [
+                {'finish_reason': choice.get('finish_reason'),
+                 'content_chars': len(choice.get('message', {}).get('content') or '')}
+                for choice in data.get('choices', [])]}), flush=True)
+        return response
+    provider_adapter._post_with_retry = diagnostic_post
+
+    async def measured(messages, *positional, **kwargs):
+        if args.answer_effort and kwargs.get('screen_workload_phase') in {'answer', 'repair'}:
+            kwargs['reasoning'] = {'effort': args.answer_effort, 'exclude': True}
+            kwargs['max_tokens'] = 4200
+        if args.effort and kwargs.get('reasoning'):
+            kwargs['reasoning'] = {'effort': args.effort, 'exclude': True}
+        started = time.perf_counter()
+        try:
+            answer = await provider_adapter.complete(messages, *positional, **kwargs)
+            if args.trace:
+                print(json.dumps({'phase': kwargs.get('screen_workload_phase'), 'content': answer}, ensure_ascii=False), flush=True)
+            return answer
+        finally:
+            item = {'phase': kwargs.get('screen_workload_phase'),
+                    'ms': round((time.perf_counter() - started) * 1000)}
+            calls.append(item)
+            print(json.dumps(item), flush=True)
+
+    tokens, reasoning = provider_adapter.screen_stream_options(args.model)
+    started = time.perf_counter()
+    result = await run_screen_task_pipeline(
+        previous_images=(), current_image=_data_url(Path(args.image).read_bytes() if args.image else render_sql_solution_png()),
+        latest_correction='', context='', prior_solution_summary=None,
+        task_action='new', task_state=None, provider='openrouter', model=args.model,
+        max_tokens=tokens, reasoning=reasoning, complete=measured,
+    )
+    print(json.dumps({'model': args.model, 'effort': args.effort,
+                      'total_ms': round((time.perf_counter() - started) * 1000),
+                      'calls': calls, 'answer': result.answer}, ensure_ascii=False), flush=True)
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--model', default='openai/gpt-5.6-sol')
+    parser.add_argument('--effort', choices=['none', 'low', 'medium'])
+    parser.add_argument('--diagnostics', action='store_true')
+    parser.add_argument('--answer-effort', choices=['low', 'high'])
+    parser.add_argument('--image')
+    parser.add_argument('--trace', action='store_true', help='Print public test fixture outputs only; never use with private screenshots.')
+    args = parser.parse_args()
+    source = Path(os.environ['APPDATA']) / 'SkillCue Alpha/backend-data/copilot.sqlite'
+    with tempfile.TemporaryDirectory(prefix='skillcue-screen-bench-') as directory:
+        database = Path(directory) / 'bench.sqlite'
+        with closing(sqlite3.connect(source.as_uri() + '?mode=ro', uri=True)) as src:
+            rows = src.execute(
+                "SELECT key, value FROM app_meta WHERE key IN ('install_id', 'managed_license_key')"
+            ).fetchall()
+        if not dict(rows).get('managed_license_key'):
+            raise RuntimeError('Sign in to Alpha first; no trial identity will be created.')
+        with closing(sqlite3.connect(database)) as db:
+            db.execute('CREATE TABLE app_meta (key VARCHAR PRIMARY KEY, value TEXT NOT NULL)')
+            db.executemany('INSERT INTO app_meta VALUES (?, ?)', rows)
+            db.commit()
+        os.environ.update(DATABASE_URL=f'sqlite:///{database.as_posix()}',
+                          SKILLCUE_BUILD_CHANNEL='alpha',
+                          SKILLCUE_GATEWAY_URL='https://skill-cue.ru/v1',
+                          OPENAI_API_KEY='', OPENROUTER_API_KEY='',
+                          PYTHON_KEYRING_BACKEND='keyring.backends.null.Keyring')
+        try:
+            asyncio.run(benchmark(args))
+        finally:
+            from app.db.session import engine
+            engine.dispose()
+
+
+if __name__ == '__main__':
+    main()

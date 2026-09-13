@@ -9,6 +9,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import logging
 import re
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
@@ -21,6 +22,8 @@ from app.services import provider_adapter
 from app.services.screen_answer_validator import (
     ScreenAnswerValidationInput,
     StableCoverageRequirement,
+    _lex_sql,
+    _sql_comment_index,
     validate_screen_answer,
 )
 from app.services.screen_task_state import (
@@ -65,6 +68,19 @@ from app.services.screen_task_state import (
 )
 
 CompleteCall = Callable[..., Awaitable[str]]
+logger = logging.getLogger(__name__)
+_SQL_SUFFIX_OBJECTIVE_RE = re.compile(
+    r"(?:\b(?:ends?|ending)\s+with\b|\bзаканчива[а-яё]*\s+на\b)",
+    re.IGNORECASE,
+)
+_SQL_PREFIX_OBJECTIVE_RE = re.compile(
+    r"(?:\b(?:starts?|starting|begins?|beginning)\s+with\b|\bначина[а-яё]*\s+на\b)",
+    re.IGNORECASE,
+)
+_SQL_CONTAINS_OBJECTIVE_RE = re.compile(
+    r"(?:\b(?:contains?|containing)\b|\bсодерж[а-яё]*\b)",
+    re.IGNORECASE,
+)
 ObservedSqlClause = Literal[
     "select",
     "from",
@@ -98,6 +114,108 @@ MAX_REPAIR_DRAFT_CHARS = 32_000
 DEFAULT_CHECKLIST_ITEM_COUNT = 5
 CHECKLIST_CROSS_GENERATION_MAX_SIMILARITY = 0.45
 CHECKLIST_INTRA_GENERATION_MAX_SIMILARITY = 0.82
+
+_SQL_KEYWORDS = frozenset(
+    {
+        "all",
+        "and",
+        "as",
+        "asc",
+        "avg",
+        "between",
+        "by",
+        "case",
+        "cast",
+        "coalesce",
+        "count",
+        "create",
+        "cross",
+        "day",
+        "delete",
+        "desc",
+        "distinct",
+        "drop",
+        "else",
+        "end",
+        "exists",
+        "extract",
+        "first",
+        "from",
+        "full",
+        "group",
+        "having",
+        "in",
+        "inner",
+        "insert",
+        "into",
+        "is",
+        "join",
+        "last",
+        "left",
+        "like",
+        "limit",
+        "max",
+        "min",
+        "month",
+        "natural",
+        "not",
+        "null",
+        "nulls",
+        "offset",
+        "on",
+        "or",
+        "order",
+        "outer",
+        "over",
+        "partition",
+        "returning",
+        "right",
+        "round",
+        "select",
+        "set",
+        "sum",
+        "table",
+        "then",
+        "union",
+        "update",
+        "using",
+        "values",
+        "when",
+        "where",
+        "window",
+        "with",
+        "year",
+        "ilike",
+        "interval",
+        "recursive",
+        "true",
+        "false",
+        "unnest",
+    }
+)
+_SQL_EXPLANATION_VERB_REPLACEMENTS = {
+    "соединяет": "соединить",
+    "вычисляет": "вычислить",
+    "округляет": "округлить",
+    "сортирует": "сортировать",
+    "выбирает": "выбрать",
+    "фильтрует": "отфильтровать",
+    "группирует": "сгруппировать",
+    "объединяет": "объединить",
+    "считает": "посчитать",
+    "возвращает": "вернуть",
+    "использует": "использовать",
+    "сохраняет": "сохранить",
+    "сопоставляет": "сопоставить",
+    "применяет": "применить",
+    "отбирает": "отобрать",
+    "суммирует": "суммировать",
+    "подсчитывает": "подсчитать",
+    "находит": "найти",
+    "сравнивает": "сравнить",
+    "разделяет": "разделить",
+    "выводит": "вывести",
+}
 
 _SIMPLIFY_RE = re.compile(
     r"\b(?:упрост\w*|переработ\w*|передел\w*|перепиш\w*|сократ\w*|"
@@ -367,9 +485,10 @@ class ScreenTaskPipelineResult:
 class ScreenTaskPipelineError(Exception):
     """Stable public failure; never contains provider output or captured text."""
 
-    def __init__(self, code: str, public_message: str):
+    def __init__(self, code: str, public_message: str, *, issue_codes: tuple[str, ...] = ()):
         self.code = code
         self.public_message = public_message
+        self.issue_codes = issue_codes
         super().__init__(public_message)
 
 
@@ -466,6 +585,29 @@ def _observation_prompt(
         "only because a Python signature is absent. For Python, classify python_shape as "
         "function, script, class, or pytest. Populate every capability boolean and every "
         "structural requirement list. SQL clauses must be individual canonical clause names, "
+        "REQUIRED means explicitly demanded by the task statement, NOT a guessed solution "
+        "plan. A table merely present in the schema is NOT a required SQL identifier. "
+        "Do not require JOIN, WHERE, GROUP BY, ORDER BY or a particular table just because "
+        "you think a solution will use it. Only record mandated output aliases, explicitly "
+        "required identifiers/clauses and exact task literals as required. Available schema "
+        "belongs in sources, separately from requirements. For SQL tasks transcribe the "
+        "visible database diagram into schema sources: exact table names, exact column "
+        "names and relationships, including columns not used in your guessed solution. "
+        "Never rename, translate, normalize case or insert underscores in identifiers. "
+        "Preserve the alphabet and whitespace of literal values too: Latin B and Cyrillic В "
+        "are different SQL values, even when visually identical. Prefer visible table data "
+        "and examples over an alphabet guessed from the language of the surrounding prose. "
+        "Do not copy a previous failed editor query as the task requirement. Include visible "
+        "query results and error messages as evidence, clearly separate from the task. "
+        "The solver cannot see this image: omitting the schema makes it invent columns. "
+        "Prioritize the task statement and schema over navigation, buttons and editor UI. "
+        "Set allow_join/allow_cte true for ordinary SQL exercises unless explicitly forbidden; "
+        "permission is not a requirement to use them. "
+        "Copy the task statement VERBATIM into a task_text source, including quantifiers "
+        "such as all, every, none, last, first and their original-language equivalents. "
+        "Never change 'all owners' into 'owners who have reservations'. Do not invent "
+        "filters, exclusions or constraints absent from the statement. If a requirement "
+        "cannot be supported by an exact quote in task_text, it is not mandatory. "
         "identifiers and literals must stay in their dedicated arrays. For pure SQL and for "
         "Python that executes SQL, set expected_sql_statement_kind from visible evidence. "
         "For response_kind=checklist, set the exact requested_item_count, whether only new "
@@ -495,6 +637,98 @@ def _low_reasoning_effort(reasoning: dict | None) -> dict | None:
     if reasoning and reasoning.get("effort") in {"medium", "high", "xhigh", "max"}:
         return {**reasoning, "effort": "low"}
     return reasoning
+
+
+_YAML_SCALAR_ECHO_JOB_RE = re.compile(
+    r"(?ims)\b(?P<job>[a-z_][\w.-]*job[\w.-]*)\s*:\s*"
+    r"(?:(?!\b[a-z_][\w.-]*job[\w.-]*\s*:).){0,300}?"
+    r"\bscript\s*:\s*(?P<command>echo(?:[ \t]+[a-z0-9_.:/-]+)?)"
+    r"[ \t]*(?:\#[^\r\n]*)?(?=\r?$|\r?\n)"
+)
+
+
+def _derive_scalar_echo_job_defects(observation: _ScreenObservation) -> _ScreenObservation:
+    if observation.task_kind != TaskKind.FIND_DEFECT:
+        return observation
+    corpus = "\n".join((observation.visible_text, *(source.text for source in observation.sources)))
+    findings = list(observation.findings)
+    changed = False
+    seen_jobs: set[str] = set()
+    for match in _YAML_SCALAR_ECHO_JOB_RE.finditer(corpus):
+        job_name = match.group("job")
+        normalized_job = job_name.casefold()
+        if normalized_job in seen_jobs:
+            continue
+        command = match.group("command").strip()
+        related_index = next(
+            (
+                index
+                for index, finding in enumerate(findings)
+                if normalized_job in f"{finding.claim} {finding.evidence}".casefold()
+                and "echo" in f"{finding.claim} {finding.evidence}".casefold()
+            ),
+            None,
+        )
+        canonical = _ObservedFinding(
+            claim=f"{job_name} только {command}; реальная операция этого job не выполняется",
+            evidence=f"{job_name}: script: {command}",
+            kind=FindingKind.DEFECT,
+            supersedes=(findings[related_index].supersedes if related_index is not None else None),
+        )
+        if related_index is not None:
+            if findings[related_index] != canonical:
+                findings[related_index] = canonical
+                changed = True
+        elif len(findings) < MAX_FRAME_FINDINGS:
+            findings.append(canonical)
+            changed = True
+        seen_jobs.add(normalized_job)
+        if len(findings) >= MAX_FRAME_FINDINGS:
+            break
+    if not changed:
+        return observation
+    return observation.model_copy(update={"findings": findings}).checked()
+
+
+def _ground_sql_observation(observation: _ScreenObservation) -> _ScreenObservation:
+    """Keep SQL task wording authoritative over the extractor's interpretations.
+
+    Schema availability does not mandate using every table/column. Likewise,
+    a guessed solution cannot introduce WHERE/JOIN requirements or exclusions.
+    """
+    if observation.code_language != ScreenCodeLanguage.SQL:
+        return observation
+    statements = [s.text for s in observation.sources if s.kind == ScreenSourceKind.TASK_TEXT]
+    if not statements:
+        return observation
+    task_text = '\n'.join(statements)
+    # Quoted AS directives describe output identifiers, not SQL string values.
+    # The extractor sometimes puts their bare names into required_literals while
+    # listing only qualified schema columns as identifiers. Repeating generation
+    # cannot satisfy that contradictory contract with a correct aggregate query.
+    output_aliases = list(dict.fromkeys(re.findall(
+        r'''["'«`]\s*AS\s+([A-Za-z_]\w*)\s*["'»`]''', task_text, re.I,
+    )))
+    alias_keys = {value.casefold() for value in output_aliases}
+    def quoted_in_task(value: str) -> bool:
+        return bool(re.search(r'(?<!\w)' + re.escape(value) + r'(?!\w)', task_text, re.I))
+    return observation.model_copy(update={
+        'objective': task_text[:MAX_OBJECTIVE_CHARS],
+        'public_contract': [],  # Complete original wording remains in sources.
+        'constraints': [],
+        'findings': [f.model_copy(update={'claim': f.evidence[:800]}) for f in observation.findings],
+        'required_sql_identifiers': list(dict.fromkeys([
+            *[v for v in observation.required_sql_identifiers if quoted_in_task(v)],
+            *output_aliases,
+        ])),
+        'required_sql_clauses': [v for v in observation.required_sql_clauses if quoted_in_task(v)],
+        'required_literals': [v for v in observation.required_literals
+                              if quoted_in_task(v) and v not in observation.required_sql_identifiers
+                              and v.casefold() not in alias_keys
+                              and not re.fullmatch(r'as\s+\w+', v, re.I)],
+        'allow_join': not bool(re.search(r'(?:без|without|no|не\s+использ\w*)\s+joins?\b', task_text, re.I)),
+        'allow_cte': not bool(re.search(r'(?:без|without|no|не\s+использ\w*)\s+(?:cte|with)\b', task_text, re.I)),
+    }).checked()
 
 
 async def _extract_observation(
@@ -537,6 +771,10 @@ async def _extract_observation(
     # Extraction is a bounded schema/OCR step, not the final reasoning step.
     # GPT-5.6 officially supports low effort, which trims sequential latency.
     observation_reasoning = _low_reasoning_effort(reasoning)
+    if model.lower() == "deepseek/deepseek-v4.1-flash":
+        # Even low effort exhausted all 1800 OCR tokens before any JSON.
+        # Keep thinking for answer/repair, not for evidence transcription.
+        observation_reasoning = {"enabled": False, "exclude": True}
     last_error: Exception | None = None
     for attempt in range(2):
         try:
@@ -550,7 +788,8 @@ async def _extract_observation(
                 response_format=_observation_response_format(),
                 screen_workload_phase="observation",
             )
-            return _ScreenObservation.model_validate_json(raw, strict=True).checked()
+            observation = _ScreenObservation.model_validate_json(raw, strict=True).checked()
+            return _ground_sql_observation(_derive_scalar_echo_job_defects(observation))
         except ScreenTaskPipelineError:
             raise
         except (TypeError, ValueError, ValidationError, json.JSONDecodeError) as exc:
@@ -657,6 +896,7 @@ def _normalized_frame(
 
 
 def _new_state(observation: _ScreenObservation, *, now_ms: int) -> ScreenTaskState:
+    sql_identifiers = _normalized_observation_sql_identifiers(observation)
     return ScreenTaskState(
         task_kind=observation.task_kind,
         response_kind=observation.response_kind,
@@ -673,9 +913,7 @@ def _new_state(observation: _ScreenObservation, *, now_ms: int) -> ScreenTaskSta
                 item.strip() for item in observation.required_python_signatures
             ),
             required_python_calls=tuple(item.strip() for item in observation.required_python_calls),
-            required_sql_identifiers=tuple(
-                item.strip() for item in observation.required_sql_identifiers
-            ),
+            required_sql_identifiers=sql_identifiers,
             required_sql_clauses=tuple(item.strip() for item in observation.required_sql_clauses),
             required_sql_bound_ids=tuple(
                 item.strip() for item in observation.required_sql_bound_ids
@@ -699,6 +937,21 @@ def _new_state(observation: _ScreenObservation, *, now_ms: int) -> ScreenTaskSta
             updated_at_ms=now_ms,
             expires_at_ms=now_ms + SCREEN_TASK_STATE_TTL_MS,
         ),
+    )
+
+
+def _normalized_observation_sql_identifiers(
+    observation: _ScreenObservation,
+) -> tuple[str, ...]:
+    identifiers = tuple(item.strip() for item in observation.required_sql_identifiers)
+    terminal_names = {identifier.rsplit(".", 1)[-1] for identifier in identifiers}
+    redundant_bound_names = {
+        bound_id
+        for bound_id in observation.required_sql_bound_ids
+        if bound_id.rsplit("_", 1)[-1] != bound_id and bound_id.rsplit("_", 1)[-1] in terminal_names
+    }
+    return tuple(
+        identifier for identifier in identifiers if identifier not in redundant_bound_names
     )
 
 
@@ -800,7 +1053,8 @@ def _refine_state_metadata(
             state.requirements.required_python_calls, observation.required_python_calls
         ),
         required_sql_identifiers=merge_requirement(
-            state.requirements.required_sql_identifiers, observation.required_sql_identifiers
+            state.requirements.required_sql_identifiers,
+            _normalized_observation_sql_identifiers(observation),
         ),
         required_sql_clauses=merge_requirement(
             state.requirements.required_sql_clauses, observation.required_sql_clauses
@@ -840,6 +1094,16 @@ def _render_unified_findings(state: ScreenTaskState) -> str:
     return "\n".join(lines)
 
 
+def _render_grounded_analysis(state: ScreenTaskState, draft: _AnalysisDraft) -> str:
+    lines = [
+        _render_unified_findings(state),
+        "",
+        "Сводный анализ по сохранённым фактам:",
+    ]
+    lines.extend(f"- {' '.join(item.text.split())}" for item in draft.items)
+    return "\n".join(lines)
+
+
 def _grounding_issues(
     *,
     finding_ids: Sequence[str],
@@ -863,6 +1127,26 @@ def _grounding_issues(
     return tuple(issues)
 
 
+def _grounding_terms(text: str) -> frozenset[str]:
+    tokens = re.findall(r"[a-zа-яё][a-zа-яё0-9_]{2,}", text.casefold())
+    return frozenset(token if "_" in token or len(token) <= 5 else token[:5] for token in tokens)
+
+
+def _analysis_expresses_cited_findings(
+    draft: _AnalysisDraft,
+    *,
+    state: ScreenTaskState,
+) -> bool:
+    for finding in active_screen_findings(state):
+        expected_terms = _grounding_terms(f"{finding.claim} {finding.evidence}")
+        cited_items = [item for item in draft.items if finding.id in item.finding_ids]
+        if not expected_terms or not any(
+            _grounding_terms(item.text) & expected_terms for item in cited_items
+        ):
+            return False
+    return True
+
+
 def _analysis_draft_issues(
     raw: str,
     *,
@@ -874,12 +1158,17 @@ def _analysis_draft_issues(
         return None, ("analysis_schema_invalid",)
     finding_ids = [finding_id for item in draft.items for finding_id in item.finding_ids]
     source_ids = [source_id for item in draft.items for source_id in item.source_ids]
-    return draft, _grounding_issues(
-        finding_ids=finding_ids,
-        source_ids=source_ids,
-        state=state,
-        require_all=True,
+    issues = list(
+        _grounding_issues(
+            finding_ids=finding_ids,
+            source_ids=source_ids,
+            state=state,
+            require_all=True,
+        )
     )
+    if not _analysis_expresses_cited_findings(draft, state=state):
+        issues.append("grounding_unexpressed")
+    return draft, tuple(issues)
 
 
 async def _generate_analysis_answer(
@@ -893,10 +1182,15 @@ async def _generate_analysis_answer(
     complete: CompleteCall,
 ) -> str:
     prompt = (
-        "Reason over every active typed finding and exact source fragment below. Return one "
-        "unified analysis in the strict JSON schema. Every item must cite at least one active "
-        "finding/source id, and the complete draft must cite every active id. Do not invent "
-        "facts outside the cited sources.\n\n"
+        "Answer the latest correction directly by reasoning over every active typed finding "
+        "and exact source fragment below. Return one unified analysis in the strict JSON "
+        "schema. Every item must cite at least one active finding/source id, and the complete "
+        "draft must cite every active id. The text itself, not merely its ids, must express "
+        "the specific subject and conclusion of each cited finding. For a defect task, state "
+        "the exact visible subject and the faulty or missing behavior; do not merely repeat a "
+        "configuration line. If the question asks to identify a platform or system, name it "
+        "explicitly when the sources support it. Do not invent facts outside the cited "
+        "sources.\n\n"
         f"{render_screen_task_context(state, include_all_findings=True)}\n\n"
         f"LATEST CORRECTION (highest priority):\n{latest_correction or '[none]'}"
     )
@@ -938,11 +1232,10 @@ async def _generate_analysis_answer(
             "invalid_screen_answer",
             "Анализ не прошёл проверку полноты. Повторите запрос.",
         )
-    # The model draft proves that every active typed id was considered, but it
-    # is not allowed to restate or contradict the application-owned ledger.
-    # The visible answer is therefore composed solely from the validated,
-    # omission-preserving findings accumulated across frames.
-    return _render_unified_findings(state)
+    # The immutable application-owned ledger stays first and can never be
+    # replaced by model prose. The validated synthesis follows it so the model
+    # can derive a useful cross-frame conclusion from every retained source.
+    return _render_grounded_analysis(state, draft)
 
 
 def _validation_input(
@@ -960,6 +1253,21 @@ def _validation_input(
     code_language: Literal["python", "sql"] = (
         "python" if typed.code_language == ScreenCodeLanguage.PYTHON else "sql"
     )
+    validation_literals = typed.required_literals
+    if code_language == "sql":
+        if _SQL_SUFFIX_OBJECTIVE_RE.search(typed.objective):
+            decorated_literals = tuple(f"%{literal}" for literal in validation_literals)
+        elif _SQL_PREFIX_OBJECTIVE_RE.search(typed.objective):
+            decorated_literals = tuple(f"{literal}%" for literal in validation_literals)
+        elif _SQL_CONTAINS_OBJECTIVE_RE.search(typed.objective):
+            decorated_literals = tuple(f"%{literal}%" for literal in validation_literals)
+        else:
+            decorated_literals = ()
+        if decorated_literals:
+            validation_literals = tuple(
+                literal if any(marker in literal for marker in ("%", "_")) else decorated
+                for literal, decorated in zip(validation_literals, decorated_literals, strict=True)
+            )
     signatures = typed.required_python_signatures
     requirements = tuple(
         [
@@ -995,14 +1303,14 @@ def _validation_input(
                 stable_id=f"required-literal-{index}",
                 literals=(value,),
             )
-            for index, value in enumerate(typed.required_literals, start=1)
+            for index, value in enumerate(validation_literals, start=1)
         ]
     )
     return ScreenAnswerValidationInput(
         answer=answer,
         stable_requirements=requirements,
         visible_public_signature=signatures[0] if signatures else None,
-        visible_literals=typed.required_literals,
+        visible_literals=validation_literals,
         simplify=bool(_SIMPLIFY_RE.search(latest_correction)),
         allow_join=typed.allow_join,
         allow_cte=typed.allow_cte,
@@ -1010,8 +1318,10 @@ def _validation_input(
         allow_helper=typed.allow_helper,
         required_sql_bound_ids=typed.required_sql_bound_ids,
         trusted_sql_receivers=("conn", "cursor"),
-        require_russian_intro=True,
-        require_russian_line_comments=True,
+        # Presentation preferences are not correctness constraints. A valid
+        # answer must not be discarded or regenerated for missing prose/comments.
+        require_russian_intro=False,
+        require_russian_line_comments=False,
         code_language=code_language,
         python_shape=(typed.python_shape or PythonShape.FUNCTION).value,
         expected_sql_statement_kind=(
@@ -1029,9 +1339,22 @@ def _answer_prompt(state: ScreenTaskState, latest_correction: str) -> str:
         "Solve the typed screen task below. Use only this validated text state; no pixels "
         "or raw prior answer are available. Return the smallest standard solution that "
         "preserves every explicit requirement. For code, first give a short natural Russian "
-        "explanation, then exactly one fenced code block. Put a short Russian comment on the "
-        "line immediately below every substantive code line, using # for Python and -- for "
-        "SQL. Bind user-provided SQL values as parameters and keep required table/column "
+        "explanation of the task's solution, then exactly one fenced code block. Never "
+        "discuss the draft, validator, issue codes, missing Russian text or formatting "
+        "repairs in the user-facing explanation. After every executable code line, add a "
+        "short Russian comment on a separate line explaining what that line does, using "
+        "-- for SQL or # for Python. Keep comments inside the fenced code block. "
+        "For SQL, write the introduction as neutral infinitive actions (for example, "
+        "'Соединить таблицы, вычислить среднее, округлить результат и отсортировать его'), "
+        "never as a conjugated description such as 'Запрос соединяет'. In SQL code, always "
+        "uppercase every SQL keyword (SELECT, FROM, JOIN, WHERE, GROUP BY, ORDER BY, etc.) "
+        "while preserving the case of identifiers, string literals, and comments. Never "
+        "insert a comment inside a multiline string or break line continuations. "
+        "Before answering, check every literal against the source, including whitespace "
+        "and Latin/Cyrillic lookalikes. A visible zero result or failed editor query is "
+        "evidence to investigate, not a solution to repeat. Do not translate database values "
+        "to match Russian prose. Bind user-provided SQL values as parameters "
+        "and keep required table/column "
         "identifiers exact. For the Python function profile, emit one straight-line target "
         "function with no extra definitions, decorators, setup calls, or imports except an "
         "exact visibly required typing import. Execute required SQL directly on the visible "
@@ -1041,6 +1364,11 @@ def _answer_prompt(state: ScreenTaskState, latest_correction: str) -> str:
         "trusted execute result. Do not add helpers, JOIN, CTE, JSON conversion, cursor "
         "metadata, try/finally wrappers, or architecture unless the typed requirements "
         "explicitly require them.\n\n"
+        "For school-class labels read only from pixels, an isolated suffix like '10 B' "
+        "and '10 В' is visually ambiguous. If no exact table data disambiguates it, use "
+        "IN with the Latin and Cyrillic lookalike alternatives instead of guessing one "
+        "alphabet and returning zero. Briefly explain that visual ambiguity in Russian. "
+        "Never broaden unambiguous names, identifiers or ordinary text this way.\n\n"
         f"{render_screen_task_context(state)}\n\n"
         f"LATEST CORRECTION (highest priority):\n{latest_correction or '[none]'}"
     )
@@ -1115,6 +1443,131 @@ def _deterministic_simple_select_answer(
     return candidate if validation.valid else None
 
 
+def _uppercase_sql_keywords(sql: str) -> str:
+    """Uppercase SQL operators without changing literals, identifiers, or comments."""
+
+    chunks: list[str] = []
+    index = 0
+    while index < len(sql):
+        char = sql[index]
+        next_char = sql[index + 1] if index + 1 < len(sql) else ""
+        if char == "-" and next_char == "-":
+            newline = sql.find("\n", index + 2)
+            end = len(sql) if newline < 0 else newline
+            chunks.append(sql[index:end])
+            index = end
+            continue
+        if char == "/" and next_char == "*":
+            closing = sql.find("*/", index + 2)
+            if closing < 0:
+                chunks.append(sql[index:])
+                break
+            end = closing + 2
+            chunks.append(sql[index:end])
+            index = end
+            continue
+        if char == "$":
+            tag_match = re.match(r"\$[A-Za-z_]*\$", sql[index:])
+            if tag_match:
+                tag = tag_match.group(0)
+                closing = sql.find(tag, index + len(tag))
+                end = len(sql) if closing < 0 else closing + len(tag)
+                chunks.append(sql[index:end])
+                index = end
+                continue
+        if char in {"'", '"', "`", "["}:
+            quoted_closing = "]" if char == "[" else char
+            end = index + 1
+            while end < len(sql):
+                if sql[end] == quoted_closing:
+                    if end + 1 < len(sql) and sql[end + 1] == quoted_closing:
+                        end += 2
+                        continue
+                    end += 1
+                    break
+                end += 1
+            chunks.append(sql[index:end])
+            index = end
+            continue
+        if char.isalpha() or char == "_":
+            end = index + 1
+            while end < len(sql) and (sql[end].isalnum() or sql[end] in {"_", "$"}):
+                end += 1
+            word = sql[index:end]
+            chunks.append(word.upper() if word.lower() in _SQL_KEYWORDS else word)
+            index = end
+            continue
+        chunks.append(char)
+        index += 1
+    return "".join(chunks)
+
+
+def _normalize_sql_explanation(answer: str) -> str:
+    """Use neutral infinitive actions in the natural-language SQL introduction."""
+
+    marker = re.search(r"```\s*sql\b", answer, flags=re.IGNORECASE)
+    if marker is None:
+        return answer
+    prefix = answer[: marker.start()]
+    suffix = answer[marker.start() :]
+
+    def replace_verb(match: re.Match[str]) -> str:
+        original = match.group(0)
+        replacement = _SQL_EXPLANATION_VERB_REPLACEMENTS[original.lower()]
+        return replacement.capitalize() if original[:1].isupper() else replacement
+
+    prefix = re.sub(
+        r"\b(?:соединяет|вычисляет|округляет|сортирует|выбирает|фильтрует|"
+        r"группирует|объединяет|считает|возвращает|использует|сохраняет|"
+        r"сопоставляет|применяет|отбирает|суммирует|подсчитывает|находит|"
+        r"сравнивает|разделяет|выводит)\b",
+        replace_verb,
+        prefix,
+        flags=re.IGNORECASE,
+    )
+    prefix = re.sub(
+        r"^(\s*)(?:этот\s+)?запрос\s+(?=(?:соединить|вычислить|округлить|"
+        r"сортировать|выбрать|отфильтровать|сгруппировать|объединить|"
+        r"посчитать|вернуть|использовать|сохранить|сопоставить|применить|"
+        r"отобрать|суммировать|подсчитать|найти|сравнить|разделить|вывести)\b)",
+        r"\1",
+        prefix,
+        flags=re.IGNORECASE,
+    )
+    prefix = re.sub(
+        r"^(\s*)([а-яё])",
+        lambda match: match.group(1) + match.group(2).upper(),
+        prefix,
+        count=1,
+    )
+    return prefix + suffix
+
+
+def _format_sql_line_comments(answer: str) -> str:
+    """Normalize SQL prose and keywords while preserving executable SQL semantics."""
+    def format_block(match: re.Match[str]) -> str:
+        original = match.group(2)
+        before = _lex_sql(original)
+        if before is None:
+            return match.group(0)
+        lines: list[str] = []
+        for line in original.splitlines():
+            index = _sql_comment_index(line)
+            if index is not None and line[:index].strip() and line[index:].startswith('--'):
+                indent = line[:len(line) - len(line.lstrip())]
+                lines.extend((line[:index].rstrip(), indent + line[index:]))
+            else:
+                lines.append(line)
+        formatted = '\n'.join(lines) + ('\n' if original.endswith('\n') else '')
+        if _lex_sql(formatted) != before:
+            return match.group(0)
+        formatted = _uppercase_sql_keywords(formatted)
+        return match.group(1) + formatted + match.group(3)
+
+    normalized = _normalize_sql_explanation(answer)
+    return re.sub(r'(```sql\s*\n)(.*?)(```)', format_block, normalized, flags=re.S | re.I)
+
+
 async def _generate_code_answer(
     *,
     state: ScreenTaskState,
@@ -1142,7 +1595,16 @@ async def _generate_code_answer(
     base_messages = [
         {
             "role": "system",
-            "content": "You are a precise technical interview coding assistant.",
+            "content": (
+                "You are a precise technical interview coding assistant. "
+                "Return a final solution, never a report about repairing your response. "
+                "Start with 1-2 Russian sentences explaining the algorithm, then one code block. "
+                "Preserve the exact quantifiers in the original task statement. For SQL asking "
+                "for ALL entities and an aggregate from related rows, retain entities without "
+                "matching rows (typically LEFT JOIN); do not silently restrict to entities "
+                "with matches. Use COALESCE when an absent monetary sum represents zero. "
+                "Use the provided schema exactly; never invent or rename tables or columns."
+            ),
         },
         {"role": "user", "content": _answer_prompt(state, latest_correction)},
     ]
@@ -1159,17 +1621,25 @@ async def _generate_code_answer(
         _validation_input(draft, state=state, latest_correction=latest_correction)
     )
     if validation.valid:
-        return draft.strip()
+        return _format_sql_line_comments(draft.strip())
 
     issue_codes = ", ".join(code.value for code in validation.issue_codes)
+    repair_shape = (
+        "Emit exactly one SQL statement in a sql fenced block, not a Python function. "
+        "Preserve the required SQL identifiers, clauses and visible literals. "
+        if state.requirements.code_language == ScreenCodeLanguage.SQL
+        else "Emit exactly one target function and no helper or setup layer. Keep the "
+        "control and SQL dataflow straight-line: assign the single trusted execute result, "
+        "bind each required scalar value separately (a one-element tuple for positional "
+        "placeholders), then return the required result. "
+    )
     repair_prompt = (
         f"{_answer_prompt(state, latest_correction)}\n\n"
         "Repair the draft exactly once. The deterministic validator returned only these "
         f"stable issue codes: {issue_codes}. Fix every listed issue without adding unrelated "
-        "layers. Emit exactly one target function and no helper or setup layer. Keep the "
-        "control and SQL dataflow straight-line: assign the single trusted execute result, "
-        "bind each required scalar value separately (a one-element tuple for positional "
-        "placeholders), then return the required result. Return the full answer, not a diff.\n\n"
+        f"layers. {repair_shape}Return only the final solution as if answering for the first "
+        "time, not a diff or a repair report. The introduction must explain the task's "
+        "algorithm, never what you changed in the draft or which check failed.\n\n"
         f"INVALID DRAFT:\n{draft[:MAX_REPAIR_DRAFT_CHARS]}"
     )
     repaired = await complete(
@@ -1184,12 +1654,41 @@ async def _generate_code_answer(
     repaired_validation = validate_screen_answer(
         _validation_input(repaired, state=state, latest_correction=latest_correction)
     )
-    if not repaired_validation.valid:
-        raise ScreenTaskPipelineError(
-            "invalid_screen_answer",
-            "Ответ не прошёл проверку точности. Повторите запрос.",
-        )
-    return repaired.strip()
+    if repaired_validation.valid:
+        return _format_sql_line_comments(repaired.strip())
+
+    # A provider can repeat the same malformed draft during the bounded repair
+    # call. Give it one fresh, state-only generation before surfacing an error;
+    # this does not recapture the screen or re-run observation, so it cannot
+    # introduce stale visual context and is still bounded to three completions.
+    retry_prompt = (
+        f"{_answer_prompt(state, latest_correction)}\n\n"
+        "Generate a fresh independent final answer from the validated state. "
+        "Do not reuse either previous draft, do not mention validation, and return "
+        "only the requested solution. Preserve every required identifier, clause, "
+        "literal, signature, and output contract."
+    )
+    retried = await complete(
+        [base_messages[0], {"role": "user", "content": retry_prompt}],
+        provider,
+        model,
+        max_tokens=max_tokens,
+        temperature=0.0,
+        reasoning=reasoning,
+        screen_workload_phase="repair",
+    )
+    retried_validation = validate_screen_answer(
+        _validation_input(retried, state=state, latest_correction=latest_correction)
+    )
+    if retried_validation.valid:
+        return _format_sql_line_comments(retried.strip())
+    logger.warning('screen answer rejected model=%s issues=%s', model,
+                   ','.join(code.value for code in retried_validation.issue_codes))
+    raise ScreenTaskPipelineError(
+        "invalid_screen_answer",
+        "Ответ не прошёл проверку точности. Повторите запрос.",
+        issue_codes=tuple(code.value for code in retried_validation.issue_codes),
+    )
 
 
 def _checklist_draft_issues(
@@ -1217,7 +1716,9 @@ def _checklist_draft_issues(
     normalized_items = tuple(normalize_screen_checklist_text(item.text) for item in items)
     if len(normalized_items) != len(set(normalized_items)):
         issues.append("checklist_duplicate")
-    candidate_signatures = tuple(_checklist_concept_signature(item) for item in normalized_items)
+    # Preserve identifiers (e.g. payment_method) on both sides of concept comparisons.
+    # Exact-text normalization above remains separate from concept tokenization.
+    candidate_signatures = tuple(_checklist_concept_signature(item.text) for item in items)
     if any(
         left
         and right
@@ -1262,6 +1763,44 @@ def _checklist_draft_issues(
     return items, tuple(dict.fromkeys(issues))
 
 
+def _checklist_draft_json(items: Sequence[_ChecklistDraftItem]) -> str:
+    return json.dumps(
+        {"items": [{"text": item.text, "semantic_key": item.semantic_key} for item in items]},
+        ensure_ascii=False,
+    )
+
+
+def _salvage_checklist_items(
+    *drafts: Sequence[_ChecklistDraftItem],
+    state: ScreenTaskState,
+) -> tuple[_ChecklistDraftItem, ...] | None:
+    """Select an exact strict subset from already-paid answer and repair drafts."""
+
+    requested_count = state.requirements.requested_item_count
+    if requested_count is None:
+        return None
+    selected: list[_ChecklistDraftItem] = []
+    seen: set[tuple[str, str]] = set()
+    for draft in drafts:
+        for item in draft:
+            key = (normalize_screen_checklist_text(item.text), item.semantic_key)
+            if key in seen:
+                continue
+            seen.add(key)
+            candidate = (*selected, item)
+            _, issues = _checklist_draft_issues(_checklist_draft_json(candidate), state=state)
+            if any(issue != "checklist_count_mismatch" for issue in issues):
+                continue
+            selected.append(item)
+            if len(selected) == requested_count:
+                validated, final_issues = _checklist_draft_issues(
+                    _checklist_draft_json(selected),
+                    state=state,
+                )
+                return validated if not final_issues else None
+    return None
+
+
 def _checklist_prompt(state: ScreenTaskState, latest_correction: str) -> str:
     requirements = state.requirements
     if requirements.checklist_scope is None:
@@ -1270,7 +1809,8 @@ def _checklist_prompt(state: ScreenTaskState, latest_correction: str) -> str:
         scope_instruction = {
             ChecklistScope.BUSINESS: (
                 "Return only observable business-behaviour checks. Do not include databases, "
-                "SQL, tables, indexes, storage, implementation, or infrastructure."
+                "SQL, tables, indexes, storage, implementation, infrastructure, API, endpoint, "
+                "HTTP, JSON, protocol, status code, headers, queues, caches, or logs."
             ),
             ChecklistScope.TECHNICAL: "Return only technical implementation-level checks.",
             ChecklistScope.MIXED: "Return a purposeful mix of business and technical checks.",
@@ -1359,6 +1899,7 @@ async def _generate_checklist_answer(
         screen_workload_phase="answer",
     )
     items, issues = _checklist_draft_issues(draft, state=state)
+    original_items = items or ()
     if issues:
         repair_prompt = (
             f"{prompt}\n\nRepair the draft exactly once. Deterministic issue codes: "
@@ -1380,7 +1921,17 @@ async def _generate_checklist_answer(
             response_format=response_format,
             screen_workload_phase="repair",
         )
-        items, issues = _checklist_draft_issues(repaired, state=state)
+        repaired_items, issues = _checklist_draft_issues(repaired, state=state)
+        items = repaired_items
+        if issues:
+            salvaged = _salvage_checklist_items(
+                repaired_items or (),
+                original_items,
+                state=state,
+            )
+            if salvaged is not None:
+                items = salvaged
+                issues = ()
     if issues or items is None:
         raise ScreenTaskPipelineError(
             "invalid_screen_answer",
@@ -1645,10 +2196,15 @@ async def run_screen_task_pipeline(
         )
 
     if state.response_kind == ScreenResponseKind.ANALYSIS_FINDINGS:
-        # The observation stage already produced strict, bounded findings. The
-        # application owns their lossless composition, so a second model call
-        # cannot omit, rewrite, or merely pretend to cite an earlier finding.
-        answer = _render_unified_findings(state)
+        answer = await _generate_analysis_answer(
+            state=state,
+            latest_correction=latest_correction,
+            provider=provider,
+            model=model,
+            max_tokens=max_tokens,
+            reasoning=reasoning,
+            complete=complete,
+        )
     elif state.response_kind == ScreenResponseKind.CODE_SOLUTION:
         answer = await _generate_code_answer(
             state=state,

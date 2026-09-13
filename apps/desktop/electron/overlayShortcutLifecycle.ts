@@ -13,6 +13,10 @@ export interface OverlayMoveShortcuts {
   step?: number;
 }
 
+export interface OverlayClickThroughShortcut {
+  toggle(): void;
+}
+
 const MOVE_ACCELERATORS = [
   ['CommandOrControl+Up', 0, -1],
   ['CommandOrControl+Down', 0, 1],
@@ -25,11 +29,14 @@ const SCROLL_ACCELERATORS = [
   ['CommandOrControl+Shift+Down', 1],
 ] as const;
 
+const CLICK_THROUGH_ACCELERATORS = ['CommandOrControl+Alt+0', 'CommandOrControl+Alt+O'] as const;
+
 export function bindOverlayShortcutLifecycle(
   window: OverlayShortcutWindow,
   shortcuts: ShortcutRegistry,
   hideOverlay: () => void,
   moveShortcuts?: OverlayMoveShortcuts,
+  clickThroughShortcut?: OverlayClickThroughShortcut,
 ): void {
   const unregister = () => {
     shortcuts.unregister('Escape');
@@ -38,6 +45,9 @@ export function bindOverlayShortcutLifecycle(
       if (moveShortcuts.scroll) {
         for (const [accelerator] of SCROLL_ACCELERATORS) shortcuts.unregister(accelerator);
       }
+    }
+    if (clickThroughShortcut) {
+      for (const accelerator of CLICK_THROUGH_ACCELERATORS) shortcuts.unregister(accelerator);
     }
   };
 
@@ -65,6 +75,15 @@ export function bindOverlayShortcutLifecycle(
           } catch {
             // Scrolling inside the focused overlay remains available.
           }
+        }
+      }
+    }
+    if (clickThroughShortcut) {
+      for (const accelerator of CLICK_THROUGH_ACCELERATORS) {
+        try {
+          shortcuts.register(accelerator, clickThroughShortcut.toggle);
+        } catch {
+          // Keep the alternate shortcut available if another app owns one.
         }
       }
     }

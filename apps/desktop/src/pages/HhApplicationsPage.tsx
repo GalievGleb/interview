@@ -29,7 +29,7 @@ const EMPTY_CONFIG: HhAssistantConfig = {
 const PLATFORMS = [
   { id: 'hh' as const, label: 'HH.ru', hint: 'Почта + код, поиск и автоотклики' },
   { id: 'linkedin' as const, label: 'LinkedIn', hint: 'Вакансии и Easy Apply' },
-  { id: 'avito' as const, label: 'Avito Работа', hint: 'Поиск вакансий и ручное подтверждение' },
+  { id: 'avito' as const, label: 'Avito Работа', hint: 'Поиск работы в разработке' },
 ];
 
 const splitList = (value: string) => value.split(',').map((item) => item.trim()).filter(Boolean);
@@ -427,6 +427,10 @@ export default function HhApplicationsPage() {
   const screeningDrafts = useMemo(() => readHhScreeningDrafts(), []);
   const pendingScreeningQuestions = countUnansweredHhScreeningQuestions(screeningSummary, screeningDrafts);
   const platformMatches = state?.config.platform === draft.platform;
+  const anotherPlatformBusy = !platformMatches && Boolean(
+    state?.phase === 'scanning' || state?.applying
+    || state?.runHistory.some((run) => run.status === 'running'),
+  );
   const connected = Boolean(state?.browserOpen && platformMatches && !state.loginRequired);
   const hhConnected = draft.platform === 'hh' && connected;
   const hhRestoreCandidate = Boolean(
@@ -965,7 +969,7 @@ export default function HhApplicationsPage() {
             action: () => void stopAutomation(),
             tone: 'active',
           }
-        : state?.queuePaused
+        : platformMatches && state?.queuePaused
           ? {
               title: 'Поиск и автоотклики остановлены',
               detail: 'Уже выполненные действия сохранены. Оставшаяся очередь продолжится только после нового запуска.',
@@ -1013,7 +1017,8 @@ export default function HhApplicationsPage() {
         </p>
       )}
 
-      {pageMode === 'activity' && <section className={`hh-daily-overview panel-card shrink-0 p-5 is-${overview.tone}`} aria-live="polite">
+      {pageMode === 'activity' && draft.platform === 'avito' && <section className="panel-card p-5"><h2 className="panel-title">Поиск работы в разработке</h2><p className="mt-2 text-sm text-ink-muted">Поиск вакансий Avito пока недоступен. Выберите HH.ru или LinkedIn в настройках.</p></section>}
+      {pageMode === 'activity' && draft.platform !== 'avito' && <section className={`hh-daily-overview panel-card shrink-0 p-5 is-${overview.tone}`} aria-live="polite">
         <div className="flex flex-wrap items-center gap-4">
           <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-2xl ${overview.tone === 'attention' ? 'bg-violet-400/10 text-violet-200' : overview.tone === 'active' ? 'hh-run-orbit is-active bg-sky-500/10 text-sky-200' : 'bg-emerald-500/10 text-emerald-300'}`}>
             {overview.tone === 'active' ? <Search size={20} /> : overview.tone === 'attention' ? <AlertTriangle size={20} /> : <Check size={20} />}
@@ -1026,7 +1031,7 @@ export default function HhApplicationsPage() {
           <div className="hh-daily-overview__stats" aria-label="Сводка откликов">
             <span><small>Сегодня</small><strong>{todaySent}</strong></span>
             <span><small>Нужно от вас</small><strong className={userActionCount ? 'text-violet-200' : ''}>{userActionCount}</strong></span>
-            <span><small>Ответов HR сегодня</small><strong>{chatState?.repliesToday ?? 0}</strong></span>
+            <span><small>Ответов HR сегодня</small><strong>{draft.platform === 'hh' ? chatState?.repliesToday ?? 0 : 0}</strong></span>
           </div>
           <button type="button" className={`${overview.tone === 'active' ? 'btn-danger' : 'btn-primary'} shrink-0`} disabled={overview.tone === 'active' && stoppingRun} onClick={overview.action}>
             {overview.tone === 'active' ? stoppingRun ? <Loader2 className="animate-spin" size={15} /> : <Square size={14} /> : null}
@@ -1071,13 +1076,18 @@ export default function HhApplicationsPage() {
 
       {pageMode === 'settings' && <>
       <section className="grid shrink-0 gap-3 md:grid-cols-3" aria-label="Площадки для откликов">
-        {PLATFORMS.map((item) => <button key={item.id} type="button" onClick={() => setDraft({ ...draft, platform: item.id })} className={`rounded-xl border p-4 text-left transition-colors ${draft.platform === item.id ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-surface-border bg-surface-light hover:bg-surface-hover'}`}>
+        {PLATFORMS.map((item) => <button key={item.id} type="button" onClick={() => {
+          setDraft({ ...draft, platform: item.id });
+          if (assistant && state && !activeRun && !state.applying && state.phase !== 'scanning' && state.config.platform !== item.id) {
+            void run('platform', () => assistant.saveConfig({ platform: item.id })).catch(() => undefined);
+          }
+        }} className={`rounded-xl border p-4 text-left transition-colors ${draft.platform === item.id ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-surface-border bg-surface-light hover:bg-surface-hover'}`}>
           <div className="flex items-center justify-between gap-3"><b className="text-sm text-ink">{item.label}</b><span className={`rounded-full px-2 py-1 text-[11px] ${item.id === 'hh' ? 'bg-emerald-500/10 text-emerald-300' : 'bg-sky-500/10 text-sky-200'}`}>{item.id === 'hh' ? 'Автоотклики' : 'Поиск вакансий'}</span></div>
           <p className="mt-2 text-xs text-ink-faint">{item.hint}</p>
         </button>)}
       </section>
 
-      {draft.platform === 'hh' ? <section id="hh-platform-connection" className="panel-card shrink-0 scroll-mt-5 p-5">
+      {draft.platform === 'avito' ? <section className="panel-card p-5"><h2 className="panel-title">Поиск работы в разработке</h2><p className="mt-2 text-sm text-ink-muted">Поиск вакансий Avito пока недоступен. Поиски и результаты других площадок здесь не отображаются.</p></section> : draft.platform === 'hh' ? <section id="hh-platform-connection" className="panel-card shrink-0 scroll-mt-5 p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className={`grid h-10 w-10 place-items-center rounded-full ${hhConnected ? 'bg-emerald-500/10 text-emerald-300' : hhSessionUnchecked ? 'bg-sky-500/10 text-sky-200' : 'bg-surface-elevated text-ink-muted'}`}>{hhSessionUnchecked ? <Loader2 className="animate-spin" size={19} /> : <Mail size={19} />}</div>
@@ -1115,12 +1125,13 @@ export default function HhApplicationsPage() {
       </section> : <section id="hh-platform-connection" className="panel-card shrink-0 scroll-mt-5 p-5">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div><h2 className="panel-title">Подключите {PLATFORMS.find((item) => item.id === draft.platform)?.label}</h2><p className="text-xs text-ink-faint">Вход выполняется вручную в обычном Chrome; сессия остаётся только на этом устройстве.</p></div>
-          <button className="btn-primary" disabled={busy === 'browser'} onClick={() => void run('browser', () => assistant.openBrowser(draft.platform)).catch(() => undefined)}>{busy === 'browser' ? <Loader2 className="animate-spin" size={15} /> : <ExternalLink size={15} />}Открыть площадку</button>
+          <button className="btn-primary" disabled={busy === 'browser' || anotherPlatformBusy} onClick={() => void run('browser', () => assistant.openBrowser(draft.platform)).catch(() => undefined)}>{busy === 'browser' ? <Loader2 className="animate-spin" size={15} /> : <ExternalLink size={15} />}Открыть площадку</button>
         </div>
-        {state?.message && <p className="mt-3 text-xs text-ink-muted">{state.message}</p>}
+        {platformMatches && state?.message && <p className="mt-3 text-xs text-ink-muted">{state.message}</p>}
+        {anotherPlatformBusy && <p className="mt-3 text-xs text-ink-muted">Для запуска другой площадки дождитесь завершения текущего поиска.</p>}
       </section>}
 
-      {!connected ? (
+      {draft.platform !== 'avito' && (!connected ? (
         <div className="rounded-xl border border-dashed border-surface-border px-6 py-10 text-center text-sm text-ink-faint">
           Сначала откройте выбранную площадку и войдите в аккаунт. После этого запустите поиск.
         </div>
@@ -1443,10 +1454,10 @@ export default function HhApplicationsPage() {
         </section>
       )}
       */}
-      </>}
+      </>)}
       </>}
 
-      {pageMode === 'activity' && <>
+      {pageMode === 'activity' && draft.platform !== 'avito' && <>
       {state && featuredRun && <details id="hh-run-panel" className="group panel-card shrink-0 scroll-mt-5 overflow-hidden">
         <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-3.5 hover:bg-surface-hover/35">
           <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${activeRun ? 'bg-sky-300' : featuredRun.status === 'failed' ? 'bg-red-400' : featuredRun.status === 'attention' ? 'bg-amber-300' : 'bg-emerald-400'}`} />

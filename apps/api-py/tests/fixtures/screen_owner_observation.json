@@ -1,0 +1,83 @@
+{
+  "task_kind": "code",
+  "response_kind": "code_solution",
+  "correction_mode": "refine",
+  "objective": "Write a SQL query that outputs the identifiers of all room owners who have earned money on the accommodation booking service, along with the total amount they earned, using the aliases 'owner_id' and 'total_earn'.",
+  "public_contract": [
+    "Output column aliases must be exactly 'owner_id' and 'total_earn'.",
+    "The query must return identifiers of all owners who have earned money.",
+    "The query must return the total amount earned by each such owner."
+  ],
+  "constraints": [
+    "Use the alias 'as owner_id' for owner identifiers.",
+    "Use the alias 'as total_earn' for the earned sum.",
+    "Only include owners who have earned money (i.e., have at least one reservation)."
+  ],
+  "allow_join": true,
+  "allow_cte": true,
+  "allow_json": false,
+  "allow_helper": false,
+  "required_python_signatures": [],
+  "required_python_calls": [],
+  "required_sql_identifiers": [
+    "owner_id",
+    "total_earn"
+  ],
+  "required_sql_clauses": [
+    "select",
+    "from",
+    "join",
+    "group by"
+  ],
+  "required_sql_bound_ids": [],
+  "required_literals": [],
+  "code_language": "sql",
+  "python_shape": null,
+  "expected_sql_statement_kind": "select",
+  "requested_item_count": null,
+  "requested_item_count_explicit": false,
+  "checklist_new_only": false,
+  "checklist_scope": null,
+  "visible_text": "SQL ACADEMY Курс Тренажёр Ещё Поиск Ctrl K Премиум Войти Задание ЗАДАНИЕ #69 Заработок владельцев комнат Вывести идентификаторы всех владельцев комнат, что размещены на сервисе бронирования жилья и сумму, которую они заработали Используйте конструкцию 'as owner_id' и 'as total_earn' для вывода идентификаторов владельцев и заработанной суммы соответственно. Поля в результирующей таблице: owner_id total_earn Запустить Отправить Результат Users Reservations Rooms Reviews Здесь будет результат вашего запроса Нажмите на таблицу или поле, чтобы добавить его в редактор",
+  "findings": [
+    {
+      "claim": "The task requires outputting owner identifiers and total earnings with specific aliases.",
+      "evidence": "Используйте конструкцию 'as owner_id' и 'as total_earn' для вывода идентификаторов владельцев и заработанной суммы соответственно.",
+      "kind": "requirement",
+      "supersedes": null
+    },
+    {
+      "claim": "The task requires filtering to only owners who have earned money.",
+      "evidence": "Вывести идентификаторы всех владельцев комнат, что размещены на сервисе бронирования жилья и сумму, которую они заработали",
+      "kind": "requirement",
+      "supersedes": null
+    }
+  ],
+  "sources": [
+    {
+      "text": "ЗАДАНИЕ #69 Заработок владельцев комнат Вывести идентификаторы всех владельцев комнат, что размещены на сервисе бронирования жилья и сумму, которую они заработали Используйте конструкцию 'as owner_id' и 'as total_earn' для вывода идентификаторов владельцев и заработанной суммы соответственно. Поля в результирующей таблице: owner_id total_earn",
+      "kind": "task_text",
+      "supersedes": null
+    },
+    {
+      "text": "Users: id INT, name VARCHAR, email VARCHAR, email_verified DATETIME, password VARCHAR, phone_number VARCHAR",
+      "kind": "schema",
+      "supersedes": null
+    },
+    {
+      "text": "Rooms: id INT, home_type VARCHAR, address VARCHAR, has_tv BOOLEAN, has_internet BOOLEAN, has_kitchen BOOLEAN, has_air_con BOOLEAN, price INT, owner_id INT, latitude FLOAT, longitude FLOAT",
+      "kind": "schema",
+      "supersedes": null
+    },
+    {
+      "text": "Reservations: id INT, user_id INT, room_id INT, start_date DATETIME, end_date DATETIME, price INT, total INT",
+      "kind": "schema",
+      "supersedes": null
+    },
+    {
+      "text": "Reviews: id INT, reservation_id INT, rating INT",
+      "kind": "schema",
+      "supersedes": null
+    }
+  ]
+}

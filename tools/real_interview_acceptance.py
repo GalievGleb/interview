@@ -504,17 +504,19 @@ def source_hash(path: Path) -> str:
     return f"sha256:{digest.hexdigest()}"
 
 
-def _installed_backend_path() -> Path:
+def _installed_backend_path(channel: str = "dev") -> Path:
     override = os.environ.get("SKILLCUE_ACCEPTANCE_BACKEND", "").strip()
     if override:
         return Path(override).expanduser().resolve()
+    if channel not in {"dev", "alpha"}:
+        raise AcceptanceRuntimeError("installed_backend_missing")
     local_app_data = os.environ.get("LOCALAPPDATA", "").strip()
     if not local_app_data:
         raise AcceptanceRuntimeError("localappdata_missing")
     return (
         Path(local_app_data)
         / "Programs"
-        / "skillcue-dev"
+        / f"skillcue-{channel}"
         / "resources"
         / "backend"
         / "skillcue-backend.exe"
@@ -522,7 +524,11 @@ def _installed_backend_path() -> Path:
 
 
 def backend_launch_spec(
-    *, source_backend: bool, port: int, root: Path | None = None
+    *,
+    source_backend: bool,
+    port: int,
+    root: Path | None = None,
+    channel: str = "dev",
 ) -> tuple[list[str], Path | None]:
     """Select the current source API or the installed executable without starting it."""
     repo_root = root or Path(__file__).resolve().parents[1]
@@ -541,7 +547,7 @@ def backend_launch_spec(
             ],
             api_root,
         )
-    return [str(_installed_backend_path())], None
+    return [str(_installed_backend_path(channel))], None
 
 
 def _free_port() -> int:
@@ -566,16 +572,20 @@ def _wait_for_health(port: int, timeout_s: float = 15.0) -> None:
 
 @dataclass
 class InstalledBackendSession:
-    """Isolated installed backend process using the installed Dev gateway identity."""
+    """Isolated installed backend process using the selected channel identity."""
 
     port: int = 0
     token: str = ""
     process: subprocess.Popen[bytes] | None = None
     db_path: Path | None = None
     source_backend: bool = False
+    channel: str = "dev"
 
     def __enter__(self) -> Self:
-        if not self.source_backend and not _installed_backend_path().is_file():
+        if (
+            not self.source_backend
+            and not _installed_backend_path(self.channel).is_file()
+        ):
             raise AcceptanceRuntimeError("installed_backend_missing")
         self.port = _free_port()
         self.token = uuid.uuid4().hex
@@ -587,7 +597,7 @@ class InstalledBackendSession:
             **os.environ,
             "SKILLCUE_PORT": str(self.port),
             "SKILLCUE_API_TOKEN": self.token,
-            "SKILLCUE_BUILD_CHANNEL": "dev",
+            "SKILLCUE_BUILD_CHANNEL": self.channel,
             "SKILLCUE_GATEWAY_URL": _MANAGED_DEV_GATEWAY_URL,
             "DATABASE_URL": f"sqlite:///{self.db_path.as_posix()}",
         }
@@ -603,6 +613,7 @@ class InstalledBackendSession:
         command, cwd = backend_launch_spec(
             source_backend=self.source_backend,
             port=self.port,
+            channel=self.channel,
         )
         self.process = subprocess.Popen(
             command,
@@ -1077,6 +1088,7 @@ def run_acceptance_suite(
     case_ids: set[str] | None = None,
     repetitions_override: int | None = None,
     source_backend: bool = False,
+    channel: str = "dev",
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     if (
         repetitions_override is not None
@@ -1091,7 +1103,9 @@ def run_acceptance_suite(
     if not selected:
         raise ManifestError("No selected cases")
     attempts: list[dict[str, Any]] = []
-    with InstalledBackendSession(source_backend=source_backend) as session:
+    with InstalledBackendSession(
+        source_backend=source_backend, channel=channel
+    ) as session:
         for case in selected:
             repetitions = repetitions_override or case["repetitions"]
             for repetition in range(1, repetitions + 1):
@@ -1137,6 +1151,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--report", type=Path)
     parser.add_argument("--case", action="append", dest="case_ids")
     parser.add_argument("--repetitions", type=int)
+    parser.add_argument("--channel", choices=("dev", "alpha"), default="dev")
     parser.add_argument(
         "--source-backend",
         action="store_true",
@@ -1158,6 +1173,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         case_ids=set(args.case_ids) if args.case_ids else None,
         repetitions_override=args.repetitions,
         source_backend=args.source_backend,
+        channel=args.channel,
     )
     report_path = (
         args.report.expanduser().resolve()

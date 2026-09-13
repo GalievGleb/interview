@@ -8,6 +8,73 @@
 - **Dev** (`SkillCue Dev`) — приватная тестовая сборка. Она специально собирается с `publish: null` и не обновляется публичной кнопкой. Новый Dev-установщик нужно установить вручную или скачать из GitHub Actions.
 - **Alpha** (`SkillCue Alpha`) — отдельная экспериментальная сборка. Не выпускайте её пользователям как Stable.
 
+У Dev и Alpha нет публичного автообновления: их новый отдельный установщик
+устанавливается поверх соответствующего приложения без удаления данных. Кнопка
+проверки в них объясняет канал, а не обещает загрузку из Stable. Для Alpha:
+
+```powershell
+pnpm --filter @interview/desktop dist:alpha
+# После успешных тестов запустите apps\desktop\release-alpha\SkillCue-Alpha-Setup.exe
+.\apps\api-py\.venv\Scripts\python.exe tools\verify_alpha_voice_sequence.py
+```
+
+Alpha-конфигурация сама берёт следующий patch: при версии исходников `0.1.13`
+получится `0.1.14-alpha.g<commit>`. Не понижайте установленную `0.1.13-alpha` до
+`0.1.12` ради совпадения с номером старой Stable. Проверенный установщик храните
+вместе с SHA256 и исходным commit; не пересобирайте другие байты под тем же номером.
+
+## Профили и Google-вход в Alpha
+
+Профили включены сначала только в Alpha. Stable продолжает работать по прежней
+лицензии, пока новый контур не пройдёт приёмку. Перед сборкой Alpha нужны две
+публичные переменные:
+
+```powershell
+$env:SKILLCUE_ACCOUNT_API_URL = 'https://skill-cue.ru/account'
+$env:SKILLCUE_GOOGLE_OAUTH_CLIENT_ID = '<Desktop OAuth client ID>'
+```
+
+Client ID не является секретом и встраивается в приложение. Секреты Resend,
+ЮKassa, JWT и базы данных в установщик не попадают: они существуют только на
+сервере. Google-вход использует системный браузер, PKCE и локальный callback
+`127.0.0.1`; пароль Google приложение не видит.
+
+Сервер профилей разворачивается отдельно от рабочего шлюза оверлея:
+
+```powershell
+$env:SKILLCUE_ACCOUNT_API_PORT = '8789' # 8788 занят службой GlebOS на Pi
+py -3.12 apps/api/deploy/deploy.py --host 192.168.2.132 --user gleb --with-account
+```
+
+Сценарий сам создаёт постоянные случайные серверные секреты в игнорируемом Git
+файле, разворачивает PostgreSQL, применяет миграции и добавляет HTTPS-маршрут
+`/account/`. Для первого запуска нужны локальные переменные `RESEND_API_KEY` и
+`SKILLCUE_GOOGLE_OAUTH_CLIENT_ID`; секрет ЮKassa читается из уже настроенного
+безопасного хранилища. Production находится на Raspberry Pi за Cloudflare
+Tunnel; старый Beget `109.172.47.103` для SkillCue больше не используется.
+
+После создания отдельного проверенного тестового профиля запустите десятикратную
+приёмку. Пароль передаётся только через переменную текущего PowerShell-сеанса и
+не записывается в отчёт:
+
+```powershell
+$env:SKILLCUE_ACCEPTANCE_EMAIL = '<отдельная тестовая почта>'
+$env:SKILLCUE_ACCEPTANCE_PASSWORD = '<временный тестовый пароль>'
+.\apps\api-py\.venv\Scripts\python.exe tools\account_acceptance.py --register
+.\apps\api-py\.venv\Scripts\python.exe tools\account_acceptance.py --repetitions 10
+Remove-Item Env:SKILLCUE_ACCEPTANCE_PASSWORD -ErrorAction SilentlyContinue
+```
+
+Первый запуск с `--register` один раз попросит код из письма. Приёмка проверяет
+вход, ротацию сессии, два разрешённых устройства, отказ третьему, отвязку
+устройства и доступность подписки. Отчёт сохраняется в
+`output/account-acceptance.json` без токенов и пароля.
+
+GitHub workflows сейчас запускаются вручную (`workflow_dispatch`). Создание тега
+само по себе не запускает сборку. Для публичного выпуска сначала проверьте
+установщик со Stable-настройками и обычной лицензией, затем публикуйте именно этот
+файл. Проверка успешного Dev/Alpha не заменяет проверку пользовательской Stable.
+
 ## Что установить один раз
 
 1. Git.

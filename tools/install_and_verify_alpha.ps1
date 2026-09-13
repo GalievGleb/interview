@@ -27,6 +27,15 @@ try {
   $env:SKILLCUE_E2E_CASE_IDS = 'unseen-sql-null-premise'
   pnpm --filter @interview/desktop verify:dev:overlay
   if ($LASTEXITCODE -ne 0) { throw "Installed Alpha overlay E2E failed: $LASTEXITCODE" }
+
+  pnpm --filter @interview/desktop verify:dev:ui
+  if ($LASTEXITCODE -ne 0) { throw "Installed Alpha Electron UI/recording E2E failed: $LASTEXITCODE" }
+
+  pnpm --filter @interview/desktop verify:dev:voice
+  if ($LASTEXITCODE -ne 0) { throw "Installed Alpha voice E2E failed: $LASTEXITCODE" }
+
+  pnpm --filter @interview/desktop verify:alpha:screen
+  if ($LASTEXITCODE -ne 0) { throw "Installed Alpha structured screen E2E failed: $LASTEXITCODE" }
 } finally {
   if ($hadChannel) { $env:SKILLCUE_E2E_CHANNEL = $previousChannel } else { Remove-Item Env:SKILLCUE_E2E_CHANNEL -ErrorAction SilentlyContinue }
   if ($hadBackend) { $env:SKILLCUE_E2E_BACKEND = $previousBackend } else { Remove-Item Env:SKILLCUE_E2E_BACKEND -ErrorAction SilentlyContinue }

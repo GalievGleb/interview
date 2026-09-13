@@ -19,6 +19,17 @@ describe('interview fast-path active screen context', () => {
 
   afterEach(() => vi.unstubAllGlobals());
 
+  it('signals successful profile edits to other windows without storing content', async () => {
+    const writes: Array<[string, string]> = [];
+    vi.stubGlobal('localStorage', { getItem: () => null, setItem: (key: string, value: string) => writes.push([key, value]) });
+    vi.stubGlobal('window', { dispatchEvent: () => true, electronAPI: { getApiToken: async () => '' } });
+    vi.stubGlobal('fetch', async () => new Response('{"exists":true,"userEdited":true}'));
+    await api.profilePackSave('Synthetic private profile');
+    expect(writes).toHaveLength(1);
+    expect(writes[0][0]).toBe('skillcue.candidate-sources-epoch');
+    expect(writes[0][1]).not.toContain('Synthetic');
+  });
+
   it('sends the bounded active task in the same fast interview request', async () => {
     let requestBody: Record<string, unknown> = {};
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
@@ -31,6 +42,7 @@ describe('interview fast-path active screen context', () => {
       onChunk: vi.fn(), onDone: vi.fn(), onError: vi.fn(),
     }, {
       fastAnswer: true,
+      recentTurns: [{ question: 'Previous project?', answer: 'Synthetic answer' }],
       activeScreenTask: {
         rootQuestion: 'Реализуй LRU cache.',
         currentQuestion: 'Добавь eviction по capacity.',
@@ -43,6 +55,7 @@ describe('interview fast-path active screen context', () => {
     expect(requestBody).toMatchObject({
       question: 'Теперь добавь TTL.',
       fast_answer: true,
+      recent_turns: [{ question: 'Previous project?', answer: 'Synthetic answer' }],
       active_screen_task: {
         root_question: 'Реализуй LRU cache.',
         current_question: 'Добавь eviction по capacity.',
@@ -50,5 +63,20 @@ describe('interview fast-path active screen context', () => {
         updated_at_ms: 1_777_777,
       },
     });
+  });
+
+  it('marks only an explicit done event complete, never a truncated stream', async () => {
+    for (const [wire, completed] of [
+      ['data: {"type":"chunk","text":"partial"}\n\n', false],
+      ['data: {"type":"done","spoken":"complete"}\n\n', true],
+    ] as const) {
+      vi.stubGlobal('fetch', async () => new Response(wire));
+      const meta = await new Promise<unknown>((resolve, reject) => {
+        api.streamInterview('question', {
+          onChunk: () => {}, onDone: (_text, _id, value) => resolve(value), onError: reject,
+        }, { fastAnswer: true });
+      });
+      expect(meta).toMatchObject({ completed });
+    }
   });
 });

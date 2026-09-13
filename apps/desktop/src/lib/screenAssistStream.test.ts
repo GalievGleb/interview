@@ -44,6 +44,19 @@ describe('screen-assist SSE settlement', () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
+  it('preserves model and validation reasons on failed structured requests', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => streamResponse([
+      'data: {"type":"error","message":"Check failed","code":"invalid_screen_answer","model":"test/model","model_source":"auto","validation_issues":["sql_identifier_missing"]}\n\n',
+    ])));
+    const error = vi.fn();
+    api.streamScreenAssist('data:image/jpeg;base64,QUJD', 'Q', {
+      onChunk: vi.fn(), onDone: vi.fn(), onError: error,
+    }, { structuredScreen: true });
+    await vi.waitFor(() => expect(error).toHaveBeenCalledWith('Check failed', 'invalid_screen_answer', {
+      model: 'test/model', modelSource: 'auto', validationIssues: ['sql_identifier_missing'],
+    }));
+  });
+
   it('forwards the actual model metadata and calls done exactly once at event plus EOF', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => streamResponse([
       'data: {"type":"chunk","text":"answer"}\n\n',

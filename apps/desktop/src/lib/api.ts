@@ -1,4 +1,5 @@
 import type { SttProviderDiagnostics } from '@interview/shared';
+import { notifyCandidateSourcesChanged } from './liveAnswerMemory';
 import {
   AiSettings,
   ChatMode,
@@ -138,7 +139,7 @@ export function createMockAnswerTranscriptionForm(
 }
 
 export interface LicenseStatusDto {
-  status: 'trial' | 'active' | 'expired';
+  status: 'trial' | 'active' | 'expired' | 'auth_required';
   plan: 'trial' | 'basic' | 'max';
   licensed_to: string | null;
   live_allowed: boolean;
@@ -159,6 +160,7 @@ export interface UsageRow {
 }
 
 export interface SseDoneMetadata {
+  validationIssues?: string[];
   model?: string;
   modelSource?: string;
   /** Чувствительный ограниченный контекст экрана: только память, без логов и диска. */
@@ -170,7 +172,7 @@ export interface SseDoneMetadata {
 interface SseHandlers {
   onChunk: (text: string) => void;
   onDone: () => void;
-  onError: (msg: string, code?: string) => void;
+  onError: (msg: string, code?: string, meta?: SseDoneMetadata) => void;
 }
 
 interface MetadataSseHandlers extends Omit<SseHandlers, 'onDone'> {
@@ -226,10 +228,11 @@ function sseChatStream(
     (handlers.onDone as (value?: SseDoneMetadata) => void)(meta);
     return true;
   };
-  const settleError = (message: string, code?: string): boolean => {
+  const settleError = (message: string, code?: string, meta?: SseDoneMetadata): boolean => {
     if (settled || cancelled) return false;
     settled = true;
-    if (code) handlers.onError(message, code);
+    if (meta) handlers.onError(message, code, meta);
+    else if (code) handlers.onError(message, code);
     else handlers.onError(message);
     return true;
   };
@@ -284,9 +287,17 @@ function sseChatStream(
           });
           return true;
         } else if (event.type === 'error') {
+          const meta: SseDoneMetadata = {
+            ...(typeof event.model === 'string' ? { model: event.model.slice(0, 200) } : {}),
+            ...(typeof event.model_source === 'string' ? { modelSource: event.model_source.slice(0, 100) } : {}),
+            ...(Array.isArray(event.validation_issues) ? { validationIssues: event.validation_issues.filter(
+              (v): v is string => typeof v === 'string' && /^[a-z_]{1,80}$/.test(v),
+            ).slice(0, 32) } : {}),
+          };
           settleError(
             typeof event.message === 'string' ? event.message : 'Ошибка',
             typeof event.code === 'string' ? event.code : undefined,
+            Object.keys(meta).length ? meta : undefined,
           );
           return true;
         } else if (options.failClosed) {
@@ -389,6 +400,7 @@ export interface StreamInterviewOpts {
   sessionId?: string;
   rawQuestion?: string;
   candidateContext?: string;
+  recentTurns?: Array<{ question: string; answer: string }>;
   activeScreenTask?: {
     rootQuestion: string;
     currentQuestion: string;
@@ -680,7 +692,7 @@ export const api = {
     request<{ id: string; kind: string; title: string; chunks: number }>('/documents/text', {
       method: 'POST',
       body: JSON.stringify({ kind, title, text }),
-    }),
+    }).then(notifyCandidateSourcesChanged),
 
   uploadFile: async (kind: string, file: File, title?: string) => {
     const form = new FormData();
@@ -696,11 +708,12 @@ export const api = {
       const data = await resp.json().catch(() => null);
       throw new Error(data?.error?.message ?? `Ошибка ${resp.status}`);
     }
-    return resp.json() as Promise<{ id: string; kind: string; title: string; chunks: number }>;
+    const result = await resp.json() as { id: string; kind: string; title: string; chunks: number };
+    return notifyCandidateSourcesChanged(result);
   },
 
   deleteDocument: (id: string) =>
-    request<{ deleted: string }>(`/documents/${id}`, { method: 'DELETE' }),
+    request<{ deleted: string }>(`/documents/${id}`, { method: 'DELETE' }).then(notifyCandidateSourcesChanged),
 
   createSession: (mode: 'interview' | 'meeting', title?: string) =>
     request<SessionItem>('/sessions', {
@@ -937,7 +950,7 @@ export const api = {
       onDone: (
         spoken: string,
         answerId?: string,
-        meta?: { model?: string; modelSource?: string },
+        meta?: { model?: string; modelSource?: string; completed?: boolean },
       ) => void;
       onError: (msg: string) => void;
     },
@@ -955,12 +968,12 @@ export const api = {
     const finish = (
       text: string,
       answerId?: string,
-      meta?: { model?: string; modelSource?: string },
+      meta?: { model?: string; modelSource?: string; completed?: boolean },
     ) => {
       if (finished) return;
       finished = true;
       disarmIdle();
-      handlers.onDone(text, answerId, meta);
+      handlers.onDone(text, answerId, { completed: false, ...meta });
     };
 
     void (async () => {
@@ -971,6 +984,7 @@ export const api = {
           question,
           raw_question: opts.rawQuestion ?? question,
           candidate_context: opts.candidateContext?.trim() || null,
+          recent_turns: fastAnswer ? opts.recentTurns ?? [] : undefined,
           active_screen_task: opts.activeScreenTask
             ? {
                 root_question: opts.activeScreenTask.rootQuestion,
@@ -1035,6 +1049,7 @@ export const api = {
             } else if (evt.type === 'done') {
               if (evt.correction) opts.onMeta?.(evt.correction);
               finish(evt.spoken ?? spoken, evt.id, {
+                completed: true,
                 model: evt.model,
                 modelSource: evt.modelSource,
               });
@@ -1235,7 +1250,7 @@ export const api = {
         }
         handlers.onDone(meta);
       },
-      onError: (message, code) => {
+      onError: (message, code, meta) => {
         if (
           code === 'unsupported_screen_python_profile'
           && !sawStructuredChunk
@@ -1250,7 +1265,8 @@ export const api = {
           });
           return;
         }
-        handlers.onError(message, code);
+        if (meta) handlers.onError(message, code, meta);
+        else handlers.onError(message, code);
       },
     };
     cancelActive = sseChatStream(
@@ -1433,14 +1449,14 @@ export const api = {
     request<{ exists: boolean; userEdited?: boolean }>('/documents/profile-pack', {
       method: 'PUT',
       body: JSON.stringify({ content }),
-    }),
+    }).then(notifyCandidateSourcesChanged),
 
   /** Пересобрать профиль-пак из текущих документов (ручной триггер). */
   profilePackRefresh: () =>
     request<{ exists: boolean; stale: boolean }>('/documents/profile-pack/refresh', {
       method: 'POST',
       timeoutMs: LONG_REQUEST_TIMEOUT_MS,
-    }),
+    }).then(notifyCandidateSourcesChanged),
 
   // --- Speech-to-text: fixed OpenAI Mini provider ---
   sttProviders: () => request<SttProviderDiagnostics>('/stt/providers'),

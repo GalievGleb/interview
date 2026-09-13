@@ -10,6 +10,7 @@ function fakeWindow(destroyed = false) {
     calls,
     isDestroyed: vi.fn(() => destroyed),
     setSkipTaskbar: vi.fn((skip: boolean) => calls.push(`taskbar:${skip}`)),
+    setAlwaysOnTop: vi.fn((enabled: boolean) => calls.push(`top:${enabled}`)),
     setContentProtection: vi.fn((enable: boolean) => calls.push(`capture:${enable}`)),
     show: vi.fn(() => calls.push('show')),
     showInactive: vi.fn(() => calls.push('showInactive')),
@@ -23,11 +24,13 @@ describe('overlay window privacy', () => {
 
     expect(showOverlayWindowPrivately(window, true)).toBe(true);
     expect(window.calls).toEqual([
-      'taskbar:true',
+    'taskbar:true',
+      'top:true',
       'capture:true',
       'show',
       'moveTop',
       'taskbar:true',
+      'top:true',
       'capture:true',
     ]);
   });
@@ -38,11 +41,13 @@ describe('overlay window privacy', () => {
     expect(showOverlayWindowPrivately(window, false, 'inactive')).toBe(true);
     expect(window.show).not.toHaveBeenCalled();
     expect(window.calls).toEqual([
-      'taskbar:true',
+    'taskbar:true',
+      'top:true',
       'capture:false',
       'showInactive',
       'moveTop',
       'taskbar:true',
+      'top:true',
       'capture:false',
     ]);
   });
@@ -61,7 +66,7 @@ describe('overlay window privacy', () => {
     const window = fakeWindow();
 
     expect(enforceOverlayWindowPrivacy(window, false)).toBe(true);
-    expect(window.calls).toEqual(['taskbar:true', 'capture:false']);
+    expect(window.calls).toEqual(['taskbar:true', 'top:true', 'capture:false']);
     expect(window.show).not.toHaveBeenCalled();
   });
 

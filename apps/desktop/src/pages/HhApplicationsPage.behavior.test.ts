@@ -198,7 +198,7 @@ describe('HH applications redesign', () => {
   });
 
   it('keeps search settings hidden until the selected platform is authenticated', () => {
-    const gateAt = pageSource.indexOf('{!connected ? (');
+    const gateAt = pageSource.indexOf("{draft.platform !== 'avito' && (!connected ? (");
     const settingsAt = pageSource.indexOf('Что искать');
     expect(gateAt).toBeGreaterThan(-1);
     expect(settingsAt).toBeGreaterThan(gateAt);
@@ -694,8 +694,8 @@ describe('HH applications redesign', () => {
   });
 
   it('keeps activity readable when a platform session is temporarily disconnected', () => {
-    const connectionGateAt = pageSource.indexOf('{!connected ? (');
-    const activityAt = pageSource.indexOf("{pageMode === 'activity' && <>", connectionGateAt);
+    const connectionGateAt = pageSource.indexOf("{draft.platform !== 'avito' && (!connected ? (");
+    const activityAt = pageSource.indexOf("{pageMode === 'activity' && draft.platform !== 'avito' && <>", connectionGateAt);
     const runPanelAt = pageSource.indexOf('id="hh-run-panel"', activityAt);
     const queuePanelAt = pageSource.indexOf('id="hh-conversations-panel"', activityAt);
     expect(connectionGateAt).toBeGreaterThan(-1);
