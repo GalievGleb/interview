@@ -97,7 +97,7 @@ describe('overlay shortcut lifecycle', () => {
     expect(shortcuts.unregister).not.toHaveBeenCalledWith('CommandOrControl+\\');
   });
 
-  it('registers a reliable global escape hatch for click-through mode', () => {
+  it.each(['CommandOrControl+Alt+0', 'CommandOrControl+Alt+O'])('toggles click-through via %s and releases it on hide', (accelerator) => {
     const callbacks = new Map<string, () => void>();
     const shortcuts = {
       register: vi.fn((accelerator: string, callback: () => void) => {
@@ -111,11 +111,11 @@ describe('overlay shortcut lifecycle', () => {
 
     bindOverlayShortcutLifecycle(overlay, shortcuts, vi.fn(), undefined, { toggle });
     overlay.emit('show');
-    callbacks.get('CommandOrControl+Alt+O')?.();
+    callbacks.get(accelerator)?.();
 
     expect(toggle).toHaveBeenCalledOnce();
     overlay.emit('hide');
-    expect(shortcuts.unregister).toHaveBeenCalledWith('CommandOrControl+Alt+O');
+    expect(shortcuts.unregister).toHaveBeenCalledWith(accelerator);
   });
 
   it('enables global movement and scrolling in every build while the overlay is visible', () => {

@@ -5,6 +5,7 @@ import {
   type SessionAssessment,
   type SseDoneMetadata,
 } from '../lib/api';
+import { useOverlayPointer } from '../hooks/useOverlayPointer';
 import { useLiveCopilot } from '../hooks/useLiveCopilot';
 import { useLiveCopilotPrefs } from '../hooks/useLiveCopilotPrefs';
 import { useApp } from '../context/AppContext';
@@ -23,7 +24,6 @@ import {
   type ForceHotkeySource,
 } from '../lib/forceHotkeyDeduper';
 import {
-  OverlayPointerController,
   clampFloatingPanel,
 } from '../lib/overlayPointerPolicy';
 import { useI18n, type I18nKey } from '../lib/i18n';
@@ -292,7 +292,7 @@ export default function OverlayPage() {
   const lastForceHotkeyRef = useRef<ForceHotkeyEvent | null>(null);
   const lastCandidateHotkeyRef = useRef<ForceHotkeyEvent | null>(null);
   const lastScreenHotkeyRef = useRef<ForceHotkeyEvent | null>(null);
-  const pointerControllerRef = useRef<OverlayPointerController | null>(null);
+  const pointerControllerRef = useOverlayPointer(clickThrough, menuOpen);
   const liveBlocked = license?.live_allowed === false;
   const guideCopy = lang === 'ru'
     ? {
@@ -366,31 +366,6 @@ export default function OverlayPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // «Работать под панелью»: при «не забирать фокус» делаем оверлей click-through —
-  // клики уходят в приложение под ним, панель не перехватывает мышь. При
-  // наведении курсора на интерактив оверлея временно возвращаем ему мышь
-  // (Electron forward:true шлёт mousemove, даже когда клики игнорируются).
-  useEffect(() => {
-    const ct = window.electronAPI?.overlay.setClickThrough;
-    if (!ct) return;
-    const controller = new OverlayPointerController(
-      (enabled) => void ct(enabled),
-      (x, y) => document.elementFromPoint(x, y),
-    );
-    pointerControllerRef.current = controller;
-    controller.setForceClickThrough(clickThrough);
-    controller.initialize();
-    const onMove = (e: MouseEvent) => {
-      controller.move(e.clientX, e.clientY);
-    };
-    window.addEventListener('mousemove', onMove);
-    return () => {
-      window.removeEventListener('mousemove', onMove);
-      if (pointerControllerRef.current === controller) pointerControllerRef.current = null;
-      controller.dispose();
-    };
-  }, [clickThrough]);
-
   useEffect(() => {
     const unsubscribe = window.electronAPI?.overlay.onToggleClickThrough?.(() => {
       setClickThrough((current) => {
@@ -402,22 +377,6 @@ export default function OverlayPage() {
     });
     return () => unsubscribe?.();
   }, []);
-
-  // Opening or removing a card/menu changes the hit region under a stationary
-  // cursor. Refresh after every committed layout so the next click cannot be
-  // swallowed by a surface that is no longer visible.
-  useLayoutEffect(() => {
-    pointerControllerRef.current?.refresh();
-  });
-
-  // Transparent pixels normally pass clicks to the app underneath. While the
-  // menu is open we temporarily capture the whole overlay window, otherwise an
-  // outside click never reaches `document` and the menu can only be closed by
-  // pressing its three-dot trigger again.
-  useLayoutEffect(() => {
-    pointerControllerRef.current?.setModalCapture(menuOpen);
-    return () => pointerControllerRef.current?.setModalCapture(false);
-  }, [menuOpen]);
 
   const cancelActiveScreenAssist = useCallback(() => {
     const activeScreen = activeScreenDiagnosticRef.current;
@@ -1287,7 +1246,7 @@ export default function OverlayPage() {
     { labelKey: 'overlay.kb.scroll', keys: 'Ctrl+Shift+↑↓', d: 'M8 7l4-4 4 4|M8 17l4 4 4-4' },
     { labelKey: 'overlay.kb.resize', keys: 'Ctrl +/−', d: 'M15 3h6v6|M9 21H3v-6|M21 3l-7 7|M3 21l7-7' },
     { labelKey: 'overlay.kb.transcript', keys: 'Ctrl+/', d: 'M4 6h16|M4 12h16|M4 18h10' },
-    { labelKey: 'overlay.kb.clickThrough', keys: 'Ctrl+Alt+O', d: 'M4 12h16|M12 4v16|M4 4l16 16' },
+    { labelKey: 'overlay.kb.clickThrough', keys: 'Ctrl+Alt+0', d: 'M4 12h16|M12 4v16|M4 4l16 16' },
   ];
 
   return (

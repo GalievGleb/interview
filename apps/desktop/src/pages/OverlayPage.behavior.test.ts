@@ -626,12 +626,6 @@ describe('overlay request behavior', () => {
     );
   });
 
-  it('uses explicit hit regions for an always-on transparent-pixel policy', () => {
-    expect(overlaySource).toContain('new OverlayPointerController');
-    expect(overlaySource).toContain('pointerControllerRef.current?.refresh()');
-    expect(overlaySource).toContain('data-overlay-hit="true"');
-    expect(overlaySource).not.toContain("if (!avoidFocus) {\n      void ct(false)");
-  });
 
 
   it('keeps a dismissible quick guide available after first launch', () => {

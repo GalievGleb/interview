@@ -29,6 +29,8 @@ const SCROLL_ACCELERATORS = [
   ['CommandOrControl+Shift+Down', 1],
 ] as const;
 
+const CLICK_THROUGH_ACCELERATORS = ['CommandOrControl+Alt+0', 'CommandOrControl+Alt+O'] as const;
+
 export function bindOverlayShortcutLifecycle(
   window: OverlayShortcutWindow,
   shortcuts: ShortcutRegistry,
@@ -44,7 +46,9 @@ export function bindOverlayShortcutLifecycle(
         for (const [accelerator] of SCROLL_ACCELERATORS) shortcuts.unregister(accelerator);
       }
     }
-    if (clickThroughShortcut) shortcuts.unregister('CommandOrControl+Alt+O');
+    if (clickThroughShortcut) {
+      for (const accelerator of CLICK_THROUGH_ACCELERATORS) shortcuts.unregister(accelerator);
+    }
   };
 
   window.on('show', () => {
@@ -75,10 +79,12 @@ export function bindOverlayShortcutLifecycle(
       }
     }
     if (clickThroughShortcut) {
-      try {
-        shortcuts.register('CommandOrControl+Alt+O', clickThroughShortcut.toggle);
-      } catch {
-        // The menu toggle remains available if the global accelerator is busy.
+      for (const accelerator of CLICK_THROUGH_ACCELERATORS) {
+        try {
+          shortcuts.register(accelerator, clickThroughShortcut.toggle);
+        } catch {
+          // Keep the alternate shortcut available if another app owns one.
+        }
       }
     }
   });

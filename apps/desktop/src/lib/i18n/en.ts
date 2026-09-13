@@ -890,7 +890,7 @@ export const en: Record<I18nKey, string> = {
   'overlay.avoidFocusTip':
     'Clicks pass through the panel — you work in the app underneath. Hover the panel to use it again',
   'overlay.avoidFocus': 'Work under the panel',
-  'overlay.clickThroughTip': 'Passes all clicks through the overlay. Press Ctrl+Alt+O to restore control',
+  'overlay.clickThroughTip': 'Passes all clicks through the overlay. Ctrl+Alt+0 (zero) toggles the mode and restores control. Ctrl+Alt+O (letter O) also works',
   'overlay.clickThrough': 'Click through overlay',
   'overlay.kb.clickThrough': 'Toggle click-through mode',
   'overlay.opacity': 'Opacity',
