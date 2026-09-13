@@ -1,5 +1,5 @@
 import { Injectable, Optional, ServiceUnavailableException } from '@nestjs/common';
-import { Plan, Prisma, SubStatus } from '@prisma/client';
+import { PaymentProvider, Plan, Prisma, SubStatus } from '@prisma/client';
 import {
   ManagedLicenseResponse,
   PLAN_LIMITS,
@@ -10,6 +10,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { getDevSubscriptionInfo, isDevSkipSubscription } from '../config/dev.config';
 import { mintLicenseKey } from '../gateway/license.util';
 import { computeSubscriptionActivation } from './subscription-renewal';
+import { parseIssuedLicense, selectIssuedSubscription } from './issued-license';
 
 interface AccountLicenseConfig {
   privateKeyHex: string;
@@ -34,14 +35,31 @@ export class SubscriptionsService {
     return isDevSkipSubscription();
   }
 
-  getByUserId(userId: string) {
-    return this.prisma.subscription.findUnique({ where: { userId } });
+  async registerIssuedLicense(key: string) {
+    const grant = parseIssuedLicense(key);
+    await this.prisma.issuedLicense.upsert({where:{id:grant.id},create:grant,update:{}});
+    return {registered:true};
+  }
+
+  async getByUserId(userId: string) {
+    const user = await this.prisma.user.findUnique({where:{id:userId},include:{subscription:true}});
+    let base = user?.subscription ?? null;
+    if (!user?.emailVerifiedAt) return base;
+    const grants = await this.prisma.issuedLicense.findMany({where:{email:user.email.trim().toLowerCase()}});
+    if (!grants.length) return base;
+    if (!base && grants.some(g=>!g.expiresAt || g.expiresAt>this.licenseConfig.now())) {
+      // Durable usage counters; never reset them when a key is imported again.
+      base = await this.prisma.subscription.upsert({where:{userId},update:{},create:{
+        userId,plan:Plan.BASIC,status:SubStatus.EXPIRED,provider:'MANUAL',currentPeriodEnd:new Date(0),
+      }});
+    }
+    return selectIssuedSubscription(base,grants,this.licenseConfig.now()) as typeof base;
   }
 
   async activateForEmail(
     rawEmail: string,
     plan: Plan,
-    provider: 'STRIPE' | 'YOOKASSA',
+    provider: PaymentProvider,
     externalId: string,
     durationDays: number,
   ): Promise<{ pending: boolean }> {
@@ -150,7 +168,7 @@ export class SubscriptionsService {
       where: { id: userId },
       include: { subscription: true },
     });
-    const subscription = user?.subscription;
+    const subscription = user ? await this.getByUserId(userId) : null;
     const devPlan = isDevSkipSubscription() ? Plan.PRO : null;
     const trialUntil = user?.emailVerifiedAt && !subscription
       ? new Date(user.emailVerifiedAt.getTime() + 14 * 86_400_000)
@@ -159,7 +177,8 @@ export class SubscriptionsService {
     const plan = devPlan ?? subscription?.plan ?? (freeTrial ? 'TRIAL' : null);
     const activeUntil = devPlan
       ? new Date(now.getTime() + 24 * 60 * 60 * 1000)
-      : subscription?.currentPeriodEnd ?? trialUntil;
+      : subscription?.currentPeriodEnd ?? (subscription?.status === SubStatus.ACTIVE
+        ? new Date(now.getTime() + 24 * 60 * 60 * 1000) : trialUntil);
     const active = Boolean(
       user
       && plan
@@ -198,7 +217,7 @@ export class SubscriptionsService {
   async activateSubscription(
     userId: string,
     plan: Plan,
-    provider: 'STRIPE' | 'YOOKASSA',
+    provider: PaymentProvider,
     externalId: string,
     periodEnd: Date,
   ) {
@@ -215,7 +234,7 @@ export class SubscriptionsService {
     db: Prisma.TransactionClient | PrismaService,
     userId: string,
     plan: Plan,
-    provider: 'STRIPE' | 'YOOKASSA',
+    provider: PaymentProvider,
     externalId: string,
     periodEnd: Date,
   ) {

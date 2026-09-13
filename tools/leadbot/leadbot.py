@@ -241,6 +241,20 @@ def persist_state(state: dict):
                 time.sleep(0.2)
 
 
+def register_account_license(cfg: dict, key: str):
+    url = (cfg.get('account_api_url') or os.environ.get('SKILLCUE_ACCOUNT_API_URL') or 'https://skill-cue.ru/account').rstrip('/')
+    req = urllib.request.Request(url + '/subscriptions/issued-license',
+        data=json.dumps({'key': key}).encode(), headers={'Content-Type': 'application/json'})
+    try:
+        with urllib.request.urlopen(req, timeout=20) as response:
+            if json.loads(response.read()).get('registered') is not True:
+                raise RuntimeError('подписка не подтверждена сервером аккаунтов')
+    except urllib.error.HTTPError as error:
+        raise RuntimeError(f'сервер аккаунтов отклонил регистрацию (HTTP {error.code})') from None
+    except (OSError, ValueError) as error:
+        raise RuntimeError('сервер аккаунтов недоступен; подписка не зарегистрирована') from None
+
+
 def mint_license(cfg: dict, plan: str, days: int, email: str) -> str:
     """Выпустить Ed25519-ключ — тот же формат, что проверяет apps/api-py (license.py).
 
@@ -330,6 +344,7 @@ def handle_admin(cfg: dict, msg: dict):
             email = parts[3]
             target = int(parts[4]) if len(parts) > 4 else None
             key = mint_license(cfg, plan, days, email)
+            register_account_license(cfg, key)
             term = f"{days} дн." if days > 0 else "бессрочно"
             save_lead(
                 {"kind": "key_issued", "plan": plan, "days": days, "email": email,
@@ -341,11 +356,11 @@ def handle_admin(cfg: dict, msg: dict):
                     target,
                     KEY_DELIVERY.format(
                         key=key, plan_title=PLAN_CATALOG[plan]["title"], term=term
-                    ),
+                    ) + f"\n\nПодписка также привязана к {email}. В новой версии войдите через Google с этой почтой и обновите аккаунт.",
                 )
                 send(token, admin_id, f"✅ Ключ {plan}/{term} отправлен покупателю {target}")
             else:
-                send(token, admin_id, f"Ключ {plan}/{term} для {email}:\n\n{key}")
+                send(token, admin_id, f"Подписка {plan}/{term} привязана к {email}. Войдите в SkillCue через Google с этой почтой и обновите аккаунт.\n\nКлюч для старой версии:\n{key}")
         except (IndexError, ValueError, RuntimeError) as e:
             send(
                 token,

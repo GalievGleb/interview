@@ -22,6 +22,17 @@ enum SubStatus {
 enum PaymentProvider {
   STRIPE
   YOOKASSA
+  MANUAL
+}
+
+model IssuedLicense {
+  id        String   @id
+  email     String
+  plan      Plan
+  expiresAt DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([email])
 }
 
 enum EmailChallengePurpose {

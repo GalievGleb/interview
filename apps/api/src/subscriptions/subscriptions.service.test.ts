@@ -166,7 +166,7 @@ test('verified accounts receive a bounded trial shared across renewals', async (
   let now = new Date();
   const verifiedAt = new Date(now);
   const user = { id: 'trial-account', email: 'trial@example.com', emailVerifiedAt: verifiedAt, subscription: null };
-  const service = new SubscriptionsService({ user: { findUnique: async () => user } } as never, {
+  const service = new SubscriptionsService({ user: { findUnique: async () => user }, issuedLicense: {findMany:async()=>[]} } as never, {
     privateKeyHex: keys.privateKeyHex, now: () => now,
   });
   const first = await service.getManagedLicense(user.id);
@@ -190,10 +190,12 @@ test('an unverified account cannot obtain a free license', async () => {
 
 test('reports a stale active database row as expired after its paid period ends', async () => {
   const prisma = {
-    subscription: {
+    user: {
       findUnique: async () => ({
+        subscription: {
         plan: 'PRO', status: 'ACTIVE', currentPeriodEnd: new Date('2026-09-12T12:00:00.000Z'),
         sttMinutesUsed: 12, llmTokensUsed: 34,
+        },
       }),
     },
   };
@@ -205,4 +207,33 @@ test('reports a stale active database row as expired after its paid period ends'
   const result = await service.getSubscriptionInfo('user-1');
 
   assert.equal(result.status, 'EXPIRED');
+});
+
+test('verified recipient gets registered Max and managed license while other emails do not', async () => {
+  const keys=rawKeyPair();
+  const now=new Date();
+  const end=new Date(now.getTime()+7*86400000);
+  const rows=new Map();
+  const user={id:'u',email:'buyer@example.com',emailVerifiedAt:now,subscription:null as any};
+  const prisma={user:{findUnique:async()=>user},issuedLicense:{
+    upsert:async({where,create}:any)=>{if(!rows.has(where.id))rows.set(where.id,create);},
+    findMany:async({where}:any)=>[...rows.values()].filter(g=>g.email===where.email),
+  },subscription:{upsert:async({create}:any)=>user.subscription={...create,llmTokensUsed:45,sttMinutesUsed:2}}};
+  const service=new SubscriptionsService(prisma as never,{privateKeyHex:keys.privateKeyHex,now:()=>now});
+  const {mintLicenseKey}=await import('../gateway/license.util');
+  const key=mintLicenseKey({email:user.email,plan:'max',expiresAt:Math.floor(end.getTime()/1000)},keys.privateKeyHex);
+  const previous=process.env.LICENSE_PUBLIC_KEY_HEX;
+  process.env.LICENSE_PUBLIC_KEY_HEX=keys.publicKeyHex;
+  try {
+    await service.registerIssuedLicense(key);
+    await service.registerIssuedLicense(key);
+    assert.equal(rows.size,1);
+    assert.equal((await service.getSubscriptionInfo('u')).plan,'PRO');
+    assert.equal((await service.getSubscriptionInfo('u')).llmTokensUsed,45);
+    assert.equal(verifyLicenseKey((await service.getManagedLicense('u')).key!,keys.publicKeyHex)?.payload.plan,'max');
+    user.email='other@example.com'; user.subscription=null;
+    assert.equal((await service.getSubscriptionInfo('u')).plan,null);
+    user.email='buyer@example.com'; user.emailVerifiedAt=null as any;
+    assert.equal((await service.getSubscriptionInfo('u')).plan,null);
+  } finally {if(previous===undefined)delete process.env.LICENSE_PUBLIC_KEY_HEX;else process.env.LICENSE_PUBLIC_KEY_HEX=previous;}
 });
