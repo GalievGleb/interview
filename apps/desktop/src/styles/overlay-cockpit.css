@@ -28,11 +28,17 @@
 }
 
 .ovl-settings-anchor {
-  position: absolute;
-  right: 8px;
-  top: 6px;
+  position: relative;
+  order: 4;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
   -webkit-app-region: no-drag;
 }
+
+.ovl-pill > span { order: 2; }
+.ovl-pill > .ovl-rec { order: 3; }
+.ovl-pill > .ovl-finish { order: 5; }
 
 .ovl-shell .ovl-card {
   width: 100%;
@@ -85,6 +91,7 @@
 
 .ovl-logo {
   @apply overlay-no-drag flex h-8 w-8 items-center justify-center rounded-full transition-transform;
+  order: 1;
   background: transparent;
   border: 0;
   box-shadow: none;
@@ -398,6 +405,14 @@
 
 .overlay-icon-btn {
   @apply overlay-no-drag rounded-lg p-1.5 text-ink-faint transition-colors hover:bg-surface-hover hover:text-ink;
+}
+.ovl-menu-button {
+  @apply flex h-9 w-9 items-center justify-center rounded-full;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.ovl-menu-button:hover {
+  background: rgba(255, 255, 255, 0.16);
 }
 .overlay-icon-btn:disabled {
   opacity: 0.4;

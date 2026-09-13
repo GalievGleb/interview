@@ -703,6 +703,18 @@ describe('overlay request behavior', () => {
     expect(overlaySource).not.toContain('className="ovl-hide-caret');
   });
 
+  it('keeps the enlarged settings button immediately after recording', () => {
+    const recordingRule = cssSource.match(/\.ovl-pill > \.ovl-rec\s*\{([\s\S]*?)\}/)?.[1] ?? '';
+    const settingsRule = cssSource.match(/\.ovl-settings-anchor\s*\{([\s\S]*?)\}/)?.[1] ?? '';
+
+    expect(recordingRule).toContain('order: 3');
+    expect(overlaySource).toContain('className="overlay-icon-btn ovl-menu-button tip"');
+    expect(cssSource).toContain('.ovl-menu-button');
+    expect(settingsRule).toContain('order: 4');
+    expect(settingsRule).toContain('position: relative');
+    expect(settingsRule).not.toContain('position: absolute');
+  });
+
   it('pauses capture separately from ending the session and opening recap', () => {
     expect(hookSource).toContain('entry.session.pause()');
     expect(hookSource).toContain('entry.session.resume()');

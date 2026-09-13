@@ -1321,7 +1321,7 @@ export default function OverlayPage() {
         {active && (
           <button
             type="button"
-            className="overlay-no-drag rounded-lg bg-red-500/20 px-2 py-1 text-[11px] font-semibold text-red-200 hover:bg-red-500/30"
+            className="ovl-finish overlay-no-drag rounded-lg bg-red-500/20 px-2 py-1 text-[11px] font-semibold text-red-200 hover:bg-red-500/30"
             onClick={stopSession}
             aria-label="Завершить созвон и запись"
             title="Полностью завершить запись и открыть итоги"
@@ -1333,14 +1333,14 @@ export default function OverlayPage() {
                     <button
                       ref={menuButtonRef}
                       type="button"
-                      className="overlay-icon-btn tip"
+                      className="overlay-icon-btn ovl-menu-button tip"
                       data-tip={t('overlay.menuTip')}
                       aria-label={t('overlay.menuAria')}
                         aria-expanded={menuOpen}
                         aria-controls="overlay-settings-menu"
                       onClick={() => setMenuOpen((v) => !v)}
                     >
-                      <Icon d="M5 12h.01M12 12h.01M19 12h.01" />
+                      <Icon d="M5 12h.01M12 12h.01M19 12h.01" size={18} />
                     </button>
                     {menuOpen && (
                       <div
