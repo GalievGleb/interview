@@ -39,16 +39,13 @@ describe('AccountCard', () => {
     expect(await screen.findByText('person@example.com')).toBeTruthy();
   });
 
-  it('keeps email registration and the six-digit verification step as fallback', async () => {
-    vi.mocked(accountApi.register).mockResolvedValue({ verificationRequired: true, email: 'new@example.com' });
+  it('offers Google as the only sign-in method', async () => {
     render(<AccountCard />);
 
-    fireEvent.click(await screen.findByRole('button', { name: /почте|email/i }));
-    fireEvent.change(screen.getByLabelText(/электронная почта|email/i), { target: { value: 'new@example.com' } });
-    fireEvent.change(screen.getByLabelText(/пароль|password/i), { target: { value: 'strong-password' } });
-    fireEvent.click(screen.getByRole('button', { name: /создать профиль|create account/i }));
-
-    expect(await screen.findByLabelText(/код из письма|email code/i)).toBeTruthy();
+    expect(await screen.findByRole('button', { name: /google/i })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /почте|email/i })).toBeNull();
+    expect(screen.queryByLabelText(/электронная почта|email/i)).toBeNull();
+    expect(screen.queryByLabelText(/пароль|password/i)).toBeNull();
   });
 
   it('labels the current device and does not offer to revoke its own session', async () => {

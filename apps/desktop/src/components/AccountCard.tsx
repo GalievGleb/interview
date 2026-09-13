@@ -3,8 +3,6 @@ import { accountApi } from '../lib/accountApi';
 import { useI18n } from '../lib/i18n';
 import type { AccountDevice, AccountState } from '../types/electron';
 
-type EmailMode = 'closed' | 'register' | 'login' | 'verify' | 'reset-request' | 'reset-confirm';
-
 const loadingState: AccountState = {
   available: true, authenticated: false, user: null, subscription: null, error: null,
 };
@@ -14,11 +12,6 @@ export default function AccountCard() {
   const [account, setAccount] = useState<AccountState>(loadingState);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [mode, setMode] = useState<EmailMode>('closed');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [code, setCode] = useState('');
-  const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [devices, setDevices] = useState<AccountDevice[]>([]);
 
@@ -48,7 +41,6 @@ export default function AccountCard() {
   const run = async (action: () => Promise<void>) => {
     setBusy(true);
     setError('');
-    setMessage('');
     try {
       await action();
     } catch (caught) {
@@ -142,36 +134,6 @@ export default function AccountCard() {
     );
   }
 
-  const submitEmail = () => run(async () => {
-    if (mode === 'register') {
-      const result = await accountApi.register(email, password);
-      setEmail(result.email);
-      setMode('verify');
-      setMessage(t('account.codeSent'));
-      return;
-    }
-    if (mode === 'login') {
-      setAccount(await accountApi.login(email, password));
-      return;
-    }
-    if (mode === 'verify') {
-      setAccount(await accountApi.verifyEmail(email, code));
-      return;
-    }
-    if (mode === 'reset-request') {
-      await accountApi.requestPasswordReset(email);
-      setMode('reset-confirm');
-      setMessage(t('account.codeSent'));
-      return;
-    }
-    if (mode === 'reset-confirm') {
-      await accountApi.confirmPasswordReset(email, code, password);
-      setMode('login');
-      setCode('');
-      setMessage(t('account.resetDone'));
-    }
-  });
-
   return (
     <div className="sc-card mb-5 p-5">
       <h3 className="text-sm font-semibold text-ink">{t('account.title')}</h3>
@@ -185,41 +147,6 @@ export default function AccountCard() {
         <span className="mr-2 inline-grid h-5 w-5 place-items-center rounded bg-white font-bold text-blue-600">G</span>
         {t('account.google')}
       </button>
-
-      {mode === 'closed' ? (
-        <button type="button" className="btn-secondary mt-2 w-full" onClick={() => setMode('register')}>
-          {t('account.emailFallback')}
-        </button>
-      ) : (
-        <form className="mt-4 space-y-3 border-t border-surface-border pt-4" onSubmit={(event) => { event.preventDefault(); void submitEmail(); }}>
-          <label className="block text-xs font-semibold text-ink-muted">
-            {t('account.email')}
-            <input aria-label={t('account.email')} type="email" required value={email} onChange={(event) => setEmail(event.target.value)} className="field mt-1 w-full" />
-          </label>
-          {(mode === 'register' || mode === 'login' || mode === 'reset-confirm') && (
-            <label className="block text-xs font-semibold text-ink-muted">
-              {t('account.password')}
-              <input aria-label={t('account.password')} type="password" minLength={8} required value={password} onChange={(event) => setPassword(event.target.value)} className="field mt-1 w-full" />
-            </label>
-          )}
-          {(mode === 'verify' || mode === 'reset-confirm') && (
-            <label className="block text-xs font-semibold text-ink-muted">
-              {t('account.code')}
-              <input aria-label={t('account.code')} inputMode="numeric" pattern="[0-9]{6}" maxLength={6} required value={code} onChange={(event) => setCode(event.target.value.replace(/\D/gu, ''))} className="field mt-1 w-full font-mono" />
-            </label>
-          )}
-          <button type="submit" className="btn-primary w-full" disabled={busy}>
-            {mode === 'register' ? t('account.create') : mode === 'login' ? t('account.login') : mode === 'verify' ? t('account.verify') : mode === 'reset-request' ? t('account.resetRequest') : t('account.resetConfirm')}
-          </button>
-          <div className="flex flex-wrap justify-center gap-x-3 gap-y-1 text-xs">
-            {mode === 'register' && <button type="button" className="text-accent" onClick={() => setMode('login')}>{t('account.haveAccount')}</button>}
-            {mode === 'login' && <button type="button" className="text-accent" onClick={() => setMode('register')}>{t('account.needAccount')}</button>}
-            {mode === 'login' && <button type="button" className="text-accent" onClick={() => setMode('reset-request')}>{t('account.forgot')}</button>}
-            {mode === 'verify' && <button type="button" className="text-accent" onClick={() => void run(async () => { await accountApi.requestVerification(email); setMessage(t('account.codeSent')); })}>{t('account.resend')}</button>}
-          </div>
-        </form>
-      )}
-      {message && <p className="mt-3 text-xs text-emerald-400" role="status">{message}</p>}
       {error && <p className="mt-3 text-xs text-red-400" role="alert">{error}</p>}
     </div>
   );
