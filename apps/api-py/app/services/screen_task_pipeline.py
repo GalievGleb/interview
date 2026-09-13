@@ -466,6 +466,24 @@ def _observation_prompt(
         "only because a Python signature is absent. For Python, classify python_shape as "
         "function, script, class, or pytest. Populate every capability boolean and every "
         "structural requirement list. SQL clauses must be individual canonical clause names, "
+        "REQUIRED means explicitly demanded by the task statement, NOT a guessed solution "
+        "plan. A table merely present in the schema is NOT a required SQL identifier. "
+        "Do not require JOIN, WHERE, GROUP BY, ORDER BY or a particular table just because "
+        "you think a solution will use it. Only record mandated output aliases, explicitly "
+        "required identifiers/clauses and exact task literals as required. Available schema "
+        "belongs in sources, separately from requirements. For SQL tasks transcribe the "
+        "visible database diagram into schema sources: exact table names, exact column "
+        "names and relationships, including columns not used in your guessed solution. "
+        "Never rename, translate, normalize case or insert underscores in identifiers. "
+        "The solver cannot see this image: omitting the schema makes it invent columns. "
+        "Prioritize the task statement and schema over navigation, buttons and editor UI. "
+        "Set allow_join/allow_cte true for ordinary SQL exercises unless explicitly forbidden; "
+        "permission is not a requirement to use them. "
+        "Copy the task statement VERBATIM into a task_text source, including quantifiers "
+        "such as all, every, none, last, first and their original-language equivalents. "
+        "Never change 'all owners' into 'owners who have reservations'. Do not invent "
+        "filters, exclusions or constraints absent from the statement. If a requirement "
+        "cannot be supported by an exact quote in task_text, it is not mandatory. "
         "identifiers and literals must stay in their dedicated arrays. For pure SQL and for "
         "Python that executes SQL, set expected_sql_statement_kind from visible evidence. "
         "For response_kind=checklist, set the exact requested_item_count, whether only new "
@@ -588,6 +606,10 @@ async def _extract_observation(
     # Extraction is a bounded schema/OCR step, not the final reasoning step.
     # GPT-5.6 officially supports low effort, which trims sequential latency.
     observation_reasoning = _low_reasoning_effort(reasoning)
+    if model.lower() == "deepseek/deepseek-v4.1-flash":
+        # Even low effort exhausted all 1800 OCR tokens before any JSON.
+        # Keep thinking for answer/repair, not for evidence transcription.
+        observation_reasoning = {"enabled": False, "exclude": True}
     last_error: Exception | None = None
     for attempt in range(2):
         try:
@@ -1135,7 +1157,9 @@ def _answer_prompt(state: ScreenTaskState, latest_correction: str) -> str:
         "Solve the typed screen task below. Use only this validated text state; no pixels "
         "or raw prior answer are available. Return the smallest standard solution that "
         "preserves every explicit requirement. For code, first give a short natural Russian "
-        "explanation, then exactly one fenced code block. Put a short Russian comment on the "
+        "explanation of the task's solution, then exactly one fenced code block. Never "
+        "discuss the draft, validator, issue codes, missing Russian text or formatting "
+        "repairs in the user-facing explanation. Put a short Russian comment on the "
         "line immediately below every substantive code line, using # for Python and -- for "
         "SQL. Bind user-provided SQL values as parameters and keep required table/column "
         "identifiers exact. For the Python function profile, emit one straight-line target "
@@ -1248,7 +1272,16 @@ async def _generate_code_answer(
     base_messages = [
         {
             "role": "system",
-            "content": "You are a precise technical interview coding assistant.",
+            "content": (
+                "You are a precise technical interview coding assistant. "
+                "Return a final solution, never a report about repairing your response. "
+                "Start with 1-2 Russian sentences explaining the algorithm, then one code block. "
+                "Preserve the exact quantifiers in the original task statement. For SQL asking "
+                "for ALL entities and an aggregate from related rows, retain entities without "
+                "matching rows (typically LEFT JOIN); do not silently restrict to entities "
+                "with matches. Use COALESCE when an absent monetary sum represents zero. "
+                "Use the provided schema exactly; never invent or rename tables or columns."
+            ),
         },
         {"role": "user", "content": _answer_prompt(state, latest_correction)},
     ]
@@ -1281,7 +1314,9 @@ async def _generate_code_answer(
         f"{_answer_prompt(state, latest_correction)}\n\n"
         "Repair the draft exactly once. The deterministic validator returned only these "
         f"stable issue codes: {issue_codes}. Fix every listed issue without adding unrelated "
-        f"layers. {repair_shape}Return the full answer, not a diff.\n\n"
+        f"layers. {repair_shape}Return only the final solution as if answering for the first "
+        "time, not a diff or a repair report. The introduction must explain the task's "
+        "algorithm, never what you changed in the draft or which check failed.\n\n"
         f"INVALID DRAFT:\n{draft[:MAX_REPAIR_DRAFT_CHARS]}"
     )
     repaired = await complete(

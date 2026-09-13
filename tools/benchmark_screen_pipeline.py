@@ -24,6 +24,14 @@ async def benchmark(args):
     from verify_screen_code_task import render_sql_solution_png, _data_url
 
     calls = []
+    if args.diagnostics:
+        from app.services import screen_task_pipeline as pipeline
+        original_validate = pipeline.validate_screen_answer
+        def diagnostic_validate(value):
+            result = original_validate(value)
+            print(json.dumps({'validation': [x.value for x in result.issue_codes]}), flush=True)
+            return result
+        pipeline.validate_screen_answer = diagnostic_validate
     original_post = provider_adapter._post_with_retry
     async def diagnostic_post(*positional, **kwargs):
         response = await original_post(*positional, **kwargs)
@@ -37,11 +45,17 @@ async def benchmark(args):
     provider_adapter._post_with_retry = diagnostic_post
 
     async def measured(messages, *positional, **kwargs):
+        if args.answer_effort and kwargs.get('screen_workload_phase') in {'answer', 'repair'}:
+            kwargs['reasoning'] = {'effort': args.answer_effort, 'exclude': True}
+            kwargs['max_tokens'] = 4200
         if args.effort and kwargs.get('reasoning'):
             kwargs['reasoning'] = {'effort': args.effort, 'exclude': True}
         started = time.perf_counter()
         try:
-            return await provider_adapter.complete(messages, *positional, **kwargs)
+            answer = await provider_adapter.complete(messages, *positional, **kwargs)
+            if args.trace:
+                print(json.dumps({'phase': kwargs.get('screen_workload_phase'), 'content': answer}, ensure_ascii=False), flush=True)
+            return answer
         finally:
             item = {'phase': kwargs.get('screen_workload_phase'),
                     'ms': round((time.perf_counter() - started) * 1000)}
@@ -51,7 +65,7 @@ async def benchmark(args):
     tokens, reasoning = provider_adapter.screen_stream_options(args.model)
     started = time.perf_counter()
     result = await run_screen_task_pipeline(
-        previous_images=(), current_image=_data_url(render_sql_solution_png()),
+        previous_images=(), current_image=_data_url(Path(args.image).read_bytes() if args.image else render_sql_solution_png()),
         latest_correction='', context='', prior_solution_summary=None,
         task_action='new', task_state=None, provider='openrouter', model=args.model,
         max_tokens=tokens, reasoning=reasoning, complete=measured,
@@ -66,6 +80,9 @@ def main():
     parser.add_argument('--model', default='openai/gpt-5.6-sol')
     parser.add_argument('--effort', choices=['none', 'low', 'medium'])
     parser.add_argument('--diagnostics', action='store_true')
+    parser.add_argument('--answer-effort', choices=['low', 'high'])
+    parser.add_argument('--image')
+    parser.add_argument('--trace', action='store_true', help='Print public test fixture outputs only; never use with private screenshots.')
     args = parser.parse_args()
     source = Path(os.environ['APPDATA']) / 'SkillCue Alpha/backend-data/copilot.sqlite'
     with tempfile.TemporaryDirectory(prefix='skillcue-screen-bench-') as directory:

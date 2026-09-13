@@ -1644,7 +1644,10 @@ async def test_python_return_annotation_keeps_signature_and_identifier_validatio
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('needs_repair', [False, True])
-async def test_explicit_pure_sql_task_validates_without_a_python_signature(needs_repair) -> None:
+@pytest.mark.parametrize('model', ['safe/model', 'deepseek/deepseek-v4.1-flash'])
+async def test_explicit_pure_sql_task_validates_without_a_python_signature(needs_repair, model) -> None:
+    from app.services.provider_adapter import screen_stream_options
+    tokens, reasoning = screen_stream_options(model)
     answer = """Сначала проверю доступность соединения простым запросом.
 
 ```sql
@@ -1684,14 +1687,20 @@ SELECT 1;
         task_action="new",
         task_state=None,
         provider="openai",
-        model="safe/model",
-        max_tokens=1200,
-        reasoning={"effort": "medium", "exclude": True},
+        model=model,
+        max_tokens=tokens,
+        reasoning=reasoning,
         now_ms=1_000,
         complete=complete,
     )
 
     assert result.answer == answer
+    if model == 'deepseek/deepseek-v4.1-flash':
+        assert calls[0]['reasoning'] == {'enabled': False, 'exclude': True}
+        assert calls[0]['max_tokens'] == 1800
+        for call in calls[1:]:
+            assert call['reasoning'] == {'effort': 'low', 'exclude': True}
+            assert call['max_tokens'] == 4200
     assert [call['screen_workload_phase'] for call in calls] == (
         ['observation', 'answer']
         + (['repair'] if needs_repair else [])
