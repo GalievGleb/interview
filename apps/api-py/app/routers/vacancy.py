@@ -1212,6 +1212,8 @@ async def screening_answers(payload: ScreeningAnswersPayload, db=Depends(get_db)
 - Do not write evasions such as 'уточню перед следующим этапом', 'готов дать предметный ответ', or 'актуальный статус готов подтвердить'. Answer the question itself in 1-2 short sentences.
 - For compound questions, address the individual parts. Missing years or project names must NOT erase supported details about logs, traffic, tools or test approaches. Use specific transferable experience; put missing facts in reason, not a generic evasion in answer.
 - Prefer a useful partial answer over an empty answer. Do not equate 'not mentioned in resume' with 'zero experience'. Never invent a number of years or a named application. Distinguish a proposed testing approach from past personal work.
+- Never discuss the résumé, source documents or missing source information in the employer-facing answer (no 'в резюме не указан', 'имеется подтверждённый опыт'). Speak naturally in first person: 'Разрабатываю API-автотесты...', 'Для проверки аналитики сопоставил бы события с...'. Missing duration or application names belong only in reason.
+- Compound questions may use 3-5 concise sentences. Cover logs, traffic and analytics separately when asked, using past/present personal work only where supported and a clearly prospective approach elsewhere. Do not silently drop subquestions just because one personal fact is missing.
 - For closed option questions, select an exact option only when supported by a source or neutral; otherwise leave selectedOptions empty.
 - Always set canAutoFill=false in this mode. A proposed answer is not a saved personal fact until explicitly confirmed by the user."""
         if payload.draftMode
