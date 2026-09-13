@@ -1899,7 +1899,7 @@ def test_validation_uses_only_typed_capability_flags_and_structural_requirements
     assert validation_input.required_sql_identifiers == ("dual",)
     assert validation_input.required_sql_clauses == ("select", "from")
     assert validation_input.visible_literals == ("1",)
-    assert validation_input.require_russian_line_comments is True
+    assert validation_input.require_russian_line_comments is False
     assert [item.stable_id for item in validation_input.stable_requirements] == [
         "required-sql-identifier-1",
         "required-sql-clause-1",

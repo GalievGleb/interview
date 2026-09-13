@@ -160,6 +160,7 @@ export interface UsageRow {
 }
 
 export interface SseDoneMetadata {
+  validationIssues?: string[];
   model?: string;
   modelSource?: string;
   /** Чувствительный ограниченный контекст экрана: только память, без логов и диска. */
@@ -171,7 +172,7 @@ export interface SseDoneMetadata {
 interface SseHandlers {
   onChunk: (text: string) => void;
   onDone: () => void;
-  onError: (msg: string, code?: string) => void;
+  onError: (msg: string, code?: string, meta?: SseDoneMetadata) => void;
 }
 
 interface MetadataSseHandlers extends Omit<SseHandlers, 'onDone'> {
@@ -227,10 +228,11 @@ function sseChatStream(
     (handlers.onDone as (value?: SseDoneMetadata) => void)(meta);
     return true;
   };
-  const settleError = (message: string, code?: string): boolean => {
+  const settleError = (message: string, code?: string, meta?: SseDoneMetadata): boolean => {
     if (settled || cancelled) return false;
     settled = true;
-    if (code) handlers.onError(message, code);
+    if (meta) handlers.onError(message, code, meta);
+    else if (code) handlers.onError(message, code);
     else handlers.onError(message);
     return true;
   };
@@ -285,9 +287,17 @@ function sseChatStream(
           });
           return true;
         } else if (event.type === 'error') {
+          const meta: SseDoneMetadata = {
+            ...(typeof event.model === 'string' ? { model: event.model.slice(0, 200) } : {}),
+            ...(typeof event.model_source === 'string' ? { modelSource: event.model_source.slice(0, 100) } : {}),
+            ...(Array.isArray(event.validation_issues) ? { validationIssues: event.validation_issues.filter(
+              (v): v is string => typeof v === 'string' && /^[a-z_]{1,80}$/.test(v),
+            ).slice(0, 32) } : {}),
+          };
           settleError(
             typeof event.message === 'string' ? event.message : 'Ошибка',
             typeof event.code === 'string' ? event.code : undefined,
+            Object.keys(meta).length ? meta : undefined,
           );
           return true;
         } else if (options.failClosed) {
@@ -1240,7 +1250,7 @@ export const api = {
         }
         handlers.onDone(meta);
       },
-      onError: (message, code) => {
+      onError: (message, code, meta) => {
         if (
           code === 'unsupported_screen_python_profile'
           && !sawStructuredChunk
@@ -1255,7 +1265,8 @@ export const api = {
           });
           return;
         }
-        handlers.onError(message, code);
+        if (meta) handlers.onError(message, code, meta);
+        else handlers.onError(message, code);
       },
     };
     cancelActive = sseChatStream(

@@ -14,7 +14,7 @@ import { writeClipboardText } from '../lib/clipboard';
 import OverlayAppIcon from '../components/OverlayAppIcon';
 import OverlayTooltipLayer from '../components/OverlayTooltipLayer';
 import { forceDarkTheme } from '../lib/theme';
-import { modeInstructionPrefix, useAnswerModes } from '../lib/answerModes';
+import { modeInstructionPrefix } from '../lib/answerModes';
 import { deriveLiveExchange } from '../lib/liveOverlaySync';
 import { shouldCancelScreenFallbackOwner } from '../lib/latestForcedAnswer';
 import {
@@ -23,14 +23,9 @@ import {
   type ForceHotkeySource,
 } from '../lib/forceHotkeyDeduper';
 import {
-  resolveOverlayRequestRoute,
-  type OverlayActionId,
-} from '../lib/overlayRequestRoute';
-import {
   OverlayPointerController,
-  clampFloatingPanel,
 } from '../lib/overlayPointerPolicy';
-import { useI18n, type I18nKey } from '../lib/i18n';
+import { useI18n } from '../lib/i18n';
 import { refreshSessionKnowledge } from '../lib/sessionKnowledge';
 import { resolveSessionEvidenceLayout } from '../lib/sessionAnalysisPresentation';
 import { answerLanguageParam } from '../lib/answerLanguage';
@@ -68,55 +63,11 @@ import type {
  * Undetectability прячет оверлей от скринов/записи и рисует пунктирную обводку.
  */
 
-type ActionId = OverlayActionId;
-
 const SCREEN_CAPTURE_TIMEOUT_MS = 10_000;
 
-const ACTIONS: Record<
-  ActionId,
-  { labelKey: I18nKey; tipKey: I18nKey; needsContext: boolean; prompt: string }
-> = {
-  assist: {
-    labelKey: 'overlay.action.assist',
-    tipKey: 'overlay.tip.assist',
-    needsContext: false,
-    prompt:
-      'Помоги ответить на последний вопрос интервьюера из разговора. Дай готовый ответ от первого лица, чтобы произнести вслух: 40–80 слов, по делу, без вступлений.',
-  },
-  say: {
-    labelKey: 'overlay.action.say',
-    tipKey: 'overlay.tip.say',
-    needsContext: true,
-    prompt:
-      'Подскажи, что мне сказать прямо сейчас, учитывая ход разговора. Готовая фраза/мини-ответ от первого лица, максимум 60 слов.',
-  },
-  followup: {
-    labelKey: 'overlay.action.followup',
-    tipKey: 'overlay.tip.followup',
-    needsContext: true,
-    prompt:
-      'Какие уточняющие вопросы, скорее всего, задаст интервьюер после моего последнего ответа? Дай 3–5 вопросов и к каждому — краткую подсказку, как отвечать.',
-  },
-  recap: {
-    labelKey: 'overlay.action.recap',
-    tipKey: 'overlay.tip.recap',
-    needsContext: true,
-    prompt:
-      'Сделай краткое резюме разговора: какие темы подняли, что я ответил, какие вопросы остались открытыми. 3–6 пунктов.',
-  },
-  screen: {
-    labelKey: 'overlay.action.screen',
-    tipKey: 'overlay.tip.screen',
-    needsContext: false,
-    prompt: '', // vision-путь: скриншот + вопрос, см. runAction
-  },
-};
-
-const SMART_KEY = 'skillcue.overlaySmart';
 const STEALTH_KEY = 'skillcue.overlayStealth';
 const AVOID_FOCUS_KEY = 'skillcue.overlayAvoidFocus';
 const CLICK_THROUGH_KEY = 'skillcue.overlayClickThrough';
-const USE_SCREEN_KEY = 'skillcue.overlayUseScreen';
 const OPACITY_KEY = 'skillcue.overlayOpacity';
 const QUICK_GUIDE_KEY = 'skillcue.overlayQuickGuideSeen.v1';
 
@@ -168,20 +119,6 @@ function Icon({ d, size = 14 }: { d: string; size?: number }) {
         <path key={i} d={p} />
       ))}
     </svg>
-  );
-}
-
-/** Мини-переключатель в навы+зелёном стиле (как тумблеры в меню Cluely). */
-function Switch({ on, label }: { on: boolean; label: string }) {
-  return (
-    <span
-      role="switch"
-      aria-checked={on}
-      aria-label={label}
-      className={`ovl-switch ${on ? 'ovl-switch--on' : ''}`}
-    >
-      <span className="ovl-switch-knob" />
-    </span>
   );
 }
 
@@ -276,25 +213,23 @@ export default function OverlayPage() {
     resume,
     stop,
   } = useLiveCopilot();
-  const { sources, sttOptions, setSources } = useLiveCopilotPrefs();
+  const { sources, sttOptions } = useLiveCopilotPrefs();
 
   const [exchange, setExchange] = useState<Exchange | null>(null);
   const screenExchangeOwnerRef = useRef<{ generation: number; lastAnswerId: string | undefined } | null>(null);
-  const [smart, setSmart] = useState(() => localStorage.getItem(SMART_KEY) === '1');
+  const smart = false;
   const [menuOpen, setMenuOpen] = useState(false);
   const [showQuickGuide, setShowQuickGuide] = useState(
     () => localStorage.getItem(QUICK_GUIDE_KEY) !== '1',
   );
-  const [modesOpen, setModesOpen] = useState(false);
   const [showTranscript, setShowTranscript] = useState(false);
   const [notice, setNotice] = useState('');
-  const { modes, active: activeMode, setActive: setActiveMode } = useAnswerModes();
 
   // Cluely-подобные тумблеры.
   const [stealth, setStealth] = useState(() => localStorage.getItem(STEALTH_KEY) === '1');
-  const [avoidFocus, setAvoidFocus] = useState(() => localStorage.getItem(AVOID_FOCUS_KEY) === '1');
+  const [avoidFocus] = useState(() => localStorage.getItem(AVOID_FOCUS_KEY) === '1');
   const [clickThrough, setClickThrough] = useState(() => localStorage.getItem(CLICK_THROUGH_KEY) === '1');
-  const [opacity, setOpacity] = useState(() => {
+  const [opacity] = useState(() => {
     const saved = localStorage.getItem(OPACITY_KEY);
     return saved === null ? 70 : clampOpacity(Number(saved));
   });
@@ -330,9 +265,6 @@ export default function OverlayPage() {
   const screenFallbackLaunchRef = useRef(new ScreenFallbackLaunchCoordinator());
   const manualBusyRef = useRef(false);
   const rootRef = useRef<HTMLDivElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const menuButtonRef = useRef<HTMLButtonElement>(null);
-  const menuPanelRef = useRef<HTMLDivElement>(null);
   const answerBodyRef = useRef<HTMLDivElement>(null);
   const transcriptScrollRef = useRef<HTMLDivElement>(null);
   const transcriptFollowsTailRef = useRef(true);
@@ -341,7 +273,6 @@ export default function OverlayPage() {
   const lastCandidateHotkeyRef = useRef<ForceHotkeyEvent | null>(null);
   const lastScreenHotkeyRef = useRef<ForceHotkeyEvent | null>(null);
   const pointerControllerRef = useRef<OverlayPointerController | null>(null);
-  const [menuPosition, setMenuPosition] = useState({ left: 8, top: 8 });
   const liveBlocked = license?.live_allowed === false;
   const guideCopy = lang === 'ru'
     ? {
@@ -689,7 +620,9 @@ export default function OverlayPage() {
               { label: t('overlay.action.screen'), request: displayRequest, text: terminalResult.answer, image },
             ]);
           } else {
-            screenAssistDiagnostics.error(diagnosticId, message);
+            const details = [terminalResult.errorCode, terminalResult.meta?.model,
+              ...(terminalResult.meta?.validationIssues ?? [])].filter(Boolean).join('; ');
+            screenAssistDiagnostics.error(diagnosticId, details ? `${message} [${details}]` : message);
             if (forceOwner) {
               finishScreenFallback(forceOwner.generation, forceOwner.screenRevision, 'error');
             }
@@ -744,77 +677,6 @@ export default function OverlayPage() {
       transcriptContext,
       t,
     ],
-  );
-
-  const runAction = useCallback(
-    (id: ActionId, customText?: string) => {
-      const action = ACTIONS[id];
-      const context = transcriptContext();
-      const custom = (customText ?? '').trim();
-
-      const route = resolveOverlayRequestRoute({
-        action: id,
-        customText: custom,
-        hasTranscript: Boolean(context),
-        canCaptureScreen: Boolean(window.electronAPI?.overlay.captureScreen),
-        useScreenFallback: localStorage.getItem(USE_SCREEN_KEY) !== '0',
-        smart,
-      });
-
-      if (route.kind === 'screen') {
-        void runScreenAssist(custom, route.mode);
-        return;
-      }
-
-      if (route.kind === 'notice') {
-        cancelActiveScreenAssist();
-        screenAssistGenerationRef.current += 1;
-        setNotice(action.needsContext ? t('overlay.noConvContext') : t('overlay.noConvManual'));
-        return;
-      }
-      cancelActiveScreenAssist();
-      screenAssistGenerationRef.current += 1;
-      setNotice('');
-      cancelRef.current?.();
-      manualBusyRef.current = true;
-
-      // Инструкция активного режима (см. Настройки → Режимы ответа).
-      const message =
-        modeInstructionPrefix() +
-        (custom
-          ? `${custom}${context ? '\n\n(Отвечай с учётом текущего разговора.)' : ''}`
-          : action.prompt);
-      const request = custom || t(action.labelKey);
-
-      setExchange({ label: t(action.labelKey), request, text: '', streaming: true });
-
-      let acc = '';
-      cancelRef.current = api.streamChat(
-        message,
-        {
-          onChunk: (t) => {
-            acc += t;
-            setExchange((prev) => (prev ? { ...prev, text: prev.text + t } : prev));
-          },
-          onDone: () => {
-            manualBusyRef.current = false;
-            setExchange((prev) => (prev ? { ...prev, streaming: false } : prev));
-            setUsageLog((log) => [...log, { label: t(action.labelKey), request, text: acc }]);
-          },
-          onError: (msg) => {
-            manualBusyRef.current = false;
-            setExchange((prev) =>
-              prev ? { ...prev, streaming: false, text: prev.text || `⚠ ${msg}` } : prev,
-            );
-          },
-        },
-        {
-          mode: route.mode,
-          context: context || undefined,
-        },
-      );
-    },
-    [cancelActiveScreenAssist, runScreenAssist, smart, transcriptContext, t],
   );
 
   // Live-ответы (авто) — в ту же панель, пока нет ручного запроса.
@@ -921,12 +783,6 @@ export default function OverlayPage() {
     error,
     t,
   ]);
-
-  const toggleSmart = () => {
-    const next = !smart;
-    setSmart(next);
-    localStorage.setItem(SMART_KEY, next ? '1' : '0');
-  };
 
   const closeExchange = useCallback(() => {
     screenExchangeOwnerRef.current = null;
@@ -1098,7 +954,6 @@ export default function OverlayPage() {
     setNotice('');
     setShowTranscript(false);
     setMenuOpen(false);
-    setModesOpen(false);
   }, [closeExchange, closeRecap]);
 
   useEffect(
@@ -1195,34 +1050,6 @@ export default function OverlayPage() {
       const updated = state?.events.find((event) => event.id === linkedEvent.id);
       if (updated) setInterviewContext(updated);
     }
-  };
-
-  // ---------- Тумблеры ----------
-  const toggleStealth = () => {
-    const next = !stealth;
-    setStealth(next);
-    localStorage.setItem(STEALTH_KEY, next ? '1' : '0');
-    void window.electronAPI?.overlay.setContentProtection?.(next);
-  };
-
-  const toggleAvoidFocus = () => {
-    const next = !avoidFocus;
-    setAvoidFocus(next);
-    localStorage.setItem(AVOID_FOCUS_KEY, next ? '1' : '0');
-    void window.electronAPI?.overlay.setFocusable?.(!next);
-  };
-
-  const toggleClickThrough = () => {
-    const next = !clickThrough;
-    setClickThrough(next);
-    localStorage.setItem(CLICK_THROUGH_KEY, next ? '1' : '0');
-    pointerControllerRef.current?.setForceClickThrough(next);
-  };
-
-  const changeOpacity = (v: number) => {
-    const next = clampOpacity(v);
-    setOpacity(next);
-    localStorage.setItem(OPACITY_KEY, String(next));
   };
 
   const submitForcedAnswer = useCallback((source: ForceHotkeySource = 'button') => {
@@ -1370,58 +1197,13 @@ export default function OverlayPage() {
   );
 
   // Клик мимо меню — закрыть.
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onClick = (e: MouseEvent) => {
-      const target = e.target as Node;
-      if (menuOpen && menuRef.current && !menuRef.current.contains(target)) setMenuOpen(false);
-    };
-    document.addEventListener('mousedown', onClick);
-    return () => document.removeEventListener('mousedown', onClick);
-  }, [menuOpen]);
-
-  const positionMainMenu = useCallback(() => {
-    if (!menuButtonRef.current || !menuPanelRef.current) return;
-    setMenuPosition(
-      clampFloatingPanel(
-        menuButtonRef.current.getBoundingClientRect(),
-        menuPanelRef.current.getBoundingClientRect(),
-        { width: window.innerWidth, height: window.innerHeight },
-        'right',
-      ),
-    );
-  }, []);
-
-  useLayoutEffect(() => {
-    if (menuOpen) positionMainMenu();
-  }, [menuOpen, modesOpen, positionMainMenu]);
-
-  useEffect(() => {
-    if (!menuOpen) return;
-    window.addEventListener('resize', positionMainMenu);
-    return () => window.removeEventListener('resize', positionMainMenu);
-  }, [menuOpen, positionMainMenu]);
-
-  const KEYBINDS: Array<{ labelKey: I18nKey; keys: string; d: string }> = [
-    { labelKey: 'overlay.kb.toggle', keys: 'Ctrl+Shift+H', d: 'M2 4h20v13H2z|M8 20h8' },
-    { labelKey: 'overlay.kb.ask', keys: 'Ctrl+↵', d: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z' },
-    { labelKey: 'overlay.kb.candidateFollowUp', keys: 'Ctrl+\\', d: 'M4 12h11|M11 8l4 4-4 4|M20 5v14' },
-    { labelKey: 'overlay.kb.screenAsk', keys: 'Ctrl+Shift+↵', d: 'M2 4h20v12H2z|M8 20h8|M12 16v4' },
-    { labelKey: 'overlay.kb.clear', keys: 'Ctrl+R', d: 'M3 6h18|M8 6V4h8v2|M6 6l1 14h10l1-14' },
-    { labelKey: 'overlay.kb.stop', keys: 'Ctrl+Shift+\\', d: 'M6 6h12v12H6z' },
-    { labelKey: 'overlay.kb.move', keys: 'Ctrl+↑↓←→', d: 'M5 9 2 12l3 3|M9 5l3-3 3 3|M15 19l-3 3-3-3|M19 9l3 3-3 3|M2 12h20|M12 2v20' },
-    { labelKey: 'overlay.kb.scroll', keys: 'Ctrl+Shift+↑↓', d: 'M8 7l4-4 4 4|M8 17l4 4 4-4' },
-    { labelKey: 'overlay.kb.resize', keys: 'Ctrl +/−', d: 'M15 3h6v6|M9 21H3v-6|M21 3l-7 7|M3 21l7-7' },
-    { labelKey: 'overlay.kb.transcript', keys: 'Ctrl+/', d: 'M4 6h16|M4 12h16|M4 18h10' },
-    { labelKey: 'overlay.kb.clickThrough', keys: 'Ctrl+Alt+O', d: 'M4 12h16|M12 4v16|M4 4l16 16' },
-  ];
-
   return (
     <div
       ref={rootRef}
       className={`ovl-root ${stealth ? 'ovl-root--stealth' : ''}`}
       style={{ opacity: opacity / 100 }}
     >
+      <div className="ovl-shell" data-overlay-hit="true">
       {/* ---------- Пилл ---------- */}
       <div className="ovl-pill" data-overlay-hit="true">
         <button
@@ -1885,295 +1667,9 @@ export default function OverlayPage() {
               </div>
             )}
 
-            {/* ---------- Командная панель ---------- */}
-            <div className="ovl-bar ovl-card" data-overlay-hit="true">
-              <div className="ovl-actions">
-                {(Object.keys(ACTIONS) as ActionId[]).map((id, i) => (
-                  <span key={id} className="flex items-center gap-0.5">
-                    {i > 0 && <span className="ovl-dot-sep">·</span>}
-                    <button
-                      type="button"
-                      className="ovl-action tip"
-                      data-tip={t(ACTIONS[id].tipKey)}
-                      onClick={() => runAction(id)}
-                    >
-                      <Icon
-                        d={
-                          id === 'assist'
-                            ? 'm12 3-1.9 5.8L4 11l6.1 2.2L12 19l1.9-5.8L20 11l-6.1-2.2z'
-                            : id === 'say'
-                              ? 'M13 2 3 14h7l-1 8 10-12h-7z'
-                              : id === 'followup'
-                                ? 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'
-                                : id === 'recap'
-                                  ? 'M3 12a9 9 0 1 0 3-6.7L3 8|M3 3v5h5'
-                                  : 'M2 4h20v12H2z|M8 20h8|M12 16v4'
-                        }
-                      />
-                      {t(ACTIONS[id].labelKey)}
-                    </button>
-                  </span>
-                ))}
-              </div>
-
-              <div className="ovl-input-wrap">
-                <div className="mt-1.5 flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    className={`ovl-smart tip ${smart ? 'ovl-smart--on' : ''}`}
-                    data-tip={t('overlay.smartTip')}
-                    onClick={toggleSmart}
-                  >
-                    Smart
-                  </button>
-
-                  <div className="relative" ref={menuRef}>
-                    <button
-                      ref={menuButtonRef}
-                      type="button"
-                      className="overlay-icon-btn tip"
-                      data-tip={t('overlay.menuTip')}
-                      aria-label={t('overlay.menuAria')}
-                      onClick={() => setMenuOpen((v) => !v)}
-                    >
-                      <Icon d="M5 12h.01M12 12h.01M19 12h.01" />
-                    </button>
-                    {menuOpen && (
-                      <div
-                        ref={menuPanelRef}
-                        className="overlay-menu ovl-main-menu"
-                        data-overlay-hit="true"
-                        style={{
-                          position: 'fixed',
-                          left: menuPosition.left,
-                          top: menuPosition.top,
-                          maxHeight: 'calc(100vh - 16px)',
-                          margin: 0,
-                        }}
-                      >
-                        <p className="ovl-menu-head">{t('overlay.shortcutsHead')}</p>
-                        {KEYBINDS.map((k) => (
-                          <div key={k.labelKey} className="ovl-menu-row">
-                            <Icon d={k.d} />
-                            <span className="flex-1">{t(k.labelKey)}</span>
-                            <span className="ovl-kbd">{k.keys}</span>
-                          </div>
-                        ))}
-
-                        <div className="ovl-menu-sep" />
-
-                        <button
-                          type="button"
-                          className="ovl-menu-toggle tip"
-                          data-tip={t('overlay.stealthTip')}
-                          onClick={toggleStealth}
-                        >
-                          <Icon d="M3 3l18 18|M10.6 5.1A9 9 0 0 1 21 12c-.5 1-1.2 2-2 2.9M6.6 6.6A9 9 0 0 0 3 12c1.7 3.3 5 5 9 5 1 0 2-.1 2.9-.4" />
-                          <span className="flex-1 text-left">{t('overlay.stealth')}</span>
-                          <Switch on={stealth} label={t('overlay.stealthAria')} />
-                        </button>
-                        <button
-                          type="button"
-                          className="ovl-menu-toggle tip"
-                          data-tip={t('overlay.avoidFocusTip')}
-                          onClick={toggleAvoidFocus}
-                        >
-                          <Icon d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0-6 0|M12 2v3|M12 19v3|M2 12h3|M19 12h3" />
-                          <span className="flex-1 text-left">{t('overlay.avoidFocus')}</span>
-                          <Switch on={avoidFocus} label={t('overlay.avoidFocus')} />
-                        </button>
-                        <button
-                          type="button"
-                          className="ovl-menu-toggle tip"
-                          data-tip={t('overlay.clickThroughTip')}
-                          onClick={toggleClickThrough}
-                        >
-                          <Icon d="M4 12h16|M12 4v16|M4 4l16 16" />
-                          <span className="flex-1 text-left">{t('overlay.clickThrough')}</span>
-                          <Switch on={clickThrough} label={t('overlay.clickThrough')} />
-                        </button>
-
-                        {/* Прозрачность панели — чтобы видеть, что под ней. */}
-                        <div className="ovl-menu-toggle" style={{ cursor: 'default' }}>
-                          <Icon d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z|M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6" />
-                          <span className="flex-1 text-left">{t('overlay.opacity')}</span>
-                          <span className="mr-1 text-[11px] tabular-nums text-ink-faint">{opacity}%</span>
-                          <input
-                            type="range"
-                            min={40}
-                            max={100}
-                            step={5}
-                            value={opacity}
-                            onChange={(e) => changeOpacity(Number(e.target.value))}
-                            className="w-20 accent-emerald-400"
-                            aria-label={t('overlay.opacity')}
-                          />
-                        </div>
-
-                        <div className="ovl-menu-sep" />
-
-                        {/* Режимы ответа (как Modes у Cluely): ✓ на активном. */}
-                        <button
-                          type="button"
-                          className="ovl-menu-toggle"
-                          onClick={() => setModesOpen((v) => !v)}
-                        >
-                          <Icon d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-                          <span className="flex-1 text-left">{t('overlay.modes')}</span>
-                          <span className="text-[11px] text-ink-faint">
-                            {activeMode.id === 'general' ? t('modes.general') : activeMode.name}
-                          </span>
-                          <Icon d={modesOpen ? 'm6 15 6-6 6 6' : 'm9 6 6 6-6 6'} size={12} />
-                        </button>
-                        {modesOpen && (
-                          <div className="ovl-modes-list">
-                            {modes.map((m) => (
-                              <button
-                                key={m.id}
-                                type="button"
-                                className="btn-ghost w-full justify-start rounded-lg px-2 py-2 text-xs"
-                                onClick={() => {
-                                  setActiveMode(m.id);
-                                  setModesOpen(false);
-                                }}
-                              >
-                                <span
-                                  className={
-                                    m.id === activeMode.id ? 'text-accent' : 'text-transparent'
-                                  }
-                                >
-                                  ✓{' '}
-                                </span>
-                                {m.id === 'general' ? t('modes.general') : m.name}
-                              </button>
-                            ))}
-                            <button
-                              type="button"
-                              className="btn-ghost w-full justify-start rounded-lg px-2 py-2 text-xs text-ink-faint"
-                              onClick={() => {
-                                setMenuOpen(false);
-                                void window.electronAPI?.overlay.openSettings?.('modes');
-                              }}
-                            >
-                              {t('overlay.manageModes')}
-                            </button>
-                          </div>
-                        )}
-
-                        <button
-                          type="button"
-                          className="ovl-menu-toggle"
-                          onClick={() => {
-                            setShowTranscript((v) => !v);
-                          }}
-                        >
-                          <Icon d="M4 6h16|M4 12h16|M4 18h10" />
-                          <span className="flex-1 text-left">{t('overlay.liveTranscript')}</span>
-                          <Switch on={showTranscript} label={t('overlay.liveTranscript')} />
-                        </button>
-
-                        <p className="ovl-menu-head mt-1">{t('overlay.audioSourceHead')}</p>
-                        {(
-                          [
-                            [t('overlay.src.both'), { mic: true, system: true }],
-                            [t('overlay.src.micOnly'), { mic: true, system: false }],
-                            [t('overlay.src.sysOnly'), { mic: false, system: true }],
-                          ] as const
-                        ).map(([label, src]) => (
-                          <button
-                            key={label}
-                            type="button"
-                            className="btn-ghost w-full justify-start rounded-lg px-2 py-2 text-xs"
-                            onClick={() => {
-                              setSources(src);
-                              setMenuOpen(false);
-                               if (active) {
-                                 const linkedEvent = interviewContext;
-                                 const linkedSessionId = sessionId ?? linkedEvent?.sessionId;
-                                 resetScreenTaskContext();
-                                 void stop().then(async () => {
-                                  const restartedSessionId = await start(src, sttOptions, {
-                                    sessionId: linkedSessionId,
-                                    title: linkedEvent
-                                      ? interviewSessionTitle(linkedEvent)
-                                      : undefined,
-                                  });
-                                  if (linkedEvent && restartedSessionId) {
-                                    const state = await window.electronAPI?.interviewCalendar?.attachSession(
-                                      linkedEvent.id,
-                                      restartedSessionId,
-                                    );
-                                    const updated = state?.events.find(
-                                      (event) => event.id === linkedEvent.id,
-                                    );
-                                    if (updated) setInterviewContext(updated);
-                                  }
-                                });
-                              }
-                            }}
-                          >
-                            {sources.mic === src.mic && sources.system === src.system ? '✓ ' : ''}
-                            {label}
-                          </button>
-                        ))}
-
-                        <div className="ovl-menu-sep" />
-                        <button
-                          type="button"
-                          className="ovl-menu-toggle"
-                          onClick={() => {
-                            setMenuOpen(false);
-                            setShowQuickGuide(true);
-                          }}
-                        >
-                          <Icon d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20|M9.5 9a2.5 2.5 0 0 1 5 0c0 2-2.5 2-2.5 4|M12 17h.01" />
-                          <span className="flex-1 text-left">{guideCopy.title}</span>
-                        </button>
-                        <button
-                          type="button"
-                          className="btn-ghost w-full justify-start rounded-lg px-2 py-2 text-xs"
-                          onClick={() => void window.electronAPI?.overlay.openSettings?.()}
-                        >
-                          {t('overlay.settings')}
-                        </button>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="flex-1" />
-                  <button
-                    type="button"
-                    className="ovl-send tip"
-                    data-tip={t('overlay.sendTip')}
-                    aria-label={t('overlay.sendAria')}
-                    disabled={
-                      exchange?.streaming ||
-                      (lines.length === 0 &&
-                        !window.electronAPI?.overlay.captureScreen)
-                    }
-                    onClick={() => submitForcedAnswer('button')}
-                  >
-                    {exchange?.streaming && manualBusyRef.current ? (
-                      <span className="ovl-send-spinner" />
-                    ) : (
-                      <Icon d="m5 12 14 0|m13 6 6 6-6 6" size={13} />
-                    )}
-                  </button>
-                </div>
-              </div>
-
-              {notice && <p className="px-1.5 pt-1.5 text-[11.5px] text-amber-300">{notice}</p>}
-              {sourceHealthWarning && (
-                <p className="px-1.5 pt-1.5 text-[11.5px] text-amber-300" role="status">
-                  {t('overlay.sourceHealth.systemSilent')}
-                </p>
-              )}
-              {error && (
-                <p className="px-1.5 pt-1.5 text-[11.5px] text-red-300" role="alert">
-                  {error}
-                </p>
-              )}
-            </div>
+            {notice && <p className="ovl-status">{notice}</p>}
+            {sourceHealthWarning && <p className="ovl-status" role="status">{t('overlay.sourceHealth.systemSilent')}</p>}
+            {error && <p className="ovl-status" role="alert">{error}</p>}
 
             {/* ---------- Транскрипт (по запросу) ---------- */}
             {showTranscript && (
@@ -2210,6 +1706,7 @@ export default function OverlayPage() {
             )}
           </>
       )}
+      </div>
       </div>
       <OverlayTooltipLayer rootRef={rootRef} />
     </div>

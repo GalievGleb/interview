@@ -7,6 +7,35 @@
   background: transparent;
 }
 
+.ovl-shell {
+  display: flex;
+  flex-direction: column;
+  width: 94vw;
+  max-height: calc(100vh - 16px);
+  border: 1px solid var(--surface-border-strong);
+  border-radius: 16px;
+  background: rgb(15 17 23 / 0.97);
+  overflow: hidden;
+}
+
+.ovl-shell .ovl-pill {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+
+.ovl-shell .ovl-card {
+  width: 100%;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  margin-top: 0;
+}
+
+.ovl-status { padding: 6px 16px; font-size: 12px; color: #fde68a; }
+
 /* Response, controls and transcript share one bounded viewport. Their combined
    height used to exceed the transparent window, clipping the transcript below
    the edge with no outer scrollbar. */

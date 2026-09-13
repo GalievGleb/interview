@@ -1619,6 +1619,9 @@ async def _structured_screen_event_stream(
             AppError(exc.public_message, 422, exc.code),
             model,
         )
+        event['model_source'] = model_source
+        if exc.issue_codes:
+            event['validation_issues'] = list(exc.issue_codes)
         yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
     except Exception as exc:  # noqa: BLE001
         event = _screen_stream_error_event(exc, model)

@@ -683,9 +683,9 @@ function requireOverlayAccount(): boolean {
 function createOverlayWindow(): BrowserWindow {
   const win = new BrowserWindow({
     // Компактный плавающий ассистент: пилл + командная панель + ответ.
-    width: 900,
+    width: 780,
     height: 780,
-    minWidth: 900,
+    minWidth: 620,
     frame: false,
     transparent: true,
     backgroundColor: '#00000000',

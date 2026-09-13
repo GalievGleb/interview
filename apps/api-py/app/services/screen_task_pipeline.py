@@ -9,6 +9,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import logging
 import re
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
@@ -65,6 +66,7 @@ from app.services.screen_task_state import (
 )
 
 CompleteCall = Callable[..., Awaitable[str]]
+logger = logging.getLogger(__name__)
 ObservedSqlClause = Literal[
     "select",
     "from",
@@ -367,9 +369,10 @@ class ScreenTaskPipelineResult:
 class ScreenTaskPipelineError(Exception):
     """Stable public failure; never contains provider output or captured text."""
 
-    def __init__(self, code: str, public_message: str):
+    def __init__(self, code: str, public_message: str, *, issue_codes: tuple[str, ...] = ()):
         self.code = code
         self.public_message = public_message
+        self.issue_codes = issue_codes
         super().__init__(public_message)
 
 
@@ -566,6 +569,35 @@ def _derive_scalar_echo_job_defects(observation: _ScreenObservation) -> _ScreenO
     return observation.model_copy(update={"findings": findings}).checked()
 
 
+def _ground_sql_observation(observation: _ScreenObservation) -> _ScreenObservation:
+    """Keep SQL task wording authoritative over the extractor's interpretations.
+
+    Schema availability does not mandate using every table/column. Likewise,
+    a guessed solution cannot introduce WHERE/JOIN requirements or exclusions.
+    """
+    if observation.code_language != ScreenCodeLanguage.SQL:
+        return observation
+    statements = [s.text for s in observation.sources if s.kind == ScreenSourceKind.TASK_TEXT]
+    if not statements:
+        return observation
+    task_text = '\n'.join(statements)
+    def quoted_in_task(value: str) -> bool:
+        return bool(re.search(r'(?<!\w)' + re.escape(value) + r'(?!\w)', task_text, re.I))
+    return observation.model_copy(update={
+        'objective': task_text[:MAX_OBJECTIVE_CHARS],
+        'public_contract': [],  # Complete original wording remains in sources.
+        'constraints': [],
+        'findings': [f.model_copy(update={'claim': f.evidence[:800]}) for f in observation.findings],
+        'required_sql_identifiers': [v for v in observation.required_sql_identifiers if quoted_in_task(v)],
+        'required_sql_clauses': [v for v in observation.required_sql_clauses if quoted_in_task(v)],
+        'required_literals': [v for v in observation.required_literals
+                              if quoted_in_task(v) and v not in observation.required_sql_identifiers
+                              and not re.fullmatch(r'as\s+\w+', v, re.I)],
+        'allow_join': not bool(re.search(r'(?:без|without|no|не\s+использ\w*)\s+joins?\b', task_text, re.I)),
+        'allow_cte': not bool(re.search(r'(?:без|without|no|не\s+использ\w*)\s+(?:cte|with)\b', task_text, re.I)),
+    }).checked()
+
+
 async def _extract_observation(
     *,
     image: str,
@@ -624,7 +656,7 @@ async def _extract_observation(
                 screen_workload_phase="observation",
             )
             observation = _ScreenObservation.model_validate_json(raw, strict=True).checked()
-            return _derive_scalar_echo_job_defects(observation)
+            return _ground_sql_observation(_derive_scalar_echo_job_defects(observation))
         except ScreenTaskPipelineError:
             raise
         except (TypeError, ValueError, ValidationError, json.JSONDecodeError) as exc:
@@ -1138,8 +1170,10 @@ def _validation_input(
         allow_helper=typed.allow_helper,
         required_sql_bound_ids=typed.required_sql_bound_ids,
         trusted_sql_receivers=("conn", "cursor"),
-        require_russian_intro=True,
-        require_russian_line_comments=True,
+        # Presentation preferences are not correctness constraints. A valid
+        # answer must not be discarded or regenerated for missing prose/comments.
+        require_russian_intro=False,
+        require_russian_line_comments=False,
         code_language=code_language,
         python_shape=(typed.python_shape or PythonShape.FUNCTION).value,
         expected_sql_statement_kind=(
@@ -1159,9 +1193,9 @@ def _answer_prompt(state: ScreenTaskState, latest_correction: str) -> str:
         "preserves every explicit requirement. For code, first give a short natural Russian "
         "explanation of the task's solution, then exactly one fenced code block. Never "
         "discuss the draft, validator, issue codes, missing Russian text or formatting "
-        "repairs in the user-facing explanation. Put a short Russian comment on the "
-        "line immediately below every substantive code line, using # for Python and -- for "
-        "SQL. Bind user-provided SQL values as parameters and keep required table/column "
+        "repairs in the user-facing explanation. Use concise Russian comments only where "
+        "they help explain a non-obvious step. Bind user-provided SQL values as parameters "
+        "and keep required table/column "
         "identifiers exact. For the Python function profile, emit one straight-line target "
         "function with no extra definitions, decorators, setup calls, or imports except an "
         "exact visibly required typing import. Execute required SQL directly on the visible "
@@ -1359,9 +1393,12 @@ async def _generate_code_answer(
     )
     if retried_validation.valid:
         return retried.strip()
+    logger.warning('screen answer rejected model=%s issues=%s', model,
+                   ','.join(code.value for code in retried_validation.issue_codes))
     raise ScreenTaskPipelineError(
         "invalid_screen_answer",
         "Ответ не прошёл проверку точности. Повторите запрос.",
+        issue_codes=tuple(code.value for code in retried_validation.issue_codes),
     )
 
 
