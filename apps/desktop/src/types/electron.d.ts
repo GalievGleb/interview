@@ -388,6 +388,7 @@ export interface ElectronAPI {
   getApiToken?: () => Promise<string>;
   getBuildChannel?: () => Promise<'stable' | 'dev' | 'alpha'>;
   getVersion?: () => Promise<string>;
+  writeClipboardText?: (text: string) => Promise<void>;
   getAutoLaunch?: () => Promise<boolean>;
   setAutoLaunch?: (enable: boolean) => Promise<void>;
   openExternal: (url: string) => Promise<void>;

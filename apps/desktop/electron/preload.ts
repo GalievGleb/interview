@@ -38,6 +38,7 @@ const api = {
   getApiToken: () => ipcRenderer.invoke('app:getApiToken'),
   getBuildChannel: () => ipcRenderer.invoke('app:getBuildChannel'),
   getVersion: () => ipcRenderer.invoke('app:getVersion'),
+  writeClipboardText: (text: string) => ipcRenderer.invoke('app:writeClipboardText', text),
   getAutoLaunch: () => ipcRenderer.invoke('app:getAutoLaunch'),
   setAutoLaunch: (enable: boolean) => ipcRenderer.invoke('app:setAutoLaunch', enable),
   openExternal: (url: string) => ipcRenderer.invoke('app:openExternal', url),

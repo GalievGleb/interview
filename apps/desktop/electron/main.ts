@@ -12,6 +12,7 @@ import {
   Notification,
   dialog,
   safeStorage,
+  clipboard,
 } from 'electron';
 import path from 'path';
 import fs from 'fs';
@@ -777,6 +778,7 @@ function setActiveInterviewEvent(id: string | null): boolean {
 
 function registerIpc(): void {
   const trustedChannels = new Set([
+    'app:writeClipboardText',
     'hh-assistant:get-state', 'hh-assistant:save-config', 'hh-assistant:open-browser', 'hh-assistant:scan',
     'hh-assistant:run-now', 'hh-assistant:apply-vacancy-url', 'hh-assistant:apply-all', 'hh-assistant:apply-one',
     'hh-assistant:answer-screening-questions', 'hh-assistant:suggest-screening-answer', 'hh-assistant:forget-screening-fact',
@@ -819,6 +821,12 @@ function registerIpc(): void {
   handle('app:getApiUrl', () => API_URL);
   handle('app:getApiToken', () => API_TOKEN);
   handle('app:getBuildChannel', () => BUILD_CHANNEL);
+  handle('app:writeClipboardText', (_event, text: unknown) => {
+    if (typeof text !== 'string' || text.length > 2_000_000) {
+      throw new Error('Invalid clipboard text');
+    }
+    clipboard.writeText(text);
+  });
   handle('app:openExternal', (_e, url: string) => safeOpenExternal(url));
   handle('app:quit', () => app.quit());
   handle('app:operationalTelemetry:getState', () => operationalTelemetry?.snapshot() ?? { enabled: false, events: [] });

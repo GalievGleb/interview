@@ -201,8 +201,8 @@ try {
     const url = new URL(request.url());
     if (url.pathname.startsWith('/chat/')) chatRequestPaths.push(url.pathname);
   });
-  // An explicit visual instruction submitted through the real input routes to
-  // screen SSE. Intercept this one endpoint only; every other request still
+  // The screen action routes to screen SSE without a manual text composer.
+  // Intercept this one endpoint only; every other request still
   // exercises normal source renderer/preload behavior.
   await app.context().route('**/chat/screen/stream', async (route) => {
     requestIndex += 1;
@@ -268,7 +268,9 @@ try {
     if (!win) throw new Error('Overlay BrowserWindow not found');
     win.setBounds({ width: 680, height: 780 });
   });
-  await overlay.locator('.ovl-input').waitFor({ state: 'visible', timeout: 15_000 });
+  const screenButton = overlay.getByRole('button', { name: 'Экран', exact: true });
+  await screenButton.waitFor({ state: 'visible', timeout: 15_000 });
+  if (await overlay.locator('textarea').count()) throw new Error('Manual overlay composer must be absent');
   const dismissGuide = overlay.locator('.ovl-quick-guide__done');
   try {
     await dismissGuide.waitFor({ state: 'visible', timeout: 2_000 });
@@ -278,11 +280,9 @@ try {
     if (await dismissGuide.isVisible().catch(() => false)) throw error;
   }
 
-  await overlay.locator('.ovl-input').fill('Реши код на экране и покажи полный актуальный вариант.');
-  const sendButton = overlay.getByRole('button', { name: 'Отправить' });
-  await sendButton.hover();
+  await screenButton.hover();
   await overlay.waitForTimeout(250);
-  await sendButton.click();
+  await screenButton.click();
   try {
     await overlay.locator('.ovl-answer-body pre').waitFor({ state: 'visible', timeout: 12_000 });
   } catch (error) {
@@ -377,10 +377,9 @@ try {
     if (failed) throw new Error(`${name} overlay layout failed: ${JSON.stringify(state)}`);
   }
 
-  await overlay.locator('.ovl-input').fill('Повтори решение задачи на экране для проверки обрыва.');
-  await sendButton.hover();
+  await screenButton.hover();
   await overlay.waitForTimeout(250);
-  await sendButton.click();
+  await screenButton.click();
   const warning = overlay.locator('.ovl-answer-issue');
   await warning.waitFor({ state: 'visible', timeout: 12_000 });
   const truncation = await overlay.evaluate((expectedPartial) => {

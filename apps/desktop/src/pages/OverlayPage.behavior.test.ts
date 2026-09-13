@@ -275,10 +275,29 @@ describe('overlay request behavior', () => {
     expect(overlaySource).toContain("onClick={() => submitForcedAnswer('button')}");
   });
 
-  it('keeps typed instructions instead of replacing them with an empty screen fallback', () => {
-    expect(overlaySource).toContain("runAction('assist', custom)");
-    expect(overlaySource).toContain('const custom = input.trim()');
-    expect(overlaySource).not.toContain('forceAnswer(input)');
+  it('sends the latest voice request immediately without a manual draft and deduplicates hotkeys', () => {
+    const start = overlaySource.indexOf('const submitForcedAnswer');
+    const end = overlaySource.indexOf('const submitForcedScreenAnswer', start);
+    const body = ts.transpile(overlaySource.slice(start, end));
+    const submitted: unknown[][] = [];
+    const bindings = {
+      useCallback: (fn: unknown) => fn,
+      acceptForceHotkey,
+      lastForceHotkeyRef: { current: null },
+      screenExchangeOwnerRef: { current: null },
+      screenFallbackLaunchRef: { current: { reset: () => {} } },
+      screenAssistGenerationRef: { current: 0 },
+      cancelActiveScreenAssist: () => {},
+      setNotice: () => {},
+      forceAnswer: (...args: unknown[]) => { submitted.push(args); return 'started'; },
+      t: (key: string) => key,
+    };
+    const handler = new Function(...Object.keys(bindings), `${body}; return submitForcedAnswer;`)(
+      ...Object.values(bindings),
+    );
+    handler('global');
+    handler('renderer');
+    expect(submitted).toEqual([[]]);
   });
 
   it('uses native global movement without a duplicate renderer move', () => {
