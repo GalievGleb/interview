@@ -33,6 +33,7 @@ import { countUnansweredHhScreeningQuestions, readHhScreeningDrafts, summarizePe
 import { findMatchingQueueItem } from '../lib/interviewBrief';
 import { isUpcomingInterview } from '../lib/interviewTiming';
 import { launchLive } from '../lib/launchLive';
+import { resumeHomeQueue } from '../lib/resumeHomeQueue';
 import {
   latestCompleted,
   latestInProgress,
@@ -133,6 +134,7 @@ export default function HomePage() {
   const [microphoneReady, setMicrophoneReady] = useState<boolean | null>(null);
   const [readinessOpen, setReadinessOpen] = useState(false);
   const [homeActionBusy, setHomeActionBusy] = useState(false);
+  const [homeActionError, setHomeActionError] = useState('');
   const [stealthReady, setStealthReady] = useState(() => localStorage.getItem(STEALTH_KEY) === '1');
   const { inProgress, completed, sessions } = store;
 
@@ -358,20 +360,21 @@ export default function HomePage() {
       navigate('/applications/hr-profile');
       return;
     }
-    if (hhCommand.action === 'queue') {
-      navigate('/applications?view=active');
-      return;
-    }
     if (!assistant) {
       navigate('/applications');
       return;
     }
     setHomeActionBusy(true);
+    setHomeActionError('');
     try {
-      const next = hhCommand.action === 'open-hh'
+      const next = hhCommand.action === 'queue'
+        ? await resumeHomeQueue(assistant, () => navigate('/applications?view=active'))
+        : hhCommand.action === 'open-hh'
         ? await assistant.openBrowser('hh')
         : await assistant.runNow();
       setAssistantState(next);
+    } catch (error) {
+      setHomeActionError(error instanceof Error ? error.message : 'Не удалось продолжить отклики. Попробуйте ещё раз.');
     } finally {
       setHomeActionBusy(false);
     }
@@ -581,6 +584,7 @@ export default function HomePage() {
                 <Mic2 size={16} aria-hidden="true" />Открыть помощника
               </button>
             </div>
+            {homeActionError && <p role="alert" className="mt-3 text-sm text-red-300">{homeActionError}</p>}
           </article>
 
           <aside className="home-command-side">
