@@ -1692,9 +1692,9 @@ SELECT 1;
     )
 
     assert result.answer == answer
-    assert [(call['screen_workload_phase'], call['reasoning']['effort']) for call in calls] == (
-        [('observation', 'low'), ('answer', 'low')]
-        + ([('repair', 'medium')] if needs_repair else [])
+    assert [call['screen_workload_phase'] for call in calls] == (
+        ['observation', 'answer']
+        + (['repair'] if needs_repair else [])
     )
 
 

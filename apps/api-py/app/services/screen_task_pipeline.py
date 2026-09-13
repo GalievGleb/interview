@@ -1258,14 +1258,7 @@ async def _generate_code_answer(
         model,
         max_tokens=max_tokens,
         temperature=0.0,
-        # SQL gets a low-effort first pass over already validated evidence.
-        # Keep the original budget for the bounded repair below; never skip
-        # literal/identifier/shape validation to reduce perceived latency.
-        reasoning=(
-            _low_reasoning_effort(reasoning)
-            if state.requirements.code_language == ScreenCodeLanguage.SQL
-            else reasoning
-        ),
+        reasoning=reasoning,
         screen_workload_phase="answer",
     )
     validation = validate_screen_answer(
