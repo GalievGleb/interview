@@ -28,7 +28,8 @@ export function shouldAutomaticallyPrepareHhScreeningDraft(
   if (draft.promptKey !== hhScreeningPromptKey(question.prompt)) return false;
   if (question.kind !== 'text') return draft.selectedOptions.length === 0;
   return !draft.answer.trim() || GENERIC_LOCAL_EXPERIENCE_DRAFT_RE.test(draft.answer.trim())
-    || /^(?:Готов дать предметный ответ|Актуальный статус по этому пункту)/i.test(draft.answer.trim());
+    || /^(?:Готов дать предметный ответ|Актуальный статус по этому пункту)/i.test(draft.answer.trim())
+    || /(?:не указан[аоы]?|отсутствует|не отраж[её]н[аоы]?).{0,35}(?:резюме|источник)|(?:резюме|источник).{0,35}(?:не указан|не содерж)|не могу подтвердить/i.test(draft.answer);
 }
 
 export function isSensitiveHhScreeningChoice(prompt: string): boolean {

@@ -32,6 +32,14 @@ it('keeps a prepared location draft when background queue state refreshes', () =
   expect(reconcileHhScreeningLocalDraft(question, draft)).toBe(draft);
 });
 
+it('regenerates a persisted source-disclaimer instead of treating it as a ready answer', () => {
+  const prompt = 'Какой опыт мобильного тестирования?';
+  expect(shouldAutomaticallyPrepareHhScreeningDraft({ id: 'mobile', prompt, kind: 'text', options: [], required: false }, {
+    answer: 'Мой опыт не указан в резюме, поэтому я не могу подтвердить проекты.',
+    selectedOptions: [], confirmedByUser: false, promptKey: hhScreeningPromptKey(prompt),
+  })).toBe(true);
+});
+
 function vacancy(id: string, prompt: string, assistantReason?: string): HhQueueItem {
   return {
     key: `hh:${id}`,
