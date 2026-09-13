@@ -926,7 +926,7 @@ export const ru = {
 
   // Настройки — разделы сайдбара
   'settings.section.general': 'Общие',
-  'settings.section.account': 'Профиль',
+  'settings.section.account': 'Аккаунт',
   'settings.section.ai': 'ИИ и модели',
   'settings.section.speech': 'Микрофон',
   'settings.section.modes': 'Режимы ответа',

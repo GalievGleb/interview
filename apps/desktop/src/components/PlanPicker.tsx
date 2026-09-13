@@ -76,7 +76,11 @@ export default function PlanPicker() {
           <p className="mt-0.5 text-xs text-ink-faint">
             {currentPlan
               ? `${t('plan.current')} ${currentPlan === 'max' ? t('plan.max') : t('plan.basic')}`
-              : t('plan.trialInfo')}
+              : license?.status === 'auth_required'
+                ? 'Войдите в аккаунт для бесплатного пробного доступа.'
+                : license?.status === 'active' && license.plan === 'trial'
+                  ? 'Пробный доступ привязан к аккаунту; лимит общий для устройств.'
+                  : t('plan.trialInfo')}
           </p>
         </div>
         <div className="sc-segmented" role="group" aria-label={t('plan.periodAria')}>

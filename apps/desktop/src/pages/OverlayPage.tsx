@@ -1102,7 +1102,7 @@ export default function OverlayPage() {
   const startSession = async () => {
     if (liveBlocked) {
       setNotice(license?.status === 'auth_required' ? 'Войдите через Google, чтобы получить бесплатный доступ.' : t('overlay.rec.needLicense'));
-      void window.electronAPI?.overlay.openSettings?.('billing');
+      void window.electronAPI?.overlay.openSettings?.(license?.status === 'auth_required' ? 'account' : 'billing');
       return;
     }
     resetScreenTaskContext();
@@ -1141,7 +1141,7 @@ export default function OverlayPage() {
     closeRecap();
     if (liveBlocked) {
       setNotice(license?.status === 'auth_required' ? 'Войдите через Google, чтобы получить бесплатный доступ.' : t('overlay.rec.needLicense'));
-      void window.electronAPI?.overlay.openSettings?.('billing');
+      void window.electronAPI?.overlay.openSettings?.(license?.status === 'auth_required' ? 'account' : 'billing');
       return;
     }
     setNotice('');
@@ -1421,7 +1421,7 @@ export default function OverlayPage() {
                 ? t('overlay.rec.resumeTip')
                 : t('overlay.rec.pauseTip')
               : liveBlocked
-                ? t('overlay.rec.needLicense')
+                ? license?.status === 'auth_required' ? 'Войти через Google — получить бесплатный доступ' : t('overlay.rec.needLicense')
                 : !hasStt
               ? t('overlay.rec.needStt')
                 : t('overlay.rec.startTip')
@@ -1432,7 +1432,7 @@ export default function OverlayPage() {
                 ? t('overlay.rec.resumeAria')
                 : t('overlay.rec.pauseAria')
               : liveBlocked
-                ? t('overlay.rec.needLicense')
+                ? license?.status === 'auth_required' ? 'Войти через Google — получить бесплатный доступ' : t('overlay.rec.needLicense')
                 : !hasStt
                   ? t('overlay.rec.needStt')
                   : t('overlay.rec.startAria')

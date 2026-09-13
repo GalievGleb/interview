@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api';
 import { useApp } from '../context/AppContext';
 import { useI18n, type I18nKey } from '../lib/i18n';
+import AccountCard from './AccountCard';
 
 const PLAN_LABEL_KEYS: Record<string, I18nKey> = {
   trial: 'license.plan.trial',
@@ -59,6 +60,8 @@ export default function LicenseCard({ autoActivateKey }: { autoActivateKey?: str
 
   const minutesLeft =
     license?.live_seconds_left != null ? Math.ceil(license.live_seconds_left / 60) : null;
+
+  if (license?.status === 'auth_required') return <AccountCard />;
 
   const badge =
     license?.status === 'active' ? (

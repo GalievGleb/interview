@@ -28,7 +28,7 @@ describe('overlay request behavior', () => {
   it('blocks live before opening sockets when the licence has no live entitlement', () => {
     expect(overlaySource).toContain("const liveBlocked = license?.live_allowed === false");
     expect(overlaySource).toContain("license?.status === 'auth_required'");
-    expect(overlaySource).toContain("overlay.openSettings?.('billing')");
+    expect(overlaySource).toContain("overlay.openSettings?.(license?.status === 'auth_required' ? 'account' : 'billing')");
   });
 
   it('starts live without blocking on readiness and still surfaces startup failures', () => {
