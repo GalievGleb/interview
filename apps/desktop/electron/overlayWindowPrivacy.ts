@@ -1,6 +1,7 @@
 export interface OverlayPrivacyWindow {
   isDestroyed(): boolean;
   setSkipTaskbar(skip: boolean): void;
+  setAlwaysOnTop(alwaysOnTop: boolean): void;
   setContentProtection(enable: boolean): void;
   show(): void;
   showInactive(): void;
@@ -22,6 +23,7 @@ export function enforceOverlayWindowPrivacy(
 ): boolean {
   if (window.isDestroyed()) return false;
   window.setSkipTaskbar(true);
+  window.setAlwaysOnTop(true);
   window.setContentProtection(contentProtected);
   return true;
 }
