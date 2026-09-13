@@ -54,7 +54,8 @@ describe('candidate flow across every primary tab', () => {
   });
 
   it('opens the automatic queue from the home command instead of silently staying on home', () => {
-    expect(home).toContain("if (hhCommand.action === 'queue')");
+    expect(home).toContain("hhCommand.action === 'queue'");
+    expect(home).toContain('resumeHomeQueue');
     expect(home).toContain("navigate('/applications?view=active')");
   });
 
