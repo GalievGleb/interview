@@ -651,11 +651,19 @@ def _validate_screening_review_answers(data: dict, questions: list[dict[str, Any
         if question["kind"] != "text":
             continue
         answer = str(by_id.get(question["id"], {}).get("answer") or "").strip()
-        if not answer or re.search(
-            r"^(?:Подтвержд[её]нный релевантный опыт и инструменты перечислены|"
-            r"Готов дать предметный ответ|Актуальный статус по этому пункту)",
-            answer,
-            re.IGNORECASE,
+        if (
+            not answer
+            or re.search(
+                r"^(?:Подтвержд[её]нный релевантный опыт и инструменты перечислены|"
+                r"Готов дать предметный ответ|Актуальный статус по этому пункту)",
+                answer,
+                re.IGNORECASE,
+            )
+            or re.search(
+                r"(?:не указан[аоы]?|отсутствует|не отраж[её]н[аоы]?).{0,35}(?:резюме|источник)|(?:резюме|источник).{0,35}(?:не указан|не содерж)|не могу подтвердить",
+                answer,
+                re.IGNORECASE,
+            )
         ):
             raise HTTPException(status_code=502, detail="Empty or evasive screening review answer")
 
