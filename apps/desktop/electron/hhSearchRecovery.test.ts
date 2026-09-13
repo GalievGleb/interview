@@ -48,4 +48,15 @@ describe('HH search browser loss', () => {
     expect(assistant.getState().config.platform).toBe('hh');
     expect(assistant.getState().config.query).toBe('QA Automation Python');
   });
+
+  it('rechecks HH session instead of inheriting LinkedIn connection flags', () => {
+    const { assistant, internal } = setup();
+    internal.state.config.platform = 'linkedin';
+    internal.state.config.autoSend = false;
+    internal.state.browserOpen = true;
+    internal.state.loginRequired = true;
+    assistant.saveConfig({ platform: 'hh' });
+    expect(assistant.getState().browserOpen).toBe(false);
+    expect(assistant.getState().loginRequired).toBe(false);
+  });
 });

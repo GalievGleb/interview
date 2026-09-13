@@ -2079,6 +2079,8 @@ export class HhBrowserAssistant {
       return this.getState();
     }
     const { resumeSelectionExplicitlyConfirmed, ...configValue } = value;
+    const platformChanged = configValue.platform !== undefined
+      && normalizePlatform(configValue.platform) !== this.state.config.platform;
     if (resumeSelectionExplicitlyConfirmed === true) {
       this.resumeSelectionConfirmed = Array.isArray(configValue.resumeTitles)
         && configValue.resumeTitles.some((title) => String(title).trim());
@@ -2111,7 +2113,10 @@ export class HhBrowserAssistant {
       this.clearQueueResumeTimer();
       this.clearVerificationResumeTimer();
     }
-    this.update({ message: 'Настройки сохранены.' });
+    this.update({
+      ...(platformChanged ? { browserOpen: false, loginRequired: false, phase: 'idle' as const } : {}),
+      message: 'Настройки сохранены.',
+    });
     return this.getState();
   }
 

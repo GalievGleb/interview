@@ -1076,7 +1076,12 @@ export default function HhApplicationsPage() {
 
       {pageMode === 'settings' && <>
       <section className="grid shrink-0 gap-3 md:grid-cols-3" aria-label="Площадки для откликов">
-        {PLATFORMS.map((item) => <button key={item.id} type="button" onClick={() => setDraft({ ...draft, platform: item.id })} className={`rounded-xl border p-4 text-left transition-colors ${draft.platform === item.id ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-surface-border bg-surface-light hover:bg-surface-hover'}`}>
+        {PLATFORMS.map((item) => <button key={item.id} type="button" onClick={() => {
+          setDraft({ ...draft, platform: item.id });
+          if (assistant && state && !activeRun && !state.applying && state.phase !== 'scanning' && state.config.platform !== item.id) {
+            void run('platform', () => assistant.saveConfig({ platform: item.id })).catch(() => undefined);
+          }
+        }} className={`rounded-xl border p-4 text-left transition-colors ${draft.platform === item.id ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-surface-border bg-surface-light hover:bg-surface-hover'}`}>
           <div className="flex items-center justify-between gap-3"><b className="text-sm text-ink">{item.label}</b><span className={`rounded-full px-2 py-1 text-[11px] ${item.id === 'hh' ? 'bg-emerald-500/10 text-emerald-300' : 'bg-sky-500/10 text-sky-200'}`}>{item.id === 'hh' ? 'Автоотклики' : 'Поиск вакансий'}</span></div>
           <p className="mt-2 text-xs text-ink-faint">{item.hint}</p>
         </button>)}
