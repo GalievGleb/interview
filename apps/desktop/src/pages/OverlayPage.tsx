@@ -262,7 +262,7 @@ export default function OverlayPage() {
     sessionId,
     forceAnswer,
     forceScreenAnswer,
-    isCandidateTranscriptPending,
+    forceCandidateFollowUp,
     start,
     pause,
     resume,
@@ -340,7 +340,7 @@ export default function OverlayPage() {
         title: 'Как пользоваться',
         record: 'Нажмите красную кнопку — начнутся запись и транскрипция.',
         answer: 'Ctrl+Enter — ответ по разговору.',
-        candidate: 'Ctrl+\\ — подставить вашу последнюю фразу в поле задания.',
+        candidate: 'Ctrl+\\ — сразу отправить вашу последнюю фразу как задание.',
         screen: 'Ctrl+Shift+Enter — снимок экрана. Можно сказать «покажу решение» и нажать Ctrl+Enter.',
         newScreenTask: 'Новая задача с экрана',
         move: 'Ctrl+Shift+H скрывает панель, Ctrl+стрелки перемещают её.',
@@ -350,7 +350,7 @@ export default function OverlayPage() {
         title: 'How it works',
         record: 'Press the red button to start recording and transcription.',
         answer: 'Ctrl+Enter answers from the conversation.',
-        candidate: 'Ctrl+\\ inserts your latest microphone phrase into the task field.',
+        candidate: 'Ctrl+\\ immediately sends your latest microphone phrase as a task.',
         screen: 'Ctrl+Shift+Enter captures the screen. You can also say “I’ll show my solution” and press Ctrl+Enter.',
         newScreenTask: 'New screen task',
         move: 'Ctrl+Shift+H hides the panel; Ctrl+arrows move it.',
@@ -1243,18 +1243,14 @@ export default function OverlayPage() {
     lastCandidateHotkeyRef.current = event;
 
     setNotice('');
-    if (isCandidateTranscriptPending()) {
-      setNotice('Твоя фраза ещё распознаётся. Через пару секунд повтори Ctrl+\\.');
-      return;
+    const status = forceCandidateFollowUp(source);
+    if (status === 'started' || status === 'finalizing') {
+      screenExchangeOwnerRef.current = null;
+      setInput('');
+    } else {
+      setNotice('Нет новой фразы с микрофона. Включи запись, скажи задание и нажми Ctrl+\\.');
     }
-    const phrase = [...lines].reverse().find((line) => line.isFinal && line.speaker === 'me')?.text.trim();
-    if (!phrase) {
-      setNotice('Пока нет распознанной фразы с микрофона. Скажи задание и повтори Ctrl+\\.');
-      return;
-    }
-    setInput(phrase);
-    setNotice('Твоя последняя фраза подставлена в задание.');
-  }, [lines, isCandidateTranscriptPending]);
+  }, [forceCandidateFollowUp]);
 
   const scrollOverlayContent = useCallback((direction: -1 | 1) => {
     const candidates = [

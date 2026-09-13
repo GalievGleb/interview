@@ -800,7 +800,7 @@ export const ru = {
   'overlay.tip.screen': 'Скриншот экрана → разбор задачи/кода/вопроса и готовая подсказка',
   'overlay.kb.toggle': 'Показать / скрыть',
   'overlay.kb.ask': 'Отправить текущий вопрос',
-  'overlay.kb.candidateFollowUp': 'Учесть мою последнюю реплику',
+  'overlay.kb.candidateFollowUp': 'Отправить мою последнюю реплику',
   'overlay.kb.screenAsk': 'Ответить по экрану',
   'overlay.kb.clear': 'Очистить чат',
   'overlay.kb.stop': 'Остановить сессию',

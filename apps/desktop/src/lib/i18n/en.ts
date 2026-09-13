@@ -796,7 +796,7 @@ export const en: Record<I18nKey, string> = {
   'overlay.tip.screen': 'Screenshot → analysis of the task/code/question and a ready hint',
   'overlay.kb.toggle': 'Show / hide',
   'overlay.kb.ask': 'Send current question',
-  'overlay.kb.candidateFollowUp': 'Use my latest phrase',
+  'overlay.kb.candidateFollowUp': 'Send my latest phrase',
   'overlay.kb.screenAsk': 'Answer from screen',
   'overlay.kb.clear': 'Clear chat',
   'overlay.kb.stop': 'Stop session',

@@ -34,6 +34,13 @@ def _events(response) -> list[dict]:
     ]
 
 
+@pytest.fixture(autouse=True)
+def _authenticated_screen_route(monkeypatch):
+    # This suite exercises route selection, SSE and usage accounting, not the
+    # Alpha account gate. Do not let an empty test DB short-circuit the route.
+    monkeypatch.setattr(chat_router, '_ensure_quota', lambda _db: None)
+
+
 def _large_valid_cyrillic_state() -> str:
     digests = tuple(FrameDigest(sha256=f"{index + 1:064x}") for index in range(3))
     ledger = tuple(

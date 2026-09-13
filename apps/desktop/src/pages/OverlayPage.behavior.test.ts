@@ -1,5 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import ts from 'typescript';
+import { acceptForceHotkey } from '../lib/forceHotkeyDeduper';
 import { describe, expect, it } from 'vitest';
 
 const overlaySource = fs.readFileSync(path.resolve(__dirname, 'OverlayPage.tsx'), 'utf8');
@@ -338,14 +340,33 @@ describe('overlay request behavior', () => {
     expect(apiSource).toContain('active_screen_task: opts.activeScreenTask');
   });
 
-  it('pastes a finalized candidate utterance without submitting or cancelling the screen request', () => {
+  it('submits the candidate hotkey immediately and deduplicates global/renderer delivery', () => {
     const submitAt = overlaySource.indexOf('const submitCandidateFollowUp');
     const endAt = overlaySource.indexOf('const scrollOverlayContent', submitAt);
-    const body = overlaySource.slice(submitAt, endAt);
-    expect(body).toContain('setInput(phrase)');
-    expect(body).toContain("line.speaker === 'me'");
-    expect(body).not.toContain('forceCandidateFollowUp(source)');
-    expect(body).not.toContain('cancelActiveScreenAssist()');
+    // Execute the actual registered handler, with only the live-session boundary
+    // replaced. A paste-only handler must fail even when the hotkey is received.
+    const body = ts.transpile(overlaySource.slice(submitAt, endAt));
+    const submitted: string[] = [];
+    const inputs: string[] = [];
+    const bindings = {
+      useCallback: (fn: unknown) => fn,
+      acceptForceHotkey,
+      lastCandidateHotkeyRef: { current: null },
+      screenExchangeOwnerRef: { current: null },
+      setNotice: () => {},
+      setInput: (value: string) => inputs.push(value),
+      lines: [{ isFinal: true, speaker: 'me', text: 'Добавь негативные проверки.' }],
+      isCandidateTranscriptPending: () => false,
+      forceCandidateFollowUp: (source: string) => { submitted.push(source); return 'started'; },
+      t: (key: string) => key,
+    };
+    const handler = new Function(...Object.keys(bindings), `${body}; return submitCandidateFollowUp;`)(
+      ...Object.values(bindings),
+    );
+    handler('global');
+    handler('renderer');
+    expect(submitted).toEqual(['global']);
+    expect(inputs).not.toContain('Добавь негативные проверки.');
     const selectedAt = hookSource.indexOf("recordCandidateHotkeyDiagnostic('candidate_hotkey_selected'");
     const cancelAt = hookSource.lastIndexOf(
       'activeScreenCancellationRef.current.cancelAndClear()',

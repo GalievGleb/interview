@@ -1643,7 +1643,8 @@ async def test_python_return_annotation_keeps_signature_and_identifier_validatio
 
 
 @pytest.mark.asyncio
-async def test_explicit_pure_sql_task_validates_without_a_python_signature() -> None:
+@pytest.mark.parametrize('needs_repair', [False, True])
+async def test_explicit_pure_sql_task_validates_without_a_python_signature(needs_repair) -> None:
     answer = """Сначала проверю доступность соединения простым запросом.
 
 ```sql
@@ -1664,14 +1665,14 @@ SELECT 1;
                 required_sql_clauses=("select",),
                 required_literals=("1",),
             ),
+            *(['```sql\nSELECT 2;\n```'] if needs_repair else []),
             answer,
         ]
     )
-    calls = 0
+    calls = []
 
     async def complete(messages, provider, model, **kwargs):
-        nonlocal calls
-        calls += 1
+        calls.append(kwargs)
         return next(responses)
 
     result = await run_screen_task_pipeline(
@@ -1685,13 +1686,16 @@ SELECT 1;
         provider="openai",
         model="safe/model",
         max_tokens=1200,
-        reasoning=None,
+        reasoning={"effort": "medium", "exclude": True},
         now_ms=1_000,
         complete=complete,
     )
 
     assert result.answer == answer
-    assert calls == 2
+    assert [(call['screen_workload_phase'], call['reasoning']['effort']) for call in calls] == (
+        [('observation', 'low'), ('answer', 'low')]
+        + ([('repair', 'medium')] if needs_repair else [])
+    )
 
 
 @pytest.mark.asyncio
