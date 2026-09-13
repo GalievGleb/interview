@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
+import sqlite3
+from pathlib import Path
 
 import pytest
 
@@ -9,6 +12,8 @@ from app.services.screen_answer_validator import validate_screen_answer
 from app.services.screen_task_pipeline import (
     ScreenTaskPipelineError,
     _format_sql_line_comments,
+    _ground_sql_observation,
+    _ScreenObservation,
     _validation_input,
     run_screen_task_pipeline,
 )
@@ -1867,6 +1872,65 @@ async def test_requirement_capabilities_refine_monotonically_and_new_resets_them
     assert reset_requirements.required_sql_identifiers == ()
     assert reset_requirements.required_sql_clauses == ()
     assert reset_requirements.code_language == ScreenCodeLanguage.OTHER
+
+
+@pytest.mark.parametrize('alias_spelling', ['owner_id', 'OWNER_ID'])
+def test_sql_output_aliases_are_identifiers_not_string_literals(alias_spelling: str) -> None:
+    task = ('Вывести всех владельцев и сумму заработка. Используйте конструкцию '
+            '"as owner_id" и "as total_earn". Поля: owner_id, total_earn. '
+            'Оставить записи со статусом "Paid".')
+    payload = json.loads(_observation(
+        task_kind='code', visible_text=task, claim=task, evidence=task,
+        code_language='sql', response_kind='code_solution',
+        required_sql_identifiers=('Rooms.owner_id',),
+        required_literals=(alias_spelling, 'total_earn', 'as owner_id', 'Paid'),
+        expected_sql_statement_kind='select',
+    ))
+    payload['sources'][0]['kind'] = 'task_text'
+    grounded = _ground_sql_observation(_ScreenObservation.model_validate_json(json.dumps(payload)))
+    assert grounded.required_literals == ['Paid']
+    assert {'owner_id', 'total_earn'} <= set(grounded.required_sql_identifiers)
+
+
+@pytest.mark.asyncio
+async def test_owner_screen_alias_misclassification_accepts_correct_sql_without_retries() -> None:
+    payload = json.loads((Path(__file__).parent / 'fixtures/screen_owner_observation.json').read_text(encoding='utf-8'))
+    payload['required_literals'] = ['owner_id', 'total_earn']
+    payload['required_sql_identifiers'] = ['Rooms.owner_id', 'Reservations.total']
+    answer = '''Соединить комнаты с бронированиями и посчитать заработок всех владельцев.
+
+```sql
+SELECT r.owner_id AS owner_id, COALESCE(SUM(res.total), 0) AS total_earn
+FROM Rooms r
+LEFT JOIN Reservations res ON res.room_id = r.id
+GROUP BY r.owner_id
+```'''
+    phases = []
+
+    async def complete(messages, *args, **kwargs):
+        phase = kwargs['screen_workload_phase']
+        phases.append(phase)
+        return json.dumps(payload) if phase == 'observation' else answer
+
+    for index in range(3):
+        result = await run_screen_task_pipeline(
+            previous_images=(), current_image=f'data:image/jpeg;base64,c3Fs{index}',
+            latest_correction='', context='', prior_solution_summary=None,
+            task_action='new', task_state=None, provider='openrouter', model='test',
+            max_tokens=4000, reasoning=None, now_ms=1000, complete=complete,
+        )
+        state = deserialize_screen_task_state(result.serialized_task_state)
+        assert state.requirements.required_literals == ()
+        assert {'owner_id', 'total_earn'} <= set(state.requirements.required_sql_identifiers)
+        code = re.search(r'```sql\n(.*?)```', result.answer, re.S).group(1)
+        with sqlite3.connect(':memory:') as db:
+            db.executescript('''CREATE TABLE Rooms(id INTEGER, owner_id INTEGER);
+                CREATE TABLE Reservations(room_id INTEGER, total INTEGER);
+                INSERT INTO Rooms VALUES(1,10),(2,10),(3,20),(4,30);
+                INSERT INTO Reservations VALUES(1,100),(1,50),(2,20),(3,40);''')
+            rows = db.execute(code).fetchall()
+            assert sorted(rows) == [(10,170), (20,40), (30,0)]
+    assert phases == ['observation', 'answer'] * 3
 
 
 def test_validation_uses_only_typed_capability_flags_and_structural_requirements() -> None:

@@ -702,6 +702,14 @@ def _ground_sql_observation(observation: _ScreenObservation) -> _ScreenObservati
     if not statements:
         return observation
     task_text = '\n'.join(statements)
+    # Quoted AS directives describe output identifiers, not SQL string values.
+    # The extractor sometimes puts their bare names into required_literals while
+    # listing only qualified schema columns as identifiers. Repeating generation
+    # cannot satisfy that contradictory contract with a correct aggregate query.
+    output_aliases = list(dict.fromkeys(re.findall(
+        r'''["'«`]\s*AS\s+([A-Za-z_]\w*)\s*["'»`]''', task_text, re.I,
+    )))
+    alias_keys = {value.casefold() for value in output_aliases}
     def quoted_in_task(value: str) -> bool:
         return bool(re.search(r'(?<!\w)' + re.escape(value) + r'(?!\w)', task_text, re.I))
     return observation.model_copy(update={
@@ -709,10 +717,14 @@ def _ground_sql_observation(observation: _ScreenObservation) -> _ScreenObservati
         'public_contract': [],  # Complete original wording remains in sources.
         'constraints': [],
         'findings': [f.model_copy(update={'claim': f.evidence[:800]}) for f in observation.findings],
-        'required_sql_identifiers': [v for v in observation.required_sql_identifiers if quoted_in_task(v)],
+        'required_sql_identifiers': list(dict.fromkeys([
+            *[v for v in observation.required_sql_identifiers if quoted_in_task(v)],
+            *output_aliases,
+        ])),
         'required_sql_clauses': [v for v in observation.required_sql_clauses if quoted_in_task(v)],
         'required_literals': [v for v in observation.required_literals
                               if quoted_in_task(v) and v not in observation.required_sql_identifiers
+                              and v.casefold() not in alias_keys
                               and not re.fullmatch(r'as\s+\w+', v, re.I)],
         'allow_join': not bool(re.search(r'(?:без|without|no|не\s+использ\w*)\s+joins?\b', task_text, re.I)),
         'allow_cte': not bool(re.search(r'(?:без|without|no|не\s+использ\w*)\s+(?:cte|with)\b', task_text, re.I)),
