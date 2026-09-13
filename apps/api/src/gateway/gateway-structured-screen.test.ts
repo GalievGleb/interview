@@ -116,6 +116,31 @@ const DIRECT_ENVIRONMENT = {
   OPENAI_STT_BASE_URL: undefined,
 };
 
+test('DeepSeek structured phases use OpenRouter and retain plan and model block checks', async () => {
+  const model = 'deepseek/deepseek-v4.1-flash';
+  await withEnvironment(DIRECT_ENVIRONMENT, async () => {
+    await captureFetches(async (calls) => {
+      const service = new GatewayService(fakeRedis());
+      for (const phase of ['observation', 'answer', 'repair'] as const) {
+        const body = phase === 'observation' ? observationBody({ model }) : answerBody({ model });
+        const response = await callStructured(service, 'max', body, structuredHeaders(phase));
+        assert.equal(response.status, 200);
+        const last = calls.at(-1)!;
+        assert.equal(last.input, 'https://openrouter.ai/api/v1/chat/completions');
+        assert.equal(JSON.parse(String(last.init?.body)).model, model);
+      }
+    });
+    await captureFetches(async (calls) => {
+      await assertForbiddenBeforeFetch(() => callStructured(new GatewayService(fakeRedis()), 'free', observationBody({ model }), structuredHeaders('observation')), calls);
+    });
+  });
+  await withEnvironment({ ...DIRECT_ENVIRONMENT, GATEWAY_BLOCKED_MODELS: 'deepseek/' }, async () => {
+    await captureFetches(async (calls) => {
+      await assertForbiddenBeforeFetch(() => callStructured(new GatewayService(fakeRedis()), 'max', observationBody({ model }), structuredHeaders('observation')), calls);
+    });
+  });
+});
+
 async function captureFetches(
   run: (calls: Array<{ input: string; init?: RequestInit }>) => Promise<void>,
   respond: (call: number) => Response = () => new Response('{}', { status: 200 }),

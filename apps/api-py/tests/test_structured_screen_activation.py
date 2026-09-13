@@ -34,6 +34,33 @@ def _events(response) -> list[dict]:
     ]
 
 
+@pytest.mark.parametrize('source,expected', [('auto', 'deepseek/deepseek-v4.1-flash'), ('explicit', 'openai/gpt-5.6-sol')])
+def test_alpha_screen_auto_uses_deepseek_without_overriding_explicit_choice(client, monkeypatch, source, expected):
+    monkeypatch.setenv('SKILLCUE_BUILD_CHANNEL', 'alpha')
+    monkeypatch.setattr(chat_router, '_resolve_chat', lambda *a, **kw: ('openrouter', 'openai/gpt-5.6-sol', source))
+    async def capture(**kwargs):
+        yield 'data: ' + json.dumps({'type': 'done', 'model': kwargs['model'], 'provider': kwargs['provider']}) + '\n\n'
+    monkeypatch.setattr(chat_router, '_structured_screen_event_stream', capture)
+    response = client.post('/chat/screen/stream', json={'image': 'data:image/png;base64,QUJD', 'structuredScreen': True, 'taskAction': 'new'})
+    assert response.status_code == 200
+    assert _events(response)[0]['model'] == expected
+    assert _events(response)[0]['provider'] == 'openrouter'
+
+
+@pytest.mark.parametrize('channel', ['dev', 'stable', 'production', ''])
+def test_non_alpha_screen_auto_retains_previous_model(client, monkeypatch, channel):
+    monkeypatch.setenv('SKILLCUE_BUILD_CHANNEL', channel)
+    monkeypatch.setattr(chat_router, '_resolve_chat', lambda *a, **kw: ('openrouter', 'qwen/qwen3.5-flash-02-23', 'auto'))
+    received = []
+    async def capture(*args, **kwargs):
+        received.append(kwargs.get('model') or args[2])
+        yield 'screen answer'
+    monkeypatch.setattr(provider_adapter, 'stream_chat', capture)
+    response = client.post('/chat/screen/stream', json={'image': 'data:image/png;base64,QUJD', 'question': 'Read the screen'})
+    assert response.status_code == 200
+    assert received == ['openai/gpt-5.6-sol']
+
+
 @pytest.fixture(autouse=True)
 def _authenticated_screen_route(monkeypatch):
     # This suite exercises route selection, SSE and usage accounting, not the

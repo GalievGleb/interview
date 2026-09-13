@@ -24,6 +24,17 @@ async def benchmark(args):
     from verify_screen_code_task import render_sql_solution_png, _data_url
 
     calls = []
+    original_post = provider_adapter._post_with_retry
+    async def diagnostic_post(*positional, **kwargs):
+        response = await original_post(*positional, **kwargs)
+        if args.diagnostics and response.status_code < 400:
+            data = response.json()
+            print(json.dumps({'usage': data.get('usage'), 'choices': [
+                {'finish_reason': choice.get('finish_reason'),
+                 'content_chars': len(choice.get('message', {}).get('content') or '')}
+                for choice in data.get('choices', [])]}), flush=True)
+        return response
+    provider_adapter._post_with_retry = diagnostic_post
 
     async def measured(messages, *positional, **kwargs):
         if args.effort and kwargs.get('reasoning'):
@@ -54,6 +65,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', default='openai/gpt-5.6-sol')
     parser.add_argument('--effort', choices=['none', 'low', 'medium'])
+    parser.add_argument('--diagnostics', action='store_true')
     args = parser.parse_args()
     source = Path(os.environ['APPDATA']) / 'SkillCue Alpha/backend-data/copilot.sqlite'
     with tempfile.TemporaryDirectory(prefix='skillcue-screen-bench-') as directory:

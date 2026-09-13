@@ -131,6 +131,7 @@ const DIRECT_LIVE_MODELS = new Set([
 ]);
 
 const DIRECT_SCREEN_MODELS = new Set(['gpt-5.6-sol', 'gpt-5.6']);
+const OPENROUTER_SCREEN_MODEL = 'deepseek/deepseek-v4.1-flash';
 
 const STRUCTURED_SCREEN_WORKLOAD = 'structured-screen-v1';
 const STRUCTURED_SCREEN_PHASES = new Set(['observation', 'answer', 'repair']);
@@ -219,6 +220,7 @@ function hasAnyImageInput(messages: unknown): boolean {
 
 function exactStructuredScreenModel(model: unknown): string | null {
   if (typeof model !== 'string' || model !== model.trim()) return null;
+  if (model === OPENROUTER_SCREEN_MODEL) return model;
   const bareModel = model.startsWith('openai/') ? model.slice('openai/'.length) : model;
   return DIRECT_SCREEN_MODELS.has(bareModel) ? bareModel : null;
 }
@@ -786,7 +788,11 @@ export class GatewayService {
     const route = resolveChatUpstreamRoute(body, process.env, {
       screenAuthorized: authorizedDirectScreen,
     });
-    if (structuredScreen && !route.directLive) {
+    const routedStructuredScreen =
+      structuredScreen && model === OPENROUTER_SCREEN_MODEL &&
+      route.style === 'openrouter' && route.baseURL === 'https://openrouter.ai/api/v1' &&
+      Boolean(route.apiKey);
+    if (structuredScreen && !route.directLive && !routedStructuredScreen) {
       throw structuredScreenForbidden();
     }
     // A Max user may still use the legacy screen route when the dedicated
@@ -797,7 +803,7 @@ export class GatewayService {
       qualityScreen &&
       plan === 'max' &&
       (route.directLive || (route.style === 'openrouter' && Boolean(route.apiKey)));
-    const maxStructuredScreen = structuredScreen && route.directLive && plan === 'max';
+    const maxStructuredScreen = structuredScreen && (route.directLive || routedStructuredScreen) && plan === 'max';
     const exactStructuredBlockOverride =
       maxStructuredScreen && isStructuredScreenModelExplicitlyAllowed(model);
     if (

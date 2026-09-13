@@ -735,3 +735,8 @@ def test_unsupported_provider_option_has_a_readable_error():
     )
     assert err.code == "unsupported_provider_option"
     assert "несовместимый параметр" in err.message.lower()
+def test_deepseek_screen_budget_limits_hidden_reasoning():
+    from app.services.provider_adapter import screen_stream_options
+    tokens, reasoning = screen_stream_options('deepseek/deepseek-v4.1-flash')
+    assert tokens == 3200
+    assert reasoning == {'enabled': False, 'exclude': True}

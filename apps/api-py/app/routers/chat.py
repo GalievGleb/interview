@@ -1687,6 +1687,9 @@ async def screen_assist_stream(payload: ScreenAssistPayload, db: Session = Depen
     # finishes. Preserve every explicit user/configured model; strengthen Auto.
     if model_source == "auto":
         model = model_router.SCREEN_DEFAULT_MODEL
+        if os.environ.get("SKILLCUE_BUILD_CHANNEL", "").strip().lower() == "alpha":
+            provider = "openrouter"
+            model = "deepseek/deepseek-v4.1-flash"
 
     structured_screen_enabled = (
         payload.structured_screen

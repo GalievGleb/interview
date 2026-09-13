@@ -539,6 +539,10 @@ def screen_stream_options(model_id: str) -> tuple[int, dict | None]:
     code. Unlike continuous voice answers, the user can tolerate a little
     reasoning time here while reading the task.
     """
+    if model_id.lower() == "deepseek/deepseek-v4.1-flash":
+        # Even low effort consumed the entire 1800-token OCR budget without
+        # content in live OpenRouter checks. Use its non-thinking mode.
+        return 3200, {"enabled": False, "exclude": True}
     if "gpt-5.6" in model_id.lower():
         return 4200, {"effort": "medium", "exclude": True}
     if is_thinking_model(model_id):
