@@ -546,6 +546,7 @@ export interface ElectronAPI {
     onForceAnswer?: (cb: () => void) => () => void;
     onForceScreenAnswer?: (cb: () => void) => () => void;
     onCandidateFollowUp?: (cb: () => void) => () => void;
+    onToggleClickThrough?: (cb: () => void) => () => void;
     onScroll?: (cb: (direction: -1 | 1) => void) => () => void;
   };
   window: {

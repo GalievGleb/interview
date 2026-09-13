@@ -894,6 +894,9 @@ export const ru = {
   'overlay.avoidFocusTip':
     'Клики проходят сквозь панель — работаешь в приложении под ней. Наведи курсор на панель, чтобы снова ей пользоваться',
   'overlay.avoidFocus': 'Работать под панелью',
+  'overlay.clickThroughTip': 'Полностью пропускает клики сквозь оверлей. Вернуть управление можно сочетанием Ctrl+Alt+O',
+  'overlay.clickThrough': 'Клики сквозь оверлей',
+  'overlay.kb.clickThrough': 'Включить / выключить клики сквозь оверлей',
   'overlay.opacity': 'Прозрачность',
   'overlay.modes': 'Режимы',
   'overlay.manageModes': '✎ Управлять режимами',

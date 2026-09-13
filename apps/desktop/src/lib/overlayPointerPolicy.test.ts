@@ -42,6 +42,21 @@ describe('overlay pointer policy', () => {
     expect(clickThrough).toEqual([true, false, true]);
   });
 
+  it('keeps every point click-through in explicit pass-through mode', () => {
+    const clickThrough: boolean[] = [];
+    const controller = new OverlayPointerController(
+      (enabled) => clickThrough.push(enabled),
+      () => ({ closest: () => ({}) } as never),
+    );
+
+    controller.initialize();
+    controller.move(40, 60);
+    controller.setForceClickThrough(true);
+    controller.refresh();
+
+    expect(clickThrough).toEqual([true, false, true]);
+  });
+
   it('clamps a tooltip at the left and top edges', () => {
     expect(
       clampFloatingPanel(

@@ -13,6 +13,10 @@ export interface OverlayMoveShortcuts {
   step?: number;
 }
 
+export interface OverlayClickThroughShortcut {
+  toggle(): void;
+}
+
 const MOVE_ACCELERATORS = [
   ['CommandOrControl+Up', 0, -1],
   ['CommandOrControl+Down', 0, 1],
@@ -30,6 +34,7 @@ export function bindOverlayShortcutLifecycle(
   shortcuts: ShortcutRegistry,
   hideOverlay: () => void,
   moveShortcuts?: OverlayMoveShortcuts,
+  clickThroughShortcut?: OverlayClickThroughShortcut,
 ): void {
   const unregister = () => {
     shortcuts.unregister('Escape');
@@ -39,6 +44,7 @@ export function bindOverlayShortcutLifecycle(
         for (const [accelerator] of SCROLL_ACCELERATORS) shortcuts.unregister(accelerator);
       }
     }
+    if (clickThroughShortcut) shortcuts.unregister('CommandOrControl+Alt+O');
   };
 
   window.on('show', () => {
@@ -66,6 +72,13 @@ export function bindOverlayShortcutLifecycle(
             // Scrolling inside the focused overlay remains available.
           }
         }
+      }
+    }
+    if (clickThroughShortcut) {
+      try {
+        shortcuts.register('CommandOrControl+Alt+O', clickThroughShortcut.toggle);
+      } catch {
+        // The menu toggle remains available if the global accelerator is busy.
       }
     }
   });

@@ -726,6 +726,11 @@ function createOverlayWindow(): BrowserWindow {
       },
       step: 40,
     },
+    {
+      toggle: () => {
+        if (!win.webContents.isDestroyed()) win.webContents.send('overlay:toggle-click-through');
+      },
+    },
   );
   bindOverlayPointerRecovery(win);
   win.on('show', () => {

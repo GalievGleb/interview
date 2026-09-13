@@ -241,6 +241,11 @@ const api = {
       return () => ipcRenderer.removeListener('overlay:force-screen-answer', handler);
     },
     onCandidateFollowUp: (cb: () => void) => candidateFollowUpSignal.subscribe(cb),
+    onToggleClickThrough: (cb: () => void) => {
+      const handler = () => cb();
+      ipcRenderer.on('overlay:toggle-click-through', handler);
+      return () => ipcRenderer.removeListener('overlay:toggle-click-through', handler);
+    },
     onScroll: (cb: (direction: -1 | 1) => void) => {
       const handler = (_event: unknown, direction: -1 | 1) => cb(direction);
       ipcRenderer.on('overlay:scroll', handler);

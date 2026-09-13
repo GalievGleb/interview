@@ -115,6 +115,7 @@ const ACTIONS: Record<
 const SMART_KEY = 'skillcue.overlaySmart';
 const STEALTH_KEY = 'skillcue.overlayStealth';
 const AVOID_FOCUS_KEY = 'skillcue.overlayAvoidFocus';
+const CLICK_THROUGH_KEY = 'skillcue.overlayClickThrough';
 const USE_SCREEN_KEY = 'skillcue.overlayUseScreen';
 const OPACITY_KEY = 'skillcue.overlayOpacity';
 const QUICK_GUIDE_KEY = 'skillcue.overlayQuickGuideSeen.v1';
@@ -292,6 +293,7 @@ export default function OverlayPage() {
   // Cluely-подобные тумблеры.
   const [stealth, setStealth] = useState(() => localStorage.getItem(STEALTH_KEY) === '1');
   const [avoidFocus, setAvoidFocus] = useState(() => localStorage.getItem(AVOID_FOCUS_KEY) === '1');
+  const [clickThrough, setClickThrough] = useState(() => localStorage.getItem(CLICK_THROUGH_KEY) === '1');
   const [opacity, setOpacity] = useState(() => {
     const saved = localStorage.getItem(OPACITY_KEY);
     return saved === null ? 70 : clampOpacity(Number(saved));
@@ -425,6 +427,7 @@ export default function OverlayPage() {
       (x, y) => document.elementFromPoint(x, y),
     );
     pointerControllerRef.current = controller;
+    controller.setForceClickThrough(clickThrough);
     controller.initialize();
     const onMove = (e: MouseEvent) => {
       controller.move(e.clientX, e.clientY);
@@ -435,6 +438,18 @@ export default function OverlayPage() {
       if (pointerControllerRef.current === controller) pointerControllerRef.current = null;
       controller.dispose();
     };
+  }, [clickThrough]);
+
+  useEffect(() => {
+    const unsubscribe = window.electronAPI?.overlay.onToggleClickThrough?.(() => {
+      setClickThrough((current) => {
+        const next = !current;
+        localStorage.setItem(CLICK_THROUGH_KEY, next ? '1' : '0');
+        pointerControllerRef.current?.setForceClickThrough(next);
+        return next;
+      });
+    });
+    return () => unsubscribe?.();
   }, []);
 
   // Opening or removing a card/menu changes the hit region under a stationary
@@ -1197,6 +1212,13 @@ export default function OverlayPage() {
     void window.electronAPI?.overlay.setFocusable?.(!next);
   };
 
+  const toggleClickThrough = () => {
+    const next = !clickThrough;
+    setClickThrough(next);
+    localStorage.setItem(CLICK_THROUGH_KEY, next ? '1' : '0');
+    pointerControllerRef.current?.setForceClickThrough(next);
+  };
+
   const changeOpacity = (v: number) => {
     const next = clampOpacity(v);
     setOpacity(next);
@@ -1391,6 +1413,7 @@ export default function OverlayPage() {
     { labelKey: 'overlay.kb.scroll', keys: 'Ctrl+Shift+↑↓', d: 'M8 7l4-4 4 4|M8 17l4 4 4-4' },
     { labelKey: 'overlay.kb.resize', keys: 'Ctrl +/−', d: 'M15 3h6v6|M9 21H3v-6|M21 3l-7 7|M3 21l7-7' },
     { labelKey: 'overlay.kb.transcript', keys: 'Ctrl+/', d: 'M4 6h16|M4 12h16|M4 18h10' },
+    { labelKey: 'overlay.kb.clickThrough', keys: 'Ctrl+Alt+O', d: 'M4 12h16|M12 4v16|M4 4l16 16' },
   ];
 
   return (
@@ -1958,6 +1981,16 @@ export default function OverlayPage() {
                           <Icon d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0-6 0|M12 2v3|M12 19v3|M2 12h3|M19 12h3" />
                           <span className="flex-1 text-left">{t('overlay.avoidFocus')}</span>
                           <Switch on={avoidFocus} label={t('overlay.avoidFocus')} />
+                        </button>
+                        <button
+                          type="button"
+                          className="ovl-menu-toggle tip"
+                          data-tip={t('overlay.clickThroughTip')}
+                          onClick={toggleClickThrough}
+                        >
+                          <Icon d="M4 12h16|M12 4v16|M4 4l16 16" />
+                          <span className="flex-1 text-left">{t('overlay.clickThrough')}</span>
+                          <Switch on={clickThrough} label={t('overlay.clickThrough')} />
                         </button>
 
                         {/* Прозрачность панели — чтобы видеть, что под ней. */}
