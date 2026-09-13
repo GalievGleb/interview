@@ -329,7 +329,9 @@ export default function HomePage() {
     activeVacancyUrl: activePreparation?.vacancyAnalysis.vacancyUrl,
     activeResumeTitle: activePreparation?.vacancyAnalysis.resumeSource?.title,
   });
-  const pathChooserVisible = candidateJourney.path === null;
+  // Candidate sources arrive asynchronously. Keep the chooser hidden during
+  // that first pass so an existing user's dashboard never flashes briefly.
+  const pathChooserVisible = !candidateSources.loading && candidateJourney.path === null;
   const newVacancies = assistantState?.lastScanSummary?.newVacancies ?? queuedApplications;
   const resumeReady = candidateSources.documents.length > 0 || candidateSources.hhResumeCount > 0;
   const hhReady = candidateSources.hhResumeCount > 0;

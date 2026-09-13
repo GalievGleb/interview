@@ -12,14 +12,19 @@ const hookSource = fs.readFileSync(
 const apiSource = fs.readFileSync(path.resolve(__dirname, '../lib/api.ts'), 'utf8');
 const ruSource = fs.readFileSync(path.resolve(__dirname, '../lib/i18n/ru.ts'), 'utf8');
 const enSource = fs.readFileSync(path.resolve(__dirname, '../lib/i18n/en.ts'), 'utf8');
-const mainSource = fs.readFileSync(path.resolve(__dirname, '../../electron/main.ts'), 'utf8');
 const preloadSource = fs.readFileSync(path.resolve(__dirname, '../../electron/preload.ts'), 'utf8');
 const cssSource = fs.readFileSync(
   path.resolve(__dirname, '../styles/overlay-cockpit.css'),
   'utf8',
 );
+const mainSource = fs.readFileSync(path.resolve(__dirname, '../../electron/main.ts'), 'utf8');
 
 describe('overlay request behavior', () => {
+  it('keeps the wide command row on one line after removing the manual composer', () => {
+    expect(cssSource).toContain('.ovl-actions {\n  @apply flex flex-nowrap');
+    expect(mainSource).toContain('width: 900,');
+    expect(mainSource).toContain('minWidth: 900,');
+  });
   it('stops the thinking indicator after an empty screen error and shows the issue instead', () => {
     expect(overlaySource).toContain(
       "exchange.streaming ? <span className=\"ovl-think-dot\" aria-label={t('overlay.thinking')} /> : null",
