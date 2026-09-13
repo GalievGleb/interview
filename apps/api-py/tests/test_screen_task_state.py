@@ -197,6 +197,7 @@ def test_frame_digest_accepts_only_a_sha256(payload: dict, expected_location: st
         "screenshot: " + "A" * 300,
         "A" * 258 + "-_",
         "\n".join(["A" * 76] * 4),
+        " ".join(["A" * 76] * 4),
         "data:image/png;base64,\n" + "A" * 300,
     ],
 )
@@ -211,6 +212,11 @@ def test_state_rejects_data_urls_and_base64_blobs(unsafe_text: str) -> None:
 @pytest.mark.parametrize(
     "safe_text",
     [
+        "Class id INT name VARCHAR Student_in_class id INT class INT student INT "
+        "Schedule id INT date DATE class INT number_pair INT teacher INT subject INT "
+        "classroom INT Student id INT first_name VARCHAR middle_name VARCHAR last_name "
+        "VARCHAR birthday DATE address VARCHAR Teacher id INT first_name VARCHAR "
+        "middle_name VARCHAR last_name VARCHAR Subject id INT name VARCHAR",
         " ".join(["Это обычное длинное русское описание условия задачи."] * 80),
         " ".join(["This is a normal long interview task description with ordinary words."] * 80),
         "\n".join(
