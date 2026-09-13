@@ -2,12 +2,13 @@ import { useEffect, useState } from 'react';
 import { accountApi } from '../lib/accountApi';
 import { useI18n } from '../lib/i18n';
 import type { AccountDevice, AccountState } from '../types/electron';
+import GoogleSignInButton from './GoogleSignInButton';
 
 const loadingState: AccountState = {
   available: true, authenticated: false, user: null, subscription: null, error: null,
 };
 
-export default function AccountCard() {
+export default function AccountCard({ homePrompt = false }: { homePrompt?: boolean }) {
   const { t, lang } = useI18n();
   const [account, setAccount] = useState<AccountState>(loadingState);
   const [loading, setLoading] = useState(true);
@@ -45,11 +46,20 @@ export default function AccountCard() {
       await action();
     } catch (caught) {
       const value = caught instanceof Error ? caught.message : '';
-      setError(value.includes('DEVICE_LIMIT_REACHED') ? t('account.deviceLimit') : t('account.error'));
+      setError(value.includes('DEVICE_LIMIT_REACHED') ? t('account.deviceLimit')
+        : /GOOGLE_OAUTH_(STATE_INVALID|TIMEOUT)/.test(value)
+          ? lang === 'en' ? 'This sign-in attempt expired. Try signing in with Google again.' : 'Попробуйте войти через Google заново: эта попытка устарела.'
+          : value.includes('GOOGLE_OAUTH_CANCELLED')
+            ? lang === 'en' ? 'Google sign-in was cancelled. Try again when ready.' : 'Вход через Google отменён. Можно попробовать ещё раз.'
+            : value.includes('GOOGLE_OAUTH_TOKEN_EXCHANGE_FAILED')
+              ? lang === 'en' ? 'Could not complete Google sign-in. Check your connection and try again.' : 'Не удалось завершить вход через Google. Проверьте соединение и повторите попытку.'
+              : t('account.error'));
     } finally {
       setBusy(false);
     }
   };
+
+  if (homePrompt && (!account.available || (account.authenticated && account.user))) return null;
 
   if (loading) {
     return <div className="sc-card mb-5 p-5 text-sm text-ink-muted">{t('account.loading')}</div>;
@@ -136,17 +146,24 @@ export default function AccountCard() {
 
   return (
     <div className="sc-card mb-5 p-5">
-      <h3 className="text-sm font-semibold text-ink">{t('account.title')}</h3>
-      <p className="mt-1 text-xs leading-relaxed text-ink-muted">{t('account.subtitle')}</p>
-      <button
-        type="button"
-        className="btn-primary mt-4 w-full"
-        disabled={busy}
-        onClick={() => void run(async () => setAccount(await accountApi.googleLogin()))}
-      >
-        <span className="mr-2 inline-grid h-5 w-5 place-items-center rounded bg-white font-bold text-blue-600">G</span>
-        {t('account.google')}
-      </button>
+      <div className={homePrompt ? 'flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between' : ''}>
+        <div>
+          <h3 className={homePrompt ? 'text-xl font-semibold tracking-tight text-ink' : 'text-sm font-semibold text-ink'}>
+            {homePrompt ? lang === 'en' ? 'Sign in to continue' : 'Войдите, чтобы продолжить' : t('account.title')}
+          </h3>
+          <p className="mt-2 max-w-lg text-sm leading-relaxed text-ink-muted">
+            {homePrompt
+              ? lang === 'en' ? 'Sign in with Google to get free tokens and unlock the interview overlay.' : 'Войдите через Google, чтобы получить бесплатные токены и открыть помощника для собеседования.'
+              : t('account.subtitle')}
+          </p>
+        </div>
+        <div className={homePrompt ? 'w-full shrink-0 sm:w-64' : 'mt-4'}>
+          <GoogleSignInButton busy={busy} onClick={() => void run(async () => setAccount(await accountApi.googleLogin()))}>
+            {t('account.google')}
+          </GoogleSignInButton>
+        </div>
+      </div>
+      {busy && <p className="mt-3 text-xs text-ink-muted" role="status">{lang === 'en' ? 'Complete sign-in in your browser…' : 'Завершите вход в открывшемся браузере…'}</p>}
       {error && <p className="mt-3 text-xs text-red-400" role="alert">{error}</p>}
     </div>
   );

@@ -9,6 +9,7 @@ export interface GoogleLoopbackListener {
 
 interface GoogleDesktopOAuthOptions {
   clientId: string;
+  clientSecret?: string;
   openExternal: (url: string) => Promise<void>;
   fetchImpl?: typeof fetch;
   createListener?: () => Promise<GoogleLoopbackListener>;
@@ -42,7 +43,9 @@ export async function createGoogleLoopbackListener(
   let finished = false;
 
   const server = http.createServer((request, response) => {
-    const url = new URL(request.url ?? '/', 'http://127.0.0.1');
+    const address = server.address();
+    const port = address && typeof address !== 'string' ? address.port : 0;
+    const url = new URL(request.url ?? '/', `http://127.0.0.1:${port}`);
     if (url.pathname !== '/oauth2/callback') {
       response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
       response.end('Not found');
@@ -53,7 +56,7 @@ export async function createGoogleLoopbackListener(
       'Cache-Control': 'no-store',
       'X-Content-Type-Options': 'nosniff',
     });
-    response.end('<!doctype html><meta charset="utf-8"><title>SkillCue</title><p>Вход завершён. Можно вернуться в SkillCue и закрыть эту вкладку.</p>');
+    response.end('<!doctype html><meta charset="utf-8"><title>SkillCue</title><p>Ответ Google получен. Вернитесь в SkillCue — приложение завершает вход. Эту вкладку можно закрыть.</p>');
     if (!finished) {
       finished = true;
       resolveRedirect(url);
@@ -140,6 +143,7 @@ export async function runGoogleDesktopOAuth(
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
         client_id: options.clientId,
+        ...(options.clientSecret ? { client_secret: options.clientSecret } : {}),
         code,
         code_verifier: verifier,
         grant_type: 'authorization_code',

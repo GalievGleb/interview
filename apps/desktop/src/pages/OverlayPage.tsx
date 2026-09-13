@@ -1099,6 +1099,13 @@ export default function OverlayPage() {
     await requestRecapAnalysis(recap.sessionId);
   }, [recap, requestRecapAnalysis, t]);
 
+  useEffect(() => window.electronAPI?.account?.onState?.((state) => {
+    if (!state.available || state.authenticated) return;
+    // Logging out must stop capture, not just hide its window.
+    stopSession();
+    cancelActiveScreenAssist();
+  }), [stopSession, cancelActiveScreenAssist]);
+
   const startSession = async () => {
     if (liveBlocked) {
       setNotice(license?.status === 'auth_required' ? 'Войдите через Google, чтобы получить бесплатный доступ.' : t('overlay.rec.needLicense'));

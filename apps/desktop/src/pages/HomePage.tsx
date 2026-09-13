@@ -12,6 +12,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import Modal from '../components/Modal';
+import AccountCard from '../components/AccountCard';
 import { useApp } from '../context/AppContext';
 import { api, type DevelopmentProfile, type DocumentItem } from '../lib/api';
 import {
@@ -508,6 +509,8 @@ export default function HomePage() {
         <header className="home-dashboard-heading">
           <h1 className="sr-only">Главная SkillCue</h1>
         </header>
+
+        <AccountCard homePrompt />
 
         {pathChooserVisible ? (
           <section

@@ -39,6 +39,22 @@ describe('AccountCard', () => {
     expect(await screen.findByText('person@example.com')).toBeTruthy();
   });
 
+  it('shows a Home sign-in prompt until login completes, then removes it', async () => {
+    vi.mocked(accountApi.googleLogin).mockResolvedValue({ ...signedOut, authenticated: true,
+      user: { id: 'u1', email: 'person@example.com', displayName: null, avatarUrl: null } });
+    const { container } = render(<AccountCard homePrompt />);
+    expect(await screen.findByText('Войдите, чтобы продолжить')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /google/i }));
+    await waitFor(() => expect(container.textContent).toBe(''));
+  });
+
+  it('explains expired OAuth attempts without exposing callback secrets', async () => {
+    vi.mocked(accountApi.googleLogin).mockRejectedValue(new Error('GOOGLE_OAUTH_STATE_INVALID'));
+    render(<AccountCard />);
+    fireEvent.click(await screen.findByRole('button', { name: /google/i }));
+    expect((await screen.findByRole('alert')).textContent).toContain('Попробуйте войти через Google заново');
+  });
+
   it('offers Google as the only sign-in method', async () => {
     render(<AccountCard />);
 

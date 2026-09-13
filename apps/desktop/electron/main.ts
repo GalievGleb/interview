@@ -18,6 +18,7 @@ import fs from 'fs';
 import http from 'http';
 import os from 'os';
 import crypto from 'crypto';
+import { runWithOverlayAccount } from './overlayAccountGate';
 import { spawn, type ChildProcess } from 'child_process';
 import { autoUpdater } from 'electron-updater';
 import { HhBrowserAssistant, type HhAssistantConfigUpdate } from './hhBrowserAssistant';
@@ -102,7 +103,7 @@ const BUILD_CHANNEL = resolveBuildChannel(app.isPackaged, readPackagedBuildChann
 const APP_IDENTITY = getAppIdentity(BUILD_CHANNEL);
 const isDeveloperBuild = BUILD_CHANNEL === 'dev' || BUILD_CHANNEL === 'alpha';
 
-function readPackagedAccountMetadata(): { accountApiUrl?: string; googleOAuthClientId?: string } {
+function readPackagedAccountMetadata(): { accountApiUrl?: string; googleOAuthClientId?: string; googleOAuthClientSecret?: string } {
   if (!app.isPackaged) return {};
   try {
     return JSON.parse(fs.readFileSync(path.join(app.getAppPath(), 'package.json'), 'utf8'));
@@ -118,6 +119,9 @@ const ACCOUNT_API_URL = resolveAccountApiUrl(
 );
 const GOOGLE_OAUTH_CLIENT_ID = (
   process.env.SKILLCUE_GOOGLE_OAUTH_CLIENT_ID ?? ACCOUNT_METADATA.googleOAuthClientId ?? ''
+).trim();
+const GOOGLE_OAUTH_CLIENT_SECRET = (
+  process.env.SKILLCUE_GOOGLE_OAUTH_CLIENT_SECRET ?? ACCOUNT_METADATA.googleOAuthClientSecret ?? ''
 ).trim();
 // The first macOS release is distributed as architecture-specific DMGs. Keep
 // the Windows updater quiet until a signed macOS ZIP/update manifest is shipped.
@@ -315,6 +319,7 @@ function requireAccountClient(): AccountClient {
 }
 
 function publishAccountState(state: PublicAccountState): PublicAccountState {
+  if (BUILD_CHANNEL === 'alpha' && !state.authenticated) hideOverlay();
   sendToWindows('account:state', state);
   return state;
 }
@@ -661,7 +666,17 @@ function showOverlayWindow(
   win: BrowserWindow,
   mode: OverlayShowMode = 'active',
 ): void {
+  if (!requireOverlayAccount()) return;
   showOverlayWindowPrivately(win, overlayContentProtectionEnabled, mode);
+}
+
+function requireOverlayAccount(): boolean {
+  return runWithOverlayAccount(BUILD_CHANNEL, accountClient?.getState(), () => {}, () => {
+    hideOverlay();
+    if (!isLiveWindow(mainWindow)) return;
+    hideOverlayAndShowMain(overlayWindow, mainWindow);
+    mainWindow.webContents.send('app:navigate', '/settings?tab=account');
+  });
 }
 
 function createOverlayWindow(): BrowserWindow {
@@ -831,6 +846,7 @@ function registerIpc(): void {
       const client = requireAccountClient();
       googleLoginPromise = runGoogleDesktopOAuth({
         clientId: GOOGLE_OAUTH_CLIENT_ID,
+        clientSecret: GOOGLE_OAUTH_CLIENT_SECRET,
         openExternal: (url) => shell.openExternal(url),
       })
         .then(({ idToken }) => client.loginWithGoogle(idToken))
@@ -1296,12 +1312,14 @@ function registerIpc(): void {
   });
 
   handle('overlay:show', () => {
+    if (!requireOverlayAccount()) return;
     attachNearestInterviewContext();
     const win = getOrCreateOverlayWindow();
     prepareOverlayForOpen(win);
     openOverlayOverWorkspace(mainWindow, () => showOverlayWindow(win));
   });
   handle('overlay:showForInterviewEvent', (_event, eventId: string) => {
+    if (!requireOverlayAccount()) return false;
     if (!setActiveInterviewEvent(eventId)) return false;
     const win = getOrCreateOverlayWindow();
     prepareOverlayForOpen(win);
@@ -1316,6 +1334,7 @@ function registerIpc(): void {
   handle('overlay:hide', () => hideOverlay());
 
   handle('overlay:captureScreen', async () => {
+    if (!requireOverlayAccount()) throw new Error('ACCOUNT_AUTH_REQUIRED');
     // Capture the interview task, not the floating assistant that may cover it.
     // The overlay is restored inactive so the editor/call keeps keyboard focus.
     try {
@@ -1484,6 +1503,7 @@ function saveMainSetting(key: string, value: unknown): void {
 }
 
 function toggleOverlay(): void {
+  if (!requireOverlayAccount()) return;
   const win = getOrCreateOverlayWindow();
   if (win.isVisible()) hideOverlay();
   // A keyboard hide/show is a visibility toggle, not a new session. Do not
@@ -1529,6 +1549,7 @@ function registerToggleShortcut(acc: string, retry = false): boolean {
 function deliverForcedAnswerToOverlay(): void {
   const existingOverlay = isLiveWindow(overlayWindow) ? overlayWindow : null;
   if (BUILD_CHANNEL === 'alpha' && (!existingOverlay || !existingOverlay.isVisible())) return;
+  if (!requireOverlayAccount()) return;
   const win = existingOverlay ?? getOrCreateOverlayWindow();
   if (!win.isVisible()) showOverlayWindow(win, 'inactive');
   const send = () => {
@@ -1566,6 +1587,7 @@ function registerForceAnswerShortcut(): void {
 function deliverForcedScreenAnswerToOverlay(): void {
   const existingOverlay = isLiveWindow(overlayWindow) ? overlayWindow : null;
   if (BUILD_CHANNEL === 'alpha' && (!existingOverlay || !existingOverlay.isVisible())) return;
+  if (!requireOverlayAccount()) return;
   const win = existingOverlay ?? getOrCreateOverlayWindow();
   if (!win.isVisible()) showOverlayWindow(win, 'inactive');
   const send = () => {
@@ -1605,6 +1627,7 @@ function registerForceScreenAnswerShortcut(): void {
 function deliverCandidateFollowUpToOverlay(): void {
   const existingOverlay = isLiveWindow(overlayWindow) ? overlayWindow : null;
   if (isDeveloperBuild && (!existingOverlay || !existingOverlay.isVisible())) return;
+  if (!requireOverlayAccount()) return;
   const win = existingOverlay ?? getOrCreateOverlayWindow();
   if (!win.isVisible()) showOverlayWindow(win, 'inactive');
   const send = () => {
@@ -1668,6 +1691,7 @@ function createTray(): void {
       {
         label: 'Overlay',
         click: () => {
+          if (!requireOverlayAccount()) return;
           const win = getOrCreateOverlayWindow();
           prepareOverlayForOpen(win);
           showOverlayWindow(win);
