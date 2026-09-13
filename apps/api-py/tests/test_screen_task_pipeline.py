@@ -1908,6 +1908,77 @@ def test_validation_uses_only_typed_capability_flags_and_structural_requirements
     ]
 
 
+def test_validation_accepts_sql_suffix_pattern_for_visible_literal() -> None:
+    state = ScreenTaskState(
+        task_kind=TaskKind.CODE,
+        requirements=ScreenTaskRequirements(
+            objective="Вывести имена людей, которые заканчиваются на 'man'",
+            required_sql_identifiers=("name",),
+            required_sql_clauses=("select", "from", "where"),
+            required_literals=("man",),
+            code_language=ScreenCodeLanguage.SQL,
+            expected_sql_statement_kind=SqlStatementKind.SELECT,
+        ),
+        response_kind=ScreenResponseKind.CODE_SOLUTION,
+        ttl=ScreenTaskTtl(created_at_ms=1_000, updated_at_ms=1_000, expires_at_ms=61_000),
+    )
+    answer = """Нужно выбрать имена, которые заканчиваются на man.
+
+```sql
+SELECT name
+-- выбираем имя пассажира
+FROM Passenger
+-- читаем строки из таблицы пассажиров
+WHERE name LIKE '%man';
+-- оставляем имена с окончанием man
+```"""
+
+    result = validate_screen_answer(
+        _validation_input(answer, state=state, latest_correction="")
+    )
+
+    assert result.valid is True, result.issue_codes
+
+
+@pytest.mark.parametrize(
+    ("objective", "pattern"),
+    (
+        ("Вывести имена людей, которые начинаются на 'Ann'", "Ann%"),
+        ("Вывести имена людей, которые содержат 'ann'", "%ann%"),
+    ),
+)
+def test_validation_accepts_sql_prefix_and_contains_patterns_for_visible_literal(
+    objective: str,
+    pattern: str,
+) -> None:
+    state = ScreenTaskState(
+        task_kind=TaskKind.CODE,
+        requirements=ScreenTaskRequirements(
+            objective=objective,
+            required_sql_identifiers=("name",),
+            required_sql_clauses=("select", "from", "where"),
+            required_literals=(pattern.strip("%"),),
+            code_language=ScreenCodeLanguage.SQL,
+            expected_sql_statement_kind=SqlStatementKind.SELECT,
+        ),
+        response_kind=ScreenResponseKind.CODE_SOLUTION,
+        ttl=ScreenTaskTtl(created_at_ms=1_000, updated_at_ms=1_000, expires_at_ms=61_000),
+    )
+    answer = f"""Нужно отфильтровать имена по заданному шаблону.
+
+```sql
+SELECT name
+FROM Passenger
+WHERE name LIKE '{pattern}';
+```"""
+
+    result = validate_screen_answer(
+        _validation_input(answer, state=state, latest_correction="")
+    )
+
+    assert result.valid is True, result.issue_codes
+
+
 def test_missing_python_signature_never_reclassifies_the_task_as_sql() -> None:
     state = ScreenTaskState(
         task_kind=TaskKind.CODE,

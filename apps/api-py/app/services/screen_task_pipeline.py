@@ -20,10 +20,10 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.services import provider_adapter
 from app.services.screen_answer_validator import (
-    _lex_sql,
-    _sql_comment_index,
     ScreenAnswerValidationInput,
     StableCoverageRequirement,
+    _lex_sql,
+    _sql_comment_index,
     validate_screen_answer,
 )
 from app.services.screen_task_state import (
@@ -69,6 +69,18 @@ from app.services.screen_task_state import (
 
 CompleteCall = Callable[..., Awaitable[str]]
 logger = logging.getLogger(__name__)
+_SQL_SUFFIX_OBJECTIVE_RE = re.compile(
+    r"(?:\b(?:ends?|ending)\s+with\b|\bзаканчива[а-яё]*\s+на\b)",
+    re.IGNORECASE,
+)
+_SQL_PREFIX_OBJECTIVE_RE = re.compile(
+    r"(?:\b(?:starts?|starting|begins?|beginning)\s+with\b|\bначина[а-яё]*\s+на\b)",
+    re.IGNORECASE,
+)
+_SQL_CONTAINS_OBJECTIVE_RE = re.compile(
+    r"(?:\b(?:contains?|containing)\b|\bсодерж[а-яё]*\b)",
+    re.IGNORECASE,
+)
 ObservedSqlClause = Literal[
     "select",
     "from",
@@ -1127,6 +1139,21 @@ def _validation_input(
     code_language: Literal["python", "sql"] = (
         "python" if typed.code_language == ScreenCodeLanguage.PYTHON else "sql"
     )
+    validation_literals = typed.required_literals
+    if code_language == "sql":
+        if _SQL_SUFFIX_OBJECTIVE_RE.search(typed.objective):
+            decorated_literals = tuple(f"%{literal}" for literal in validation_literals)
+        elif _SQL_PREFIX_OBJECTIVE_RE.search(typed.objective):
+            decorated_literals = tuple(f"{literal}%" for literal in validation_literals)
+        elif _SQL_CONTAINS_OBJECTIVE_RE.search(typed.objective):
+            decorated_literals = tuple(f"%{literal}%" for literal in validation_literals)
+        else:
+            decorated_literals = ()
+        if decorated_literals:
+            validation_literals = tuple(
+                literal if any(marker in literal for marker in ("%", "_")) else decorated
+                for literal, decorated in zip(validation_literals, decorated_literals, strict=True)
+            )
     signatures = typed.required_python_signatures
     requirements = tuple(
         [
@@ -1162,14 +1189,14 @@ def _validation_input(
                 stable_id=f"required-literal-{index}",
                 literals=(value,),
             )
-            for index, value in enumerate(typed.required_literals, start=1)
+            for index, value in enumerate(validation_literals, start=1)
         ]
     )
     return ScreenAnswerValidationInput(
         answer=answer,
         stable_requirements=requirements,
         visible_public_signature=signatures[0] if signatures else None,
-        visible_literals=typed.required_literals,
+        visible_literals=validation_literals,
         simplify=bool(_SIMPLIFY_RE.search(latest_correction)),
         allow_join=typed.allow_join,
         allow_cte=typed.allow_cte,
@@ -1304,7 +1331,7 @@ def _format_sql_line_comments(answer: str) -> str:
         before = _lex_sql(original)
         if before is None:
             return match.group(0)
-        lines = []
+        lines: list[str] = []
         for line in original.splitlines():
             index = _sql_comment_index(line)
             if index is not None and line[:index].strip() and line[index:].startswith('--'):
