@@ -166,7 +166,7 @@ describe('overlay request behavior', () => {
     expect(overlaySource).toContain('screenRequestCoordinatorRef.current.cancelActive();');
     const forceAt = overlaySource.indexOf('const submitForcedAnswer');
     expect(forceAt).toBeGreaterThan(-1);
-    expect(overlaySource.slice(forceAt, forceAt + 520)).toContain(
+    expect(overlaySource.slice(forceAt, overlaySource.indexOf('const submitForcedScreenAnswer', forceAt))).toContain(
       'screenAssistGenerationRef.current += 1;',
     );
   });

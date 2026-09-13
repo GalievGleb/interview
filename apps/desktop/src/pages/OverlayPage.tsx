@@ -272,6 +272,7 @@ export default function OverlayPage() {
 
   const [input, setInput] = useState('');
   const [exchange, setExchange] = useState<Exchange | null>(null);
+  const screenExchangeOwnerRef = useRef<{ generation: number; lastAnswerId: string | undefined } | null>(null);
   const [smart, setSmart] = useState(() => localStorage.getItem(SMART_KEY) === '1');
   const [menuOpen, setMenuOpen] = useState(false);
   const [showQuickGuide, setShowQuickGuide] = useState(
@@ -546,6 +547,10 @@ export default function OverlayPage() {
       cancelRef.current = null;
       manualBusyRef.current = true;
       setInput('');
+      screenExchangeOwnerRef.current = {
+        generation: forceOwner?.generation ?? forceGeneration,
+        lastAnswerId: answerHistory[answerHistory.length - 1]?.id,
+      };
       let screenOutputCommitted = false;
       let image = '';
       let previousImages: string[] = [];
@@ -714,6 +719,8 @@ export default function OverlayPage() {
       clearScreenTaskContext,
       screenAssistDiagnostics,
       sessionId,
+      forceGeneration,
+      answerHistory,
       transcriptContext,
       t,
     ],
@@ -860,6 +867,12 @@ export default function OverlayPage() {
       lastEntry?.spoken,
       forcePhase,
       forcedError,
+      screenExchangeOwnerRef.current ? {
+        screenGeneration: screenExchangeOwnerRef.current.generation,
+        currentGeneration: forceGeneration,
+        screenLastAnswerId: screenExchangeOwnerRef.current.lastAnswerId,
+        lastAnswerId: lastEntry?.id,
+      } : undefined,
     );
     if (!view.show) return;
     const forcedCard =
@@ -897,6 +910,7 @@ export default function OverlayPage() {
   };
 
   const closeExchange = useCallback(() => {
+    screenExchangeOwnerRef.current = null;
     resetScreenTaskContext();
     setExchange(null);
   }, [resetScreenTaskContext]);
@@ -1191,6 +1205,7 @@ export default function OverlayPage() {
     const event = { source, at: Date.now() } satisfies ForceHotkeyEvent;
     if (!acceptForceHotkey(lastForceHotkeyRef.current, event)) return;
     lastForceHotkeyRef.current = event;
+    screenExchangeOwnerRef.current = null;
 
     const custom = input.trim();
     if (custom) {
