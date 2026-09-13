@@ -639,6 +639,27 @@ def _screening_answers_runtime_budget(model: str) -> tuple[float, int, float]:
     return request_timeout, max_attempts, deadline
 
 
+def _validate_screening_review_answers(data: dict, questions: list[dict[str, Any]]) -> None:
+    """Reject syntactically valid completions that contain no usable draft."""
+    items = data.get("answers", [])
+    by_id = (
+        {str(item.get("id", "")): item for item in items if isinstance(item, dict)}
+        if isinstance(items, list)
+        else {}
+    )
+    for question in questions:
+        if question["kind"] != "text":
+            continue
+        answer = str(by_id.get(question["id"], {}).get("answer") or "").strip()
+        if not answer or re.search(
+            r"^(?:Подтвержд[её]нный релевантный опыт и инструменты перечислены|"
+            r"Готов дать предметный ответ|Актуальный статус по этому пункту)",
+            answer,
+            re.IGNORECASE,
+        ):
+            raise HTTPException(status_code=502, detail="Empty or evasive screening review answer")
+
+
 def _screening_review_fallback(
     question: dict[str, Any],
     *,
@@ -1189,6 +1210,8 @@ async def screening_answers(payload: ScreeningAnswersPayload, db=Depends(get_db)
 - Every hypothetical answer MUST have canAutoFill=false, sourceType=none, evidenceQuote="", and a specific reason stating which claim is unconfirmed. Put all verification guidance in reason, NEVER in answer.
 - Never invent named employers, projects, dates, metrics, credentials, legal status, citizenship or work authorization. If no meaningful draft is possible, leave answer empty and explain the missing fact in reason.
 - Do not write evasions such as 'уточню перед следующим этапом', 'готов дать предметный ответ', or 'актуальный статус готов подтвердить'. Answer the question itself in 1-2 short sentences.
+- For compound questions, address the individual parts. Missing years or project names must NOT erase supported details about logs, traffic, tools or test approaches. Use specific transferable experience; put missing facts in reason, not a generic evasion in answer.
+- Prefer a useful partial answer over an empty answer. Do not equate 'not mentioned in resume' with 'zero experience'. Never invent a number of years or a named application. Distinguish a proposed testing approach from past personal work.
 - For closed option questions, select an exact option only when supported by a source or neutral; otherwise leave selectedOptions empty.
 - Always set canAutoFill=false in this mode. A proposed answer is not a saved personal fact until explicitly confirmed by the user."""
         if payload.draftMode
@@ -1278,6 +1301,8 @@ async def screening_answers(payload: ScreeningAnswersPayload, db=Depends(get_db)
 
     try:
         data = _parse_json(raw)
+        if payload.draftMode:
+            _validate_screening_review_answers(data, normalized_questions)
     except HTTPException:
         # Malformed output is not a successful completion. Retry once with the
         # alternate online model, within the SAME desktop request deadline.
@@ -1287,7 +1312,13 @@ async def screening_answers(payload: ScreeningAnswersPayload, db=Depends(get_db)
                 raise TimeoutError("No screening repair budget remains")
             raw = await asyncio.wait_for(
                 provider_adapter.complete(
-                    [{"role": "user", "content": prompt}],
+                    [
+                        {
+                            "role": "user",
+                            "content": prompt
+                            + "\n\nREPAIR: The previous completion was malformed, empty or evasive. Produce useful concrete answers to the actual questions, not promises to clarify later. Address supported parts even if other facts are missing. Put uncertainty ONLY in reason; do not invent years or project names. Keep every answer review-only.",
+                        }
+                    ],
                     provider,
                     FEEDBACK_FALLBACK_MODEL,
                     max_tokens=output_budget,
@@ -1299,6 +1330,8 @@ async def screening_answers(payload: ScreeningAnswersPayload, db=Depends(get_db)
                 timeout=remaining,
             )
             data = _parse_json(raw)
+            if payload.draftMode:
+                _validate_screening_review_answers(data, normalized_questions)
             model = FEEDBACK_FALLBACK_MODEL
         except Exception:  # noqa: BLE001 — preserve review on exhausted repair
             logger.warning("Screening JSON repair failed; using local review drafts")

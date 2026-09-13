@@ -10,6 +10,58 @@ from app.routers import vacancy as vacancy_router
 from app.services import provider_adapter, rag_service
 
 
+@pytest.mark.parametrize(
+    "bad_answer",
+    [
+        "",
+        "Подтверждённый релевантный опыт и инструменты перечислены в моём резюме; готов предметно уточнить глубину опыта.",
+        "Готов дать предметный ответ с учётом контекста вакансии; перед отправкой уточню личные факты.",
+    ],
+)
+def test_empty_or_evasive_review_answer_retries_online(client, monkeypatch, bad_answer):
+    monkeypatch.setattr(rag_service, "get_context_text", lambda *_args: "")
+    monkeypatch.setattr(vacancy_router, "_resolve", lambda _: ("openrouter", "primary"))
+    concrete = "Основной опыт — web и API. Настраивал сохранение логов и отчётов; при проверке трафика сопоставляю запросы и ответы API."
+
+    async def complete(messages, provider=None, model=None, **kwargs):
+        return json.dumps(
+            {
+                "answers": [
+                    {
+                        "id": "mobile",
+                        "answer": bad_answer if model == "primary" else concrete,
+                        "canAutoFill": False,
+                        "sourceType": "none",
+                        "selectedOptions": [],
+                    }
+                ]
+            }
+        )
+
+    monkeypatch.setattr(provider_adapter, "complete", complete)
+    response = client.post(
+        "/vacancy/screening-answers",
+        json={
+            "vacancyTitle": "Fullstack QA",
+            "resumeText": "Web и API. Настраивал сохранение логов и отчётов.",
+            "draftMode": True,
+            "questions": [
+                {
+                    "id": "mobile",
+                    "prompt": "Сколько лет тестировали мобильные приложения? Логи, трафик, аналитика?",
+                    "kind": "text",
+                    "options": [],
+                    "required": False,
+                }
+            ],
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["answers"][0]["answer"] == concrete
+    assert response.json()["answers"][0]["canAutoFill"] is False
+    assert response.json()["model"] == "openai/gpt-4o-mini"
+
+
 def test_review_hypothesis_has_separate_warning_and_cannot_autofill(client, monkeypatch):
     monkeypatch.setattr(rag_service, "get_context_text", lambda *_args: "")
 
