@@ -146,6 +146,8 @@ export default function HhHrProfilePage() {
   const [reloadKey, setReloadKey] = useState(0);
   const suggestionRequestId = useRef(0);
   const automaticallyPreparedDrafts = useRef(new Set<string>());
+  const backgroundDraftRequests = useRef(0);
+  const [preparingDraftKeys, setPreparingDraftKeys] = useState<string[]>([]);
 
   useEffect(() => {
     if (!assistant) return;
@@ -239,30 +241,33 @@ export default function HhHrProfilePage() {
 
   useEffect(() => {
     if (!assistant) return;
-    for (const vacancy of pendingVacancies) {
+    // Start with the open questionnaire, then prepare the rest. Bound model
+    // concurrency so a long queue cannot monopolize the user's account.
+    const orderedVacancies = [...pendingVacancies].sort((a, b) =>
+      Number(b.key === activeVacancy?.key) - Number(a.key === activeVacancy?.key));
+    for (const vacancy of orderedVacancies) {
       for (const question of vacancy.pendingQuestions ?? []) {
-        if (hhScreeningSemanticKey(question.prompt) !== 'profile:current-location') continue;
+        if (backgroundDraftRequests.current >= 2) return;
         const key = draftKey(vacancy.key, question.id);
+        if (!shouldAutomaticallyPrepareHhScreeningDraft(question, drafts[key])) continue;
         const promptKey = hhScreeningPromptKey(question.prompt);
-        // Re-run hydration after the user explicitly selects a résumé. A
-        // previously shown city hint must then be replaced by the city from
-        // that exact résumé rather than staying as an unconfirmed stale draft.
         const requestKey = `${key}::${promptKey}::${vacancy.selectedResumeTitle ?? ''}`;
         if (automaticallyPreparedDrafts.current.has(requestKey)) continue;
         automaticallyPreparedDrafts.current.add(requestKey);
+        backgroundDraftRequests.current += 1;
+        setPreparingDraftKeys((current) => [...current, key]);
         void assistant.suggestScreeningAnswer(vacancy.key, question.id)
           .then((suggestion) => {
             setDrafts((current) => {
               const existing = current[key];
-              if (existing?.confirmedByUser && existing.promptKey === promptKey) return current;
+              if (existing?.promptKey && existing.promptKey !== promptKey) return current;
+              if (!shouldAutomaticallyPrepareHhScreeningDraft(question, existing)) return current;
               return {
                 ...current,
                 [key]: {
                   answer: suggestion.answer,
                   selectedOptions: suggestion.selectedOptions,
-                  // A profile result is a deterministic value from the exact
-                  // selected résumé or a previously confirmed fact.
-                  confirmedByUser: suggestion.source === 'profile',
+                  confirmedByUser: false,
                   promptKey,
                 },
               };
@@ -271,53 +276,13 @@ export default function HhHrProfilePage() {
           .catch(() => {
             // The seeded local draft remains usable. A visible manual retry is
             // still available without turning a browser/read error into a dead end.
+          }).finally(() => {
+            backgroundDraftRequests.current -= 1;
+            setPreparingDraftKeys((current) => current.filter((item) => item !== key));
           });
       }
     }
-  }, [assistant, pendingVacancies]);
-
-  useEffect(() => {
-    if (
-      !assistant
-      || !activeVacancy
-      || !currentQuestion
-      || !currentDraftKey
-      || !shouldAutomaticallyPrepareHhScreeningDraft(currentQuestion, currentDraft)
-    ) return;
-    const promptKey = hhScreeningPromptKey(currentQuestion.prompt);
-    const requestKey = `visible-ai::${currentDraftKey}::${hhScreeningPromptKey(currentQuestion.prompt)}`;
-    if (automaticallyPreparedDrafts.current.has(requestKey)) return;
-    automaticallyPreparedDrafts.current.add(requestKey);
-
-    const requestId = suggestionRequestId.current + 1;
-    suggestionRequestId.current = requestId;
-    setSuggestingDraftKey(currentDraftKey);
-    void assistant.suggestScreeningAnswer(
-      activeVacancy.key,
-      currentQuestion.id,
-      currentDraft.answer,
-    ).then((suggestion) => {
-      if (suggestionRequestId.current !== requestId) return;
-      setDrafts((current) => {
-        const existing = current[currentDraftKey];
-        if (!shouldAutomaticallyPrepareHhScreeningDraft(currentQuestion, existing)) return current;
-        return {
-          ...current,
-          [currentDraftKey]: {
-            answer: suggestion.answer,
-            selectedOptions: suggestion.selectedOptions,
-            confirmedByUser: false,
-            promptKey,
-          },
-        };
-      });
-    }).catch(() => {
-      // Keep the usable local draft and the manual retry button. Opening the
-      // review page must not become a dead end during a transient AI failure.
-    }).finally(() => {
-      if (suggestionRequestId.current === requestId) setSuggestingDraftKey('');
-    });
-  }, [assistant, activeVacancy, currentQuestion, currentDraftKey, currentDraft]);
+  }, [assistant, pendingVacancies, activeVacancy?.key, drafts, preparingDraftKeys]);
 
   useEffect(() => {
     localStorage.setItem(HH_SCREENING_DRAFTS_STORAGE_KEY, JSON.stringify(drafts));
@@ -716,7 +681,7 @@ export default function HhHrProfilePage() {
                     <button
                       type="button"
                       className="btn-secondary btn-sm border-violet-400/25 text-violet-100 hover:border-violet-400/45"
-                      disabled={Boolean(suggestingDraftKey) || activeVacancySubmitting}
+                      disabled={Boolean(suggestingDraftKey) || preparingDraftKeys.includes(currentDraftKey) || activeVacancySubmitting}
                       onClick={() => void suggestCurrentAnswer()}
                     >
                       {suggestingDraftKey === draftKey(activeVacancy.key, currentQuestion.id)
@@ -736,7 +701,7 @@ export default function HhHrProfilePage() {
                       maxLength={2000}
                       value={drafts[draftKey(activeVacancy.key, currentQuestion.id)]?.answer ?? ''}
                       onChange={(event) => updateText(event.target.value)}
-                      placeholder="Введите точный ответ"
+                      placeholder={preparingDraftKeys.includes(currentDraftKey) ? 'Готовлю вариант ответа… Можно начать писать самостоятельно.' : 'Введите точный ответ'}
                     />
                   ) : (
                     <>

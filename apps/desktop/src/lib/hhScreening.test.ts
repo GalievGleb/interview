@@ -13,6 +13,25 @@ import {
 } from './hhScreening';
 import type { HhQueueItem } from '../types/electron';
 
+it('prepares an empty location answer before the question is opened', () => {
+  const question = { id: 'location', prompt: 'Из какой локации планируешь работать, какой у тебя часовой пояс?', kind: 'text' as const, options: [], required: true };
+  expect(shouldAutomaticallyPrepareHhScreeningDraft(question, undefined)).toBe(true);
+  expect(shouldAutomaticallyPrepareHhScreeningDraft(question, {
+    answer: '', selectedOptions: [], confirmedByUser: false,
+    promptKey: hhScreeningPromptKey(question.prompt),
+  })).toBe(true);
+  expect(shouldAutomaticallyPrepareHhScreeningDraft(question, {
+    answer: '', selectedOptions: [], confirmedByUser: true,
+    promptKey: hhScreeningPromptKey(question.prompt),
+  })).toBe(false);
+});
+
+it('keeps a prepared location draft when background queue state refreshes', () => {
+  const question = { id: 'city', prompt: 'В каком городе вы живёте?', kind: 'text' as const, options: [], required: true };
+  const draft = { answer: 'Москва, UTC+3.', selectedOptions: [], confirmedByUser: false, promptKey: hhScreeningPromptKey(question.prompt) };
+  expect(reconcileHhScreeningLocalDraft(question, draft)).toBe(draft);
+});
+
 function vacancy(id: string, prompt: string, assistantReason?: string): HhQueueItem {
   return {
     key: `hh:${id}`,
