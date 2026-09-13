@@ -14,7 +14,7 @@ import { writeClipboardText } from '../lib/clipboard';
 import OverlayAppIcon from '../components/OverlayAppIcon';
 import OverlayTooltipLayer from '../components/OverlayTooltipLayer';
 import { forceDarkTheme } from '../lib/theme';
-import { modeInstructionPrefix } from '../lib/answerModes';
+import { modeInstructionPrefix, useAnswerModes } from '../lib/answerModes';
 import { deriveLiveExchange } from '../lib/liveOverlaySync';
 import { shouldCancelScreenFallbackOwner } from '../lib/latestForcedAnswer';
 import {
@@ -24,8 +24,9 @@ import {
 } from '../lib/forceHotkeyDeduper';
 import {
   OverlayPointerController,
+  clampFloatingPanel,
 } from '../lib/overlayPointerPolicy';
-import { useI18n } from '../lib/i18n';
+import { useI18n, type I18nKey } from '../lib/i18n';
 import { refreshSessionKnowledge } from '../lib/sessionKnowledge';
 import { resolveSessionEvidenceLayout } from '../lib/sessionAnalysisPresentation';
 import { answerLanguageParam } from '../lib/answerLanguage';
@@ -122,6 +123,19 @@ function Icon({ d, size = 14 }: { d: string; size?: number }) {
   );
 }
 
+function Switch({ on, label }: { on: boolean; label: string }) {
+  return (
+    <span
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+      className={`ovl-switch ${on ? 'ovl-switch--on' : ''}`}
+    >
+      <span className="ovl-switch-knob" />
+    </span>
+  );
+}
+
 function CopyButton({ text, label }: { text: string; label?: string }) {
   const { t } = useI18n();
   const [copied, setCopied] = useState(false);
@@ -213,12 +227,18 @@ export default function OverlayPage() {
     resume,
     stop,
   } = useLiveCopilot();
-  const { sources, sttOptions } = useLiveCopilotPrefs();
+  const { sources, sttOptions, setSources } = useLiveCopilotPrefs();
 
   const [exchange, setExchange] = useState<Exchange | null>(null);
   const screenExchangeOwnerRef = useRef<{ generation: number; lastAnswerId: string | undefined } | null>(null);
   const smart = false;
   const [menuOpen, setMenuOpen] = useState(false);
+  const [modesOpen, setModesOpen] = useState(false);
+  const { modes, active: activeMode, setActive: setActiveMode } = useAnswerModes();
+  const menuRef = useRef<HTMLDivElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const menuPanelRef = useRef<HTMLDivElement>(null);
+  const [menuPosition, setMenuPosition] = useState({ left: 8, top: 8 });
   const [showQuickGuide, setShowQuickGuide] = useState(
     () => localStorage.getItem(QUICK_GUIDE_KEY) !== '1',
   );
@@ -227,9 +247,9 @@ export default function OverlayPage() {
 
   // Cluely-подобные тумблеры.
   const [stealth, setStealth] = useState(() => localStorage.getItem(STEALTH_KEY) === '1');
-  const [avoidFocus] = useState(() => localStorage.getItem(AVOID_FOCUS_KEY) === '1');
+  const [avoidFocus, setAvoidFocus] = useState(() => localStorage.getItem(AVOID_FOCUS_KEY) === '1');
   const [clickThrough, setClickThrough] = useState(() => localStorage.getItem(CLICK_THROUGH_KEY) === '1');
-  const [opacity] = useState(() => {
+  const [opacity, setOpacity] = useState(() => {
     const saved = localStorage.getItem(OPACITY_KEY);
     return saved === null ? 70 : clampOpacity(Number(saved));
   });
@@ -1052,6 +1072,33 @@ export default function OverlayPage() {
     }
   };
 
+  const toggleStealth = () => {
+    const next = !stealth;
+    setStealth(next);
+    localStorage.setItem(STEALTH_KEY, next ? '1' : '0');
+    void window.electronAPI?.overlay.setContentProtection?.(next);
+  };
+
+  const toggleAvoidFocus = () => {
+    const next = !avoidFocus;
+    setAvoidFocus(next);
+    localStorage.setItem(AVOID_FOCUS_KEY, next ? '1' : '0');
+    void window.electronAPI?.overlay.setFocusable?.(!next);
+  };
+
+  const toggleClickThrough = () => {
+    const next = !clickThrough;
+    setClickThrough(next);
+    localStorage.setItem(CLICK_THROUGH_KEY, next ? '1' : '0');
+    pointerControllerRef.current?.setForceClickThrough(next);
+  };
+
+  const changeOpacity = (v: number) => {
+    const next = clampOpacity(v);
+    setOpacity(next);
+    localStorage.setItem(OPACITY_KEY, String(next));
+  };
+
   const submitForcedAnswer = useCallback((source: ForceHotkeySource = 'button') => {
     const event = { source, at: Date.now() } satisfies ForceHotkeyEvent;
     if (!acceptForceHotkey(lastForceHotkeyRef.current, event)) return;
@@ -1197,6 +1244,52 @@ export default function OverlayPage() {
   );
 
   // Клик мимо меню — закрыть.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onClick = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (menuOpen && menuRef.current && !menuRef.current.contains(target)) setMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, [menuOpen]);
+
+  const positionMainMenu = useCallback(() => {
+    if (!menuButtonRef.current || !menuPanelRef.current) return;
+    setMenuPosition(
+      clampFloatingPanel(
+        menuButtonRef.current.getBoundingClientRect(),
+        menuPanelRef.current.getBoundingClientRect(),
+        { width: window.innerWidth, height: window.innerHeight },
+        'right',
+      ),
+    );
+  }, []);
+
+  useLayoutEffect(() => {
+    if (menuOpen) positionMainMenu();
+  }, [menuOpen, modesOpen, positionMainMenu]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    window.addEventListener('resize', positionMainMenu);
+    return () => window.removeEventListener('resize', positionMainMenu);
+  }, [menuOpen, positionMainMenu]);
+
+  const KEYBINDS: Array<{ labelKey: I18nKey; keys: string; d: string }> = [
+    { labelKey: 'overlay.kb.toggle', keys: 'Ctrl+Shift+H', d: 'M2 4h20v13H2z|M8 20h8' },
+    { labelKey: 'overlay.kb.ask', keys: 'Ctrl+↵', d: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z' },
+    { labelKey: 'overlay.kb.candidateFollowUp', keys: 'Ctrl+\\', d: 'M4 12h11|M11 8l4 4-4 4|M20 5v14' },
+    { labelKey: 'overlay.kb.screenAsk', keys: 'Ctrl+Shift+↵', d: 'M2 4h20v12H2z|M8 20h8|M12 16v4' },
+    { labelKey: 'overlay.kb.clear', keys: 'Ctrl+R', d: 'M3 6h18|M8 6V4h8v2|M6 6l1 14h10l1-14' },
+    { labelKey: 'overlay.kb.stop', keys: 'Ctrl+Shift+\\', d: 'M6 6h12v12H6z' },
+    { labelKey: 'overlay.kb.move', keys: 'Ctrl+↑↓←→', d: 'M5 9 2 12l3 3|M9 5l3-3 3 3|M15 19l-3 3-3-3|M19 9l3 3-3 3|M2 12h20|M12 2v20' },
+    { labelKey: 'overlay.kb.scroll', keys: 'Ctrl+Shift+↑↓', d: 'M8 7l4-4 4 4|M8 17l4 4 4-4' },
+    { labelKey: 'overlay.kb.resize', keys: 'Ctrl +/−', d: 'M15 3h6v6|M9 21H3v-6|M21 3l-7 7|M3 21l7-7' },
+    { labelKey: 'overlay.kb.transcript', keys: 'Ctrl+/', d: 'M4 6h16|M4 12h16|M4 18h10' },
+    { labelKey: 'overlay.kb.clickThrough', keys: 'Ctrl+Alt+O', d: 'M4 12h16|M12 4v16|M4 4l16 16' },
+  ];
+
   return (
     <div
       ref={rootRef}
@@ -1277,6 +1370,223 @@ export default function OverlayPage() {
             Завершить
           </button>
         )}
+<div className="ovl-settings-anchor" ref={menuRef}>
+                    <button
+                      ref={menuButtonRef}
+                      type="button"
+                      className="overlay-icon-btn tip"
+                      data-tip={t('overlay.menuTip')}
+                      aria-label={t('overlay.menuAria')}
+                        aria-expanded={menuOpen}
+                        aria-controls="overlay-settings-menu"
+                      onClick={() => setMenuOpen((v) => !v)}
+                    >
+                      <Icon d="M5 12h.01M12 12h.01M19 12h.01" />
+                    </button>
+                    {menuOpen && (
+                      <div
+                        ref={menuPanelRef}
+                          id="overlay-settings-menu"
+                          role="region"
+                          aria-label="Настройки оверлея"
+                        className="overlay-menu ovl-main-menu"
+                        data-overlay-hit="true"
+                        style={{
+                          position: 'fixed',
+                          left: menuPosition.left,
+                          top: menuPosition.top,
+                          maxHeight: 'calc(100vh - 16px)',
+                          margin: 0,
+                        }}
+                      >
+                        <p className="ovl-menu-head">{t('overlay.shortcutsHead')}</p>
+                        {KEYBINDS.map((k) => (
+                          <div key={k.labelKey} className="ovl-menu-row">
+                            <Icon d={k.d} />
+                            <span className="flex-1">{t(k.labelKey)}</span>
+                            <span className="ovl-kbd">{k.keys}</span>
+                          </div>
+                        ))}
+
+                        <div className="ovl-menu-sep" />
+
+                        <button
+                          type="button"
+                          className="ovl-menu-toggle tip"
+                          data-tip={t('overlay.stealthTip')}
+                          onClick={toggleStealth}
+                        >
+                          <Icon d="M3 3l18 18|M10.6 5.1A9 9 0 0 1 21 12c-.5 1-1.2 2-2 2.9M6.6 6.6A9 9 0 0 0 3 12c1.7 3.3 5 5 9 5 1 0 2-.1 2.9-.4" />
+                          <span className="flex-1 text-left">{t('overlay.stealth')}</span>
+                          <Switch on={stealth} label={t('overlay.stealthAria')} />
+                        </button>
+                        <button
+                          type="button"
+                          className="ovl-menu-toggle tip"
+                          data-tip={t('overlay.avoidFocusTip')}
+                          onClick={toggleAvoidFocus}
+                        >
+                          <Icon d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0-6 0|M12 2v3|M12 19v3|M2 12h3|M19 12h3" />
+                          <span className="flex-1 text-left">{t('overlay.avoidFocus')}</span>
+                          <Switch on={avoidFocus} label={t('overlay.avoidFocus')} />
+                        </button>
+                        <button
+                          type="button"
+                          className="ovl-menu-toggle tip"
+                          data-tip={t('overlay.clickThroughTip')}
+                          onClick={toggleClickThrough}
+                        >
+                          <Icon d="M4 12h16|M12 4v16|M4 4l16 16" />
+                          <span className="flex-1 text-left">{t('overlay.clickThrough')}</span>
+                          <Switch on={clickThrough} label={t('overlay.clickThrough')} />
+                        </button>
+
+                        {/* Прозрачность панели — чтобы видеть, что под ней. */}
+                        <div className="ovl-menu-toggle" style={{ cursor: 'default' }}>
+                          <Icon d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z|M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6" />
+                          <span className="flex-1 text-left">{t('overlay.opacity')}</span>
+                          <span className="mr-1 text-[11px] tabular-nums text-ink-faint">{opacity}%</span>
+                          <input
+                            type="range"
+                            min={40}
+                            max={100}
+                            step={5}
+                            value={opacity}
+                            onChange={(e) => changeOpacity(Number(e.target.value))}
+                            className="w-20 accent-emerald-400"
+                            aria-label={t('overlay.opacity')}
+                          />
+                        </div>
+
+                        <div className="ovl-menu-sep" />
+
+                        {/* Режимы ответа (как Modes у Cluely): ✓ на активном. */}
+                        <button
+                          type="button"
+                          className="ovl-menu-toggle"
+                          onClick={() => setModesOpen((v) => !v)}
+                        >
+                          <Icon d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                          <span className="flex-1 text-left">{t('overlay.modes')}</span>
+                          <span className="text-[11px] text-ink-faint">
+                            {activeMode.id === 'general' ? t('modes.general') : activeMode.name}
+                          </span>
+                          <Icon d={modesOpen ? 'm6 15 6-6 6 6' : 'm9 6 6 6-6 6'} size={12} />
+                        </button>
+                        {modesOpen && (
+                          <div className="ovl-modes-list">
+                            {modes.map((m) => (
+                              <button
+                                key={m.id}
+                                type="button"
+                                className="btn-ghost w-full justify-start rounded-lg px-2 py-2 text-xs"
+                                onClick={() => {
+                                  setActiveMode(m.id);
+                                  setModesOpen(false);
+                                }}
+                              >
+                                <span
+                                  className={
+                                    m.id === activeMode.id ? 'text-accent' : 'text-transparent'
+                                  }
+                                >
+                                  ✓{' '}
+                                </span>
+                                {m.id === 'general' ? t('modes.general') : m.name}
+                              </button>
+                            ))}
+                            <button
+                              type="button"
+                              className="btn-ghost w-full justify-start rounded-lg px-2 py-2 text-xs text-ink-faint"
+                              onClick={() => {
+                                setMenuOpen(false);
+                                void window.electronAPI?.overlay.openSettings?.('modes');
+                              }}
+                            >
+                              {t('overlay.manageModes')}
+                            </button>
+                          </div>
+                        )}
+
+                        <button
+                          type="button"
+                          className="ovl-menu-toggle"
+                          onClick={() => {
+                            setShowTranscript((v) => !v);
+                          }}
+                        >
+                          <Icon d="M4 6h16|M4 12h16|M4 18h10" />
+                          <span className="flex-1 text-left">{t('overlay.liveTranscript')}</span>
+                          <Switch on={showTranscript} label={t('overlay.liveTranscript')} />
+                        </button>
+
+                        <p className="ovl-menu-head mt-1">{t('overlay.audioSourceHead')}</p>
+                        {(
+                          [
+                            [t('overlay.src.both'), { mic: true, system: true }],
+                            [t('overlay.src.micOnly'), { mic: true, system: false }],
+                            [t('overlay.src.sysOnly'), { mic: false, system: true }],
+                          ] as const
+                        ).map(([label, src]) => (
+                          <button
+                            key={label}
+                            type="button"
+                            className="btn-ghost w-full justify-start rounded-lg px-2 py-2 text-xs"
+                            onClick={() => {
+                              setSources(src);
+                              setMenuOpen(false);
+                               if (active) {
+                                 const linkedEvent = interviewContext;
+                                 const linkedSessionId = sessionId ?? linkedEvent?.sessionId;
+                                 resetScreenTaskContext();
+                                 void stop().then(async () => {
+                                  const restartedSessionId = await start(src, sttOptions, {
+                                    sessionId: linkedSessionId,
+                                    title: linkedEvent
+                                      ? interviewSessionTitle(linkedEvent)
+                                      : undefined,
+                                  });
+                                  if (linkedEvent && restartedSessionId) {
+                                    const state = await window.electronAPI?.interviewCalendar?.attachSession(
+                                      linkedEvent.id,
+                                      restartedSessionId,
+                                    );
+                                    const updated = state?.events.find(
+                                      (event) => event.id === linkedEvent.id,
+                                    );
+                                    if (updated) setInterviewContext(updated);
+                                  }
+                                });
+                              }
+                            }}
+                          >
+                            {sources.mic === src.mic && sources.system === src.system ? '✓ ' : ''}
+                            {label}
+                          </button>
+                        ))}
+
+                        <div className="ovl-menu-sep" />
+                        <button
+                          type="button"
+                          className="ovl-menu-toggle"
+                          onClick={() => {
+                            setMenuOpen(false);
+                            setShowQuickGuide(true);
+                          }}
+                        >
+                          <Icon d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20|M9.5 9a2.5 2.5 0 0 1 5 0c0 2-2.5 2-2.5 4|M12 17h.01" />
+                          <span className="flex-1 text-left">{guideCopy.title}</span>
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-ghost w-full justify-start rounded-lg px-2 py-2 text-xs"
+                          onClick={() => void window.electronAPI?.overlay.openSettings?.()}
+                        >
+                          {t('overlay.settings')}
+                        </button>
+                      </div>
+                    )}
+                  </div>
       </div>
 
       {showQuickGuide && !recap && (

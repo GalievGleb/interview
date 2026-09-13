@@ -19,11 +19,19 @@
 }
 
 .ovl-shell .ovl-pill {
+  position: relative;
   justify-content: center;
   border: 0;
   border-radius: 0;
   box-shadow: none;
   background: transparent;
+}
+
+.ovl-settings-anchor {
+  position: absolute;
+  right: 8px;
+  top: 6px;
+  -webkit-app-region: no-drag;
 }
 
 .ovl-shell .ovl-card {
