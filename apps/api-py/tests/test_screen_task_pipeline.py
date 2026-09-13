@@ -1699,7 +1699,7 @@ SELECT 1;
         assert calls[0]['reasoning'] == {'enabled': False, 'exclude': True}
         assert calls[0]['max_tokens'] == 1800
         for call in calls[1:]:
-            assert call['reasoning'] == {'effort': 'low', 'exclude': True}
+            assert call['reasoning'] == {'effort': 'medium', 'exclude': True}
             assert call['max_tokens'] == 4200
     assert [call['screen_workload_phase'] for call in calls] == (
         ['observation', 'answer']

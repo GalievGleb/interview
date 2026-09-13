@@ -739,4 +739,4 @@ def test_deepseek_screen_budget_limits_hidden_reasoning():
     from app.services.provider_adapter import screen_stream_options
     tokens, reasoning = screen_stream_options('deepseek/deepseek-v4.1-flash')
     assert tokens == 4200
-    assert reasoning == {'effort': 'low', 'exclude': True}
+    assert reasoning == {'effort': 'medium', 'exclude': True}

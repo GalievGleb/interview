@@ -20,6 +20,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.services import provider_adapter
 from app.services.screen_answer_validator import (
+    _lex_sql,
+    _sql_comment_index,
     ScreenAnswerValidationInput,
     StableCoverageRequirement,
     validate_screen_answer,
@@ -478,6 +480,11 @@ def _observation_prompt(
         "visible database diagram into schema sources: exact table names, exact column "
         "names and relationships, including columns not used in your guessed solution. "
         "Never rename, translate, normalize case or insert underscores in identifiers. "
+        "Preserve the alphabet and whitespace of literal values too: Latin B and Cyrillic В "
+        "are different SQL values, even when visually identical. Prefer visible table data "
+        "and examples over an alphabet guessed from the language of the surrounding prose. "
+        "Do not copy a previous failed editor query as the task requirement. Include visible "
+        "query results and error messages as evidence, clearly separate from the task. "
         "The solver cannot see this image: omitting the schema makes it invent columns. "
         "Prioritize the task statement and schema over navigation, buttons and editor UI. "
         "Set allow_join/allow_cte true for ordinary SQL exercises unless explicitly forbidden; "
@@ -1193,8 +1200,14 @@ def _answer_prompt(state: ScreenTaskState, latest_correction: str) -> str:
         "preserves every explicit requirement. For code, first give a short natural Russian "
         "explanation of the task's solution, then exactly one fenced code block. Never "
         "discuss the draft, validator, issue codes, missing Russian text or formatting "
-        "repairs in the user-facing explanation. Use concise Russian comments only where "
-        "they help explain a non-obvious step. Bind user-provided SQL values as parameters "
+        "repairs in the user-facing explanation. After every executable code line, add a "
+        "short Russian comment on a separate line explaining what that line does, using "
+        "-- for SQL or # for Python. Keep comments inside the fenced code block; never "
+        "insert a comment inside a multiline string or break line continuations. "
+        "Before answering, check every literal against the source, including whitespace "
+        "and Latin/Cyrillic lookalikes. A visible zero result or failed editor query is "
+        "evidence to investigate, not a solution to repeat. Do not translate database values "
+        "to match Russian prose. Bind user-provided SQL values as parameters "
         "and keep required table/column "
         "identifiers exact. For the Python function profile, emit one straight-line target "
         "function with no extra definitions, decorators, setup calls, or imports except an "
@@ -1205,6 +1218,11 @@ def _answer_prompt(state: ScreenTaskState, latest_correction: str) -> str:
         "trusted execute result. Do not add helpers, JOIN, CTE, JSON conversion, cursor "
         "metadata, try/finally wrappers, or architecture unless the typed requirements "
         "explicitly require them.\n\n"
+        "For school-class labels read only from pixels, an isolated suffix like '10 B' "
+        "and '10 В' is visually ambiguous. If no exact table data disambiguates it, use "
+        "IN with the Latin and Cyrillic lookalike alternatives instead of guessing one "
+        "alphabet and returning zero. Briefly explain that visual ambiguity in Russian. "
+        "Never broaden unambiguous names, identifiers or ordinary text this way.\n\n"
         f"{render_screen_task_context(state)}\n\n"
         f"LATEST CORRECTION (highest priority):\n{latest_correction or '[none]'}"
     )
@@ -1279,6 +1297,28 @@ def _deterministic_simple_select_answer(
     return candidate if validation.valid else None
 
 
+def _format_sql_line_comments(answer: str) -> str:
+    """Move explanations below SQL lines only when executable tokens are identical."""
+    def format_block(match: re.Match[str]) -> str:
+        original = match.group(2)
+        before = _lex_sql(original)
+        if before is None:
+            return match.group(0)
+        lines = []
+        for line in original.splitlines():
+            index = _sql_comment_index(line)
+            if index is not None and line[:index].strip() and line[index:].startswith('--'):
+                indent = line[:len(line) - len(line.lstrip())]
+                lines.extend((line[:index].rstrip(), indent + line[index:]))
+            else:
+                lines.append(line)
+        formatted = '\n'.join(lines) + ('\n' if original.endswith('\n') else '')
+        if _lex_sql(formatted) != before:
+            return match.group(0)
+        return match.group(1) + formatted + match.group(3)
+    return re.sub(r'(```sql\s*\n)(.*?)(```)', format_block, answer, flags=re.S | re.I)
+
+
 async def _generate_code_answer(
     *,
     state: ScreenTaskState,
@@ -1332,7 +1372,7 @@ async def _generate_code_answer(
         _validation_input(draft, state=state, latest_correction=latest_correction)
     )
     if validation.valid:
-        return draft.strip()
+        return _format_sql_line_comments(draft.strip())
 
     issue_codes = ", ".join(code.value for code in validation.issue_codes)
     repair_shape = (
@@ -1366,7 +1406,7 @@ async def _generate_code_answer(
         _validation_input(repaired, state=state, latest_correction=latest_correction)
     )
     if repaired_validation.valid:
-        return repaired.strip()
+        return _format_sql_line_comments(repaired.strip())
 
     # A provider can repeat the same malformed draft during the bounded repair
     # call. Give it one fresh, state-only generation before surfacing an error;
@@ -1392,7 +1432,7 @@ async def _generate_code_answer(
         _validation_input(retried, state=state, latest_correction=latest_correction)
     )
     if retried_validation.valid:
-        return retried.strip()
+        return _format_sql_line_comments(retried.strip())
     logger.warning('screen answer rejected model=%s issues=%s', model,
                    ','.join(code.value for code in retried_validation.issue_codes))
     raise ScreenTaskPipelineError(

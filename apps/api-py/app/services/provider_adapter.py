@@ -542,7 +542,7 @@ def screen_stream_options(model_id: str) -> tuple[int, dict | None]:
     if model_id.lower() == "deepseek/deepseek-v4.1-flash":
         # Reason through the solution; the typed extractor independently
         # disables thinking to protect its smaller OCR budget.
-        return 4200, {"effort": "low", "exclude": True}
+        return 4200, {"effort": "medium", "exclude": True}
     if "gpt-5.6" in model_id.lower():
         return 4200, {"effort": "medium", "exclude": True}
     if is_thinking_model(model_id):

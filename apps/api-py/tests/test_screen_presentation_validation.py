@@ -19,6 +19,34 @@ def owner_state():
         ttl=ScreenTaskTtl(created_at_ms=1000, updated_at_ms=1000, expires_at_ms=61000),
     )
 
+def test_answer_prompt_requests_russian_explanation_after_each_code_line():
+    prompt = pipeline._answer_prompt(owner_state(), '')
+    assert 'After every executable code line' in prompt
+    assert 'Russian comment on a separate line' in prompt
+
+def test_extractor_preserves_literal_alphabet_and_uses_visible_data():
+    prompt = pipeline._observation_prompt(state=None, latest_correction='', context='')
+    assert 'Latin B and Cyrillic В' in prompt
+    assert 'visible table data' in prompt
+
+def test_solver_handles_visually_ambiguous_class_label_without_guessing_alphabet():
+    state = owner_state().model_copy(update={'requirements': owner_state().requirements.model_copy(
+        update={'objective': 'Сколько учеников в 10 В классе?', 'required_literals': ('10 В',)})})
+    prompt = pipeline._answer_prompt(state, '')
+    assert '10 B' in prompt
+    assert '10 В' in prompt
+    assert 'IN' in prompt
+
+def test_sql_inline_explanations_are_moved_without_changing_strings():
+    draft = "Текст\n```sql\nSELECT '-- не комментарий' AS value -- возвращаем строку\nFROM Rooms; -- выбираем комнаты\n```"
+    assert pipeline._format_sql_line_comments(draft) == (
+        "Текст\n```sql\nSELECT '-- не комментарий' AS value\n-- возвращаем строку\nFROM Rooms;\n-- выбираем комнаты\n```"
+    )
+
+def test_sql_formatter_preserves_multiline_literals():
+    draft = "```sql\nSELECT 'первая\n-- вторая' AS value;\n```"
+    assert pipeline._format_sql_line_comments(draft) == draft
+
 @pytest.mark.asyncio
 async def test_sql_extraction_does_not_promote_invented_filters_to_requirements():
     raw = Path(__file__).with_name('fixtures').joinpath('screen_owner_observation.json').read_text('utf-8')
