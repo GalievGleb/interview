@@ -8,4 +8,6 @@
 Regions(id INTEGER PRIMARY KEY, name TEXT, countryid INTEGER → Countries.id)
 Cities(id INTEGER PRIMARY KEY, name TEXT, regionid INTEGER → Regions.id)</pre></section>
 <p>Город связан с регионом через Cities.regionid, регион — со страной через Regions.countryid.</p>
-<section><b>Редактор решения</b><pre>SELECT ...</pre></section></html>
+<section><b>Редактор решения</b><pre>SELECT ...</pre></section>
+<button id="play-question" onclick="document.getElementById('question-audio').play()">Проиграть контрольный вопрос</button>
+<audio id="question-audio" src="../voice/audio/03_api_testing.wav"></audio></html>
