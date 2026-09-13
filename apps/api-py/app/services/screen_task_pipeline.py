@@ -115,6 +115,108 @@ DEFAULT_CHECKLIST_ITEM_COUNT = 5
 CHECKLIST_CROSS_GENERATION_MAX_SIMILARITY = 0.45
 CHECKLIST_INTRA_GENERATION_MAX_SIMILARITY = 0.82
 
+_SQL_KEYWORDS = frozenset(
+    {
+        "all",
+        "and",
+        "as",
+        "asc",
+        "avg",
+        "between",
+        "by",
+        "case",
+        "cast",
+        "coalesce",
+        "count",
+        "create",
+        "cross",
+        "day",
+        "delete",
+        "desc",
+        "distinct",
+        "drop",
+        "else",
+        "end",
+        "exists",
+        "extract",
+        "first",
+        "from",
+        "full",
+        "group",
+        "having",
+        "in",
+        "inner",
+        "insert",
+        "into",
+        "is",
+        "join",
+        "last",
+        "left",
+        "like",
+        "limit",
+        "max",
+        "min",
+        "month",
+        "natural",
+        "not",
+        "null",
+        "nulls",
+        "offset",
+        "on",
+        "or",
+        "order",
+        "outer",
+        "over",
+        "partition",
+        "returning",
+        "right",
+        "round",
+        "select",
+        "set",
+        "sum",
+        "table",
+        "then",
+        "union",
+        "update",
+        "using",
+        "values",
+        "when",
+        "where",
+        "window",
+        "with",
+        "year",
+        "ilike",
+        "interval",
+        "recursive",
+        "true",
+        "false",
+        "unnest",
+    }
+)
+_SQL_EXPLANATION_VERB_REPLACEMENTS = {
+    "соединяет": "соединить",
+    "вычисляет": "вычислить",
+    "округляет": "округлить",
+    "сортирует": "сортировать",
+    "выбирает": "выбрать",
+    "фильтрует": "отфильтровать",
+    "группирует": "сгруппировать",
+    "объединяет": "объединить",
+    "считает": "посчитать",
+    "возвращает": "вернуть",
+    "использует": "использовать",
+    "сохраняет": "сохранить",
+    "сопоставляет": "сопоставить",
+    "применяет": "применить",
+    "отбирает": "отобрать",
+    "суммирует": "суммировать",
+    "подсчитывает": "подсчитать",
+    "находит": "найти",
+    "сравнивает": "сравнить",
+    "разделяет": "разделить",
+    "выводит": "вывести",
+}
+
 _SIMPLIFY_RE = re.compile(
     r"\b(?:упрост\w*|переработ\w*|передел\w*|перепиш\w*|сократ\w*|"
     r"simplif\w*|rewrite\w*|rework\w*|redo\w*)\b|"
@@ -1229,7 +1331,12 @@ def _answer_prompt(state: ScreenTaskState, latest_correction: str) -> str:
         "discuss the draft, validator, issue codes, missing Russian text or formatting "
         "repairs in the user-facing explanation. After every executable code line, add a "
         "short Russian comment on a separate line explaining what that line does, using "
-        "-- for SQL or # for Python. Keep comments inside the fenced code block; never "
+        "-- for SQL or # for Python. Keep comments inside the fenced code block. "
+        "For SQL, write the introduction as neutral infinitive actions (for example, "
+        "'Соединить таблицы, вычислить среднее, округлить результат и отсортировать его'), "
+        "never as a conjugated description such as 'Запрос соединяет'. In SQL code, always "
+        "uppercase every SQL keyword (SELECT, FROM, JOIN, WHERE, GROUP BY, ORDER BY, etc.) "
+        "while preserving the case of identifiers, string literals, and comments. Never "
         "insert a comment inside a multiline string or break line continuations. "
         "Before answering, check every literal against the source, including whitespace "
         "and Latin/Cyrillic lookalikes. A visible zero result or failed editor query is "
@@ -1324,8 +1431,108 @@ def _deterministic_simple_select_answer(
     return candidate if validation.valid else None
 
 
+def _uppercase_sql_keywords(sql: str) -> str:
+    """Uppercase SQL operators without changing literals, identifiers, or comments."""
+
+    chunks: list[str] = []
+    index = 0
+    while index < len(sql):
+        char = sql[index]
+        next_char = sql[index + 1] if index + 1 < len(sql) else ""
+        if char == "-" and next_char == "-":
+            newline = sql.find("\n", index + 2)
+            end = len(sql) if newline < 0 else newline
+            chunks.append(sql[index:end])
+            index = end
+            continue
+        if char == "/" and next_char == "*":
+            closing = sql.find("*/", index + 2)
+            if closing < 0:
+                chunks.append(sql[index:])
+                break
+            end = closing + 2
+            chunks.append(sql[index:end])
+            index = end
+            continue
+        if char == "$":
+            tag_match = re.match(r"\$[A-Za-z_]*\$", sql[index:])
+            if tag_match:
+                tag = tag_match.group(0)
+                closing = sql.find(tag, index + len(tag))
+                end = len(sql) if closing < 0 else closing + len(tag)
+                chunks.append(sql[index:end])
+                index = end
+                continue
+        if char in {"'", '"', "`", "["}:
+            quoted_closing = "]" if char == "[" else char
+            end = index + 1
+            while end < len(sql):
+                if sql[end] == quoted_closing:
+                    if end + 1 < len(sql) and sql[end + 1] == quoted_closing:
+                        end += 2
+                        continue
+                    end += 1
+                    break
+                end += 1
+            chunks.append(sql[index:end])
+            index = end
+            continue
+        if char.isalpha() or char == "_":
+            end = index + 1
+            while end < len(sql) and (sql[end].isalnum() or sql[end] in {"_", "$"}):
+                end += 1
+            word = sql[index:end]
+            chunks.append(word.upper() if word.lower() in _SQL_KEYWORDS else word)
+            index = end
+            continue
+        chunks.append(char)
+        index += 1
+    return "".join(chunks)
+
+
+def _normalize_sql_explanation(answer: str) -> str:
+    """Use neutral infinitive actions in the natural-language SQL introduction."""
+
+    marker = re.search(r"```\s*sql\b", answer, flags=re.IGNORECASE)
+    if marker is None:
+        return answer
+    prefix = answer[: marker.start()]
+    suffix = answer[marker.start() :]
+
+    def replace_verb(match: re.Match[str]) -> str:
+        original = match.group(0)
+        replacement = _SQL_EXPLANATION_VERB_REPLACEMENTS[original.lower()]
+        return replacement.capitalize() if original[:1].isupper() else replacement
+
+    prefix = re.sub(
+        r"\b(?:соединяет|вычисляет|округляет|сортирует|выбирает|фильтрует|"
+        r"группирует|объединяет|считает|возвращает|использует|сохраняет|"
+        r"сопоставляет|применяет|отбирает|суммирует|подсчитывает|находит|"
+        r"сравнивает|разделяет|выводит)\b",
+        replace_verb,
+        prefix,
+        flags=re.IGNORECASE,
+    )
+    prefix = re.sub(
+        r"^(\s*)(?:этот\s+)?запрос\s+(?=(?:соединить|вычислить|округлить|"
+        r"сортировать|выбрать|отфильтровать|сгруппировать|объединить|"
+        r"посчитать|вернуть|использовать|сохранить|сопоставить|применить|"
+        r"отобрать|суммировать|подсчитать|найти|сравнить|разделить|вывести)\b)",
+        r"\1",
+        prefix,
+        flags=re.IGNORECASE,
+    )
+    prefix = re.sub(
+        r"^(\s*)([а-яё])",
+        lambda match: match.group(1) + match.group(2).upper(),
+        prefix,
+        count=1,
+    )
+    return prefix + suffix
+
+
 def _format_sql_line_comments(answer: str) -> str:
-    """Move explanations below SQL lines only when executable tokens are identical."""
+    """Normalize SQL prose and keywords while preserving executable SQL semantics."""
     def format_block(match: re.Match[str]) -> str:
         original = match.group(2)
         before = _lex_sql(original)
@@ -1342,8 +1549,11 @@ def _format_sql_line_comments(answer: str) -> str:
         formatted = '\n'.join(lines) + ('\n' if original.endswith('\n') else '')
         if _lex_sql(formatted) != before:
             return match.group(0)
+        formatted = _uppercase_sql_keywords(formatted)
         return match.group(1) + formatted + match.group(3)
-    return re.sub(r'(```sql\s*\n)(.*?)(```)', format_block, answer, flags=re.S | re.I)
+
+    normalized = _normalize_sql_explanation(answer)
+    return re.sub(r'(```sql\s*\n)(.*?)(```)', format_block, normalized, flags=re.S | re.I)
 
 
 async def _generate_code_answer(

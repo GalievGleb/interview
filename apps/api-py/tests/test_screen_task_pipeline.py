@@ -8,6 +8,7 @@ import pytest
 from app.services.screen_answer_validator import validate_screen_answer
 from app.services.screen_task_pipeline import (
     ScreenTaskPipelineError,
+    _format_sql_line_comments,
     _validation_input,
     run_screen_task_pipeline,
 )
@@ -2469,6 +2470,45 @@ FROM orders;
     assert requirements.required_sql_clauses == ("select", "from")
     assert requirements.allow_join is False
     assert "JOIN" not in refined.answer
+
+
+def test_formats_sql_keywords_as_uppercase_without_touching_literals_or_comments() -> None:
+    answer = """Соединить таблицы и посчитать среднее.
+
+```sql
+select round(avg_ms, 2) as avg_ms
+-- select from должны остаться текстом комментария
+from logs
+join applications on applications.id = logs.application_id
+where status = 'select'
+order by avg_ms desc;
+```"""
+
+    formatted = _format_sql_line_comments(answer)
+
+    assert "SELECT ROUND(avg_ms, 2) AS avg_ms" in formatted
+    assert "FROM logs" in formatted
+    assert "JOIN applications ON applications.id = logs.application_id" in formatted
+    assert "WHERE status = 'select'" in formatted
+    assert "ORDER BY avg_ms DESC" in formatted
+    assert "-- select from должны остаться текстом комментария" in formatted
+
+
+def test_formats_sql_explanation_as_infinitive_actions() -> None:
+    answer = """Запрос соединяет таблицу logs с applications по application_id, для каждого приложения вычисляет среднее время отклика, округляет его до двух знаков и сортирует по avg_ms по возрастанию.
+
+```sql
+select logs.id from logs;
+```"""
+
+    formatted = _format_sql_line_comments(answer)
+    explanation = formatted.split("```sql", 1)[0]
+
+    assert "Соединить таблицу logs с applications" in explanation
+    assert "вычислить среднее время отклика" in explanation
+    assert "округлить его до двух знаков" in explanation
+    assert "сортировать по avg_ms" in explanation
+    assert "Запрос соединяет" not in explanation
 
 
 @pytest.mark.asyncio
