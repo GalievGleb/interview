@@ -1331,12 +1331,38 @@ async def _generate_code_answer(
     repaired_validation = validate_screen_answer(
         _validation_input(repaired, state=state, latest_correction=latest_correction)
     )
-    if not repaired_validation.valid:
-        raise ScreenTaskPipelineError(
-            "invalid_screen_answer",
-            "Ответ не прошёл проверку точности. Повторите запрос.",
-        )
-    return repaired.strip()
+    if repaired_validation.valid:
+        return repaired.strip()
+
+    # A provider can repeat the same malformed draft during the bounded repair
+    # call. Give it one fresh, state-only generation before surfacing an error;
+    # this does not recapture the screen or re-run observation, so it cannot
+    # introduce stale visual context and is still bounded to three completions.
+    retry_prompt = (
+        f"{_answer_prompt(state, latest_correction)}\n\n"
+        "Generate a fresh independent final answer from the validated state. "
+        "Do not reuse either previous draft, do not mention validation, and return "
+        "only the requested solution. Preserve every required identifier, clause, "
+        "literal, signature, and output contract."
+    )
+    retried = await complete(
+        [base_messages[0], {"role": "user", "content": retry_prompt}],
+        provider,
+        model,
+        max_tokens=max_tokens,
+        temperature=0.0,
+        reasoning=reasoning,
+        screen_workload_phase="repair",
+    )
+    retried_validation = validate_screen_answer(
+        _validation_input(retried, state=state, latest_correction=latest_correction)
+    )
+    if retried_validation.valid:
+        return retried.strip()
+    raise ScreenTaskPipelineError(
+        "invalid_screen_answer",
+        "Ответ не прошёл проверку точности. Повторите запрос.",
+    )
 
 
 def _checklist_draft_issues(
