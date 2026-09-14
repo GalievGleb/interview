@@ -146,6 +146,15 @@ describe('HhChatBrowser current HH contract', () => {
     expect(mainSource).not.toContain('getSelectedResumeText(vacancyTitle)');
   });
 
+  it('can use the explicitly current resume for legacy experience replies without reusing it for salary', () => {
+    const queue = [{ id: '123', platform: 'hh' as const, title: 'QA', company: 'IBS', url: 'https://hh.ru/vacancy/123', selectedResumeTitle: 'QA Python' }];
+    const context = { negotiationKey: 'QA\u0000IBS', vacancyTitle: 'QA', companyName: 'IBS' };
+    expect(resolveHhRecruiterProfileSelection(queue, { ...context, profilePurpose: 'experience' }, ['QA Python'])?.selectedResumeTitle).toBe('QA Python');
+    expect(resolveHhRecruiterProfileSelection(queue, context, ['QA Python'])).toBeNull();
+    expect(resolveHhRecruiterProfileSelection(queue, { ...context, profilePurpose: 'experience' }, ['QA Java'])).toBeNull();
+    expect(resolveHhRecruiterProfileSelection(queue, { ...context, profilePurpose: 'experience' }, ['QA Python', 'QA Java'])).toBeNull();
+  });
+
   it('keeps supplemental experience but strips supplemental salary evidence', () => {
     const supplemental = [
       'Опыт: Python, Pytest и Playwright.',
@@ -637,6 +646,7 @@ describe('HhChatBrowser current HH contract', () => {
         'vacancy-0', 'vacancy-1', 'vacancy-2', 'vacancy-3',
       ]);
       expect(chat.getState().checkedNegotiations).toBe(4);
+      expect(chat.getState().conversations.find(item => item.key === 'vacancy-2')?.lastMessage).toBe('Уже отвечено');
 
       openNegotiation.mockClear();
       await internals.pollOnce();
@@ -644,6 +654,7 @@ describe('HhChatBrowser current HH contract', () => {
         'vacancy-4', 'vacancy-5', 'vacancy-0', 'vacancy-1',
       ]);
       expect(chat.getState().checkedNegotiations).toBe(4);
+      expect(chat.getState().conversations.find(item => item.key === 'vacancy-2')?.lastMessage).toBe('Уже отвечено');
     } finally {
       fs.rmSync(userDataDir, { recursive: true, force: true });
     }
@@ -969,6 +980,7 @@ describe('HhChatBrowser current HH contract', () => {
         vacancyTitle: 'Старший инженер-тестировщик',
         companyName: 'Правительство Москвы',
         vacancyUrl: undefined,
+        profilePurpose: 'general',
       });
       expect(sendChatMessage).not.toHaveBeenCalled();
       expect(onInterviewInvitation).toHaveBeenCalledWith(expect.objectContaining({
@@ -2258,6 +2270,7 @@ describe('HhChatBrowser current HH contract', () => {
         vacancyTitle: 'QA Automation Engineer',
         companyName: 'Предметный опыт',
         vacancyUrl: undefined,
+        profilePurpose: 'experience',
       });
       expect(sendChatMessage).not.toHaveBeenCalled();
       expect(chat.getState().pendingDecisions).toEqual([expect.objectContaining({

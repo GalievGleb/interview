@@ -234,6 +234,8 @@ export interface HhChatNegotiationContext {
   vacancyTitle: string;
   companyName: string;
   vacancyUrl?: string;
+  /** Non-financial replies can use the explicitly current matching resume for legacy applications. */
+  profilePurpose?: 'experience' | 'general';
 }
 
 export interface HhChatCandidateProfile {
@@ -558,6 +560,7 @@ export function buildHhChatCandidateProfileContent(profile: HhChatCandidateProfi
 export function resolveHhRecruiterProfileSelection<T extends HhRecruiterProfileQueueCandidate>(
   queue: readonly T[],
   context: HhChatNegotiationContext,
+  currentResumeTitles: readonly string[] = [],
 ): HhRecruiterProfileSelection<T> | null {
   const hhQueue = queue.filter((item) => item.platform === 'hh');
   const requestedVacancyId = hhRecruiterVacancyId(context.vacancyUrl ?? '');
@@ -581,17 +584,20 @@ export function resolveHhRecruiterProfileSelection<T extends HhRecruiterProfileQ
 
   const vacancy = matches[0];
   const selectedResumeTitle = vacancy.selectedResumeTitle?.trim() ?? '';
-  // Titles inferred during a scan (especially legacy already-applied items) do
-  // not prove which résumé was actually sent. Personal recruiter replies may
-  // use it only after the HH response form visibly confirmed the exact résumé.
-  if (!selectedResumeTitle || vacancy.selectedResumeVerified !== true) return null;
+  // Legacy applications lack delivery provenance. For skills/experience only,
+  // accept the same single resume the user explicitly selected now. Financial
+  // answers still require verified delivery; cache these sources separately.
+  const currentResumeMatches = Boolean(context.profilePurpose
+    && currentResumeTitles.length === 1
+    && hhRecruiterIdentityText(currentResumeTitles[0]) === hhRecruiterIdentityText(selectedResumeTitle));
+  if (!selectedResumeTitle || (vacancy.selectedResumeVerified !== true && !currentResumeMatches)) return null;
   const vacancyId = requestedVacancyId
     || hhRecruiterVacancyId(vacancy.url)
     || (/^\d+$/.test(vacancy.id) ? vacancy.id : '');
   const vacancyIdentity = vacancyId
     ? `hh-vacancy:${vacancyId}`
     : `hh-chat:${hhRecruiterIdentityText(context.negotiationKey)}:${hhRecruiterIdentityText(vacancy.title)}:${hhRecruiterIdentityText(vacancy.company)}`;
-  const cacheKey = `${vacancyIdentity}\u0000resume:${hhRecruiterIdentityText(selectedResumeTitle)}`;
+  const cacheKey = `${vacancyIdentity}\u0000resume:${hhRecruiterIdentityText(selectedResumeTitle)}\u0000purpose:${context.profilePurpose ?? 'exact'}`;
   return { vacancy, selectedResumeTitle, cacheKey };
 }
 
@@ -1264,6 +1270,7 @@ export class HhChatBrowser {
       const batch = selectChatPollBatch(negotiations, priorityKeys, this.pollCursor, CHAT_BATCH_SIZE);
       const ordered = batch.items;
       this.pollCursor = batch.nextCursor;
+      const previousConversations = new Map(this.conversations.map(item => [item.key, item]));
       const conversations = new Map<string, HhChatConversation>(negotiations.map((item) => [item.key, {
         key: item.key,
         vacancyTitle: item.vacancyTitle,
@@ -1274,8 +1281,9 @@ export class HhChatBrowser {
         lastMessage: '',
         lastMessageMine: false,
         lastRecruiterMessage: '',
-        needsUserInput: this.pendingDecisions.some((pending) => pending.negotiationKey === item.key),
         awaitingRecruiter: false,
+        ...previousConversations.get(item.key),
+        needsUserInput: this.pendingDecisions.some((pending) => pending.negotiationKey === item.key),
       }]));
       let shouldPersist = negotiations.length > 0 ||
         this.pendingDecisions.length !== pendingCountBeforeRejectCleanup ||
@@ -1487,6 +1495,7 @@ export class HhChatBrowser {
                 vacancyTitle: negotiation.vacancyTitle,
                 companyName: negotiation.companyName,
                 vacancyUrl: negotiation.vacancyUrl,
+                profilePurpose: decisionKind === 'experience' ? 'experience' : undefined,
               }).catch((error) => {
                 console.warn('[hh-chat-browser] salary resume lookup failed:', error);
                 return '' as const;
@@ -1579,6 +1588,7 @@ export class HhChatBrowser {
             vacancyTitle: negotiation.vacancyTitle,
             companyName: negotiation.companyName,
             vacancyUrl: negotiation.vacancyUrl,
+            profilePurpose: 'general',
           })
             .catch((error) => {
               console.warn('[hh-chat-browser] candidate profile unavailable:', error);

@@ -33,6 +33,7 @@ import { HhOAuthService } from './hhOAuthService';
 import {
   HhChatBrowser,
   resolveHhRecruiterProfileSelection,
+  sanitizeHhChatSupplementalProfile,
   type HhChatCandidateProfile,
 } from './hhChatBrowser';
 import { findNearestCurrentInterview, InterviewCalendarStore } from './interviewCalendar';
@@ -2053,6 +2054,7 @@ if (!hasSingleInstanceLock) {
         const selection = resolveHhRecruiterProfileSelection(
           assistant.getState().queue,
           context,
+          assistant.getState().config.resumeTitles,
         );
         if (!selection) return '';
         const { vacancy, selectedResumeTitle, cacheKey } = selection;
@@ -2093,7 +2095,9 @@ if (!hasSingleInstanceLock) {
         }
 
         const profile: HhChatCandidateProfile = {
-          selectedResumeText: selectedResume.trim().slice(0, 12_000),
+          selectedResumeText: (vacancy.selectedResumeVerified === true
+            ? selectedResume
+            : sanitizeHhChatSupplementalProfile(selectedResume)).trim().slice(0, 12_000),
           supplementalProfileText: localProfile.slice(0, 12_000),
         };
         recruiterProfileCache.set(cacheKey, {
