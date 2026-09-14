@@ -6,6 +6,7 @@ import {
   DEFAULT_CHAT_CONFIG,
   HH_NEGOTIATIONS_URL,
   HhChatBrowser,
+  selectChatPollBatch,
   buildHhChatCandidateProfileContent,
   buildGroundedRecruiterReply,
   chatDecisionQuestion,
@@ -1150,7 +1151,7 @@ describe('HhChatBrowser current HH contract', () => {
     const sendAt = source.indexOf('private async sendChatMessage');
     const pollAt = source.indexOf('private async pollOnce');
     const pollSource = source.slice(pollAt, sendAt);
-    const sendCallAt = pollSource.indexOf('await this.sendChatMessage(frame, reply)');
+    const sendCallAt = pollSource.indexOf('await this.sendChatAnswer(frame, reply)');
     const replyCountAt = pollSource.indexOf('this.recordReply({', sendCallAt);
     const sendSource = source.slice(sendAt);
     expect(sendSource).toContain('!beforeIds.has(item.id)');
@@ -1159,7 +1160,6 @@ describe('HhChatBrowser current HH contract', () => {
     expect(replyCountAt).toBeGreaterThan(sendCallAt);
     expect(source).toContain('const CHAT_BATCH_SIZE = 4');
     expect(source).toContain('const CHAT_RECOVERY_PAGE_LIMIT = 3');
-    expect(source).toContain('.slice(0, CHAT_BATCH_SIZE)');
     expect(source).toContain('this.pollCursor');
     expect(source).toContain('this.settleWithin(this.llmCall(prompt), 20_000');
   });
@@ -1182,22 +1182,30 @@ describe('HhChatBrowser current HH contract', () => {
     expect(source).toContain("kind: 'candidate_fact'");
   });
 
-  it('clicks an HH yes/no quick reply and verifies the outgoing answer', async () => {
+  it.each([
+    ['Да', 'Да'],
+    ['да, есть', 'Да'],
+    ['нет опыта или менее 6 месяцев', 'Нет'],
+    ['Python', 'Python'],
+  ])('clicks the HH choice %s for answer %s and verifies delivery', async (label, answer) => {
     const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skillcue-hh-chat-quick-reply-'));
     try {
       const yesButton = {
         isVisible: () => Promise.resolve(true),
-        innerText: () => Promise.resolve('Да'),
+        innerText: () => Promise.resolve(label),
+        getAttribute: () => Promise.resolve(null),
         click: vi.fn(async () => undefined),
       };
       const noButton = {
         isVisible: () => Promise.resolve(true),
-        innerText: () => Promise.resolve('Нет'),
+        innerText: () => Promise.resolve('Другой вариант'),
+        getAttribute: () => Promise.resolve(null),
         click: vi.fn(async () => undefined),
       };
       const frame = {
         locator: (selector: string) => {
-          if (selector !== 'button') throw new Error(`Unexpected selector: ${selector}`);
+          if (selector === 'body') return { innerText: () => Promise.resolve('Робот-рекрутер') };
+          if (selector !== '[class*="buttons-wrapper--"] button') throw new Error(`Unexpected selector: ${selector}`);
           return {
             count: () => Promise.resolve(2),
             nth: (index: number) => index === 0 ? yesButton : noButton,
@@ -1211,13 +1219,54 @@ describe('HhChatBrowser current HH contract', () => {
       };
       vi.spyOn(internals, 'scrapeMessages')
         .mockResolvedValueOnce([])
-        .mockResolvedValue([{ id: 'chatik-chat-message-yes', text: 'Да', isMine: true }]);
+        .mockResolvedValue([{ id: 'chatik-chat-message-yes', text: label, isMine: true }]);
 
-      await internals.sendChatAnswer(frame, 'Да');
+      await internals.sendChatAnswer(frame, answer);
 
       expect(yesButton.click).toHaveBeenCalledOnce();
       expect(noButton.click).not.toHaveBeenCalled();
     } finally {
+      fs.rmSync(userDataDir, { recursive: true, force: true });
+    }
+  });
+
+  it('routes month-based automation questions through selected-resume knowledge', () => {
+    expect(detectChatDecisionKind('Есть ли у вас коммерческий опыт автоматизации на Python от 6 месяцев')).toBe('experience');
+  });
+
+  it('does not starve bot chats when four older questions await a user decision', () => {
+    const chats = ['pending-1', 'pending-2', 'pending-3', 'pending-4', 'new-bot'].map(key => ({ key }));
+    const priority = new Set(chats.slice(0, 4).map(item => item.key));
+    const first = selectChatPollBatch(chats, priority, 0, 4);
+    const second = selectChatPollBatch(chats, priority, first.nextCursor, 4);
+    expect([...first.items, ...second.items].map(item => item.key)).toContain('new-bot');
+  });
+
+  it.each(['ambiguous', 'click-timeout', 'no-confirmation'])('does not type a duplicate or guess when choice delivery is %s', async (mode) => {
+    const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skillcue-hh-choice-failure-'));
+    vi.useFakeTimers();
+    try {
+      const chat = new HhChatBrowser(userDataDir, async () => null, async () => '');
+      const internals = chat as unknown as {
+        readReplyChoices: () => Promise<unknown[]>;
+        scrapeMessages: () => Promise<unknown[]>;
+        sendChatMessage: () => Promise<void>;
+        sendChatAnswer: (frame: unknown, text: string) => Promise<string>;
+      };
+      let clicks = 0;
+      const button = { click: async () => { clicks += 1; if (mode === 'click-timeout') throw new Error('click timed out'); } };
+      vi.spyOn(internals, 'readReplyChoices').mockResolvedValue(mode === 'ambiguous'
+        ? [{ label: 'Да, на Python', button }, { label: 'Да, на Java', button }]
+        : [{ label: 'да, есть', button }]);
+      vi.spyOn(internals, 'scrapeMessages').mockResolvedValue([]);
+      const typed = vi.spyOn(internals, 'sendChatMessage');
+      const result = internals.sendChatAnswer({}, 'Да').catch(error => error);
+      await vi.advanceTimersByTimeAsync(13_000);
+      expect(await result).toBeInstanceOf(Error);
+      expect(clicks).toBe(mode === 'ambiguous' ? 0 : 1);
+      expect(typed).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
       fs.rmSync(userDataDir, { recursive: true, force: true });
     }
   });

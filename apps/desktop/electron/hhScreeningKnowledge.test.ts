@@ -16,6 +16,12 @@ import {
 } from './hhScreeningKnowledge';
 
 describe('HH candidate screening knowledge', () => {
+  it('understands the IBS robot six-month Python automation threshold', () => {
+    const question = 'Здравствуйте! Есть ли у вас коммерческий опыт автоматизации на Python от 6 месяцев';
+    expect(answerExperienceThresholdFromResume(question, 'QA Automation Engineer Python\nОпыт работы: 3 года\nPytest, Playwright')).toBe('Да');
+    expect(answerExperienceThresholdFromResume(question, 'Дизайнер\nОпыт работы: 3 года')).toBeNull();
+    expect(answerExperienceThresholdFromResume(question, 'QA Automation Python\nОпыт работы: 3 месяца')).toBeNull();
+  });
   it('answers only a total-career threshold from the total shown in the selected resume', () => {
     const resume = 'Опыт работы: 4 года 2 месяца\nВедущий инженер по автоматизации тестирования';
     expect(findResumeExperienceMonths(resume)).toBe(50);

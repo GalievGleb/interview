@@ -18,6 +18,16 @@ import {
   isSalaryExpectationQuestion,
 } from './hhScreeningKnowledge';
 
+/** Prioritize recovery initially, then rotate the whole list so waiting facts cannot starve new chats. */
+export function selectChatPollBatch<T extends { key: string }>(items: T[], priority: Set<string>, cursor: number, limit: number) {
+  const ranked = [...items.filter(item => priority.has(item.key)), ...items.filter(item => !priority.has(item.key))];
+  const offset = ranked.length ? cursor % ranked.length : 0;
+  return {
+    items: [...ranked.slice(offset), ...ranked.slice(0, offset)].slice(0, limit),
+    nextCursor: ranked.length ? (offset + Math.min(limit, ranked.length)) % ranked.length : 0,
+  };
+}
+
 export interface HhChatConfig {
   enabled: boolean;
   pollIntervalSec: number;
@@ -725,7 +735,7 @@ export function detectChatDecisionKind(text: string): HhChatDecisionKind | null 
   const value = compactText(text).toLocaleLowerCase('ru');
   if (/(?:^|[^\p{L}])ип(?:$|[^\p{L}])|самозан|смз|гпх|оформлен|договор/iu.test(value)) return 'contract';
   if (/зарплат|заработн.*плат|оклад|доход|компенсац|финансов.*мотивац|ожидан.*₽|желаем.*уров.*(?:заработ|зарплат|оплат|доход)/i.test(value)) return 'salary';
-  if (/опыт.*(?:автотест|автоматизац|тестирован).*\d+\s*(?:год|года|лет)|(?:более|свыше|не\s+менее)\s*\d+\s*(?:год|года|лет).*опыт/i.test(value)) return 'experience';
+  if (/опыт.*(?:автотест|автоматизац|тестирован).*\d+\s*(?:год|года|лет|месяц)|(?:более|свыше|не\s+менее)\s*\d+\s*(?:год|года|лет|месяц).*опыт/i.test(value)) return 'experience';
   if (/релокац|переезд|переехать/i.test(value)) return 'relocation';
   if (/когда.*(?:выйти|приступить|начать)|дата выхода|срок выхода/i.test(value)) return 'start_date';
   if (/график|смен|рабоч.*час|выходн|ночн/i.test(value)) return 'schedule';
@@ -1063,7 +1073,7 @@ export class HhChatBrowser {
     rawAnswer: string,
     remember = true,
   ): Promise<HhChatState> {
-    const answer = compactText(rawAnswer).slice(0, 3_000);
+    let answer = compactText(rawAnswer).slice(0, 3_000);
     if (!answer) throw new Error('Напишите ответ для работодателя.');
     if (this.polling) throw new Error('Дождитесь завершения текущей проверки сообщений.');
     const pending = this.pendingDecisions.find((item) => item.id === decisionId);
@@ -1086,7 +1096,7 @@ export class HhChatBrowser {
     }
     try {
       const frame = await this.openNegotiation(page, negotiation);
-      await this.sendChatMessage(frame, answer);
+      answer = await this.sendChatAnswer(frame, answer);
     } catch (error) {
       if (error instanceof ChatNotWritableError) {
         this.pendingDecisions = this.pendingDecisions.filter(
@@ -1251,18 +1261,9 @@ export class HhChatBrowser {
         (pending) => !rejectedKeys.has(pending.negotiationKey),
       );
       this.activeNegotiations = negotiations.length;
-      const cursor = negotiations.length > 0 ? this.pollCursor % negotiations.length : 0;
-      const rotated = [
-        ...negotiations.slice(cursor),
-        ...negotiations.slice(0, cursor),
-      ];
-      const ordered = [
-        ...rotated.filter((item) => priorityKeys.has(item.key)),
-        ...rotated.filter((item) => !priorityKeys.has(item.key)),
-      ].slice(0, CHAT_BATCH_SIZE);
-      if (negotiations.length > 0) {
-        this.pollCursor = (cursor + Math.min(CHAT_BATCH_SIZE, negotiations.length)) % negotiations.length;
-      }
+      const batch = selectChatPollBatch(negotiations, priorityKeys, this.pollCursor, CHAT_BATCH_SIZE);
+      const ordered = batch.items;
+      this.pollCursor = batch.nextCursor;
       const conversations = new Map<string, HhChatConversation>(negotiations.map((item) => [item.key, {
         key: item.key,
         vacancyTitle: item.vacancyTitle,
@@ -1427,7 +1428,8 @@ export class HhChatBrowser {
           .isVisible()
           .catch(() => false);
         if (!accountSessionIsCurrent()) return;
-        const quickReplyVisible = chatInputVisible ? false : await this.hasVisibleYesNoReply(frame);
+        const replyChoices = await this.readReplyChoices(frame);
+        const quickReplyVisible = replyChoices.length > 0;
         if (!accountSessionIsCurrent()) return;
         if (!chatInputVisible && !quickReplyVisible) continue;
         // A numbered questionnaire may contain words such as "интервью",
@@ -1514,11 +1516,11 @@ export class HhChatBrowser {
             ? this.confirmedFacts.find((item) => item.kind === decisionKind
               && chatFactQuestionKey(item.question) === recruiterQuestionKey)
             : undefined;
-          const automaticAnswer = resumeAnswer || confirmed?.answer || '';
+          let automaticAnswer = resumeAnswer || confirmed?.answer || '';
           if (automaticAnswer) {
             await this.delay(this.config.replyDelaySec * 1000);
             if (!accountSessionIsCurrent()) return;
-            await this.sendChatAnswer(frame, automaticAnswer);
+            automaticAnswer = await this.sendChatAnswer(frame, automaticAnswer);
             if (!accountSessionIsCurrent()) return;
             this.seenMessageIds.add(messageId);
             this.pendingDecisions = this.pendingDecisions.filter((item) => item.messageId !== messageId);
@@ -1613,7 +1615,10 @@ export class HhChatBrowser {
             'Можно дать по 1–4 коротких предложения на пункт. Не добавляй вступление, подпись и заключение.',
           ].join('\n')
           : '';
-        const prompt = (this.config.replyPrompt + confirmedFacts + unknownFactRule + questionnaireRule)
+        const choiceRule = replyChoices.length > 0
+          ? `\n\nВ чате доступны кнопки ответа: ${JSON.stringify(replyChoices.map((choice) => choice.label))}. Если подтверждённые факты позволяют ответить, верни только точный текст ОДНОЙ подходящей кнопки. Не придумывай факты. Если подходящий вариант определить нельзя, используй NEEDS_USER_INPUT.`
+          : '';
+        const prompt = (this.config.replyPrompt + confirmedFacts + unknownFactRule + questionnaireRule + choiceRule)
           .replaceAll('{vacancy}', negotiation.vacancyTitle)
           .replaceAll('{company}', negotiation.companyName)
           .replaceAll('{candidateProfile}', candidateProfile || '(подтверждённый профиль пока недоступен)')
@@ -1734,7 +1739,7 @@ export class HhChatBrowser {
 
         await this.delay(this.config.replyDelaySec * 1000);
         if (!accountSessionIsCurrent()) return;
-        await this.sendChatMessage(frame, reply);
+        reply = await this.sendChatAnswer(frame, reply);
         if (!accountSessionIsCurrent()) return;
 
         this.seenMessageIds.add(messageId);
@@ -2206,52 +2211,59 @@ export class HhChatBrowser {
     throw new Error('HH не подтвердил отправку ответа работодателю.');
   }
 
-  private async hasVisibleYesNoReply(frame: Frame): Promise<boolean> {
+  private async readReplyChoices(frame: Frame) {
+    const choices: Array<{ label: string; button: ReturnType<Frame['locator']> }> = [];
     try {
-      const buttons = frame.locator('button');
-      const count = Math.min(await buttons.count(), 30);
+      const chatText = await frame.locator('body').innerText({ timeout: 1_000 });
+      if (!isBotRecruiterLabel(chatText)) return choices;
+      // Verified on the current HH robot: avoid ordinary chat toolbar buttons.
+      const buttons = frame.locator('[class*="buttons-wrapper--"] button');
+      const count = Math.min(await buttons.count(), 100);
       for (let index = 0; index < count; index += 1) {
         const button = buttons.nth(index);
         if (!(await button.isVisible().catch(() => false))) continue;
         const label = compactText(await button.innerText({ timeout: 500 }).catch(() => ''));
-        if (/^(?:да|нет)$/i.test(label)) return true;
+        if (!label || label.length > 300) continue;
+        // The chat frame also contains navigation, attachment and menu controls.
+        const qa = await button.getAttribute('data-qa').catch(() => '') ?? '';
+        if (qa && !/reply|answer|option|suggest|bot/i.test(qa)) continue;
+        if (/^(?:отправить|назад|закрыть|удалить|пожаловаться|перейти|прикрепить|записать)(?:\s|$)/i.test(label)) continue;
+        choices.push({ label, button });
       }
     } catch {
-      return false;
+      return choices;
     }
-    return false;
+    return choices;
   }
 
-  private async sendChatAnswer(frame: Frame, text: string): Promise<void> {
-    const expected = compactText(text);
-    if (/^(?:да|нет)$/i.test(expected)) {
-      try {
-        const buttons = frame.locator('button');
-        const count = Math.min(await buttons.count(), 30);
-        for (let index = 0; index < count; index += 1) {
-          const button = buttons.nth(index);
-          if (!(await button.isVisible().catch(() => false))) continue;
-          const label = compactText(await button.innerText({ timeout: 500 }).catch(() => ''));
-          if (label.toLocaleLowerCase('ru') !== expected.toLocaleLowerCase('ru')) continue;
-          const beforeIds = new Set(
-            (await this.scrapeMessages(frame)).filter((item) => item.isMine).map((item) => item.id),
-          );
-          await button.click({ timeout: 3_000 });
-          const deadline = Date.now() + 12_000;
-          while (Date.now() < deadline) {
-            const outgoing = (await this.scrapeMessages(frame)).filter(
-              (item) => item.isMine && !beforeIds.has(item.id),
-            );
-            if (outgoing.some((item) => compactText(item.text).includes(expected))) return;
-            await this.delay(200);
-          }
-          throw new Error('HH не подтвердил выбор ответа работодателю.');
-        }
-      } catch (error) {
-        if (error instanceof Error && error.message.includes('не подтвердил выбор')) throw error;
+  private async sendChatAnswer(frame: Frame, text: string): Promise<string> {
+    const normalize = (value: string) => compactText(value).toLocaleLowerCase('ru').replace(/[.!]+$/, '');
+    const expected = normalize(text);
+    const choices = await this.readReplyChoices(frame);
+    const exact = choices.filter((choice) => normalize(choice.label) === expected);
+    const matches = exact.length ? exact : /^(да|нет)$/.test(expected)
+      ? choices.filter((choice) => new RegExp(`^${expected}(?:[,! .]|$)`, 'i').test(choice.label))
+      : [];
+    if (matches.length === 1) {
+      const { label, button } = matches[0];
+      const beforeIds = new Set(
+        (await this.scrapeMessages(frame)).filter((item) => item.isMine).map((item) => item.id),
+      );
+      // Never fall back to typing after a click: a timeout can mean HH accepted it.
+      await button.click({ timeout: 3_000 });
+      const deadline = Date.now() + 12_000;
+      while (Date.now() < deadline) {
+        const outgoing = (await this.scrapeMessages(frame)).filter(
+          (item) => item.isMine && !beforeIds.has(item.id),
+        );
+        if (outgoing.some((item) => normalize(item.text) === normalize(label))) return label;
+        await this.delay(200);
       }
+      throw new Error('HH не подтвердил выбор ответа работодателю.');
     }
+    if (choices.length) throw new Error('Не удалось однозначно выбрать вариант ответа в чате HH.');
     await this.sendChatMessage(frame, text);
+    return text;
   }
 
   private shouldIgnore(text: string): boolean {

@@ -46,7 +46,6 @@ describe('HH applications redesign', () => {
     expect(pageSource).toContain('Последний запуск завершён; результат и история доступны ниже.');
     expect(pageSource).toContain("? 'Нужно завершить настройку поиска'");
     expect(pageSource).toContain('? startRequirement');
-    expect(pageSource).toContain("activeRun ? 'Текущий поиск' : 'Последний поиск'");
     expect(pageSource).not.toContain("detail: featuredRun?.message");
   });
   it('uses the passwordless email and one-time-code flow end to end', () => {
@@ -240,7 +239,6 @@ describe('HH applications redesign', () => {
     expect(pageSource).toContain('Каждый день');
     expect(pageSource).toContain('Найти и добавить в очередь');
     expect(pageSource).toContain('Поиск вакансий');
-    expect(pageSource).toContain('Предыдущих запусков:');
     expect(pageSource).toContain('Автоматическая очередь');
     expect(pageSource).toContain('отправятся автоматически');
     expect(pageSource).toContain('повторим автоматически');
@@ -664,8 +662,6 @@ describe('HH applications redesign', () => {
     expect(pageSource).toContain('Разобрать');
     expect(pageSource).toContain('Отправить сразу');
     expect(pageSource).toContain("platformRuns.find((item) => item.status === 'running')");
-    expect(pageSource).toContain('{featuredRun.found} найдено');
-    expect(pageSource).toContain('aria-label="Собрать диагностику запуска"');
     expect(assistantSource).toContain('async applyVacancyUrl(rawUrl: string)');
     expect(mainSource).toContain("ipcMain.handle('hh-assistant:apply-vacancy-url'");
     expect(preloadSource).toContain("ipcRenderer.invoke('hh-assistant:apply-vacancy-url', url)");
@@ -696,7 +692,7 @@ describe('HH applications redesign', () => {
   it('keeps activity readable when a platform session is temporarily disconnected', () => {
     const connectionGateAt = pageSource.indexOf("{draft.platform !== 'avito' && (!connected ? (");
     const activityAt = pageSource.indexOf("{pageMode === 'activity' && draft.platform !== 'avito' && <>", connectionGateAt);
-    const runPanelAt = pageSource.indexOf('id="hh-run-panel"', activityAt);
+    const runPanelAt = pageSource.indexOf('<HhRunSummary', activityAt);
     const queuePanelAt = pageSource.indexOf('id="hh-conversations-panel"', activityAt);
     expect(connectionGateAt).toBeGreaterThan(-1);
     expect(activityAt).toBeGreaterThan(connectionGateAt);
@@ -726,7 +722,6 @@ describe('HH applications redesign', () => {
     expect(pageSource).toContain('presentation.showApplyButton');
     expect(pageSource).toContain('state?.verificationCooldownUntil');
     expect(pageSource).toContain('Автоотклики продолжатся сами');
-    expect(pageSource).toContain('state.lastScanSummary.newVacancies} новых');
     expect(pageSource).toContain('Проверить сообщения');
     expect(pageSource).toContain("pendingHrDecisions > 0");
     expect(pageSource.indexOf('pendingHrDecisions > 0')).toBeLessThan(pageSource.indexOf('pendingScreeningQuestions > 0', pageSource.indexOf('const overview')));

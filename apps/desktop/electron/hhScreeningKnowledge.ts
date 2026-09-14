@@ -633,11 +633,11 @@ export function answerExperienceThresholdFromResume(
   resumeText: string,
 ): 'Да' | 'Нет' | null {
   const asksTotalExperience = /(?:общ(?:ий|ая)\s+(?:опыт|стаж)|суммарн[а-яё]*\s+(?:опыт|стаж)|(?:опыт|стаж)\s+работы\s+всего|всего\s+(?:опыт|стаж))/i.test(question);
-  const asksAutomationExperience = /(?:авто\s*тест|автотест|автоматизац[а-яё]*\s+тест|test\s+automation)/i.test(question);
+  const asksAutomationExperience = /(?:авто\s*тест|автотест|автоматизац[а-яё]*\s+(?:тест|на\s+Python)|test\s+automation)/i.test(question);
   if (!asksTotalExperience && !asksAutomationExperience) return null;
-  const threshold = question.match(/(\d+(?:[.,]\d+)?)\s*(?:год(?:а|ов)?|лет)(?=\s|[?!.,)}\]]|$)/i);
+  const threshold = question.match(/(\d+(?:[.,]\d+)?)\s*(год(?:а|ов)?|лет|месяц(?:а|ев)?)(?=\s|[?!.,)}\]]|$)/i);
   if (!threshold) return null;
-  const thresholdMonths = Math.round(Number(threshold[1].replace(',', '.')) * 12);
+  const thresholdMonths = Math.round(Number(threshold[1].replace(',', '.')) * (/^месяц/i.test(threshold[2]) ? 1 : 12));
   if (!Number.isFinite(thresholdMonths) || thresholdMonths <= 0) return null;
   const experienceMonths = findResumeExperienceMonths(resumeText);
   if (asksAutomationExperience) {

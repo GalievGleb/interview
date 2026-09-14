@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AlertTriangle, ArrowRight, Ban, CalendarDays, Check, ChevronDown, Clock3, ExternalLink, FileText, Link2, Loader2, LogOut, Mail, MessageCircle, RefreshCw, Search, Send, Settings2, Square, Trash2 } from 'lucide-react';
 import AvailabilityEditor, { formatAvailabilitySummary } from '../components/interview/AvailabilityEditor';
 import Modal from '../components/Modal';
+import HhRunSummary from '../components/HhRunSummary';
 import { hhAutomationAllowed, shouldDisableHhDailySchedule } from '../lib/billing';
 import { useApp } from '../context/AppContext';
 import { countUnansweredHhScreeningQuestions, readHhScreeningDrafts, summarizePendingHhScreening } from '../lib/hhScreening';
@@ -91,21 +92,6 @@ export function hhQueueItemPresentation(item: HhQueueItem, autoSend: boolean) {
   if (item.status === 'opened') return { statusLabel: 'Открыто', tone: 'bg-surface-elevated text-ink-muted', showApplyButton: actionable };
   return { statusLabel: 'В очереди', tone: 'bg-surface-elevated text-ink-muted', showApplyButton: actionable };
 }
-
-const runTriggerLabel = (trigger: 'manual' | 'schedule' | 'resume' | 'direct_link') => {
-  if (trigger === 'schedule') return 'По расписанию';
-  if (trigger === 'resume') return 'Продолжение очереди';
-  if (trigger === 'direct_link') return 'По ссылке';
-  return 'Вручную';
-};
-
-const runStatusMeta = (status: 'running' | 'completed' | 'attention' | 'failed' | 'stopped') => {
-  if (status === 'running') return { label: 'Выполняется', tone: 'bg-sky-500/10 text-sky-200' };
-  if (status === 'completed') return { label: 'Завершён', tone: 'bg-emerald-500/10 text-emerald-300' };
-  if (status === 'attention') return { label: 'Нужно внимание', tone: 'bg-amber-500/10 text-amber-200' };
-  if (status === 'stopped') return { label: 'Остановлен', tone: 'bg-surface-elevated text-ink-muted' };
-  return { label: 'Ошибка', tone: 'bg-red-500/10 text-red-300' };
-};
 
 const chatReplySourceLabel = (source: HhChatState['replyHistory'][number]['source']) => {
   if (source === 'saved_fact') return 'По сохранённому ответу';
@@ -416,10 +402,6 @@ export default function HhApplicationsPage() {
   );
   const stoppingRun = Boolean(activeRun && (state?.stopRequested || busy === 'stop'));
   const featuredRun = activeRun ?? platformRuns[0] ?? null;
-  const previousRuns = useMemo(
-    () => platformRuns.filter((item) => item.id !== featuredRun?.id).slice(0, 5),
-    [featuredRun?.id, platformRuns],
-  );
   const applyPercent = state?.applyProgress && state.applyProgress.total > 0
     ? Math.round((state.applyProgress.done / state.applyProgress.total) * 100)
     : null;
@@ -627,18 +609,6 @@ export default function HhApplicationsPage() {
       await run(`apply:${item.key}`, () => assistant.applyOne(item.key));
     } catch (error) {
       setAutomationError(errorMessage(error, 'Не удалось отправить выбранный отклик.'));
-    }
-  };
-
-  const collectAutomationDiagnostics = async () => {
-    if (!window.electronAPI?.collectDiagnostics) return;
-    setBusy('diagnostics');
-    try {
-      await window.electronAPI.collectDiagnostics([]);
-    } catch (error) {
-      setAutomationError(errorMessage(error, 'Не удалось собрать диагностику.'));
-    } finally {
-      setBusy('');
     }
   };
 
@@ -939,9 +909,9 @@ export default function HhApplicationsPage() {
             };
   const overview = pendingHrDecisions > 0
     ? {
-        title: `HR ждёт ${pendingHrDecisions === 1 ? 'вашего решения' : `${pendingHrDecisions} ваших решений`}`,
-        detail: 'SkillCue остановил только сообщения, где нельзя честно выбрать условия за вас.',
-        label: 'Разобрать сообщение',
+        title: `Ответьте на ${pendingHrDecisions} ${pluralRu(pendingHrDecisions, 'вопрос', 'вопроса', 'вопросов')} работодателей`,
+        detail: 'Нужны ваши условия или сведения, которых нет в резюме. Остальные автоответы продолжаются.',
+        label: 'Открыть вопросы',
         action: focusHrDecisions,
         tone: 'attention',
       }
@@ -1458,34 +1428,13 @@ export default function HhApplicationsPage() {
       </>}
 
       {pageMode === 'activity' && draft.platform !== 'avito' && <>
-      {state && featuredRun && <details id="hh-run-panel" className="group panel-card shrink-0 scroll-mt-5 overflow-hidden">
-        <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-3.5 hover:bg-surface-hover/35">
-          <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${activeRun ? 'bg-sky-300' : featuredRun.status === 'failed' ? 'bg-red-400' : featuredRun.status === 'attention' ? 'bg-amber-300' : 'bg-emerald-400'}`} />
-          <span className="min-w-0 flex-1">
-            <strong className="block text-sm text-ink">{activeRun ? 'Текущий поиск' : 'Последний поиск'}</strong>
-            <small className="mt-0.5 block text-xs text-ink-muted">
-              {state.lastScanSummary && state.lastScanSummary.platform === draft.platform
-                ? `${state.lastScanSummary.newVacancies} новых · ${state.lastScanSummary.alreadyProcessed} уже известных`
-                : `${featuredRun.found} найдено`} · {featuredRun.sent} отправлено{featuredRun.needsAttention > 0 ? ` · ${featuredRun.needsAttention} требуют внимания` : ''}
-            </small>
-          </span>
-          <span className={`rounded-full px-2.5 py-1 text-xs ${runStatusMeta(featuredRun.status).tone}`}>{runStatusMeta(featuredRun.status).label}</span>
-          <ChevronDown className="shrink-0 text-ink-faint transition-transform group-open:rotate-180" size={14} />
-        </summary>
-        <div className="border-t border-surface-border px-4 py-3">
-          <p className="text-xs leading-relaxed text-ink-muted">{featuredRun.message || 'Подробности запуска сохранены.'}</p>
-          {state.lastScanSummary && state.lastScanSummary.platform === draft.platform && (
-            <p className="mt-2 text-xs text-ink-faint">
-              {state.lastScanSummary.queries.length} направлений · {state.lastScanSummary.newVacancies} новых · {state.lastScanSummary.alreadyProcessed} уже обработано
-            </p>
-          )}
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-            <span className="text-xs text-ink-faint">{runTriggerLabel(featuredRun.trigger)} · {new Date(featuredRun.startedAt).toLocaleString('ru-RU')}</span>
-            <button type="button" className="btn-ghost btn-sm" aria-label="Собрать диагностику запуска" disabled={busy !== ''} onClick={() => void collectAutomationDiagnostics()}>{busy === 'diagnostics' ? <Loader2 className="animate-spin" size={14} /> : <FileText size={14} />}Диагностика</button>
-          </div>
-          {previousRuns.length > 0 && <p className="mt-2 text-xs text-ink-faint">Предыдущих запусков: {previousRuns.length}</p>}
-        </div>
-      </details>}
+      {state && featuredRun && <HhRunSummary
+        sent={featuredRun.sent}
+        status={featuredRun.status}
+        autoReplies={Boolean(chatState?.enabled)}
+        repliesToday={chatState?.repliesToday ?? 0}
+        onRetry={() => void launchAutomation()}
+      />}
 
       <section id="hh-conversations-panel" className="panel-card shrink-0 scroll-mt-5 overflow-hidden">
         <div className="panel-header flex-wrap gap-3"><div><h2 className="panel-title">{queuePanelMeta.title}</h2><p className="mt-0.5 text-xs text-ink-faint">{queuePanelMeta.detail}</p></div>{queueView === 'active' && draft.platform === 'hh' && platformMatches && state?.queuePaused ? <span className="ml-auto flex items-center gap-1.5 text-xs text-ink-muted"><Square size={11} /> Очередь приостановлена</span> : queueView === 'active' && draft.platform === 'hh' && platformMatches && verificationCooldownLabel ? <span className="ml-auto flex items-center gap-1.5 text-xs text-amber-200"><Clock3 size={12} /> {verificationCooldownLabel}</span> : queueView === 'active' && draft.platform === 'hh' && platformMatches && queueGateLabel ? <span className={`ml-auto flex items-center gap-1.5 text-xs ${queueGates.eligible > 0 && state?.config.autoRunDaily ? 'text-emerald-300' : 'text-ink-muted'}`}><span className={`sc-dot ${queueGates.eligible > 0 && state?.config.autoRunDaily ? 'sc-dot--live' : ''}`} /> {queueGateLabel}</span> : null}</div>
