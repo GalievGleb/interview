@@ -1298,6 +1298,8 @@ export class HhChatBrowser {
       let chatFailures = 0;
 
       for (const negotiation of ordered) {
+        let activeMessageId = '';
+        let activeRecruiterMessage = '';
         if (!accountSessionIsCurrent()) return;
         try {
           const frame = await this.openNegotiation(page, negotiation);
@@ -1353,6 +1355,8 @@ export class HhChatBrowser {
         const messageId = questionnaire
           ? `${negotiation.key}:${lastMessage.id}:questionnaire-v${QUESTIONNAIRE_ROUTE_VERSION}`
           : `${negotiation.key}:${lastMessage.id}`;
+        activeMessageId = messageId;
+        activeRecruiterMessage = lastMessage.text;
         if (reminderQuestion && reminderPending && reminderPending.messageId !== messageId) {
           this.pendingDecisions = this.pendingDecisions
             .filter((item) => (
@@ -1785,16 +1789,16 @@ export class HhChatBrowser {
             continue;
           }
           if (error instanceof HhChatChoiceResolutionError) {
-            if (!this.pendingDecisions.some((item) => item.messageId === messageId)) {
+            if (activeMessageId && !this.pendingDecisions.some((item) => item.messageId === activeMessageId)) {
               this.pendingDecisions.push({
                 id: `chat-decision-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
                 negotiationKey: negotiation.key,
-                messageId,
+                messageId: activeMessageId,
                 vacancyTitle: negotiation.vacancyTitle,
                 companyName: negotiation.companyName,
                 vacancyUrl: negotiation.vacancyUrl,
-                recruiterMessage: lastMessage.text,
-                question: `В чате есть варианты ответа. Выберите подходящий вариант для сообщения: «${compactText(lastMessage.text).slice(0, 300)}»`,
+                recruiterMessage: activeRecruiterMessage,
+                question: `В чате есть варианты ответа. Выберите подходящий вариант для сообщения: «${compactText(activeRecruiterMessage).slice(0, 300)}»`,
                 kind: 'candidate_fact',
                 createdAt: new Date().toISOString(),
               });
