@@ -737,6 +737,13 @@ class ChatNotWritableError extends Error {
   }
 }
 
+class HhChatChoiceResolutionError extends Error {
+  constructor(message = 'Не удалось однозначно выбрать вариант ответа в чате HH.') {
+    super(message);
+    this.name = 'HhChatChoiceResolutionError';
+  }
+}
+
 export function detectChatDecisionKind(text: string): HhChatDecisionKind | null {
   const value = compactText(text).toLocaleLowerCase('ru');
   if (/(?:^|[^\p{L}])ип(?:$|[^\p{L}])|самозан|смз|гпх|оформлен|договор/iu.test(value)) return 'contract';
@@ -1777,6 +1784,29 @@ export class HhChatBrowser {
             );
             continue;
           }
+          if (error instanceof HhChatChoiceResolutionError) {
+            if (!this.pendingDecisions.some((item) => item.messageId === messageId)) {
+              this.pendingDecisions.push({
+                id: `chat-decision-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                negotiationKey: negotiation.key,
+                messageId,
+                vacancyTitle: negotiation.vacancyTitle,
+                companyName: negotiation.companyName,
+                vacancyUrl: negotiation.vacancyUrl,
+                recruiterMessage: lastMessage.text,
+                question: `В чате есть варианты ответа. Выберите подходящий вариант для сообщения: «${compactText(lastMessage.text).slice(0, 300)}»`,
+                kind: 'candidate_fact',
+                createdAt: new Date().toISOString(),
+              });
+              this.pendingDecisions = this.pendingDecisions.slice(-100);
+              shouldPersist = true;
+            }
+            conversations.set(negotiation.key, {
+              ...conversations.get(negotiation.key)!,
+              needsUserInput: true,
+            });
+            continue;
+          }
           chatFailures += 1;
           console.warn(
             `[hh-chat-browser] skipped chat after an error: ${negotiation.vacancyTitle}`,
@@ -2271,7 +2301,7 @@ export class HhChatBrowser {
       }
       throw new Error('HH не подтвердил выбор ответа работодателю.');
     }
-    if (choices.length) throw new Error('Не удалось однозначно выбрать вариант ответа в чате HH.');
+    if (choices.length) throw new HhChatChoiceResolutionError();
     await this.sendChatMessage(frame, text);
     return text;
   }
