@@ -1,0 +1,138 @@
+name: SkillCue Alpha macOS build
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing public GitHub release to update
+        required: true
+        default: v0.1.15
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    name: Build Alpha for macOS (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+            binary_arch: arm64
+          - runner: macos-15-intel
+            arch: x64
+            binary_arch: x86_64
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify destination release and Alpha OAuth config
+        env:
+          GH_TOKEN: ${{ secrets.SCILLCUE_RELEASE_TOKEN }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          [[ "$RELEASE_TAG" =~ ^v0\.1\.[0-9]+$ ]] || { echo "Invalid stable release tag"; exit 1; }
+          test -n "$GH_TOKEN" || { echo "SCILLCUE_RELEASE_TOKEN is not configured"; exit 1; }
+          release_json=$(gh api "repos/GalievGleb/SkillCue/releases/tags/$RELEASE_TAG")
+          echo "$release_json" | jq -e '.draft == false' >/dev/null
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Build native macOS backend
+        working-directory: apps/api-py
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+          pyinstaller skillcue-backend.spec
+          test -x dist/skillcue-backend/skillcue-backend
+          file dist/skillcue-backend/skillcue-backend | grep -q '${{ matrix.binary_arch }}'
+
+      - name: Smoke-test frozen macOS backend
+        working-directory: apps/api-py
+        env:
+          SKILLCUE_PORT: '8123'
+          SKILLCUE_API_TOKEN: ci-smoke-token
+        run: |
+          ./dist/skillcue-backend/skillcue-backend > backend-smoke.log 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 60); do
+            if curl -fsS 'http://127.0.0.1:8123/health' >/dev/null; then break; fi
+            sleep 1
+          done
+          curl -fsS 'http://127.0.0.1:8123/health' >/dev/null || { cat backend-smoke.log; exit 1; }
+          test "$(curl -s -o /dev/null -w '%{http_code}' 'http://127.0.0.1:8123/stt/providers')" = '401'
+          curl -fsS -H 'X-SkillCue-Token: ci-smoke-token' 'http://127.0.0.1:8123/stt/providers' >/dev/null
+          curl -fsS -H 'X-SkillCue-Token: ci-smoke-token' 'http://127.0.0.1:8123/license/status' >/dev/null
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.21.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build shared package
+        run: pnpm --filter @interview/shared build
+      - name: Verify desktop
+        run: |
+          pnpm --filter @interview/desktop typecheck
+          pnpm --filter @interview/desktop test
+      - name: Build Alpha macOS DMG
+        working-directory: apps/desktop
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          SKILLCUE_GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.SKILLCUE_GOOGLE_OAUTH_CLIENT_ID }}
+          SKILLCUE_GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.SKILLCUE_GOOGLE_OAUTH_CLIENT_SECRET }}
+        run: |
+          test -n "$SKILLCUE_GOOGLE_OAUTH_CLIENT_ID"
+          test -n "$SKILLCUE_GOOGLE_OAUTH_CLIENT_SECRET"
+          pnpm build:alpha
+          pnpm exec electron-builder --config electron-builder.alpha.cjs --mac dmg --${{ matrix.arch }} --publish never
+          test -f 'release-alpha/SkillCue-macOS-${{ matrix.arch }}.dmg'
+
+      - name: Smoke-test packaged Alpha app and bundled backend
+        working-directory: apps/desktop
+        run: |
+          app_bin=$(find release-alpha -path '*/SkillCue Alpha.app/Contents/MacOS/SkillCue' -type f -print -quit)
+          backend_bin=$(find release-alpha -path '*/SkillCue Alpha.app/Contents/Resources/backend/skillcue-backend' -type f -print -quit)
+          test -n "$app_bin"
+          test -x "$backend_bin"
+          info_plist=$(dirname "$(dirname "$app_bin")")/Info.plist
+          test "$(plutil -extract NSMicrophoneUsageDescription raw "$info_plist")" != ''
+          test "$(plutil -extract NSAudioCaptureUsageDescription raw "$info_plist")" != ''
+          file "$app_bin" | grep -q '${{ matrix.binary_arch }}'
+          file "$backend_bin" | grep -q '${{ matrix.binary_arch }}'
+          SKILLCUE_BUILD_CHANNEL=alpha "$app_bin" --disable-gpu > packaged-smoke.log 2>&1 &
+          app_pid=$!
+          trap 'kill "$app_pid" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 60); do
+            if curl -fsS 'http://127.0.0.1:8002/health' >/dev/null; then exit 0; fi
+            if ! kill -0 "$app_pid" 2>/dev/null; then break; fi
+            sleep 1
+          done
+          cat packaged-smoke.log
+          exit 1
+
+      - name: Publish macOS Alpha DMG and checksum
+        working-directory: apps/desktop
+        env:
+          GH_TOKEN: ${{ secrets.SCILLCUE_RELEASE_TOKEN }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          dmg='release-alpha/SkillCue-macOS-${{ matrix.arch }}.dmg'
+          shasum -a 256 "$dmg" > "$dmg.sha256"
+          gh release upload "$RELEASE_TAG" "$dmg" "$dmg.sha256" \
+            --repo GalievGleb/SkillCue \
+            --clobber
