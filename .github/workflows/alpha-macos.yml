@@ -105,11 +105,14 @@ jobs:
       - name: Smoke-test packaged Alpha app and bundled backend
         working-directory: apps/desktop
         run: |
-          app_bin=$(find release-alpha -path '*/SkillCue Alpha.app/Contents/MacOS/SkillCue' -type f -print -quit)
-          backend_bin=$(find release-alpha -path '*/SkillCue Alpha.app/Contents/Resources/backend/skillcue-backend' -type f -print -quit)
-          test -n "$app_bin"
+          app_bundle=$(find release-alpha -path '*/SkillCue Alpha.app' -type d -print -quit)
+          test -n "$app_bundle"
+          info_plist="$app_bundle/Contents/Info.plist"
+          executable_name=$(plutil -extract CFBundleExecutable raw "$info_plist")
+          app_bin="$app_bundle/Contents/MacOS/$executable_name"
+          backend_bin="$app_bundle/Contents/Resources/backend/skillcue-backend"
+          test -x "$app_bin"
           test -x "$backend_bin"
-          info_plist=$(dirname "$(dirname "$app_bin")")/Info.plist
           test "$(plutil -extract NSMicrophoneUsageDescription raw "$info_plist")" != ''
           test "$(plutil -extract NSAudioCaptureUsageDescription raw "$info_plist")" != ''
           file "$app_bin" | grep -q '${{ matrix.binary_arch }}'
