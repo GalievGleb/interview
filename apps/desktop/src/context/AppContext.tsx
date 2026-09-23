@@ -4,6 +4,7 @@ import { refreshSessionKnowledge } from '../lib/sessionKnowledge';
 import { syncMockSessionsFromBackend } from '../lib/vacancyReview/vacancyReviewStore';
 import type { BackendStatus } from '../types/electron';
 import { liveStartupWarmup } from '../lib/liveStartupWarmup';
+import { runStartupRefreshes } from '../lib/startupRefresh';
 
 export type LicenseInfo = import('../lib/api').LicenseStatusDto;
 
@@ -53,25 +54,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       // Backend is up — reconcile mock-interview sessions into durable SQLite.
       void syncMockSessionsFromBackend();
-      const k = await api.getKeys();
-      setKeys(k);
+      const [keysResult, sttResult] = await Promise.allSettled([
+        api.getKeys(),
+        api.sttProviders(),
+      ]);
+      setKeys(keysResult.status === 'fulfilled' ? keysResult.value : null);
+      if (sttResult.status === 'fulfilled') {
+        const active = sttResult.value.providers.find((p) => p.id === sttResult.value.default);
+        setSttReady(Boolean(active?.available));
+      } else {
+        setSttReady(false);
+      }
     } catch {
       setBackendOnline(false);
       setKeys(null);
-    }
-    try {
-      const diag = await api.sttProviders();
-      const active = diag.providers.find((p) => p.id === diag.default);
-      setSttReady(Boolean(active?.available));
-    } catch {
       setSttReady(false);
     }
   }, []);
 
   useEffect(() => {
     void (async () => {
-      await refreshKeys();
-      await refreshLicense();
+      await runStartupRefreshes(refreshKeys, refreshLicense);
       setLoading(false);
     })();
     const interval = setInterval(() => void refreshKeys(), 10000);

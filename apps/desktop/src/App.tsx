@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect } from 'react';
 import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
-import { AppProvider, useApp } from './context/AppContext';
-import Layout from './components/Layout';
+import { AppProvider } from './context/AppContext';
+import StartupGate from './components/StartupGate';
 import { markMilestone } from './lib/activation';
 import { api } from './lib/api';
 import {
@@ -36,18 +36,6 @@ function PageFallback() {
       Загрузка…
     </div>
   );
-}
-
-function Gate({ children }: { children: React.ReactNode }) {
-  const { loading } = useApp();
-  if (loading) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-surface text-ink-muted">
-        Загрузка...
-      </div>
-    );
-  }
-  return <Layout>{children}</Layout>;
 }
 
 function LegacyProgressRedirect() {
@@ -96,8 +84,8 @@ function NavigationBridge() {
     return () => window.removeEventListener('skillcue:live-start', onLive);
   }, []);
 
-  // Warm the lazy route chunks once the app is idle so navigation feels instant
-  // (keeps the small initial bundle, but no load flash on first visit to a route).
+  // Warm route chunks immediately after the first paint. requestIdleCallback can
+  // be delayed for seconds on a busy M1 while the local backend starts.
   useEffect(() => {
     const prefetch = () => {
       void import('./pages/HomePage');
@@ -118,12 +106,14 @@ function NavigationBridge() {
         void import('./pages/LicensesPage');
       }
     };
-    if (window.requestIdleCallback) {
-      const id = window.requestIdleCallback(prefetch);
-      return () => window.cancelIdleCallback?.(id);
-    }
-    const t = window.setTimeout(prefetch, 1500);
-    return () => window.clearTimeout(t);
+    let timer: number | undefined;
+    const frame = window.requestAnimationFrame(() => {
+      timer = window.setTimeout(prefetch, 0);
+    });
+    return () => {
+      window.cancelAnimationFrame(frame);
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
   }, []);
 
   useEffect(() => {
@@ -175,25 +165,25 @@ export default function App() {
       <Suspense fallback={<PageFallback />}>
         <Routes>
           <Route path="/overlay" element={<OverlayPage />} />
-          <Route path="/home" element={<Gate><HomePage /></Gate>} />
-          <Route path="/prepare" element={<Gate><PreparePage /></Gate>} />
-          <Route path="/practice" element={<Gate><PracticePage /></Gate>} />
-          <Route path="/practice/new" element={<Gate><PreparePage /></Gate>} />
-          <Route path="/practice/session" element={<Gate><PreparePage /></Gate>} />
-          <Route path="/demo" element={<Gate><DemoPage /></Gate>} />
-          {DEV_SURFACE && MeetingPage && <Route path="/meeting" element={<Gate><MeetingPage /></Gate>} />}
-          <Route path="/documents" element={<Gate><DocumentsPage /></Gate>} />
-          <Route path="/history" element={<Gate><HistoryPage /></Gate>} />
-          <Route path="/history/:sessionId" element={<Gate><SessionAnalysisPage /></Gate>} />
+          <Route path="/home" element={<StartupGate><HomePage /></StartupGate>} />
+          <Route path="/prepare" element={<StartupGate><PreparePage /></StartupGate>} />
+          <Route path="/practice" element={<StartupGate><PracticePage /></StartupGate>} />
+          <Route path="/practice/new" element={<StartupGate><PreparePage /></StartupGate>} />
+          <Route path="/practice/session" element={<StartupGate><PreparePage /></StartupGate>} />
+          <Route path="/demo" element={<StartupGate><DemoPage /></StartupGate>} />
+          {DEV_SURFACE && MeetingPage && <Route path="/meeting" element={<StartupGate><MeetingPage /></StartupGate>} />}
+          <Route path="/documents" element={<StartupGate><DocumentsPage /></StartupGate>} />
+          <Route path="/history" element={<StartupGate><HistoryPage /></StartupGate>} />
+          <Route path="/history/:sessionId" element={<StartupGate><SessionAnalysisPage /></StartupGate>} />
           <Route path="/progress" element={<LegacyProgressRedirect />} />
-          <Route path="/applications" element={<Gate><HhApplicationsPage /></Gate>} />
-          <Route path="/applications/hr-profile" element={<Gate><HhHrProfilePage /></Gate>} />
-          <Route path="/calendar" element={<Gate><InterviewCalendarPage /></Gate>} />
-          <Route path="/settings" element={<Gate><SettingsPage /></Gate>} />
-          {DEV_SURFACE && LicensesPage && <Route path="/licenses" element={<Gate><LicensesPage /></Gate>} />}
-          {DEV_SURFACE && TestLabPage && <Route path="/test-lab" element={<Gate><TestLabPage /></Gate>} />}
-          {DEV_SURFACE && BenchmarkPage && <Route path="/benchmark" element={<Gate><BenchmarkPage /></Gate>} />}
-          {DEV_SURFACE && DiagnosticsPage && <Route path="/diagnostics" element={<Gate><DiagnosticsPage /></Gate>} />}
+          <Route path="/applications" element={<StartupGate><HhApplicationsPage /></StartupGate>} />
+          <Route path="/applications/hr-profile" element={<StartupGate><HhHrProfilePage /></StartupGate>} />
+          <Route path="/calendar" element={<StartupGate><InterviewCalendarPage /></StartupGate>} />
+          <Route path="/settings" element={<StartupGate><SettingsPage /></StartupGate>} />
+          {DEV_SURFACE && LicensesPage && <Route path="/licenses" element={<StartupGate><LicensesPage /></StartupGate>} />}
+          {DEV_SURFACE && TestLabPage && <Route path="/test-lab" element={<StartupGate><TestLabPage /></StartupGate>} />}
+          {DEV_SURFACE && BenchmarkPage && <Route path="/benchmark" element={<StartupGate><BenchmarkPage /></StartupGate>} />}
+          {DEV_SURFACE && DiagnosticsPage && <Route path="/diagnostics" element={<StartupGate><DiagnosticsPage /></StartupGate>} />}
           <Route path="/" element={<Navigate to="/home" replace />} />
           <Route path="*" element={<Navigate to="/home" replace />} />
         </Routes>

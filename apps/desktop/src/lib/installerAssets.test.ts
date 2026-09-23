@@ -82,7 +82,7 @@ describe('macOS installer contract', () => {
       icon: 'assets/branding/skillcue-app-icon-1024.png',
       category: 'public.app-category.productivity',
       artifactName: 'SkillCue-macOS-${arch}.${ext}',
-      minimumSystemVersion: '12.0',
+      minimumSystemVersion: '13.0',
       // Required before any future codesign/notarization of macOS builds.
       hardenedRuntime: true,
       extendInfo: {

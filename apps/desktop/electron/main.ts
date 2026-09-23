@@ -13,6 +13,7 @@ import {
   dialog,
   safeStorage,
   clipboard,
+  systemPreferences,
 } from 'electron';
 import path from 'path';
 import fs from 'fs';
@@ -85,6 +86,12 @@ import { AccountClient, resolveAccountApiUrl, type PublicAccountState } from './
 import { AccountSessionStore, createAccountSessionFiles } from './accountSessionStore';
 import { runGoogleDesktopOAuth } from './googleOAuth';
 import { BackupService, rendererBackupKeys } from './backupService';
+import { LazyWindow, showWindowAfterRendererReady } from './lazyWindow';
+import {
+  macPrivacyPaneUrl,
+  type InterviewMediaPermission,
+  type InterviewMediaPermissionStatus,
+} from './mediaPermissions';
 
 const isDev = !app.isPackaged;
 
@@ -182,7 +189,7 @@ if (process.platform === 'win32') {
 }
 
 let mainWindow: BrowserWindow | null = null;
-let overlayWindow: BrowserWindow | null = null;
+const overlayWindowSlot = new LazyWindow<BrowserWindow>(() => createOverlayWindow());
 const screenCaptureCoordinator = new ScreenCaptureCoordinator();
 let overlayContentProtectionEnabled = false;
 let tray: Tray | null = null;
@@ -232,7 +239,7 @@ const updateCoordinator = createAutoUpdateCoordinator({
 });
 
 function sendToWindows(channel: string, payload: unknown): void {
-  for (const win of [mainWindow, overlayWindow]) {
+  for (const win of [mainWindow, overlayWindowSlot.peek()]) {
     if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
   }
 }
@@ -655,10 +662,11 @@ function createMainWindow(): BrowserWindow {
 }
 
 function hideOverlay(): void {
-  hideOverlayOnly(overlayWindow);
+  hideOverlayOnly(overlayWindowSlot.peek());
 }
 
 function moveOverlay(dx: number, dy: number): void {
+  const overlayWindow = overlayWindowSlot.peek();
   if (!isLiveWindow(overlayWindow)) return;
   const [x, y] = overlayWindow.getPosition();
   overlayWindow.setPosition(Math.round(x + dx), Math.round(y + dy));
@@ -676,7 +684,7 @@ function requireOverlayAccount(): boolean {
   return runWithOverlayAccount(BUILD_CHANNEL, accountClient?.getState(), () => {}, () => {
     hideOverlay();
     if (!isLiveWindow(mainWindow)) return;
-    hideOverlayAndShowMain(overlayWindow, mainWindow);
+    hideOverlayAndShowMain(overlayWindowSlot.peek(), mainWindow);
     mainWindow.webContents.send('app:navigate', '/settings?tab=account');
   });
 }
@@ -738,16 +746,14 @@ function createOverlayWindow(): BrowserWindow {
     enforceOverlayWindowPrivacy(win, overlayContentProtectionEnabled);
   });
   void win.loadURL(overlayRoute);
-  win.hide();
   win.once('closed', () => {
-    if (overlayWindow === win) overlayWindow = null;
+    overlayWindowSlot.clear(win);
   });
   return win;
 }
 
 function getOrCreateOverlayWindow(): BrowserWindow {
-  if (!isLiveWindow(overlayWindow)) overlayWindow = createOverlayWindow();
-  return overlayWindow;
+  return overlayWindowSlot.getOrCreate();
 }
 
 function activeInterviewEvent() {
@@ -763,6 +769,7 @@ function attachNearestInterviewContext(): void {
 }
 
 function publishInterviewContext(): void {
+  const overlayWindow = overlayWindowSlot.peek();
   if (!isLiveWindow(overlayWindow)) return;
   overlayWindow.webContents.send('overlay:interview-context', activeInterviewEvent());
 }
@@ -805,6 +812,8 @@ function registerIpc(): void {
     'account:list-devices', 'account:revoke-device', 'account:create-checkout', 'account:logout',
     'account:refresh',
     'backup:keys', 'backup:export', 'backup:preview', 'backup:apply', 'backup:restart',
+    'media-permissions:get-status', 'media-permissions:request-microphone',
+    'media-permissions:open-settings',
   ]);
   const originalHandle = ipcMain.handle.bind(ipcMain);
   type IpcHandler = Parameters<typeof ipcMain.handle>[1];
@@ -835,6 +844,36 @@ function registerIpc(): void {
     clipboard.writeText(text);
   });
   handle('app:openExternal', (_e, url: string) => safeOpenExternal(url));
+  handle('media-permissions:get-status', () => {
+    const status = (kind: InterviewMediaPermission): InterviewMediaPermissionStatus => {
+      if (process.platform !== 'darwin') return 'unknown';
+      try {
+        return systemPreferences.getMediaAccessStatus(kind) as InterviewMediaPermissionStatus;
+      } catch {
+        return 'unknown';
+      }
+    };
+    return {
+      platform: process.platform,
+      microphone: status('microphone'),
+      screen: status('screen'),
+    };
+  });
+  handle('media-permissions:request-microphone', async () => {
+    if (process.platform !== 'darwin') return true;
+    try {
+      return await systemPreferences.askForMediaAccess('microphone');
+    } catch {
+      return false;
+    }
+  });
+  handle('media-permissions:open-settings', (_event, kind: unknown) => {
+    if (process.platform !== 'darwin' || (kind !== 'microphone' && kind !== 'screen')) {
+      return false;
+    }
+    void shell.openExternal(macPrivacyPaneUrl(kind));
+    return true;
+  });
   handle('app:quit', () => app.quit());
   handle('app:operationalTelemetry:getState', () => operationalTelemetry?.snapshot() ?? { enabled: false, events: [] });
   handle('app:operationalTelemetry:setEnabled', (_event, enabled: unknown) =>
@@ -1322,6 +1361,7 @@ function registerIpc(): void {
   });
 
   handle('overlay:get-window-state', () => {
+    const overlayWindow = overlayWindowSlot.peek();
     const win = isLiveWindow(overlayWindow) ? overlayWindow : null;
     return win ? { visible: win.isVisible(), bounds: win.getBounds() } : { visible: false, bounds: null };
   });
@@ -1331,15 +1371,20 @@ function registerIpc(): void {
     attachNearestInterviewContext();
     const win = getOrCreateOverlayWindow();
     prepareOverlayForOpen(win);
-    openOverlayOverWorkspace(mainWindow, () => showOverlayWindow(win));
+    void showWindowAfterRendererReady(win, () => {
+      openOverlayOverWorkspace(mainWindow, () => showOverlayWindow(win));
+      publishInterviewContext();
+    });
   });
   handle('overlay:showForInterviewEvent', (_event, eventId: string) => {
     if (!requireOverlayAccount()) return false;
     if (!setActiveInterviewEvent(eventId)) return false;
     const win = getOrCreateOverlayWindow();
     prepareOverlayForOpen(win);
-    openOverlayOverWorkspace(mainWindow, () => showOverlayWindow(win));
-    publishInterviewContext();
+    void showWindowAfterRendererReady(win, () => {
+      openOverlayOverWorkspace(mainWindow, () => showOverlayWindow(win));
+      publishInterviewContext();
+    });
     return true;
   });
   handle('overlay:getInterviewContext', () => activeInterviewEvent());
@@ -1353,6 +1398,7 @@ function registerIpc(): void {
     // Capture the interview task, not the floating assistant that may cover it.
     // The overlay is restored inactive so the editor/call keeps keyboard focus.
     try {
+      const overlayWindow = overlayWindowSlot.peek();
       const currentOverlay = isLiveWindow(overlayWindow) ? overlayWindow : null;
       return await screenCaptureCoordinator.run(() =>
         captureScreenWithoutOverlay(
@@ -1378,24 +1424,25 @@ function registerIpc(): void {
 
   handle('overlay:openApp', () => {
     // Явный переход из оверлея в основное окно скрывает плавающую панель.
-    hideOverlayAndShowMain(overlayWindow, mainWindow);
+    hideOverlayAndShowMain(overlayWindowSlot.peek(), mainWindow);
   });
 
   handle('overlay:openSettings', (_e, section?: string) => {
     if (!isLiveWindow(mainWindow)) return;
-    hideOverlayAndShowMain(overlayWindow, mainWindow);
+    hideOverlayAndShowMain(overlayWindowSlot.peek(), mainWindow);
     const safe = section && /^[a-z-]+$/.test(section) ? `?tab=${section}` : '';
     mainWindow.webContents.send('app:navigate', `/settings${safe}`);
   });
 
   handle('overlay:openSessionAnalysis', (_e, sessionId: string) => {
     if (!isLiveWindow(mainWindow) || !/^[a-zA-Z0-9-]{6,80}$/.test(sessionId)) return;
-    hideOverlayAndShowMain(overlayWindow, mainWindow);
+    hideOverlayAndShowMain(overlayWindowSlot.peek(), mainWindow);
     mainWindow.webContents.send('app:navigate', `/history/${encodeURIComponent(sessionId)}`);
   });
 
   handle('overlay:setContentProtection', (_e, enable: boolean) => {
     overlayContentProtectionEnabled = Boolean(enable);
+    const overlayWindow = overlayWindowSlot.peek();
     if (isLiveWindow(overlayWindow)) {
       enforceOverlayWindowPrivacy(overlayWindow, overlayContentProtectionEnabled);
     }
@@ -1413,6 +1460,7 @@ function registerIpc(): void {
     // «Не забирать фокус»: оверлей не становится активным окном, фокус
     // остаётся в приложении под ним. Внимание: при false ввод в поле
     // оверлея недоступен, поэтому включается осознанно из меню.
+    const overlayWindow = overlayWindowSlot.peek();
     if (isLiveWindow(overlayWindow)) overlayWindow.setFocusable(focusable);
   });
 
@@ -1420,12 +1468,14 @@ function registerIpc(): void {
     // Клики проходят «сквозь» оверлей в приложение под ним. forward:true шлёт
     // события движения курсора в рендерер, чтобы он мог временно вернуть
     // интерактивность при наведении на свои элементы (см. OverlayPage).
+    const overlayWindow = overlayWindowSlot.peek();
     if (isLiveWindow(overlayWindow)) {
       overlayWindow.setIgnoreMouseEvents(enable, { forward: true });
     }
   });
 
   handle('overlay:resize', (_e, dw: number, dh: number) => {
+    const overlayWindow = overlayWindowSlot.peek();
     if (!isLiveWindow(overlayWindow)) return;
     const [w, h] = overlayWindow.getSize();
     const nw = Math.max(420, Math.min(1400, Math.round(w + (dw || 0))));
@@ -1526,8 +1576,10 @@ function toggleOverlay(): void {
   // answer, transcript, scroll position and input exactly as the user left it.
   else {
     attachNearestInterviewContext();
-    showOverlayWindow(win);
-    publishInterviewContext();
+    void showWindowAfterRendererReady(win, () => {
+      showOverlayWindow(win);
+      publishInterviewContext();
+    });
   }
 }
 
@@ -1562,17 +1614,17 @@ function registerToggleShortcut(acc: string, retry = false): boolean {
 }
 
 function deliverForcedAnswerToOverlay(): void {
+  const overlayWindow = overlayWindowSlot.peek();
   const existingOverlay = isLiveWindow(overlayWindow) ? overlayWindow : null;
   if (BUILD_CHANNEL === 'alpha' && (!existingOverlay || !existingOverlay.isVisible())) return;
   if (!requireOverlayAccount()) return;
   const win = existingOverlay ?? getOrCreateOverlayWindow();
-  if (!win.isVisible()) showOverlayWindow(win, 'inactive');
   const send = () => {
     if (!isLiveWindow(win) || win.webContents.isDestroyed()) return;
+    if (!win.isVisible()) showOverlayWindow(win, 'inactive');
     win.webContents.send('overlay:force-answer');
   };
-  if (win.webContents.isLoadingMainFrame()) win.webContents.once('did-finish-load', send);
-  else send();
+  void showWindowAfterRendererReady(win, send);
 }
 
 function scheduleForceAnswerShortcutRetry(): void {
@@ -1600,17 +1652,17 @@ function registerForceAnswerShortcut(): void {
 }
 
 function deliverForcedScreenAnswerToOverlay(): void {
+  const overlayWindow = overlayWindowSlot.peek();
   const existingOverlay = isLiveWindow(overlayWindow) ? overlayWindow : null;
   if (BUILD_CHANNEL === 'alpha' && (!existingOverlay || !existingOverlay.isVisible())) return;
   if (!requireOverlayAccount()) return;
   const win = existingOverlay ?? getOrCreateOverlayWindow();
-  if (!win.isVisible()) showOverlayWindow(win, 'inactive');
   const send = () => {
     if (!isLiveWindow(win) || win.webContents.isDestroyed()) return;
+    if (!win.isVisible()) showOverlayWindow(win, 'inactive');
     win.webContents.send('overlay:force-screen-answer');
   };
-  if (win.webContents.isLoadingMainFrame()) win.webContents.once('did-finish-load', send);
-  else send();
+  void showWindowAfterRendererReady(win, send);
 }
 
 function scheduleForceScreenAnswerShortcutRetry(): void {
@@ -1640,17 +1692,17 @@ function registerForceScreenAnswerShortcut(): void {
 }
 
 function deliverCandidateFollowUpToOverlay(): void {
+  const overlayWindow = overlayWindowSlot.peek();
   const existingOverlay = isLiveWindow(overlayWindow) ? overlayWindow : null;
   if (isDeveloperBuild && (!existingOverlay || !existingOverlay.isVisible())) return;
   if (!requireOverlayAccount()) return;
   const win = existingOverlay ?? getOrCreateOverlayWindow();
-  if (!win.isVisible()) showOverlayWindow(win, 'inactive');
   const send = () => {
     if (!isLiveWindow(win) || win.webContents.isDestroyed()) return;
+    if (!win.isVisible()) showOverlayWindow(win, 'inactive');
     win.webContents.send('overlay:candidate-follow-up');
   };
-  if (win.webContents.isLoadingMainFrame()) win.webContents.once('did-finish-load', send);
-  else send();
+  void showWindowAfterRendererReady(win, send);
 }
 
 function scheduleCandidateFollowUpShortcutRetry(): void {
@@ -1709,7 +1761,10 @@ function createTray(): void {
           if (!requireOverlayAccount()) return;
           const win = getOrCreateOverlayWindow();
           prepareOverlayForOpen(win);
-          showOverlayWindow(win);
+          void showWindowAfterRendererReady(win, () => {
+            showOverlayWindow(win);
+            publishInterviewContext();
+          });
         },
       },
       { type: 'separator' },
@@ -2040,7 +2095,7 @@ if (!hasSingleInstanceLock) {
         notification.on('click', () => {
           if (!isLiveWindow(mainWindow)) mainWindow = createMainWindow();
           if (mainWindow.isMinimized()) mainWindow.restore();
-          hideOverlayAndShowMain(overlayWindow, mainWindow);
+          hideOverlayAndShowMain(overlayWindowSlot.peek(), mainWindow);
           if (!isLiveWindow(mainWindow)) return;
           const params = new URLSearchParams({ view: 'dialogs' });
           if (negotiationKey) params.set('conversation', negotiationKey);
@@ -2117,7 +2172,6 @@ if (!hasSingleInstanceLock) {
     }
     registerIpc();
     mainWindow = createMainWindow();
-    overlayWindow = createOverlayWindow();
     registerShortcuts();
     createTray();
     setupAutoUpdater();

@@ -34,6 +34,7 @@ const candidateFollowUpSignal = new QueuedRendererSignal(
 );
 
 const api = {
+  platform: process.platform as 'darwin' | 'win32' | 'linux',
   getApiUrl: () => ipcRenderer.invoke('app:getApiUrl'),
   getApiToken: () => ipcRenderer.invoke('app:getApiToken'),
   getBuildChannel: () => ipcRenderer.invoke('app:getBuildChannel'),
@@ -42,6 +43,12 @@ const api = {
   getAutoLaunch: () => ipcRenderer.invoke('app:getAutoLaunch'),
   setAutoLaunch: (enable: boolean) => ipcRenderer.invoke('app:setAutoLaunch', enable),
   openExternal: (url: string) => ipcRenderer.invoke('app:openExternal', url),
+  mediaPermissions: {
+    getStatus: () => ipcRenderer.invoke('media-permissions:get-status'),
+    requestMicrophone: () => ipcRenderer.invoke('media-permissions:request-microphone'),
+    openSettings: (kind: 'microphone' | 'screen') =>
+      ipcRenderer.invoke('media-permissions:open-settings', kind),
+  },
   notifyReadinessFailure: (code: 'provider_unavailable') =>
     ipcRenderer.invoke('app:notifyReadinessFailure', code),
   operationalTelemetry: {

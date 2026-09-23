@@ -20,9 +20,9 @@ function fakeOverlayWindow() {
 
 describe('overlay shortcut lifecycle', () => {
   it('routes hide shortcuts through the hide-only lifecycle', () => {
-    expect(mainSource).toContain('hideOverlayOnly(overlayWindow)');
+    expect(mainSource).toContain('hideOverlayOnly(overlayWindowSlot.peek())');
     expect(mainSource).not.toContain(
-      'function hideOverlay(): void {\n  hideOverlayAndShowMain(overlayWindow, mainWindow);',
+      'function hideOverlay(): void {\n  hideOverlayAndShowMain(overlayWindowSlot.peek(), mainWindow);',
     );
   });
 

@@ -971,12 +971,37 @@ export default function OverlayPage() {
     cancelActiveScreenAssist();
   }), [stopSession, cancelActiveScreenAssist]);
 
+  const ensureMacInterviewPermissions = async (): Promise<boolean> => {
+    const mediaPermissions = window.electronAPI?.mediaPermissions;
+    if (window.electronAPI?.platform !== 'darwin' || !mediaPermissions) return true;
+
+    let status = await mediaPermissions.getStatus();
+    if (sources.mic && status.microphone !== 'granted') {
+      const granted = status.microphone === 'not-determined'
+        ? await mediaPermissions.requestMicrophone()
+        : false;
+      status = await mediaPermissions.getStatus();
+      if (!granted && status.microphone !== 'granted') {
+        setNotice('Разрешите SkillCue доступ к микрофону в настройках macOS и запустите запись ещё раз.');
+        await mediaPermissions.openSettings('microphone');
+        return false;
+      }
+    }
+    if (sources.system && (status.screen === 'denied' || status.screen === 'restricted')) {
+      setNotice('Разрешите SkillCue запись экрана и системного аудио в настройках macOS, затем перезапустите приложение.');
+      await mediaPermissions.openSettings('screen');
+      return false;
+    }
+    return true;
+  };
+
   const startSession = async () => {
     if (liveBlocked) {
       setNotice(license?.status === 'auth_required' ? 'Войдите через Google, чтобы получить бесплатный доступ.' : t('overlay.rec.needLicense'));
       void window.electronAPI?.overlay.openSettings?.(license?.status === 'auth_required' ? 'account' : 'billing');
       return;
     }
+    if (!await ensureMacInterviewPermissions()) return;
     resetScreenTaskContext();
     void liveStartupWarmup.warm();
     closeRecap();
@@ -1016,6 +1041,7 @@ export default function OverlayPage() {
       void window.electronAPI?.overlay.openSettings?.(license?.status === 'auth_required' ? 'account' : 'billing');
       return;
     }
+    if (!await ensureMacInterviewPermissions()) return;
     setNotice('');
     const startedSessionId = await start(sources, sttOptions, {
       sessionId: recapSessionId ?? linkedEvent?.sessionId,
@@ -1937,8 +1963,39 @@ export default function OverlayPage() {
             )}
 
             {notice && <p className="ovl-status">{notice}</p>}
-            {sourceHealthWarning && <p className="ovl-status" role="status">{t('overlay.sourceHealth.systemSilent')}</p>}
+            {sourceHealthWarning && (
+              <div className="ovl-status" role="status">
+                <span>{t('overlay.sourceHealth.systemSilent')}</span>
+                {window.electronAPI?.platform === 'darwin' && (
+                  <button
+                    type="button"
+                    className="ml-2 rounded-md border border-amber-300/40 px-2 py-1 text-[11px] font-semibold text-amber-100 hover:bg-amber-300/10"
+                    onClick={() => void window.electronAPI?.mediaPermissions?.openSettings('screen')}
+                  >
+                    Открыть доступ к системному звуку
+                  </button>
+                )}
+              </div>
+            )}
             {error && <p className="ovl-status" role="alert">{error}</p>}
+            {error && window.electronAPI?.platform === 'darwin' && /доступ|permission|denied|microphone|микрофон/i.test(error) && (
+              <div className="flex flex-wrap gap-2 px-2 pb-1">
+                <button
+                  type="button"
+                  className="rounded-md border border-white/20 px-2 py-1 text-[11px] font-semibold text-white/90 hover:bg-white/10"
+                  onClick={() => void window.electronAPI?.mediaPermissions?.openSettings('microphone')}
+                >
+                  Разрешить микрофон
+                </button>
+                <button
+                  type="button"
+                  className="rounded-md border border-white/20 px-2 py-1 text-[11px] font-semibold text-white/90 hover:bg-white/10"
+                  onClick={() => void window.electronAPI?.mediaPermissions?.openSettings('screen')}
+                >
+                  Разрешить системный звук
+                </button>
+              </div>
+            )}
 
             {/* ---------- Транскрипт (по запросу) ---------- */}
             {showTranscript && (

@@ -1306,7 +1306,7 @@ describe('HhChatBrowser current HH contract', () => {
     expect(mainSource).toContain("app:navigate', `/applications?");
     expect(mainSource).toContain("params.set('conversation', negotiationKey)");
     expect(mainSource).not.toContain('void hhBrowserAssistant?.showChatPage()');
-    expect(mainSource).toContain('hideOverlayAndShowMain(overlayWindow, mainWindow)');
+    expect(mainSource).toContain('hideOverlayAndShowMain(overlayWindowSlot.peek(), mainWindow)');
   });
 
   it('notifies about a live recruiter message and skips HH robot recruiters', async () => {

@@ -384,6 +384,7 @@ export interface AccountDevice {
 }
 
 export interface ElectronAPI {
+  platform?: 'darwin' | 'win32' | 'linux';
   getApiUrl: () => Promise<string>;
   getApiToken?: () => Promise<string>;
   getBuildChannel?: () => Promise<'stable' | 'dev' | 'alpha'>;
@@ -392,6 +393,15 @@ export interface ElectronAPI {
   getAutoLaunch?: () => Promise<boolean>;
   setAutoLaunch?: (enable: boolean) => Promise<void>;
   openExternal: (url: string) => Promise<void>;
+  mediaPermissions?: {
+    getStatus: () => Promise<{
+      platform: NodeJS.Platform;
+      microphone: 'not-determined' | 'granted' | 'denied' | 'restricted' | 'unknown';
+      screen: 'not-determined' | 'granted' | 'denied' | 'restricted' | 'unknown';
+    }>;
+    requestMicrophone: () => Promise<boolean>;
+    openSettings: (kind: 'microphone' | 'screen') => Promise<boolean>;
+  };
   notifyReadinessFailure?: (code: 'provider_unavailable') => Promise<boolean>;
   account?: {
     getState: () => Promise<AccountState>;

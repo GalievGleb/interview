@@ -62,6 +62,10 @@ interface CandidateSourceState {
   loading: boolean;
 }
 
+type MediaPermissionSnapshot = Awaited<
+  ReturnType<NonNullable<NonNullable<Window['electronAPI']>['mediaPermissions']>['getStatus']>
+>;
+
 function pluralRu(value: number, one: string, few: string, many: string): string {
   const mod100 = value % 100;
   const mod10 = value % 10;
@@ -132,6 +136,7 @@ export default function HomePage() {
   const [chatState, setChatState] = useState<HhChatState | null>(null);
   const [calendarState, setCalendarState] = useState<InterviewCalendarState | null>(null);
   const [microphoneReady, setMicrophoneReady] = useState<boolean | null>(null);
+  const [mediaPermissions, setMediaPermissions] = useState<MediaPermissionSnapshot | null>(null);
   const [readinessOpen, setReadinessOpen] = useState(false);
   const [homeActionBusy, setHomeActionBusy] = useState(false);
   const [homeActionError, setHomeActionError] = useState('');
@@ -142,6 +147,16 @@ export default function HomePage() {
     const refresh = () => setStore(readPreparationStore());
     window.addEventListener('skillcue:mock-sessions-synced', refresh);
     return () => window.removeEventListener('skillcue:mock-sessions-synced', refresh);
+  }, []);
+
+  useEffect(() => {
+    const bridge = window.electronAPI?.mediaPermissions;
+    if (!bridge || window.electronAPI?.platform !== 'darwin') return;
+    let active = true;
+    void bridge.getStatus().then((status) => {
+      if (active) setMediaPermissions(status);
+    }).catch(() => {});
+    return () => { active = false; };
   }, []);
 
   useEffect(() => {
@@ -386,6 +401,38 @@ export default function HomePage() {
     detail: string;
     onClick: () => void;
   }> = [];
+  const macAudioNeedsAttention = mediaPermissions?.platform === 'darwin' && (
+    mediaPermissions.microphone !== 'granted' || mediaPermissions.screen !== 'granted'
+  );
+  const configureMacAudio = async () => {
+    const bridge = window.electronAPI?.mediaPermissions;
+    if (!bridge) return;
+    let status = await bridge.getStatus();
+    if (status.microphone !== 'granted') {
+      if (status.microphone === 'not-determined') await bridge.requestMicrophone();
+      status = await bridge.getStatus();
+      setMediaPermissions(status);
+      if (status.microphone !== 'granted') {
+        await bridge.openSettings('microphone');
+        return;
+      }
+    }
+    if (status.screen === 'denied' || status.screen === 'restricted') {
+      await bridge.openSettings('screen');
+      return;
+    }
+    launchLive(() => navigate('/overlay'));
+  };
+  if (macAudioNeedsAttention) {
+    attentionItems.push({
+      key: 'mac-audio',
+      title: 'Разрешить звук для интервью',
+      detail: mediaPermissions.microphone !== 'granted'
+        ? 'Один клик откроет запрос macOS на доступ к микрофону'
+        : 'Запустите помощника — macOS запросит запись экрана и системного аудио',
+      onClick: () => { void configureMacAudio(); },
+    });
+  }
   if (pendingHrDecisions > 0) {
     attentionItems.push({
       key: 'hr',

@@ -50,10 +50,11 @@ describe('macOS desktop distribution', () => {
     const packageJson = JSON.parse(
       fs.readFileSync(path.join(desktopRoot, 'package.json'), 'utf8'),
     ) as {
-      build: { electronVersion: string; mac: { extendInfo: Record<string, string> } };
+      build: { electronVersion: string; mac: { minimumSystemVersion: string; extendInfo: Record<string, string> } };
     };
 
     expect(Number(packageJson.build.electronVersion.split('.')[0])).toBeGreaterThanOrEqual(39);
+    expect(Number(packageJson.build.mac.minimumSystemVersion.split('.')[0])).toBeGreaterThanOrEqual(13);
     expect(packageJson.build.mac.extendInfo.NSAudioCaptureUsageDescription).toContain('system audio');
   });
 

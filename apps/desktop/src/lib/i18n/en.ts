@@ -911,7 +911,7 @@ export const en: Record<I18nKey, string> = {
   'overlay.thinking': 'Thinking…',
   'overlay.transcriptEmpty': 'Start recording (● in the pill) — lines will appear here.',
   'overlay.sourceHealth.systemSilent':
-    'No system audio detected. Enable call audio or choose “Microphone + system” in the menu.',
+    'No system audio detected. On macOS, check Screen & System Audio Recording access.',
 
   'common.error': 'Error',
   'common.open': 'Open',
