@@ -968,6 +968,7 @@ export const ru = {
   'account.resetRequest': 'Получить код восстановления',
   'account.resetConfirm': 'Сохранить новый пароль',
   'account.logout': 'Выйти из профиля',
+  'account.refresh': 'Обновить тариф',
   'account.devices': 'Ваши устройства',
   'account.devicesHint': 'Одновременно можно использовать не больше двух устройств.',
   'account.revoke': 'Отключить',
@@ -1002,6 +1003,8 @@ export const ru = {
   'settings.version': 'Версия SkillCue',
   'settings.version.desc':
     'Обновления скачиваются в фоне. Справа появится кнопка «Обновить».',
+  'settings.version.macDesc':
+    'На macOS автоматическое обновление пока недоступно. Новую версию можно установить с сайта SkillCue.',
   'settings.update.checking': 'Проверяю…',
   'settings.update.check': 'Проверить обновления',
   'settings.update.unavailable': 'Проверка обновлений доступна в установленном приложении.',

@@ -231,7 +231,7 @@ function GeneralSection() {
       <div className="sc-card mb-5 px-5 py-1.5">
         <SettingRow
           title={`${t('settings.version')}${version ? ` ${version}` : ''}`}
-          desc={t('settings.version.desc')}
+          desc={t(window.electronAPI?.platform === 'darwin' ? 'settings.version.macDesc' : 'settings.version.desc')}
         >
           <div className="flex items-center gap-3">
             {updaterStatus.state === 'downloading' ? (
@@ -316,7 +316,9 @@ function GeneralSection() {
         )}
         <SettingRow
           title={t('sidebar.taskbarTitle')}
-          desc="Окно остаётся доступным через трей и горячие клавиши, но не занимает место в панели Windows."
+          desc={window.electronAPI?.platform === 'darwin'
+            ? 'Окно остаётся доступным через Dock и горячие клавиши, но не занимает место в переключателе приложений.'
+            : 'Окно остаётся доступным через трей и горячие клавиши, но не занимает место в панели Windows.'}
         >
           <Toggle
             on={skipTaskbar}

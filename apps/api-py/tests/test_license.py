@@ -140,6 +140,24 @@ def test_managed_account_license_overrides_without_destroying_manual_key(client,
     assert db_session.get(AppMeta, "license_key").value == manual
 
 
+def test_account_required_build_uses_only_managed_max(client, keypair, monkeypatch):
+    monkeypatch.setenv("SKILLCUE_BUILD_CHANNEL", "stable")
+    monkeypatch.setenv("SKILLCUE_ACCOUNT_REQUIRED", "1")
+    manual = _mint(keypair, {"email": "old@mail.com", "plan": "trial"})
+    managed = _mint(
+        keypair,
+        {"email": "buyer@mail.com", "plan": "max", "source": "account", "account_id": "u1"},
+    )
+
+    assert client.post("/license/activate", json={"key": manual}).status_code == 200
+    assert client.get("/license/status").json()["status"] == "auth_required"
+    assert client.post("/license/managed", json={"key": managed}).status_code == 200
+    status = client.get("/license/status").json()
+    assert status["status"] == "active"
+    assert status["plan"] == "max"
+    assert status["licensed_to"] == "buyer@mail.com"
+
+
 def test_managed_endpoint_rejects_an_ordinary_signed_license(client, keypair):
     ordinary = _mint(keypair, {"email": "buyer@mail.com", "plan": "max"})
 

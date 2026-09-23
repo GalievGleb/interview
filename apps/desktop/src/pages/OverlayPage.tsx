@@ -988,7 +988,7 @@ export default function OverlayPage() {
       }
     }
     if (sources.system && (status.screen === 'denied' || status.screen === 'restricted')) {
-      setNotice('Разрешите SkillCue запись экрана и системного аудио в настройках macOS, затем перезапустите приложение.');
+      setNotice('В macOS → «Запись экрана и системного звука» разрешите SkillCue из папки «Программы». Если доступ уже включён, выключите и включите его снова. Затем полностью закройте и откройте SkillCue.');
       await mediaPermissions.openSettings('screen');
       return false;
     }

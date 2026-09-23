@@ -15,6 +15,15 @@ export default function AccountCard({ homePrompt = false }: { homePrompt?: boole
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [devices, setDevices] = useState<AccountDevice[]>([]);
+  const [requiresAccount, setRequiresAccount] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    void window.electronAPI?.getBuildChannel?.().then((channel) => {
+      if (active) setRequiresAccount(channel === 'alpha');
+    });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -91,9 +100,16 @@ export default function AccountCard({ homePrompt = false }: { homePrompt?: boole
               <p className="truncate text-xs text-ink-muted">{account.user.email}</p>
             </div>
           </div>
-          <button type="button" className="btn-secondary btn-sm" onClick={() => void run(async () => setAccount(await accountApi.logout()))}>
-            {t('account.logout')}
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className="btn-secondary btn-sm" disabled={busy}
+              onClick={() => void run(async () => setAccount(await accountApi.refresh()))}>
+              {t('account.refresh')}
+            </button>
+            <button type="button" className="btn-secondary btn-sm" disabled={busy}
+              onClick={() => void run(async () => setAccount(await accountApi.logout()))}>
+              {t('account.logout')}
+            </button>
+          </div>
         </div>
 
         <div className="mt-4 rounded-xl border border-surface-border bg-surface-light/60 p-3">
@@ -149,11 +165,17 @@ export default function AccountCard({ homePrompt = false }: { homePrompt?: boole
       <div className={homePrompt ? 'flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between' : ''}>
         <div>
           <h3 className={homePrompt ? 'text-xl font-semibold tracking-tight text-ink' : 'text-sm font-semibold text-ink'}>
-            {homePrompt ? lang === 'en' ? 'Sign in to continue' : 'Войдите, чтобы продолжить' : t('account.title')}
+            {homePrompt
+              ? requiresAccount
+                ? lang === 'en' ? 'Sign in to continue' : 'Войдите, чтобы продолжить'
+                : lang === 'en' ? 'Connect your SkillCue profile' : 'Подключите профиль SkillCue'
+              : t('account.title')}
           </h3>
           <p className="mt-2 max-w-lg text-sm leading-relaxed text-ink-muted">
             {homePrompt
-              ? lang === 'en' ? 'Sign in with Google to get free tokens and unlock the interview overlay.' : 'Войдите через Google, чтобы получить бесплатные токены и открыть помощника для собеседования.'
+              ? requiresAccount
+                ? lang === 'en' ? 'Sign in with Google to get free tokens and unlock the interview overlay.' : 'Войдите через Google, чтобы получить бесплатные токены и открыть помощника для собеседования.'
+                : lang === 'en' ? 'Sign in with Google to connect your subscription and devices.' : 'Войдите через Google, чтобы подключить подписку и ваши устройства.'
               : t('account.subtitle')}
           </p>
         </div>

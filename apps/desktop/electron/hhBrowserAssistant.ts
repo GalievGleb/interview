@@ -3804,6 +3804,7 @@ export class HhBrowserAssistant {
           : summaryMessage,
       });
     } catch (error) {
+      this.lastScanFoundCount = 0;
       throw error;
     }
     return this.getState();

@@ -9,7 +9,7 @@ vi.mock('../lib/accountApi', () => ({
     getState: vi.fn(), googleLogin: vi.fn(), register: vi.fn(), verifyEmail: vi.fn(),
     login: vi.fn(), requestVerification: vi.fn(), requestPasswordReset: vi.fn(),
     confirmPasswordReset: vi.fn(), listDevices: vi.fn(), revokeDevice: vi.fn(),
-    createCheckout: vi.fn(), logout: vi.fn(), onState: vi.fn(() => () => {}),
+    createCheckout: vi.fn(), logout: vi.fn(), refresh: vi.fn(), onState: vi.fn(() => () => {}),
   },
 }));
 
@@ -43,7 +43,7 @@ describe('AccountCard', () => {
     vi.mocked(accountApi.googleLogin).mockResolvedValue({ ...signedOut, authenticated: true,
       user: { id: 'u1', email: 'person@example.com', displayName: null, avatarUrl: null } });
     const { container } = render(<AccountCard homePrompt />);
-    expect(await screen.findByText('Войдите, чтобы продолжить')).toBeTruthy();
+    expect(await screen.findByText('Подключите профиль SkillCue')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /google/i }));
     await waitFor(() => expect(container.textContent).toBe(''));
   });
@@ -80,5 +80,23 @@ describe('AccountCard', () => {
     expect(await screen.findByText(/текущее|current/i)).toBeTruthy();
     expect(await screen.findByText('Laptop')).toBeTruthy();
     expect(screen.getAllByRole('button', { name: /отключить|disconnect|revoke/i })).toHaveLength(1);
+  });
+
+  it('refreshes the account plan after a bot grants access', async () => {
+    const user = { id: 'u1', email: 'person@example.com', displayName: null, avatarUrl: null };
+    vi.mocked(accountApi.getState).mockResolvedValue({ ...signedOut, authenticated: true, user });
+    vi.mocked(accountApi.refresh).mockResolvedValue({
+      ...signedOut, authenticated: true, user,
+      subscription: {
+        plan: 'PRO', status: 'ACTIVE', currentPeriodEnd: '2026-10-23T00:00:00.000Z',
+        sttMinutesUsed: 0, llmTokensUsed: 0, limits: null,
+      },
+    });
+
+    render(<AccountCard />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Обновить тариф' }));
+
+    expect(await screen.findByText('SkillCue Максимум')).toBeTruthy();
+    expect(accountApi.refresh).toHaveBeenCalledOnce();
   });
 });

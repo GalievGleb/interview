@@ -33,7 +33,7 @@ export function resolveAccountApiUrl(
   channel: BuildChannel,
   configured: string | undefined,
 ): string | null {
-  if (channel === 'stable' || !configured?.trim()) return null;
+  if (!configured?.trim()) return null;
   try {
     const url = new URL(configured.trim());
     const https = url.protocol === 'https:';

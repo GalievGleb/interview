@@ -6,12 +6,16 @@ from app.core.errors import AppError
 from app.services import quota
 
 
-def test_alpha_does_not_reuse_legacy_gateway_key(monkeypatch, db_session):
+@pytest.mark.parametrize("channel,account_required", [("alpha", "0"), ("stable", "1")])
+def test_account_build_does_not_reuse_legacy_gateway_key(
+    monkeypatch, db_session, channel, account_required
+):
     from app.db import session
     from app.db.models import AppMeta
     from app.services import license, provider_adapter
 
-    monkeypatch.setenv("SKILLCUE_BUILD_CHANNEL", "alpha")
+    monkeypatch.setenv("SKILLCUE_BUILD_CHANNEL", channel)
+    monkeypatch.setenv("SKILLCUE_ACCOUNT_REQUIRED", account_required)
     db_session.add(AppMeta(key="license_key", value="legacy-key"))
     db_session.commit()
     monkeypatch.setattr(session, "SessionLocal", lambda: db_session)
@@ -43,6 +47,30 @@ def test_alpha_requires_account_before_free_tokens_or_live(monkeypatch, db_sessi
     for check in (quota.check_token_quota, quota.check_live_allowed):
         with pytest.raises(AppError, match="Google"):
             check(db_session)
+
+
+def test_macos_account_build_ignores_an_old_device_trial(monkeypatch, db_session):
+    from app.db.models import AppMeta
+
+    monkeypatch.setenv("SKILLCUE_BUILD_CHANNEL", "stable")
+    monkeypatch.setenv("SKILLCUE_ACCOUNT_REQUIRED", "1")
+    db_session.add(AppMeta(key="license_key", value="old-device-trial"))
+    db_session.commit()
+
+    entitlements = quota.current_entitlements(db_session)
+    assert entitlements["status"] == "auth_required"
+    assert entitlements["tokens_left_month"] == 0
+    assert entitlements["live_allowed"] is False
+
+
+@pytest.mark.asyncio
+async def test_macos_account_build_does_not_claim_an_anonymous_trial(monkeypatch):
+    from app.services import provider_adapter
+
+    monkeypatch.setenv("SKILLCUE_BUILD_CHANNEL", "stable")
+    monkeypatch.setenv("SKILLCUE_ACCOUNT_REQUIRED", "1")
+    with pytest.raises(AppError, match="Google"):
+        await provider_adapter._claim_gateway_trial_key("https://invalid.example")
 
 
 def test_developer_build_bypasses_commercial_token_counter(monkeypatch) -> None:

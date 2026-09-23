@@ -79,7 +79,9 @@ export default function PlanPicker() {
               : license?.status === 'auth_required'
                 ? 'Войдите в аккаунт для бесплатного пробного доступа.'
                 : license?.status === 'active' && license.plan === 'trial'
-                  ? 'Пробный доступ привязан к аккаунту; лимит общий для устройств.'
+                  ? account?.authenticated && !license.licensed_to?.endsWith('@skillcue.local')
+                    ? 'Пробный доступ привязан к аккаунту; лимит общий для устройств.'
+                    : t('plan.trialInfo')
                   : t('plan.trialInfo')}
           </p>
         </div>

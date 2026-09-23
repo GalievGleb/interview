@@ -5,6 +5,15 @@ name: Release
 # release path builds locally and uploads directly to avoid Actions billing.
 on:
   workflow_dispatch:
+    inputs:
+      platform:
+        description: Release platform
+        type: choice
+        options:
+          - macos
+          - windows
+          - all
+        default: macos
 
 permissions:
   contents: write # electron-builder publishes the release artifacts
@@ -12,6 +21,7 @@ permissions:
 jobs:
   release:
     name: Build & publish (Windows)
+    if: ${{ inputs.platform == 'windows' || inputs.platform == 'all' }}
     runs-on: windows-latest
     defaults:
       run:
@@ -96,7 +106,7 @@ jobs:
 
   release-macos:
     name: Build & publish (macOS ${{ matrix.arch }})
-    needs: release
+    if: ${{ inputs.platform == 'macos' || inputs.platform == 'all' }}
     runs-on: ${{ matrix.runner }}
     strategy:
       # Upload one architecture at a time so both jobs cannot mutate the same
@@ -174,9 +184,13 @@ jobs:
         working-directory: apps/desktop
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          SKILLCUE_GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.SKILLCUE_GOOGLE_OAUTH_CLIENT_ID }}
+          SKILLCUE_GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.SKILLCUE_GOOGLE_OAUTH_CLIENT_SECRET }}
         run: |
+          test -n "$SKILLCUE_GOOGLE_OAUTH_CLIENT_ID"
+          test -n "$SKILLCUE_GOOGLE_OAUTH_CLIENT_SECRET"
           pnpm build
-          pnpm exec electron-builder --mac dmg --${{ matrix.arch }} --publish never
+          pnpm exec electron-builder --config electron-builder.mac.cjs --mac dmg --${{ matrix.arch }} --publish never
           test -f 'release/SkillCue-macOS-${{ matrix.arch }}.dmg'
 
       - name: Smoke-test packaged macOS app

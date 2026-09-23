@@ -83,6 +83,7 @@ import {
   type OverlayShowMode,
 } from './overlayWindowPrivacy';
 import { AccountClient, resolveAccountApiUrl, type PublicAccountState } from './accountClient';
+import { syncManagedLicenseAfterBackendReady } from './managedLicenseSync';
 import { AccountSessionStore, createAccountSessionFiles } from './accountSessionStore';
 import { runGoogleDesktopOAuth } from './googleOAuth';
 import { BackupService, rendererBackupKeys } from './backupService';
@@ -178,11 +179,25 @@ const SKILLCUE_GATEWAY_URL = process.env.SKILLCUE_GATEWAY_URL ?? 'https://skill-
 // Активен только когда бэкенд запущён нами (env уходит в spawn).
 const API_TOKEN = crypto.randomBytes(24).toString('hex');
 
-// Use the same SkillCue artwork for the window, taskbar and tray.
-// electron-builder includes this raw PNG in both development and packaged apps.
+// Keep the full-size artwork for windows. A macOS status item uses a small
+// logical icon; passing the 512px artwork directly makes the menu bar grow to
+// the height of the image on some macOS/Electron combinations.
 const BRAND_ICON = nativeImage.createFromPath(
   path.join(app.getAppPath(), 'assets', 'branding', 'skillcue-app-icon-512.png'),
 );
+function createTrayIcon(): Electron.NativeImage {
+  if (process.platform !== 'darwin') return BRAND_ICON;
+  const icon = nativeImage.createEmpty();
+  icon.addRepresentation({
+    scaleFactor: 1,
+    dataURL: BRAND_ICON.resize({ width: 18, height: 18 }).toDataURL(),
+  });
+  icon.addRepresentation({
+    scaleFactor: 2,
+    dataURL: BRAND_ICON.resize({ width: 36, height: 36 }).toDataURL(),
+  });
+  return icon;
+}
 
 if (process.platform === 'win32') {
   app.setAppUserModelId(APP_IDENTITY.appUserModelId);
@@ -211,6 +226,7 @@ let hhChatBrowser: HhChatBrowser | null = null;
 let interviewCalendar: InterviewCalendarStore | null = null;
 let operationalTelemetry: OperationalTelemetryStore | null = null;
 let accountClient: AccountClient | null = null;
+let accountRestorePromise: Promise<unknown> | null = null;
 let googleLoginPromise: Promise<PublicAccountState> | null = null;
 let backupService: BackupService | null = null;
 let pendingBackupImport: { token: string; path: string } | null = null;
@@ -249,7 +265,7 @@ function backendLogPath(): string {
 }
 
 function initializeAccountClient(): void {
-  if (!ACCOUNT_API_URL || !isDeveloperBuild) return;
+  if (!ACCOUNT_API_URL) return;
   const store = new AccountSessionStore(
     createAccountSessionFiles(path.join(app.getPath('userData'), 'account-session.json')),
     {
@@ -270,7 +286,9 @@ function initializeAccountClient(): void {
     installManagedLicense: (key) => updateLocalManagedLicense(key),
     clearManagedLicense: () => updateLocalManagedLicense(null),
   });
-  void accountClient.restore().then((state) => sendToWindows('account:state', state));
+  accountRestorePromise = accountClient.restore()
+    .then((state) => sendToWindows('account:state', state))
+    .catch((error) => logMain('warn', 'account restore failed', error));
 }
 
 async function updateLocalManagedLicense(key: string | null): Promise<void> {
@@ -281,7 +299,7 @@ async function updateLocalManagedLicense(key: string | null): Promise<void> {
       'X-SkillCue-Token': API_TOKEN,
     },
     ...(key ? { body: JSON.stringify({ key }) } : {}),
-    signal: AbortSignal.timeout(5_000),
+    signal: AbortSignal.timeout(15_000),
   });
   if (!response.ok) throw new Error(`MANAGED_LICENSE_SYNC_FAILED_${response.status}`);
 }
@@ -412,6 +430,8 @@ function resolveBackendLaunch(): { cmd: string; args: string[]; cwd: string } | 
     const parts = process.env.SKILLCUE_PYTHON.trim().split(/\s+/);
     return { cmd: parts[0], args: [...parts.slice(1), ...uvicornArgs], cwd };
   }
+  const venvPython = path.join(cwd, '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
+  if (fs.existsSync(venvPython)) return { cmd: venvPython, args: uvicornArgs, cwd };
   if (process.platform === 'win32') return { cmd: 'py', args: ['-3.12', ...uvicornArgs], cwd };
   return { cmd: 'python3', args: uvicornArgs, cwd };
 }
@@ -435,6 +455,10 @@ async function ensureBackend(): Promise<void> {
       SKILLCUE_PORT: new URL(API_URL).port || '8000',
       SKILLCUE_API_TOKEN: API_TOKEN,
       SKILLCUE_BUILD_CHANNEL: BUILD_CHANNEL,
+      // The macOS Stable build uses the account service. Do not expose a
+      // previously stored device trial before sign-in or after sign-out.
+      SKILLCUE_ACCOUNT_REQUIRED: process.platform === 'darwin'
+        && BUILD_CHANNEL === 'stable' && ACCOUNT_API_URL ? '1' : '0',
       ...(BUILD_CHANNEL === 'dev' ? { SKILLCUE_DEV_TOOLS: '1' } : {}),
       // Бэкенд подхватит как settings.skillcue_gateway_url (BYOK-фолбэк на гейтвей).
       SKILLCUE_GATEWAY_URL,
@@ -475,10 +499,13 @@ async function confirmBackendUp(): Promise<void> {
     if (await pingBackendHealth()) {
       backendRestartAttempts = 0;
       sendToWindows('backend:status', { state: 'ok' });
-      void accountClient?.syncManagedLicense().then(() => {
-        sendToWindows('account:state', accountClient?.getState());
-      }).catch((error) => {
-        logMain('warn', 'managed account license sync failed', error);
+      if (accountClient) void syncManagedLicenseAfterBackendReady({
+        accountReady: accountRestorePromise,
+        sync: () => accountClient!.syncManagedLicense(),
+        publish: () => sendToWindows('account:state', accountClient?.getState()),
+        wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+        shouldStop: () => quitting,
+        onError: (error) => logMain('warn', 'managed account license sync failed', error),
       });
       return;
     }
@@ -1745,7 +1772,7 @@ function registerShortcuts(): void {
 }
 
 function createTray(): void {
-  tray = new Tray(BRAND_ICON);
+  tray = new Tray(createTrayIcon());
   tray.setToolTip(APP_IDENTITY.displayName);
   tray.setContextMenu(
     Menu.buildFromTemplate([

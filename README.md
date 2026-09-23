@@ -4,7 +4,7 @@ Desktop AI-приложение для подготовки к интервью:
 
 > 📈 **Go-to-Market:** план продаж, SEO и запуска — в [docs/gtm/README.md](docs/gtm/README.md) (стратегия, pre-launch чеклист, воронка, каналы, скрипты продаж, roadmap на 90 дней).
 
-> **Требования:** Node ≥ 20, **Python ≥ 3.11** (код использует `datetime.UTC`; на 3.10 не запустится), `pnpm`.
+> **Требования:** Node ≥ 22.13, **Python 3.12** для сборки backend (код требует минимум 3.11), `pnpm`.
 >
 > **Архитектура бэкендов:** приложение работает с локальным `apps/api-py` (FastAPI). Каталог `apps/api` (NestJS, биллинг) пока **не подключён** к десктопу — см. [ADR 0001](docs/adr/0001-backend-architecture.md).
 
@@ -22,7 +22,8 @@ pnpm --filter @interview/shared build
 
 ```bash
 cd apps/api-py
-py -3.12 -m venv .venv     # или любой Python >= 3.11
+# Windows: py -3.12 -m venv .venv
+# macOS:   python3.12 -m venv .venv
 
 # macOS / Linux:
 source .venv/bin/activate
@@ -63,6 +64,22 @@ pnpm --filter @interview/desktop dev
 pnpm dist:desktop
 # apps/desktop/release/
 ```
+
+## Сборка на macOS
+
+Нужны Node.js ≥ 22.13, pnpm (через Corepack) и Python 3.12. Сборку выполняйте на Mac той же архитектуры, для которой нужен DMG. В папке `apps/api-py/.venv` команда сама создаст виртуальное окружение и установит Python-зависимости. Для профиля и Google-входа в Stable macOS положите Desktop OAuth JSON в игнорируемый Git файл `.google_oauth_client.json` или передайте `SKILLCUE_GOOGLE_OAUTH_CLIENT_ID` и `SKILLCUE_GOOGLE_OAUTH_CLIENT_SECRET` через окружение сборки. Сервер профиля по умолчанию — `https://skill-cue.ru/account`.
+
+```bash
+corepack enable
+pnpm install --frozen-lockfile
+pnpm build:shared
+pnpm dist:desktop:mac
+# apps/desktop/release/SkillCue-macOS-arm64.dmg или SkillCue-macOS-x64.dmg
+```
+
+Для локального запуска из исходников используйте `pnpm dev:desktop`. Dev-режим берёт Python из `apps/api-py/.venv`, если окружение есть. Если его ещё нет, сначала выполните `pnpm --filter @interview/desktop build:backend` или настройте Python 3.12 и зависимости вручную. Локальный DMG не подписан сертификатом Apple; для распространения вне этого Mac потребуются подпись и нотариализация.
+
+Чтобы обновить локальное приложение без ручного переноса DMG, выполните из корня репозитория `pnpm update:mac:local`. Команда собирает оба компонента, завершает открытую Stable-версию, заменяет `/Applications/SkillCue.app` и открывает новую. Ярлык `~/Desktop/SkillCue Local.app` ведёт на ту же установленную копию. Данные пользователя остаются в каталоге Application Support. Во время разработки интерфейса `pnpm dev:desktop` обновляет страницу через Vite без пересборки приложения.
 
 ## Обязательная проверка Dev-сборки перед собеседованием
 

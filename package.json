@@ -1,6 +1,6 @@
 {
   "name": "interview-assistant",
-  "version": "0.1.14",
+  "version": "0.1.16",
   "private": true,
   "packageManager": "pnpm@11.21.0",
   "scripts": {
@@ -11,6 +11,8 @@
     "build:api": "pnpm --filter @interview/api build",
     "build:desktop": "pnpm --filter @interview/desktop build",
     "dist:desktop": "pnpm --filter @interview/desktop dist:full",
+    "dist:desktop:mac": "pnpm --filter @interview/desktop dist:mac",
+    "update:mac:local": "node scripts/update-mac-local.mjs",
     "dist:desktop:dev": "pnpm --filter @interview/desktop dist:dev",
     "db:generate": "pnpm --filter @interview/api db:generate",
     "db:migrate": "pnpm --filter @interview/api db:migrate",

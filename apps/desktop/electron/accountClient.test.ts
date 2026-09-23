@@ -11,8 +11,9 @@ const authPayload = {
 };
 
 describe('account API configuration', () => {
-  it('keeps Stable disabled and requires HTTPS for Alpha', () => {
-    expect(resolveAccountApiUrl('stable', 'https://skill-cue.ru/account')).toBeNull();
+  it('enables configured HTTPS accounts in Stable and Alpha', () => {
+    expect(resolveAccountApiUrl('stable', 'https://skill-cue.ru/account')).toBe('https://skill-cue.ru/account');
+    expect(resolveAccountApiUrl('stable', 'http://skill-cue.ru/account')).toBeNull();
     expect(resolveAccountApiUrl('alpha', 'http://skill-cue.ru/account')).toBeNull();
     expect(resolveAccountApiUrl('alpha', 'https://skill-cue.ru/account/')).toBe('https://skill-cue.ru/account');
   });

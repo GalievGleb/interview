@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import time
 
 from cryptography.exceptions import InvalidSignature
@@ -31,6 +32,14 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 PUBLIC_KEY_HEX = "6c8c28be738e231af5429b12837d3406d9934c802b9fd32300d7ad6cb8fd4876"
 
 KEY_PREFIX = "SKILLCUE-"
+
+
+def account_entitlement_required() -> bool:
+    """Account builds must not fall back to an old device trial or manual key."""
+    return (
+        os.environ.get("SKILLCUE_BUILD_CHANNEL", "").strip().lower() == "alpha"
+        or os.environ.get("SKILLCUE_ACCOUNT_REQUIRED", "").strip() == "1"
+    )
 
 # Trial: суммарное live-время (сервер копит на вебсокете), не календарные дни.
 TRIAL_LIVE_SECONDS = 15 * 60

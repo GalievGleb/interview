@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { HhBrowserAssistant } from './hhBrowserAssistant';
+import { HhBrowserAssistant, type HhAssistantState } from './hhBrowserAssistant';
 
 const directories: string[] = [];
 afterEach(() => {
@@ -13,7 +13,14 @@ function setup() {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-search-recovery-'));
   directories.push(directory);
   const assistant = new HhBrowserAssistant(directory, () => undefined);
-  const internal = assistant as any;
+  const internal = assistant as unknown as {
+    state: HhAssistantState;
+    getConfiguredSearchResumeContext: () => Promise<string>;
+    resetBrowserConnection: () => Promise<void>;
+    detectManualBlocker: () => Promise<string>;
+    ensureBrowser: () => Promise<unknown>;
+    automationRunInFlight: boolean;
+  };
   internal.state.config.query = 'QA Automation Python';
   internal.state.config.platform = 'hh';
   internal.getConfiguredSearchResumeContext = async () => '';

@@ -58,6 +58,14 @@ describe('macOS desktop distribution', () => {
     expect(packageJson.build.mac.extendInfo.NSAudioCaptureUsageDescription).toContain('system audio');
   });
 
+  it('embeds the configured account endpoint in macOS Stable releases', () => {
+    const macConfig = fs.readFileSync(path.join(desktopRoot, 'electron-builder.mac.cjs'), 'utf8');
+    expect(macConfig).toContain("'https://skill-cue.ru/account'");
+    expect(macConfig).toContain('loadGoogleOAuthMetadata');
+    const mainSource = fs.readFileSync(path.join(desktopRoot, 'electron', 'main.ts'), 'utf8');
+    expect(mainSource).toContain('if (!ACCOUNT_API_URL) return;');
+  });
+
   it('uses native macOS window controls and does not request Windows update metadata', () => {
     const mainSource = fs.readFileSync(
       path.join(desktopRoot, 'electron', 'main.ts'),

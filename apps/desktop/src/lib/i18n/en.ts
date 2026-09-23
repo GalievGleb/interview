@@ -963,6 +963,7 @@ export const en: Record<I18nKey, string> = {
   'account.resetRequest': 'Get a recovery code',
   'account.resetConfirm': 'Save new password',
   'account.logout': 'Sign out',
+  'account.refresh': 'Refresh plan',
   'account.devices': 'Your devices',
   'account.devicesHint': 'You can use up to two devices at the same time.',
   'account.revoke': 'Disconnect',
@@ -997,6 +998,8 @@ export const en: Record<I18nKey, string> = {
   'settings.version': 'SkillCue version',
   'settings.version.desc':
     'Updates download in the background. An Update button appears on the right.',
+  'settings.version.macDesc':
+    'Automatic updates are not yet available on macOS. Install the latest version from the SkillCue website.',
   'settings.update.checking': 'Checking…',
   'settings.update.check': 'Check for updates',
   'settings.update.unavailable': 'Update checks are available in the installed app.',

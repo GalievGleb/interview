@@ -30,9 +30,13 @@ describe('packaged product surface', () => {
     expect(devConfigSource).toContain('../../tests/stt-benchmark/cases.json');
     expect(devConfigSource).toContain('../../tests/voice/audio');
 
-    expect(packageJson.scripts['build:backend']).toContain(
-      '.venv\\Scripts\\pyinstaller.exe -y',
+    expect(packageJson.scripts['build:backend']).toBe('node scripts/build-backend.mjs');
+    const backendBuildScript = fs.readFileSync(
+      path.join(desktopRoot, 'scripts', 'build-backend.mjs'),
+      'utf8',
     );
+    expect(backendBuildScript).toContain("'Scripts/python.exe' : 'bin/python'");
+    expect(backendBuildScript).toContain("'PyInstaller', '-y', 'skillcue-backend.spec'");
     expect(packageJson).toMatchObject({ version: expect.stringMatching(/^\d+\.\d+\.\d+(?:-dev)?$/) });
   });
 

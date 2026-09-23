@@ -626,11 +626,13 @@
     @apply flex h-[118px] shrink-0 items-center gap-4 px-7;
   }
 
-  /* `hiddenInset` places the native macOS traffic lights over the renderer.
-     Keep the expanded brand to their right; in the narrow sidebar place it
-     underneath them so the controls and logo never share a hit rectangle. */
+  /* The macOS traffic lights occupy the top-left corner. Place the expanded
+     brand on its own row beneath them, aligned with the sidebar navigation. */
   :root[data-platform='darwin'] .skillcue-sidebar:not(.skillcue-sidebar--collapsed) .skillcue-sidebar__brand {
-    padding-left: 88px;
+    height: 118px;
+    padding-top: 32px;
+    padding-left: 20px;
+    gap: 14px;
   }
 
   :root[data-platform='darwin'] .skillcue-sidebar--collapsed .skillcue-sidebar__brand {
@@ -894,6 +896,10 @@
 
     .skillcue-sidebar__brand {
       padding-inline: 20px;
+    }
+
+    :root[data-platform='darwin'] .skillcue-sidebar:not(.skillcue-sidebar--collapsed) .skillcue-sidebar__brand-copy p {
+      font-size: 18px;
     }
 
     .skillcue-sidebar__live-zone {

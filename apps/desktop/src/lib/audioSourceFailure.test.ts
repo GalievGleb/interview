@@ -17,6 +17,6 @@ describe('audio source failure presentation', () => {
       [],
       'Системный звук',
       'Error starting capture',
-    )).toBe('Системный звук: Error starting capture');
+    )).toBe('Системный звук: Не удалось начать захват звука. Проверьте разрешение на запись экрана и системного звука, затем перезапустите SkillCue.');
   });
 });

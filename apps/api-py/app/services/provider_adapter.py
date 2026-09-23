@@ -180,18 +180,16 @@ def _stored_gateway_license_key() -> str:
     try:
         from app.db.models import AppMeta
         from app.db.session import SessionLocal
-        from app.services.license import select_effective_license
+        from app.services.license import account_entitlement_required, select_effective_license
 
         with SessionLocal() as db:
             managed_row = db.get(AppMeta, "managed_license_key")
             legacy_row = db.get(AppMeta, "license_key")
             managed = (managed_row.value if managed_row else "").strip()
             legacy = (legacy_row.value if legacy_row else "").strip()
-        import os
-
-        alpha = os.environ.get("SKILLCUE_BUILD_CHANNEL", "").strip().lower() == "alpha"
-        key, payload = select_effective_license(managed, "" if alpha else legacy)
-        if alpha and not (
+        requires_account = account_entitlement_required()
+        key, payload = select_effective_license(managed, "" if requires_account else legacy)
+        if requires_account and not (
             payload and payload.get("source") == "account" and payload.get("account_id")
         ):
             return ""
@@ -242,9 +240,9 @@ def _store_gateway_license_key(key: str, email: str = "") -> None:
 
 
 async def _claim_gateway_trial_key(gateway_url: str) -> str:
-    import os
+    from app.services.license import account_entitlement_required
 
-    if os.environ.get("SKILLCUE_BUILD_CHANNEL", "").strip().lower() == "alpha":
+    if account_entitlement_required():
         raise AppError("Войдите через Google в Настройках → Аккаунт.", 401, "account_auth_required")
     try:
         install_id = _get_or_create_install_id()

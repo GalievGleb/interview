@@ -53,7 +53,7 @@ describe('Windows installer artwork', () => {
   });
 
   it('uses a progress-only per-user installer that launches automatically', () => {
-    expect(packageJson.scripts['assets:installer']).toBe('python build/make_icon.py');
+    expect(packageJson.scripts['assets:installer']).toBe('node scripts/make-installer-assets.mjs');
     expect(packageJson.scripts.prebuild).toBe('pnpm assets:installer');
     expect(packageJson.build.nsis).toMatchObject({
       oneClick: true,

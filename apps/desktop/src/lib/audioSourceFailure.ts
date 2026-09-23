@@ -7,5 +7,8 @@ export function audioSourceFailureMessage(
   message: string,
 ): string {
   if (failedSource === 'system' && remainingSources.includes('mic')) return '';
-  return `${label}: ${message}`;
+  const explanation = /^error starting capture$/i.test(message.trim())
+    ? 'Не удалось начать захват звука. Проверьте разрешение на запись экрана и системного звука, затем перезапустите SkillCue.'
+    : message;
+  return `${label}: ${explanation}`;
 }

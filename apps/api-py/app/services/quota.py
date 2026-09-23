@@ -18,6 +18,7 @@ from app.core.errors import AppError
 from app.db.models import ApiUsage, AppMeta
 from app.services.license import (
     PLAN_FEATURES,
+    account_entitlement_required,
     normalize_plan,
     select_effective_license,
     token_budget_for,
@@ -89,14 +90,13 @@ def current_entitlements(db: Session) -> dict:
             "tokens_left_month": max(1, budget - used),
         }
 
+    requires_account = account_entitlement_required()
     _, payload = select_effective_license(
         _meta(db, _MANAGED_LICENSE_KEY),
-        ""
-        if os.environ.get("SKILLCUE_BUILD_CHANNEL", "").strip().lower() == "alpha"
-        else _meta(db, _LICENSE_KEY),
+        "" if requires_account else _meta(db, _LICENSE_KEY),
     )
 
-    if os.environ.get("SKILLCUE_BUILD_CHANNEL", "").strip().lower() == "alpha" and not (
+    if requires_account and not (
         payload and payload.get("source") == "account" and payload.get("account_id")
     ):
         return {

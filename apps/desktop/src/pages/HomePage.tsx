@@ -426,10 +426,14 @@ export default function HomePage() {
   if (macAudioNeedsAttention) {
     attentionItems.push({
       key: 'mac-audio',
-      title: 'Разрешить звук для интервью',
+      title: mediaPermissions.microphone !== 'granted'
+        ? 'Разрешить микрофон для интервью'
+        : 'Проверить запись экрана и звук',
       detail: mediaPermissions.microphone !== 'granted'
         ? 'Один клик откроет запрос macOS на доступ к микрофону'
-        : 'Запустите помощника — macOS запросит запись экрана и системного аудио',
+        : mediaPermissions.screen === 'denied' || mediaPermissions.screen === 'restricted'
+          ? 'В macOS → «Запись экрана и системного звука» разрешите SkillCue из папки «Программы». Затем полностью закройте и откройте приложение'
+          : 'Запустите помощника — macOS запросит запись экрана и системного звука',
       onClick: () => { void configureMacAudio(); },
     });
   }
