@@ -4,14 +4,9 @@ const DOWNLOADS = Object.freeze({
     href: '/downloads/SkillCue-Setup.exe',
     icon: 'windows',
   }),
-  'mac-arm': Object.freeze({
-    label: 'Скачать для Mac',
-    href: 'https://github.com/GalievGleb/SkillCue/releases/latest/download/SkillCue-macOS-arm64.dmg',
-    icon: 'apple',
-  }),
-  'mac-intel': Object.freeze({
-    label: 'Скачать для Mac',
-    href: 'https://github.com/GalievGleb/SkillCue/releases/latest/download/SkillCue-macOS-x64.dmg',
+  mac: Object.freeze({
+    label: 'Выбрать версию для Mac',
+    href: '#downloads',
     icon: 'apple',
   }),
   other: Object.freeze({
@@ -28,9 +23,9 @@ export function detectDesktopPlatform({ userAgent = '', platform = '' } = {}) {
 
   if (/iphone|ipad|ipod|android|mobile/.test(value)) return 'other';
   if (/windows|win32|win64/.test(value)) return 'windows';
-  if (/macintosh|macintel|mac os|macos/.test(value)) {
-    return /apple silicon|arm64|aarch64/.test(value) ? 'mac-arm' : 'mac-intel';
-  }
+  // Browsers on Apple Silicon can still report "MacIntel". Let visitors pick
+  // the processor explicitly instead of sending an M-series Mac to the Intel DMG.
+  if (/macintosh|macintel|mac os|macos/.test(value)) return 'mac';
 
   return 'other';
 }

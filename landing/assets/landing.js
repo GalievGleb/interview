@@ -9,7 +9,7 @@ import {
   getThemeControlPresentation,
   resolveConcept,
   resolveTheme,
-} from './site-runtime.js?v=20260913-canonical1';
+} from './site-runtime.js?v=20260924-mac016';
 
 const root = document.documentElement;
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
