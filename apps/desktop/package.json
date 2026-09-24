@@ -13,6 +13,7 @@
     "dist": "pnpm dist:full",
     "dist:app": "pnpm build && electron-builder",
     "dist:mac": "pnpm build:backend && pnpm build && electron-builder --config electron-builder.mac.cjs --mac dmg --publish never",
+    "dist:mac:preview": "pnpm build:backend && pnpm build && electron-builder --config electron-builder.mac.preview.cjs --mac dmg --publish never",
     "dist:dev:app": "pnpm build:dev && electron-builder --config electron-builder.dev.cjs --win nsis --publish never",
     "dist:dev": "pnpm build:backend && pnpm dist:dev:app",
     "dist:alpha:app": "pnpm build:alpha && electron-builder --config electron-builder.alpha.cjs --win nsis --publish never",
