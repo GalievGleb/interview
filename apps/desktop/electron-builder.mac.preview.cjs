@@ -26,7 +26,7 @@ module.exports = {
     title: 'Установка SkillCue ${version}',
     iconSize: 80,
     iconTextSize: 13,
-    window: { width: 560, height: 360 },
+    window: { width: 560, height: 400 },
     contents: [
       { x: 145, y: 105, type: 'file' },
       { x: 415, y: 105, type: 'link', path: '/Applications', name: 'Программы' },
