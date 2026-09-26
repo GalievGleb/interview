@@ -1,4 +1,5 @@
 const stableConfig = require('./electron-builder.mac.cjs');
+require('./build/mac-install/generateHelp.cjs')();
 
 // Free test distribution: make the entire bundle's code signature internally
 // valid. Gatekeeper still requires the user to approve this unnotarized build.

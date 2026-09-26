@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Первый запуск на Mac — SkillCue</title>
+<meta name="description" content="Как установить SkillCue на Mac и разрешить первый запуск: короткая инструкция со скриншотом.">
+<style>
+  :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #142539; background: #f2f7f5; }
+  * { box-sizing: border-box; }
+  body { max-width: 980px; margin: 0 auto; padding: 40px 24px 32px; line-height: 1.6; }
+  header { margin-bottom: 28px; }
+  .brand { color: #007a53; font-size: 22px; font-weight: 750; text-decoration: none; }
+  .eyebrow { color: #527064; font-size: 13px; margin: 24px 0 8px; }
+  h1 { font-size: clamp(30px, 5vw, 44px); line-height: 1.15; letter-spacing: -.035em; margin: 8px 0 16px; }
+  .intro { color: #475e6e; max-width: 730px; font-size: 18px; }
+  ol { list-style: none; padding: 0; counter-reset: steps; }
+  li { counter-increment: steps; position: relative; background: #fff; border: 1px solid #dce7e1; border-radius: 18px; margin: 16px 0; padding: 24px 28px 24px 80px; }
+  li::before { content: counter(steps); position: absolute; left: 24px; top: 24px; width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; background: #e2f4e9; color: #007a53; font-weight: 750; }
+  h2 { font-size: 21px; line-height: 1.3; margin: 3px 0 10px; }
+  p { margin: 10px 0; }
+  .path { background: #f2f7f5; border-radius: 10px; padding: 12px 16px; font-weight: 600; }
+  .key { background: #e2f4e9; padding: 2px 7px; border-radius: 5px; white-space: nowrap; }
+  figure { margin: 20px 0 8px; }
+  .screenshot { position: relative; line-height: 0; }
+  .screenshot img { width: 100%; height: auto; border-radius: 10px; border: 1px solid #dce7e1; }
+  .highlight { position: absolute; left: 79.4%; top: 48.7%; width: 17.8%; height: 5.9%; border: 3px solid #008555; border-radius: 8px; box-shadow: 0 0 0 3px #ffffffd9; pointer-events: none; }
+  figcaption { color: #4a6070; font-size: 14px; margin-top: 12px; line-height: 1.5; }
+  a { color: #007a53; text-underline-offset: 3px; }
+  .note { border-left: 3px solid #71b894; padding: 3px 0 3px 16px; color: #475e6e; }
+  details { background: #e8f0eb; padding: 16px 20px; border-radius: 12px; margin: 14px 0; }
+  summary { cursor: pointer; font-weight: 650; }
+  footer { color: #587062; font-size: 14px; margin-top: 26px; }
+  @media(max-width:600px) { body { padding: 24px 16px; } li { padding: 20px 16px; } li::before { position: static; margin-bottom: 12px; } h2 { font-size: 20px; } .intro { font-size: 16px; } .highlight { border-width: 2px; box-shadow: 0 0 0 1px white; } }
+</style>
+</head>
+<body>
+<header>
+<a class="brand" href="https://skill-cue.ru/">SkillCue</a>
+<p class="eyebrow">MAC · APPLE SILICON (M1 И НОВЕЕ)</p>
+<h1>Разрешите первый запуск —<br>и пользуйтесь SkillCue</h1>
+<p class="intro">В текущей версии Mac может показать «Apple не удалось подтвердить…». Если вы скачали SkillCue с нашего сайта, разрешите запуск в настройках macOS по шагам ниже.</p>
+</header>
+<main>
+<ol>
+<li><h2>Перенесите SkillCue в «Программы»</h2>
+<p>Откройте скачанный DMG и перетащите значок <strong>SkillCue</strong> на папку <strong>«Программы»</strong>. Затем откройте SkillCue из этой папки.</p>
+<p>Если заменяете старую версию, сначала завершите SkillCue и подтвердите замену.</p></li>
+<li><h2>Закройте предупреждение кнопкой «Готово»</h2>
+<p>Если появилось окно <strong>«Apple не удалось подтвердить…»</strong>, нажмите <strong>«Готово»</strong> (на некоторых версиях macOS — «Отмена»). Приложение остаётся в «Программах».</p>
+<p>Если SkillCue сразу открылась, переходите к шагу 4.</p></li>
+<li><h2>Нажмите «Всё равно открыть»</h2>
+<p>Дважды нажмите <strong>«Настройки безопасности»</strong> в окне установщика. Или откройте этот раздел вручную:</p>
+<p class="path">Меню Apple  → Системные настройки → Конфиденциальность и безопасность</p>
+<p>Прокрутите вниз до блока <strong>«Безопасность»</strong>. Найдите строку про заблокированный файл <strong>SkillCue</strong> и нажмите <strong class="key">«Всё равно открыть»</strong>.</p>
+<figure>
+<div class="screenshot"><img src="assets/mac-install/open-anyway-ru.png" width="1430" height="1046" alt="Настройки macOS: Конфиденциальность и безопасность. В блоке Безопасность справа от сообщения о заблокированном приложении находится кнопка Все равно открыть."><span class="highlight" aria-hidden="true"></span></div>
+<figcaption>Нужная кнопка обведена зелёным. На скриншоте Apple написано «Пример приложения» — у вас будет <strong>SkillCue</strong>. Вид окна зависит от версии macOS. <a href="https://support.apple.com/ru-ru/102445">Источник: Apple</a>.</figcaption>
+</figure>
+<p>Подтвердите действие паролем Mac или Touch ID, если потребуется. В следующем окне нажмите <strong>«Открыть»</strong>.</p></li>
+<li><h2>Готово — SkillCue можно запускать обычно</h2>
+<p>macOS сохранит разрешение для этой сборки. В следующий раз открывайте SkillCue из «Программ» или Dock.</p>
+<p>Войдите через Google, чтобы подключить профиль и подписку. При использовании записи приложение отдельно запросит микрофон и запись экрана с системным звуком.</p></li>
+</ol>
+<p class="note">Текущая сборка не прошла проверку Apple. Разрешайте запуск только для SkillCue, скачанной с <a href="https://skill-cue.ru/">skill-cue.ru</a> или из <a href="https://github.com/GalievGleb/SkillCue/releases/tag/v0.1.16">нашего релиза на GitHub</a>. После обновления macOS может попросить разрешение снова.</p>
+<details><summary>Нет кнопки «Всё равно открыть»?</summary><p>Сначала попробуйте запустить SkillCue из «Программ» и закройте предупреждение. После этого снова откройте настройки безопасности. На рабочем Mac установку может ограничивать администратор.</p></details>
+<details><summary>Написано «Приложение повреждено» или запуск не удался?</summary><p>Пришлите снимок окна и версию macOS в <a href="https://t.me/SkillCue">поддержку SkillCue</a>. Сообщение о повреждении не является обычным шагом установки.</p></details>
+</main>
+<footer>SkillCue 0.1.16 · Apple Silicon · macOS 13+ · <a href="https://t.me/SkillCue">Помощь с установкой</a></footer>
+</body>
+</html>

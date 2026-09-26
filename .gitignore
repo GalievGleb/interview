@@ -53,3 +53,6 @@ client_secret*.json
 # Graphify knowledge-graph caches (regenerate with: graphify update .)
 graphify-out/
 tools/leadbot/crash.log
+
+# Generated offline copy of landing/mac-install.html
+/apps/desktop/build/mac-install/help.html
