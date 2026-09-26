@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Установка SkillCue на Mac</title>
+<style>
+  :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #102238; background: #f1f6f5; }
+  * { box-sizing: border-box; }
+  body { max-width: 760px; margin: 48px auto; padding: 0 24px; line-height: 1.6; }
+  .brand { color: #00855b; font-weight: 750; letter-spacing: -.03em; font-size: 24px; }
+  h1 { font-size: clamp(28px, 5vw, 40px); line-height: 1.15; letter-spacing: -.035em; margin: 20px 0 12px; }
+  .intro { color: #506377; margin-bottom: 28px; }
+  ol { list-style: none; padding: 0; counter-reset: steps; }
+  li { counter-increment: steps; position: relative; background: white; border: 1px solid #dce7e3; border-radius: 18px; margin: 14px 0; padding: 22px 24px 22px 74px; }
+  li::before { content: counter(steps); position: absolute; left: 22px; top: 22px; width: 32px; height: 32px; display: grid; place-items: center; border-radius: 50%; background: #e5f5ec; color: #007d50; font-weight: 750; }
+  h2 { font-size: 19px; margin: 0 0 7px; }
+  p { margin: 8px 0; }
+  .path { color: #4b6073; font-size: 14px; }
+  a { color: #007d50; text-underline-offset: 3px; }
+  details { background: #e8efed; padding: 16px 20px; border-radius: 14px; margin: 22px 0; }
+  summary { cursor: pointer; font-weight: 650; }
+  footer { color: #506377; font-size: 14px; margin: 24px 0; }
+  @media (max-width: 480px) { body { margin-top: 24px; padding: 0 16px; } li { padding: 18px 18px 18px 62px; } li::before { left: 16px; top: 18px; } }
+</style>
+<div class="brand">SkillCue</div>
+<h1>Первый запуск на Mac</h1>
+<p class="intro">В тестовой версии macOS попросит разрешить первый запуск. Это делается кнопками в настройках — вводить команды не нужно.</p>
+<ol>
+  <li><h2>Перенесите SkillCue в «Программы»</h2><p>В открытом образе перетащите значок SkillCue на папку «Программы». Затем откройте SkillCue именно из «Программ».</p></li>
+  <li><h2>Если macOS заблокировала запуск</h2><p>В окне «Apple не удалось подтвердить…» нажмите <strong>«Готово»</strong>. Откройте «Настройки безопасности» в окне установщика и прокрутите до раздела «Безопасность».</p>
+    <p class="path">Путь вручную: меню Apple → Системные настройки → Конфиденциальность и безопасность.</p>
+    <p>В строке «Файл SkillCue заблокирован…» нажмите <strong>«Всё равно открыть»</strong>, подтвердите действие паролем Mac или Touch ID, если потребуется, и нажмите <strong>«Открыть»</strong>.</p>
+  </li>
+  <li><h2>Запускайте приложение как обычно</h2><p>Разрешение сохранится для этой сборки. При первом использовании записи SkillCue отдельно запросит микрофон и запись экрана и системного звука.</p></li>
+</ol>
+<details><summary>Кнопки «Всё равно открыть» нет?</summary><p>Сначала попробуйте открыть SkillCue из «Программ», закройте предупреждение кнопкой «Готово» и снова откройте настройки безопасности. На рабочем Mac установку может ограничивать администратор.</p><p>Если написано «Приложение повреждено» или запуск не удался, отправьте версию macOS и снимок окна в <a href="https://t.me/SkillCue">поддержку SkillCue</a>.</p></details>
+<footer>Для Mac с Apple Silicon (M1 и новее), macOS 13+. <a href="https://support.apple.com/ru-ru/102445">Инструкция Apple по разрешению запуска</a>.</footer>
+</html>

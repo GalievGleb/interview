@@ -20,4 +20,18 @@ module.exports = {
     entitlementsInherit: 'build/entitlements.mac.preview.plist',
     notarize: false,
   },
+  dmg: {
+    ...stableConfig.dmg,
+    backgroundColor: '#f2f9f7',
+    title: 'Установка SkillCue ${version}',
+    iconSize: 80,
+    iconTextSize: 13,
+    window: { width: 560, height: 360 },
+    contents: [
+      { x: 145, y: 105, type: 'file' },
+      { x: 415, y: 105, type: 'link', path: '/Applications', name: 'Программы' },
+      { x: 145, y: 265, type: 'file', path: 'build/mac-install/help.html', name: 'Первый запуск.html' },
+      { x: 415, y: 265, type: 'link', path: '/System/Library/PreferencePanes/Security.prefPane', name: 'Настройки безопасности' },
+    ],
+  },
 };
